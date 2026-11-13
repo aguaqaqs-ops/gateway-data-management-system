@@ -58,6 +58,8 @@ export interface GatewayApi {
   acceptSubmit(workspaceId: string, body: Schemas["AcceptSubmitRequest"], idempotencyKey?: string): Promise<Schemas["SubmitAcceptedResponse"]>;
   getSubmitAttempt(workspaceId: string, attemptId: string): Promise<Schemas["SubmitAttemptResponse"]>;
   getSubmission(workspaceId: string, submissionId: string): Promise<Schemas["SubmissionResponse"]>;
+  getSubmissionResult(submissionId: string): Promise<Schemas["SubmissionResultResponse"]>;
+  getSubmissionBundle(submissionId: string, signal?: AbortSignal): Promise<Response>;
   getReviewFacts(submissionId: string): Promise<SafeReviewFacts>;
   applyReview(submissionId: string, body: { expected_review_version: number; action: ReviewAction; reason?: string | null }, idempotencyKey?: string): Promise<SafeReviewApplied>;
   listHistory(): Promise<SafeHistoryList>;
@@ -151,6 +153,8 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     acceptSubmit: (workspaceId, body, key) => sendJson<Schemas["SubmitAcceptedResponse"]>(route("/v1/workspaces/{workspace_id}/submit-attempts").replace("{workspace_id}", encodeURIComponent(workspaceId)), body, key),
     getSubmitAttempt: async (workspaceId, attemptId) => json<Schemas["SubmitAttemptResponse"]>(await request(route("/v1/workspaces/{workspace_id}/submit-attempts/{submit_attempt_id}").replace("{workspace_id}", encodeURIComponent(workspaceId)).replace("{submit_attempt_id}", encodeURIComponent(attemptId)))),
     getSubmission: async (workspaceId, submissionId) => json<Schemas["SubmissionResponse"]>(await request(route("/v1/workspaces/{workspace_id}/submissions/{submission_id}").replace("{workspace_id}", encodeURIComponent(workspaceId)).replace("{submission_id}", encodeURIComponent(submissionId)))),
+    getSubmissionResult: async (submissionId) => json<Schemas["SubmissionResultResponse"]>(await request(route("/v1/submissions/{submission_id}/result").replace("{submission_id}", encodeURIComponent(submissionId)))),
+    getSubmissionBundle: (submissionId, signal) => request(route("/v1/submissions/{submission_id}/result/bundle").replace("{submission_id}", encodeURIComponent(submissionId)), { signal, headers: { Accept: "application/x-tar" } }),
     async getReviewFacts(submissionId) {
       const result = await json<Schemas["ReviewFactsResponse"]>(await request(route("/v1/submissions/{submission_id}/review").replace("{submission_id}", encodeURIComponent(submissionId))));
       return { ...result, status: safeReviewStatus(result.status), events: (result.events ?? []).map(safeReviewEvent) };

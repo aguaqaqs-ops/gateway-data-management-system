@@ -39,7 +39,7 @@ interface ReviewActionsProps {
   onFactsChanged: (facts: SafeReviewFacts) => void;
   /**
    * C5: invoked after the facts refresh that follows a terminal action or a
-   * 409 conflict, so the page re-reads the review and the History together
+   * 409 conflict, so the page re-reads the review and its immutable comparison together
    * instead of the review alone.
    */
   onReviewSettled?: () => void;
@@ -84,7 +84,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const approveDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING" || expiredApprove;
   const otherDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING";
   const blockedReason = dispositionReason
-    ?? (!bundleReady ? "请等待历史比较 bundle 下载完成" : facts.status === "PENDING" ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
+    ?? (!bundleReady ? "请等待提交绑定的比较结果下载完成" : facts.status === "PENDING" ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
   const approveReason = expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason;
   // Rule 3: withdraw/reject always share blockedReason; approve joins them when
   // its reason is identical. The shared reason is rendered once below the group.

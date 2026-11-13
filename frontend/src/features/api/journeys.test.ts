@@ -1,9 +1,10 @@
+import { ApiError } from "./authenticated-fetch";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayApi } from "./client";
-import { applyReviewAction, buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
+import { applyReviewAction, buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runSubmissionReviewJourney, runSubmitJourney } from "./journeys";
 import { MemoryBundleStore } from "../bundle/local-bundle";
 import { installedFixtureBundle, installedGoldenBundle, responseForTar } from "../../test/helpers";
-import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
+import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED, testSubmissionResult } from "../dev/mock-data";
 
 const operation = TEST_OPERATION_SUCCEEDED;
 const upload = TEST_UPLOAD_FULL;
@@ -90,45 +91,54 @@ describe("simulated user journey data flows", () => {
     expect(result.submission.submission_id).toBe("submission-1");
   });
 
-  it("compares a submission from its parent when History head has advanced", async () => {
-    const fixture = await installedFixtureBundle("history-three-nodes");
-    const getHistoryBundle = vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest));
-    const getPreviewBundle = vi.fn();
-    const api = {
-      getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
-      listHistory: vi.fn().mockResolvedValue(TEST_REVIEW_HISTORY),
-      startHistoryCompare: vi.fn().mockResolvedValue(testHistoryCompareAcceptance("history-op")),
-      getHistoryCompare: vi.fn().mockResolvedValue(testHistoryCompareSucceeded(fixture.manifest.bundle_digest)),
-      getHistoryBundle,
-      getPreviewBundle,
+  it("reads the fixed Preview result on every open and reuses only verified local bytes", async () => {
+    const fixture = await installedFixtureBundle("preview-full");
+    const getSubmissionBundle = vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest));
+    const api = { getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
+      getSubmissionResult: vi.fn().mockResolvedValue(testSubmissionResult(fixture.manifest)), getSubmissionBundle,
+      listHistory: vi.fn(), startHistoryCompare: vi.fn(), getHistoryCompare: vi.fn(), getHistoryBundle: vi.fn(),
     } as unknown as GatewayApi;
-    const result = await runReviewHistoryJourney(api, new MemoryBundleStore(), "fe2a-history-ref-2", "review-key", { intervalMs: 0, wait: async () => undefined });
-    expect(api.startHistoryCompare).toHaveBeenCalledWith({ nodes: [{ ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" }, { ref_kind: "submission", ref_id: "fe2a-history-ref-2" }] }, "review-key");
-    expect(getHistoryBundle).toHaveBeenCalledTimes(1);
-    expect(getPreviewBundle).not.toHaveBeenCalled();
-    expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
+    const store = new MemoryBundleStore();
+    const first = await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
+    const second = await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
+    expect(api.getSubmissionResult).toHaveBeenCalledTimes(2);
+    expect(getSubmissionBundle).toHaveBeenCalledTimes(1);
+    expect(first.bundle.manifest.bundle_digest).toBe(second.bundle.manifest.bundle_digest);
+    expect(second.result.default_pair_id).toBe("initial_to_modified");
+    expect(api.listHistory).not.toHaveBeenCalled();
+    expect(api.startHistoryCompare).not.toHaveBeenCalled();
+    expect(api.getHistoryCompare).not.toHaveBeenCalled();
+    expect(api.getHistoryBundle).not.toHaveBeenCalled();
   });
 
-  it("reports when the reviewed submission is missing from History", async () => {
-    const api = {
-      getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
-      listHistory: vi.fn().mockResolvedValue(TEST_REVIEW_HISTORY_EMPTY),
-      startHistoryCompare: vi.fn(),
+  it.each(["SCOPE_FORBIDDEN", "SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE"])("does not mask %s with an installed bundle or History fallback", async (code) => {
+    const fixture = await installedFixtureBundle("preview-full");
+    const getSubmissionResult = vi.fn().mockResolvedValueOnce(testSubmissionResult(fixture.manifest))
+      .mockRejectedValueOnce(new ApiError(code, code === "SCOPE_FORBIDDEN" ? 403 : 503, code));
+    const api = { getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS), getSubmissionResult,
+      getSubmissionBundle: vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest)),
+      startHistoryCompare: vi.fn(), listHistory: vi.fn(),
     } as unknown as GatewayApi;
-
-    await expect(runReviewHistoryJourney(api, new MemoryBundleStore(), "fe2a-history-ref-2", "review-key")).rejects.toThrow("History 中找不到唯一提交节点");
+    const store = new MemoryBundleStore();
+    await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
+    await expect(runSubmissionReviewJourney(api, store, "fe2a-history-ref-2")).rejects.toMatchObject({ code });
+    expect(api.getSubmissionBundle).toHaveBeenCalledTimes(1);
     expect(api.startHistoryCompare).not.toHaveBeenCalled();
+    expect(api.listHistory).not.toHaveBeenCalled();
   });
 
-  it("reports when the reviewed History submission has no parent", async () => {
-    const api = {
-      getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
-      listHistory: vi.fn().mockResolvedValue(TEST_REVIEW_HISTORY_NO_PARENT),
-      startHistoryCompare: vi.fn(),
+  it("checks cached pair identities against the authorized summary on each read", async () => {
+    const fixture = await installedFixtureBundle("preview-full");
+    const result = testSubmissionResult(fixture.manifest);
+    const api = { getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
+      getSubmissionResult: vi.fn().mockResolvedValueOnce(result).mockResolvedValueOnce({ ...result,
+        pairs: result.pairs.map((pair) => ({ ...pair, comparison_digest: "sha256:" + "0".repeat(64) })) }),
+      getSubmissionBundle: vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest)),
     } as unknown as GatewayApi;
-
-    await expect(runReviewHistoryJourney(api, new MemoryBundleStore(), "fe2a-history-ref-2", "review-key")).rejects.toThrow("History 提交节点没有基线 parent");
-    expect(api.startHistoryCompare).not.toHaveBeenCalled();
+    const store = new MemoryBundleStore();
+    await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
+    await expect(runSubmissionReviewJourney(api, store, "fe2a-history-ref-2")).rejects.toMatchObject({ code: "SUBMISSION_RESULT_INTEGRITY_FAILURE" });
+    expect(api.getSubmissionBundle).toHaveBeenCalledTimes(1);
   });
 
   it("uses the current review version for approve/reject and requires a rejection reason", async () => {

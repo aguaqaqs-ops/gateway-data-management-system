@@ -1,3 +1,4 @@
+import { ApiError } from "./authenticated-fetch";
 import { bindGatewayApi } from "./client";
 import type { components } from "./generated/openapi";
 import type { GatewayApi, ReviewAction, UploadRevisionInput } from "./client";
@@ -325,10 +326,9 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
   return { accepted, operation, attempt, submission };
 }
 
-export interface ReviewHistoryJourneyResult {
+export interface SubmissionReviewJourneyResult {
   reviewFacts: Awaited<ReturnType<GatewayApi["getReviewFacts"]>>;
-  accepted: Schemas["HistoryCompareAcceptResponse"];
-  result: Schemas["HistoryCompareResultResponse"];
+  result: Schemas["SubmissionResultResponse"];
   bundle: InstalledBundle;
 }
 
@@ -356,19 +356,32 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
   return { accepted, result, bundle };
 }
 
-/** Review compares the baseline node to the submission and always downloads the History bundle. */
-export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<ReviewHistoryJourneyResult> {
+/** Every read authorizes the fixed Submission result before consulting local storage. */
+export async function runSubmissionReviewJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string): Promise<SubmissionReviewJourneyResult> {
   api = bindGatewayApi(api);
-  const [reviewFacts, history] = await Promise.all([api.getReviewFacts(submissionId), api.listHistory()]);
-  const submissionNodes = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === submissionId);
-  if (submissionNodes.length !== 1) throw new Error(`History 中找不到唯一提交节点：${submissionId}`);
-  const parent = submissionNodes[0]?.parent;
-  if (!parent) throw new Error(`History 提交节点没有基线 parent：${submissionId}`);
-  const comparison = await runHistoryComparison(api, store, [
-    { ref_kind: parent.ref_kind, ref_id: parent.ref_id },
-    { ref_kind: "submission", ref_id: submissionId },
-  ], idempotencyKey, options);
-  return { reviewFacts, ...comparison };
+  const [reviewFacts, result] = await Promise.all([
+    api.getReviewFacts(submissionId), api.getSubmissionResult(submissionId),
+  ]);
+  if (result.submission_id !== submissionId) throw new ApiError("提交结果身份不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
+  const bundle = await ensureJourneyBundle(api, {
+    store, expectedBundleDigest: result.bundle_digest,
+    fetchBundle: () => api.getSubmissionBundle(submissionId),
+  });
+  assertSubmissionReviewBundle(submissionId, result, bundle);
+  api.assertSession?.();
+  return { reviewFacts, result, bundle };
+}
+
+export function assertSubmissionReviewBundle(submissionId: string, result: Schemas["SubmissionResultResponse"], bundle: InstalledBundle): void {
+  const actual = bundle.manifest.pairs.map((value) => {
+    const pair = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    return [pair.pair_id, pair.comparison_digest, pair.surface_digest, pair.risk_evaluation_digest ?? null];
+  });
+  const expected = result.pairs.map((pair) => [pair.pair_id, pair.comparison_digest, pair.surface_digest, pair.risk_digest]);
+  if (result.submission_id !== submissionId || result.bundle_digest !== bundle.manifest.bundle_digest
+    || JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new ApiError("提交绑定的比较对与 bundle 不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
+  }
 }
 
 export async function applyReviewAction(api: GatewayApi, submissionId: string, reviewVersion: number, action: ReviewAction, reason?: string, idempotencyKey?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {

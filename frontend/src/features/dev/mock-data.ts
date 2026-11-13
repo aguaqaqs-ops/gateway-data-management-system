@@ -270,7 +270,7 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/operations/{operation_id}", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有操作读取权限" } },
   { route: "/v1/workspaces", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有创建工作区的权限" } },
   { route: "/v1/workspaces", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "工作区参数无效" } },
-  { route: "/v1/workspaces", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" } },
+  { route: "/v1/workspaces", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" } },
   { route: "/v1/workspaces/{workspace_id}/upload-revisions", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有上传权限" } },
   { route: "/v1/workspaces/{workspace_id}/upload-revisions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" } },
   { route: "/v1/workspaces/{workspace_id}/upload-revisions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同上传" } },
@@ -287,6 +287,12 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同审核请求" } },
   { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" } },
   { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
+  ...["/v1/submissions/{submission_id}/result", "/v1/submissions/{submission_id}/result/bundle"].flatMap((route) => [
+    { route, method: "GET" as const, status: 403, schema: "ErrorResponse" as const, body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" } },
+    { route, method: "GET" as const, status: 404, schema: "ErrorResponse" as const, body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
+    { route, method: "GET" as const, status: 503, schema: "ErrorResponse" as const, body: { code: "SUBMISSION_RESULT_UNAVAILABLE", message: "提交绑定的比较结果不可用" } },
+    { route, method: "GET" as const, status: 503, schema: "ErrorResponse" as const, body: { code: "SUBMISSION_RESULT_INTEGRITY_FAILURE", message: "提交绑定的比较结果完整性校验失败" } },
+  ]),
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有关闭提交的权限" } },
@@ -300,7 +306,7 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "关闭理由或请求不符合要求" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "关闭请求过大" } },
   { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "关闭请求已达到并发上限" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
+  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/history-compares", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史比较权限" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" } },
@@ -311,7 +317,7 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "预检请求不符合要求" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "预检请求过大" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
+  { route: "/v1/archive-plan-preview", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有确认归档的权限" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
@@ -321,7 +327,7 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archive-confirmations", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "确认请求不符合要求" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "确认请求过大" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "确认请求已达到并发上限" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有处理归档异常的权限" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
@@ -331,7 +337,7 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "异常处理请求不符合要求" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "异常处理请求过大" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "异常处理请求已达到并发上限" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
   { route: "/v1/archives", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有归档主线的权限" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
@@ -347,12 +353,12 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archives", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "归档请求不符合要求" } },
   { route: "/v1/archives", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "归档请求过大" } },
   { route: "/v1/archives", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "归档请求已达到并发上限" } },
-  { route: "/v1/archives", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
-  { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+  { route: "/v1/archives", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
+  { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
+  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
+  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
   { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "ARTIFACT_UNAVAILABLE", message: "比较结果已不可用" } },
-  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
 ];
 
 // B7: reachable disposition scenarios shared by the D1–D5 e2e and the unit
@@ -723,6 +729,23 @@ export const TEST_HISTORY_CURSOR_SECOND = {
 export const TEST_ARCHIVE_EVENTS_EMPTY = { events: [], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
 export const TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION = { events: [TEST_ARCHIVE_CONFIRM_EVENT], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
 
+export const TEST_SUBMISSION_RESULT = {
+  submission_id: "fe2a-history-ref-2", preview_result_id: "preview-1",
+  bundle_digest: "sha256:" + "a".repeat(64), default_pair_id: "initial_to_modified",
+  input_completeness: "MODIFIED_ONLY", pairs: [{ pair_id: "initial_to_modified",
+    comparison_digest: "sha256:" + "b".repeat(64), surface_digest: "sha256:" + "c".repeat(64), risk_digest: null }],
+} satisfies Schemas["SubmissionResultResponse"];
+
+export function testSubmissionResult(manifest: { bundle_digest: string; pairs: unknown[] }, submissionId = "fe2a-history-ref-2"): Schemas["SubmissionResultResponse"] {
+  return { ...TEST_SUBMISSION_RESULT, submission_id: submissionId, bundle_digest: manifest.bundle_digest,
+    input_completeness: manifest.pairs.length === 2 ? "FULL" : "MODIFIED_ONLY",
+    pairs: manifest.pairs.map((value) => {
+      const pair = value as { pair_id: string; comparison_digest: string; surface_digest: string; risk_evaluation_digest: string | null };
+      return { pair_id: pair.pair_id, comparison_digest: pair.comparison_digest,
+        surface_digest: pair.surface_digest, risk_digest: pair.risk_evaluation_digest };
+    }) };
+}
+
 export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "CreateOrGet new workspace", method: "POST", route: "/v1/workspaces", status: 201, schema: "WorkspaceResponse", body: WORKSPACE_CREATED.body },
   { name: "CreateOrGet existing workspace", method: "POST", route: "/v1/workspaces", status: 200, schema: "WorkspaceResponse", body: WORKSPACE_ALREADY_EXISTS.body },
@@ -735,6 +758,7 @@ export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "Submit accepted", method: "POST", route: "/v1/workspaces/{workspace_id}/submit-attempts", status: 202, schema: "SubmitAcceptedResponse", body: TEST_SUBMIT_ACCEPTED },
   { name: "Review applied", method: "POST", route: "/v1/submissions/{submission_id}/review-events", status: 201, schema: "ReviewAppliedResponse", body: TEST_REVIEW_APPLIED },
   { name: "Review facts", method: "GET", route: "/v1/submissions/{submission_id}/review", status: 200, schema: "ReviewFactsResponse", body: REVIEW_FACTS },
+  { name: "Submission result", method: "GET", route: "/v1/submissions/{submission_id}/result", status: 200, schema: "SubmissionResultResponse", body: TEST_SUBMISSION_RESULT },
   { name: "History compare accepted", method: "POST", route: "/v1/history-compares", status: 202, schema: "HistoryCompareAcceptResponse", body: HISTORY_COMPARE_ACCEPT_BODY },
   { name: "History compare idempotent replay", method: "POST", route: "/v1/history-compares", status: 200, schema: "HistoryCompareAcceptResponse", body: HISTORY_COMPARE_ACCEPT_BODY },
   { name: "History compare QUEUED", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_QUEUED },

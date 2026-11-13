@@ -8,7 +8,7 @@ import {
   INITIAL_ONLY_HISTORY, INITIAL_ONLY_WORKSPACE,
   SIMULATED_ERROR_RESPONSES, TEST_REVIEW_FACTS, WORKSPACE_ALREADY_EXISTS, WORKSPACE_CREATED, HISTORY_COMPARE_ACCEPT_BODY,
   TEST_OPERATION_SUCCEEDED, testHistoryCompareSucceeded, TEST_SUBMIT_ACCEPTED,
-  TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_SUBMISSION, testPreviewResult, TEST_UPLOAD_FULL,
+  TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_SUBMISSION, testPreviewResult, testSubmissionResult, TEST_UPLOAD_FULL,
   TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_STARTED, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_CONFIRM_APPEND,
   TEST_ARCHIVE_RESOLUTION_APPEND, ARCHIVE_PLAN_READY, ARCHIVE_PLAN_NEEDS_CONFIRMATION, TEST_REVIEW_APPLIED, validateSimulatedRequest,
 } from "../src/features/dev/simulated-api";
@@ -17,7 +17,7 @@ type Schemas = components["schemas"];
 
 interface FixtureManifest {
   bundle_digest: string;
-  pairs: Array<{ pair_id: string }>;
+  pairs: Array<{ pair_id: string; summary: Record<string, string> }>;
 }
 
 const fixtures = new Map<string, { tar: Buffer; manifest: FixtureManifest }>();
@@ -76,6 +76,8 @@ async function installFixtureRoutes(page: Page, options: {
   previewConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
   previewForbidden?: boolean;
   reviewForbidden?: boolean;
+  reviewFixture?: string;
+  reviewResultError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
   reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "BASELINE_VERSION_CONFLICT" | "ARCHIVE_CLOSED";
   reviewTimeoutFirst?: boolean;
   archiveForbidden?: boolean;
@@ -600,6 +602,26 @@ async function installFixtureRoutes(page: Page, options: {
     const previewResultId = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
     const fixtureName = previewResultId === "preview-1" ? "preview-full" : previewResultId;
     await routeBundle(route, fixtureName);
+  });
+  await page.route("**/v1/submissions/*/result", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    if (options.reviewResultError) {
+      const body = { code: options.reviewResultError, message: "提交绑定的比较结果读取失败" };
+      const status = options.reviewResultError === "SCOPE_FORBIDDEN" ? 403 : 503;
+      apiResponses.push({ method: "GET", path, status, body: JSON.stringify(body) });
+      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    }
+    const fixture = await loadFixture(options.reviewFixture ?? "preview-full");
+    const body = testSubmissionResult(fixture.manifest, path.split("/")[3]);
+    apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(body) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await page.route("**/v1/submissions/*/result/bundle", async (route) => {
+    const request = route.request();
+    apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    return routeBundle(route, options.reviewFixture ?? "preview-full");
   });
   return { requests, apiRequests, apiResponses };
 }
@@ -2819,5 +2841,66 @@ for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [
     await expect(page.locator(".grid-frame")).toHaveCount(0);
     expect(deniedReads).toBe(1);
     expect(requests.get("preview-full")).toBe(downloads);
+  });
+}
+
+
+test("D review opens fixed FULL pairs with independent counts and defaults to original-to-modified", async ({ page }) => {
+  const observed = await installFixtureRoutes(page, { reviewFixture: "preview-full" });
+  await page.goto(browseUrl("REVIEW", "preview-full"));
+  await waitForBrowse(page);
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+  await waitForBrowse(page);
+  const views = page.getByRole("tablist", { name: "比较视图" });
+  const modified = views.getByRole("tab", { name: /^原始 → 修改/ });
+  const baseline = views.getByRole("tab", { name: /^基线 → 原始/ });
+  await expect(modified).toHaveAttribute("aria-selected", "true");
+  const fixture = await loadFixture("preview-full");
+  for (const pair of fixture.manifest.pairs) {
+    const tab = pair.pair_id === "baseline_to_initial" ? baseline : modified;
+    await expect(tab).toContainText(`变化表 ${pair.summary.changed_table_count}/${pair.summary.table_count}`);
+    await expect(tab).toContainText(`逐行 +${pair.summary.row_added_count} / ~${pair.summary.row_modified_count} / −${pair.summary.row_deleted_count}`);
+  }
+  await screenshot(page, "d-review-full-default", 1920);
+  await screenshot(page, "d-review-full-default", 1280);
+  await baseline.click();
+  await expect(baseline).toHaveAttribute("aria-selected", "true");
+  await screenshot(page, "d-review-full-baseline", 1920);
+  await screenshot(page, "d-review-full-baseline", 1280);
+  await page.reload();
+  await waitForBrowse(page);
+  expect(observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThanOrEqual(2);
+  expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+  expect(observed.requests.get("preview-full")).toBe(1);
+});
+
+test("D review MODIFIED_ONLY exposes its one fixed pair", async ({ page }) => {
+  const observed = await installFixtureRoutes(page, { reviewFixture: "preview-modified-only" });
+  await page.goto(browseUrl("REVIEW", "preview-modified-only"));
+  await waitForBrowse(page);
+  const views = page.getByRole("tablist", { name: "比较视图" });
+  await expect(views.getByRole("tab")).toHaveCount(1);
+  await expect(views.getByRole("tab", { name: /^基线 → 修改/ })).toHaveAttribute("aria-selected", "true");
+  await screenshot(page, "d-review-modified-only", 1920);
+  await screenshot(page, "d-review-modified-only", 1280);
+  expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+});
+
+for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE", "SCOPE_FORBIDDEN"] as const) {
+  test(`D review cached result preserves server ${code} and offers re-read`, async ({ page }) => {
+    const options: { reviewResultError?: typeof code } = {};
+    const observed = await installFixtureRoutes(page, options);
+    await page.goto(browseUrl("REVIEW", "preview-full"));
+    await waitForBrowse(page);
+    options.reviewResultError = code;
+    await page.reload();
+    await expect(page.locator(".compare-error")).toContainText(code);
+    await expect(page.locator(".compare-workspace")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
+    options.reviewResultError = undefined;
+    await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
+    await waitForBrowse(page);
+    expect(observed.requests.get("preview-full")).toBe(1);
+    expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
   });
 }

@@ -1,11 +1,10 @@
-import { scopedStorage } from "../features/api/scoped-storage";
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, MoreHorizontal, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi, boundBundleFetch } from "../features/api/application-api";
-import { pollHistoryCompare } from "../features/api/journeys";
+import { assertSubmissionReviewBundle, pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
 import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
@@ -43,7 +42,7 @@ function bundleErrorState(cause: unknown, details: string): { code: string; deta
   return { code: bundleLoadErrorCode(cause), details };
 }
 
-type PairSummary = { pair_id: string };
+type PairSummary = { pair_id: string; summary?: Record<string, string> };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
@@ -86,7 +85,7 @@ function readColumnWidths(): ColumnWidths {
 }
 
 function viewLabel(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return "基线 → 待审提交";
+  if (mode === "REVIEW") return total === 1 ? "基线 → 修改" : pair.pair.pair_id === "baseline_to_initial" ? "基线 → 原始" : "原始 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   const id = pair.pair.pair_id.toLowerCase();
@@ -96,7 +95,7 @@ function viewLabel(pair: PairPresentation, index: number, total: number, mode: B
 }
 
 function viewTitle(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return "审核比较：基线节点 → 待审提交";
+  if (mode === "REVIEW") return "提交绑定比较：" + viewLabel(pair, index, total, mode);
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   if (pair.pair.pair_id.toLowerCase().includes("baseline_to_initial")) return "已归档数据 → 原始组态备份";
@@ -267,7 +266,8 @@ function bundlePathForState(state: BrowseState): string | null {
   if (state.mode === "PREVIEW" && state.workspaceId && state.previewResultId) {
     return `/v1/workspaces/${encodeURIComponent(state.workspaceId)}/preview-results/${encodeURIComponent(state.previewResultId)}/bundle`;
   }
-  if ((state.mode === "HISTORY" || state.mode === "REVIEW") && state.operationId) {
+  if (state.mode === "REVIEW" && state.submissionId) return `/v1/submissions/${encodeURIComponent(state.submissionId)}/result/bundle`;
+  if (state.mode === "HISTORY" && state.operationId) {
     return `/v1/history-compares/${encodeURIComponent(state.operationId)}/bundle`;
   }
   return null;
@@ -421,7 +421,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [onlyInteresting, setOnlyInteresting] = useState(runtime.snapshot.state.onlyInteresting);
   const [debug, setDebug] = useState(runtime.snapshot.state.debug);
   const loadingKey = useRef<string | null>(null);
-  const loadedRequest = useRef<{ requestPath: string; bundleDigest: string } | null>(null);
+  const loadedRequest = useRef<{ requestPath: string; bundleDigest: string; bundle: InstalledBundle } | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const selectedNavRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -462,45 +462,39 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const loadBundle = useCallback(async () => {
     if (sessionState.kind !== "handoff" && sessionState.kind !== "preset") return;
     const current = runtime.snapshot.state;
-    if (current.mode === "REVIEW" && current.submissionId && !current.operationId) {
-      try {
-        setLoading({ phase: "读取待审提交并准备审核比较", received: 0, total: 0 });
-        const [facts, history] = await Promise.all([gatewayApi.getReviewFacts(current.submissionId), gatewayApi.listHistory()]);
-        setReviewFacts(facts);
-        const matches = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === current.submissionId);
-        if (matches.length !== 1 || !matches[0]?.parent) throw new Error("History 中找不到唯一待审提交及其基线节点");
-        const keyName = `gateway-review-history-key:${current.submissionId}`;
-        let idempotencyKey = scopedStorage.getItem(keyName);
-        if (!idempotencyKey) { idempotencyKey = crypto.randomUUID(); scopedStorage.setItem(keyName, idempotencyKey); }
-        const accepted = await gatewayApi.startHistoryCompare({ nodes: [
-          { ref_kind: matches[0].parent.ref_kind, ref_id: matches[0].parent.ref_id },
-          { ref_kind: "submission", ref_id: current.submissionId },
-        ] }, idempotencyKey);
-        scopedStorage.removeItem(keyName);
-        runtime.execute({ name: "set-operation", operationId: accepted.operation_id, operationKind: "history-compare" }, "external");
-        return;
-      } catch (cause) {
-        const details = cause instanceof Error ? cause.message : String(cause);
-        setError(bundleErrorState(cause, details));
-        return;
-      }
-    }
     const requestPath = bundlePathForState(current);
     if (!requestPath) { setError({ code: "BUNDLE_RESOURCE_MISSING", details: "工作区、Preview 结果或历史比较操作 ID 不完整。" }); return; }
-    if (loadedRequest.current?.requestPath === requestPath
+    if (current.mode !== "REVIEW" && loadedRequest.current?.requestPath === requestPath
       && (!current.bundleDigest || current.bundleDigest === loadedRequest.current.bundleDigest)) return;
     const requestKey = requestPath;
     if (loadingKey.current === requestKey) return;
     loadingKey.current = requestKey;
-    setError(null); setBundle(null); setPairs([]); setHistoryCompareStatus(null);
+    setError(null); setHistoryCompareStatus(null);
+    if (loadedRequest.current?.requestPath !== requestPath) { setBundle(null); setPairs([]); }
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
       let expectedBundleDigest: string | undefined;
+      let submissionResult: components["schemas"]["SubmissionResultResponse"] | undefined;
       if (current.mode === "PREVIEW" && current.workspaceId && current.previewResultId) {
         expectedBundleDigest = (await gatewayApi.getPreviewResult(current.workspaceId, current.previewResultId)).bundle_digest;
       }
-      if (current.mode === "REVIEW" && current.submissionId) setReviewFacts(await gatewayApi.getReviewFacts(current.submissionId));
-      if (current.mode === "HISTORY" || current.mode === "REVIEW") {
+      if (current.mode === "REVIEW" && current.submissionId) {
+        const [facts, result] = await Promise.all([
+          gatewayApi.getReviewFacts(current.submissionId), gatewayApi.getSubmissionResult(current.submissionId),
+        ]);
+        gatewayApi.assertSession?.();
+        if (result.submission_id !== current.submissionId) throw new ApiError("提交结果身份不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
+        setReviewFacts(facts);
+        submissionResult = result;
+        expectedBundleDigest = result.bundle_digest;
+        if (loadedRequest.current?.requestPath === requestPath
+          && loadedRequest.current.bundleDigest === expectedBundleDigest) {
+          assertSubmissionReviewBundle(current.submissionId, result, loadedRequest.current.bundle);
+          setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
+          return;
+        }
+      }
+      if (current.mode === "HISTORY") {
         if (!current.operationId) throw new Error("历史比较操作 ID 缺失");
         const startedAt = Date.now();
         const compareResult = await pollHistoryCompare(gatewayApi, current.operationId, {
@@ -513,24 +507,29 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         if (compareResult.status !== "SUCCEEDED" || !compareResult.result) throw new Error(compareResult.diagnostic?.message ?? "历史比较未能完成");
         expectedBundleDigest = compareResult.result.bundle_digest;
       }
+      setBundle(null); setPairs([]);
       const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest,
         fetchBundle: () => fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }),
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
       gatewayApi.assertSession?.();
-      loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest };
+      loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest, bundle: loaded };
       const pairSummaries = loaded.manifest.pairs.filter((value): value is PairSummary => Boolean(value && typeof value === "object" && typeof (value as PairSummary).pair_id === "string"));
+      if (submissionResult && current.submissionId) assertSubmissionReviewBundle(current.submissionId, submissionResult, loaded);
       const loadedPairs = await Promise.all(pairSummaries.map(async (pair) => ({ pair, presentation: await loadComparisonPresentation(loaded, pair.pair_id) })));
       gatewayApi.assertSession?.();
       setBundle(loaded); setPairs(loadedPairs); setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
       const currentState = runtime.snapshot.state;
       const initialBundleLoad = currentState.bundleDigest === null;
       if (currentState.bundleDigest !== loaded.manifest.bundle_digest) runtime.execute({ name: "set-bundle", mode: currentState.mode, bundleDigest: loaded.manifest.bundle_digest }, "external");
-      const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId) ?? loadedPairs[0];
+      const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId)
+        ?? loadedPairs.find(({ pair }) => pair.pair_id === submissionResult?.default_pair_id) ?? loadedPairs[0];
       if (selected && runtime.snapshot.state.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
       if (initialBundleLoad && currentState.nodeKey && runtime.snapshot.state.nodeKey !== currentState.nodeKey) runtime.execute({ name: "select-node", nodeKey: currentState.nodeKey }, "external");
       if (initialBundleLoad && currentState.tabKey && runtime.snapshot.state.tabKey !== currentState.tabKey) runtime.execute({ name: "select-tab", tabKey: currentState.tabKey }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
+      loadedRequest.current = null;
+      setBundle(null); setPairs([]);
       setError(bundleErrorState(cause, details));
     } finally {
       if (loadingKey.current === requestKey) loadingKey.current = null;
@@ -538,22 +537,20 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
 
-  // C5: after a terminal review action or an expired/closed 409, re-read the
-  // review together with the History (the compare anchor depends on both).
-  // This refresh intentionally leaves the loaded bundle alone: a baseline
-  // change is picked up by the next anchor read instead of tearing down the
-  // current view mid-notice.
+  // Review actions refresh current authority while keeping the accepted result fixed.
   const reloadReviewContext = useCallback(async () => {
     const current = runtime.snapshot.state;
     if (current.mode !== "REVIEW" || !current.submissionId) return;
     try {
-      const [facts] = await Promise.all([
-        gatewayApi.getReviewFacts(current.submissionId),
-        gatewayApi.listHistory(),
+      const [facts, result] = await Promise.all([
+        gatewayApi.getReviewFacts(current.submissionId), gatewayApi.getSubmissionResult(current.submissionId),
       ]);
+      if (loadedRequest.current) assertSubmissionReviewBundle(current.submissionId, result, loadedRequest.current.bundle);
       setReviewFacts(facts);
-    } catch {
-      // ReviewActions already surfaced the failure notice; keep the snapshot.
+    } catch (cause) {
+      loadedRequest.current = null;
+      setBundle(null); setPairs([]);
+      setError(bundleErrorState(cause, cause instanceof Error ? cause.message : String(cause)));
     }
   }, [runtime]);
 
@@ -781,7 +778,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   }, [browse.mode, bundle, presentation]);
 
   const activePairIndex = activePair ? pairs.findIndex(({ pair }) => pair.pair_id === activePair.pair.pair_id) : 0;
-  const viewPairs = browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs;
+  const viewPairs = pairs;
   // The device path leads the breadcrumb (full path on hover); the view label is
   // left out when the view switcher is visible in the same row.
   const deviceDisplay = sessionState.kind === "handoff" ? sessionState.session.display : null;
@@ -832,6 +829,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（两侧都没有行，共 {emptyTabCount} 个）</label>
             {import.meta.env.DEV && <div className="display-mode"><span>显示模式（开发环境）</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}
             {widthTable && Object.keys(storedWidths).length > 0 && <button className="link-button compare-more__action" onClick={resetColumnWidths}>恢复本表默认列宽</button>}
+            {browse.mode === "REVIEW" && pairs.map((pair, index) => <div key={pair.pair.pair_id} className="compare-more__bundle" data-pair-summary={pair.pair.pair_id}><strong>{viewLabel(pair, index, pairs.length, browse.mode)}</strong><span>变化表 {pair.pair.summary?.changed_table_count ?? "—"}/{pair.pair.summary?.table_count ?? "—"}</span><span>逐行 +{pair.pair.summary?.row_added_count ?? "—"} / ~{pair.pair.summary?.row_modified_count ?? "—"} / −{pair.pair.summary?.row_deleted_count ?? "—"}</span></div>)}
             {bundle && <div className="compare-more__bundle"><span>本地 bundle · 浏览期间不请求后端</span><code>{bundle.manifest.bundle_digest}</code></div>}
           </div>
         </details>

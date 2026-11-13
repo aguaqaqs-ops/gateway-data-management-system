@@ -209,7 +209,9 @@ def build_table_task_input(
     if before is not None and current is not None and policy is not None:
         schema = _schema_view(before, current, policy)
         changes = _schema_changes_from_view(schema, policy)
-        if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
+        if before.row_count == current.row_count == 0 and _pure_column_change(schema):
+            pass  # Bound empty descriptors use the existing uncached metadata route.
+        elif policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
             if (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
                     or (_pure_column_change(schema) and schema.before_key and not schema.key_invalid)):
                 kind = "nonrecord-shared-multiset"

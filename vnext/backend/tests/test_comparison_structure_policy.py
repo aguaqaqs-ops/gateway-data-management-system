@@ -8,7 +8,7 @@ import pytest
 
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit, publish_structure_audit
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.capabilities.comparison import (
+from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableStatus, DetailedFactsResult,
     OrderedExtension, OrderedStatus, OrderedSummary, BlankExtension, BlankSummary,
 )
@@ -189,4 +189,36 @@ def test_native_ordered_changes_are_not_hidden(change: str) -> None:
     with closing(native_product(before, current, ordered=True, compare_excluded_columns=("v",) if change == "retained" else ())) as product:
         assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
         table, = product.result.facts.tables
+        assert not structure_change_is_audit_only(table)
+
+
+@pytest.mark.parametrize("key", ("PRIMARY KEY", ""))
+@pytest.mark.parametrize("added", (False, True))
+def test_browse_role_never_treats_default_zero_counts_as_equality(key: str, added: bool) -> None:
+    from gateway_backend.capabilities.table_rules.contracts import TableStaticRole
+    from tests.test_comparison_rule_roles import _plan
+    before = canonical_bound(f"CREATE TABLE t(id INT {key},v INT,old TEXT); INSERT INTO t VALUES(1,10,'x');")
+    current = canonical_bound(f"CREATE TABLE t(id INT {key},v INT{',old TEXT,new TEXT' if added else ''}); "
+        + ("INSERT INTO t VALUES(1,10,'x','new');" if added else "INSERT INTO t VALUES(1,10);"))
+    with closing(compare_plan_native(_plan(before, current, TableStaticRole.BROWSE_ONLY))) as product:
+        assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+        table, = product.result.facts.tables
+        assert table.row_added_count == table.row_deleted_count == table.row_modified_count == 0
+        assert structure_change_is_audit_only(table) is bool(key)
+        assert visible_table_fact(table).status is (ComparisonTableStatus.UNCHANGED if key else ComparisonTableStatus.SCHEMA_ONLY_CHANGED)
+
+
+@pytest.mark.parametrize("rows", ("(1,10),(1,11)", "(NULL,10)", "(1,10)"))
+def test_invalid_or_missing_comparison_keys_never_authorize_hiding(rows: str) -> None:
+    before_rows = rows.replace(")", ",'x')")
+    planned = plan(canonical_bound(f"CREATE TABLE t(id INT,v INT,old TEXT); INSERT INTO t VALUES{before_rows};"),
+        canonical_bound(f"CREATE TABLE t(id INT,v INT); INSERT INTO t VALUES{rows};"))
+    task, = planned.tasks
+    assert task.policy is not None
+    policy = replace(task.policy, effective_key_before=("missing",) if rows == "(1,10)" else ("id",),
+        effective_key_current=("missing",) if rows == "(1,10)" else ("id",))
+    with closing(compare_plan_native(replace(planned, tasks=(replace(task, policy=policy),)))) as product:
+        assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+        table, = product.result.facts.tables
+        assert table.status is ComparisonTableStatus.DEGRADED
         assert not structure_change_is_audit_only(table)

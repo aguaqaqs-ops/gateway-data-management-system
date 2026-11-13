@@ -108,6 +108,8 @@ def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
         return ()
     try:
         schema = _schema_view(first, second, policy)
+        if first.row_count == second.row_count == 0 and _pure_column_change(schema):
+            return ()
         if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
             changes = _schema_changes_from_view(schema, policy)
             return ((before, current) if (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED

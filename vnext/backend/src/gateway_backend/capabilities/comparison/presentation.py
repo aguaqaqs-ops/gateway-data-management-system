@@ -47,6 +47,11 @@ def structure_change_is_audit_only(table: ComparisonTableFact) -> bool:
 
 def visible_table_fact(table: ComparisonTableFact) -> ComparisonTableFact:
     if not structure_change_is_audit_only(table):
+        # The old additive path may have UNCHANGED as its raw status. Without
+        # evidence it cannot authorize suppressing a structural business change.
+        if (table.status is ComparisonTableStatus.UNCHANGED
+                and (table.schema_changes.before_only_columns or table.schema_changes.current_only_columns)):
+            return replace(table, status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED)
         return table
     return replace(table, status=ComparisonTableStatus.UNCHANGED, content_changed=False,
         schema_changes=ComparisonSchemaChanges(), records=(), diagnostics=())

@@ -1,20 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { components } from "../api/generated/openapi";
-import { ApiError } from "../api/authenticated-fetch";
+import { useCallback, type ReactNode } from "react";
 import { useBoundGatewayApi } from "../api/application-api";
-import {
-  buildArchiveSelectedRef,
-  createArchiveJourneyProgress,
-  runArchiveJourney,
-} from "../api/journeys";
 import { Button, Dialog } from "../../design-system/components";
 import {
-  anomalyAction,
   anomalyDetailText,
   anomalyGroupKey,
-  archiveError,
   blockerCopy,
-  closeError,
   detectedStatusCopy,
   formatReasonLimitError,
   formatServerTimeUtc,
@@ -23,24 +13,18 @@ import {
   KNOWN_ISSUE_CODES,
   RELATION_COPY,
   COMPARISON_STATUS_COPY,
-  resolutionError,
   resolutionStatusCopy,
   resolutionStatusTone,
   SIDE_COPY,
-  startDisabledReason as computeStartDisabledReason,
   statusTagClass,
   utf8Length,
 } from "../view-model/archive-dialog";
 import { ReasonText } from "./disposition-display";
-
-type Schemas = components["schemas"];
-
-type Candidates = Schemas["ArchiveCandidatesResponse"];
-type Candidate = Candidates["candidates"][number];
-type Plan = Schemas["PreviewArchivePlanResponse"];
-type Anomaly = Plan["anomalies"][number];
-type Result = Schemas["ArchiveResultResponse"];
-type CloseResult = Schemas["CloseSubmissionResponse"];
+import type { Anomaly, Candidate } from "./archive-mainline/archive-types";
+import { useAnomalyResolution } from "./archive-mainline/use-anomaly-resolution";
+import { useArchivePlan } from "./archive-mainline/use-archive-plan";
+import { useCloseSubmission } from "./archive-mainline/use-close-submission";
+import { useReasonedAction } from "./archive-mainline/use-reasoned-action";
 
 interface ArchiveMainlineDialogProps {
   open: boolean;
@@ -99,420 +83,85 @@ export function ArchiveMainlineDialog({
   onDispositionChanged,
 }: ArchiveMainlineDialogProps) {
   const gatewayApi = useBoundGatewayApi();
-  const [candidates, setCandidates] = useState<Candidates | null>(null);
-  const [plan, setPlan] = useState<Plan | null>(null);
-  const [selectedDigest, setSelectedDigest] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<{ message: string; code: string | null } | null>(null);
-  const [confirmSelection, setConfirmSelection] = useState(false);
-  const [collectionNotice, setCollectionNotice] = useState<string | null>(null);
-  // C8: the 409 conflict notice renders separately from the candidate-set
-  // change notice; the pending stash is consumed by every completed load.
-  const [conflictNotice, setConflictNotice] = useState<string | null>(null);
-  const previousDigest = useRef<string | null>(null);
-  const pendingNotice = useRef<string | null>(null);
-  const [acceptTarget, setAcceptTarget] = useState<Anomaly | null>(null);
-  const [acceptReason, setAcceptReason] = useState("");
-  const [acceptKey, setAcceptKey] = useState<string | null>(null);
-  const [acceptBusy, setAcceptBusy] = useState(false);
-  const [acceptError, setAcceptError] = useState<{ title: string; code: string } | null>(null);
-  const [revokeTarget, setRevokeTarget] = useState<Anomaly | null>(null);
-  const [revokeReason, setRevokeReason] = useState("");
-  const [revokeKey, setRevokeKey] = useState<string | null>(null);
-  const [revokeBusy, setRevokeBusy] = useState(false);
-  const [revokeError, setRevokeError] = useState<{ title: string; code: string } | null>(null);
-  const [closeTarget, setCloseTarget] = useState<Candidate | null>(null);
-  const [closeReason, setCloseReason] = useState("");
-  const [closeUnderstood, setCloseUnderstood] = useState(false);
-  const [closeKey, setCloseKey] = useState<string | null>(null);
-  const [closeBusy, setCloseBusy] = useState(false);
-  const [closeErrorState, setCloseErrorState] = useState<{ title: string; code: string } | null>(
-    null,
-  );
-  const [closeResult, setCloseResult] = useState<CloseResult | null>(null);
-  const [closeSnapshot, setCloseSnapshot] = useState<{
-    candidate: Candidate;
-    head: Plan["head"];
-    candidateSetDigest: string;
-  } | null>(null);
-  const [closeRetry, setCloseRetry] = useState<{ body: Schemas["CloseSubmissionRequest"] } | null>(
-    null,
-  );
-  const [running, setRunning] = useState(false);
-  const [failure, setFailure] = useState<{ title: string; code: string; refresh: boolean } | null>(
-    null,
-  );
-  const [result, setResult] = useState<Result | null>(null);
-  const progress = useRef(createArchiveJourneyProgress());
+  const {
+    candidates,
+    plan,
+    selectedDigest,
+    loading,
+    loadError,
+    confirmSelection,
+    setConfirmSelection,
+    collectionNotice,
+    conflictNotice,
+    running,
+    failure,
+    result,
+    refresh,
+    start,
+    canStart,
+    startDisabledReason,
+    unprocessedCount,
+    reportConflict,
+    clearPlanAndLoad,
+  } = useArchivePlan({ gatewayApi, open, submissionId });
+  const accept = useReasonedAction<Anomaly>();
+  const revoke = useReasonedAction<Anomaly>();
+  const close = useReasonedAction<Candidate>();
+  const { submitResolution } = useAnomalyResolution({
+    gatewayApi,
+    plan,
+    candidates,
+    submissionId,
+    selectedDigest,
+    accept,
+    revoke,
+    reportConflict,
+    refresh,
+  });
+  const {
+    closeUnderstood,
+    setCloseUnderstood,
+    closeResult,
+    closeRetry,
+    openClose,
+    submitClose,
+    retryClose,
+  } = useCloseSubmission({
+    gatewayApi,
+    plan,
+    candidates,
+    submissionId,
+    close,
+    reportConflict,
+    clearPlanAndLoad,
+    refresh,
+    onDispositionChanged,
+  });
 
   const displayName = useCallback((id: string) => resolveName?.(id) ?? id, [resolveName]);
 
-  const load = useCallback(async (target: string) => {
-    progress.current = createArchiveJourneyProgress();
-    setLoading(true);
-    setLoadError(null);
-    setFailure(null);
-    let stage: "candidates" | "preview" = "candidates";
-    try {
-      let listed = await gatewayApi.listArchiveCandidates();
-      let candidate = listed.candidates.find((item) => item.submission_id === target);
-      if (!candidate) {
-        setLoadError({ message: "所选提交不在当前归档候选集合中，请刷新归档候选。", code: null });
-        setPlan(null);
-        return;
-      }
-      stage = "preview";
-      let selected = buildArchiveSelectedRef(candidate);
-      let loaded = await gatewayApi.previewArchive({ selected });
-      if (loaded.selected && loaded.selected.submission_id !== target) {
-        setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
-        setPlan(null);
-        return;
-      }
-      if (loaded.candidate_set_digest !== listed.candidate_set_digest) {
-        // §16.2 “一次加载”: the candidate read and the preview must agree. Redo
-        // both once, rebuilding selected from the second candidate read.
-        stage = "candidates";
-        const reloadedList = await gatewayApi.listArchiveCandidates();
-        stage = "preview";
-        const reloadedCandidate = reloadedList.candidates.find(
-          (item) => item.submission_id === target,
-        );
-        if (!reloadedCandidate) {
-          setLoadError({ message: "所选提交不在当前归档候选集合中，请刷新归档候选。", code: null });
-          setPlan(null);
-          return;
-        }
-        listed = reloadedList;
-        candidate = reloadedCandidate;
-        selected = buildArchiveSelectedRef(candidate);
-        const reloaded = await gatewayApi.previewArchive({ selected });
-        if (reloaded.selected && reloaded.selected.submission_id !== target) {
-          setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
-          setPlan(null);
-          return;
-        }
-        if (reloaded.candidate_set_digest !== listed.candidate_set_digest) {
-          setLoadError({ message: "归档候选集合已变化，请重新预检。", code: null });
-          setPlan(null);
-          return;
-        }
-        loaded = reloaded;
-      }
-      if (
-        previousDigest.current !== null &&
-        previousDigest.current !== loaded.candidate_set_digest
-      ) {
-        // The set-change banner always uses the generic text; the specific
-        // 409 text lives in the separate conflict banner below.
-        setCollectionNotice("候选集合已变化，之前的接受不再适用，请重新核对");
-      } else {
-        // A later load whose candidate set did not change invalidates the old
-        // set-change banner.
-        setCollectionNotice(null);
-      }
-      if (pendingNotice.current === null) {
-        // An ordinary load clears a stale 409 conflict notice; a load that
-        // follows a 409 (pending set) keeps it so both notices can appear.
-        setConflictNotice(null);
-      }
-      pendingNotice.current = null;
-      previousDigest.current = loaded.candidate_set_digest;
-      setCandidates(listed);
-      setSelectedDigest(candidate.expected_candidate_digest);
-      setPlan(loaded);
-    } catch (cause) {
-      // A failed load does not confirm the pending 409 notice; drop it so the
-      // next successful load starts from a clean slate.
-      pendingNotice.current = null;
-      const message =
-        cause instanceof ApiError && cause.code === "SCOPE_FORBIDDEN"
-          ? stage === "preview"
-            ? "当前身份没有预检归档方案的权限"
-            : "当前身份没有该操作的权限"
-          : cause instanceof Error
-            ? cause.message
-            : String(cause);
-      setLoadError({
-        message,
-        code: cause instanceof ApiError ? (cause.code ?? `HTTP_${cause.status}`) : null,
-      });
-      setPlan(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!open || !submissionId) return;
-    setPlan(null);
-    setCandidates(null);
-    setResult(null);
-    setFailure(null);
-    setCollectionNotice(null);
-    setConflictNotice(null);
-    pendingNotice.current = null;
-    setConfirmSelection(false);
-    previousDigest.current = null;
-    progress.current = createArchiveJourneyProgress();
-    void load(submissionId);
-  }, [open, submissionId, load]);
-
-  function refresh() {
-    progress.current = createArchiveJourneyProgress();
-    setResult(null);
-    if (submissionId) void load(submissionId);
-  }
-
-  function openAccept(anomaly: Anomaly) {
-    setAcceptTarget(anomaly);
-    setAcceptReason("");
-    setAcceptError(null);
-    setAcceptKey(crypto.randomUUID());
-  }
-
-  function openRevoke(anomaly: Anomaly) {
-    setRevokeTarget(anomaly);
-    setRevokeReason("");
-    setRevokeError(null);
-    setRevokeKey(crypto.randomUUID());
-  }
-
-  async function submitResolution(kind: "accept" | "revoke") {
-    const target = kind === "accept" ? acceptTarget : revokeTarget;
-    const reason = kind === "accept" ? acceptReason : revokeReason;
-    const key = kind === "accept" ? acceptKey : revokeKey;
-    if (!plan || !candidates || !target || !submissionId || !selectedDigest || !key) return;
-    if (formatReasonLimitError(kind, reason.trim(), utf8Length(reason)) !== undefined) return;
-    const setBusy = kind === "accept" ? setAcceptBusy : setRevokeBusy;
-    const setError = kind === "accept" ? setAcceptError : setRevokeError;
-    setBusy(true);
-    setError(null);
-    try {
-      await gatewayApi.appendArchiveAnomalyResolution(
-        {
-          expected_baseline_node_id: plan.head.business_baseline_node_id,
-          expected_baseline_head_version: plan.head.baseline_head_version,
-          candidate_set_digest: plan.candidate_set_digest,
-          selected: buildArchiveSelectedRef({
-            submission_id: submissionId,
-            expected_candidate_digest: selectedDigest,
-          }),
-          subject_digest: target.subject_digest,
-          subject_kind: target.subject_kind,
-          issue_code: target.issue_code,
-          target_submission_id: target.target_submission_id,
-          target_candidate_digest: target.target_candidate_digest,
-          expected_sequence: target.latest_sequence,
-          action: kind === "accept" ? anomalyAction(target) : "REVOKE",
-          reason,
-        },
-        key,
-      );
-      if (kind === "accept") setAcceptTarget(null);
-      else setRevokeTarget(null);
-      refresh();
-    } catch (cause) {
-      if (
-        cause instanceof ApiError &&
-        (cause.code === "BASELINE_VERSION_CONFLICT" ||
-          cause.code === "CANDIDATE_SET_CONFLICT" ||
-          cause.code === "CANDIDATE_BINDING_CONFLICT" ||
-          cause.code === "ARCHIVE_AUDIT_VERSION_CONFLICT")
-      ) {
-        if (kind === "accept") setAcceptTarget(null);
-        else setRevokeTarget(null);
-        pendingNotice.current = "归档候选或核验结果已变化，已重新预检";
-        setConflictNotice(pendingNotice.current);
-        refresh();
-        return;
-      }
-      setError(resolutionError(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function openClose(candidate: Candidate) {
-    if (!plan || !candidates) return;
-    setCloseTarget(candidate);
-    setCloseSnapshot({
-      candidate,
-      head: plan.head,
-      candidateSetDigest: candidates.candidate_set_digest,
-    });
-    setCloseReason("");
-    setCloseUnderstood(false);
-    setCloseErrorState(null);
-    setCloseResult(null);
-    setCloseRetry(null);
-    setCloseKey(crypto.randomUUID());
-  }
-
-  async function submitClose() {
-    if (!closeTarget || !closeSnapshot || !closeKey) return;
-    if (
-      formatReasonLimitError("close", closeReason.trim(), utf8Length(closeReason)) !== undefined ||
-      !closeUnderstood
-    )
-      return;
-    const body: Schemas["CloseSubmissionRequest"] = {
-      expected_baseline_node_id: closeSnapshot.head.business_baseline_node_id,
-      expected_baseline_head_version: closeSnapshot.head.baseline_head_version,
-      expected_review_version: closeSnapshot.candidate.review_version,
-      reason: closeReason,
-    };
-    setCloseBusy(true);
-    setCloseErrorState(null);
-    setCloseRetry(null);
-    try {
-      const response = await gatewayApi.closeSubmission(
-        closeSnapshot.candidate.submission_id,
-        body,
-        closeKey,
-      );
-      setCloseResult(response);
-      setCloseRetry(null);
-      setCandidates(null);
-      setPlan(null);
-      await load(
-        closeTarget.submission_id === submissionId
-          ? closeTarget.submission_id
-          : (submissionId ?? closeTarget.submission_id),
-      );
-      onDispositionChanged?.();
-    } catch (cause) {
-      if (
-        cause instanceof ApiError &&
-        (cause.code === "BASELINE_VERSION_CONFLICT" ||
-          cause.code === "REVIEW_VERSION_CONFLICT" ||
-          cause.code === "REVIEW_TRANSITION_CONFLICT" ||
-          cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" ||
-          cause.code === "ARCHIVE_CLOSED")
-      ) {
-        setCloseTarget(null);
-        const notice =
-          cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检";
-        pendingNotice.current = notice;
-        setConflictNotice(notice);
-        refresh();
-        return;
-      }
-      if (cause instanceof ApiError) {
-        setCloseErrorState(closeError(cause));
-        return;
-      }
-      setCloseRetry({ body });
-      setCloseErrorState({ title: "关闭请求未能送达，可以重试", code: "CLOSE_NOT_SENT" });
-    } finally {
-      setCloseBusy(false);
-    }
-  }
-
-  async function retryClose() {
-    if (!closeTarget || !closeSnapshot || !closeKey || !closeRetry) return;
-    setCloseBusy(true);
-    setCloseErrorState(null);
-    try {
-      const response = await gatewayApi.closeSubmission(
-        closeSnapshot.candidate.submission_id,
-        closeRetry.body,
-        closeKey,
-      );
-      setCloseResult(response);
-      setCloseRetry(null);
-      refresh();
-      onDispositionChanged?.();
-    } catch (cause) {
-      if (
-        cause instanceof ApiError &&
-        (cause.code === "BASELINE_VERSION_CONFLICT" ||
-          cause.code === "REVIEW_VERSION_CONFLICT" ||
-          cause.code === "REVIEW_TRANSITION_CONFLICT" ||
-          cause.code === "WORKSPACE_OCCUPANCY_CONFLICT" ||
-          cause.code === "ARCHIVE_CLOSED")
-      ) {
-        setCloseTarget(null);
-        const notice =
-          cause.code === "ARCHIVE_CLOSED" ? "该提交已归档或关闭" : "提交或基线已变化，已重新预检";
-        pendingNotice.current = notice;
-        setConflictNotice(notice);
-        refresh();
-        return;
-      }
-      if (cause instanceof ApiError) {
-        setCloseErrorState(closeError(cause));
-        setCloseRetry(null);
-        return;
-      }
-      setCloseErrorState({ title: "关闭请求未能送达，可以重试", code: "CLOSE_NOT_SENT" });
-    } finally {
-      setCloseBusy(false);
-    }
-  }
+  const openAccept = accept.open;
+  const openRevoke = revoke.open;
+  const acceptTarget = accept.target;
+  const acceptReason = accept.reason;
+  const acceptBusy = accept.busy;
+  const acceptError = accept.error;
+  const setAcceptTarget = accept.setTarget;
+  const setAcceptReason = accept.setReason;
+  const revokeTarget = revoke.target;
+  const revokeReason = revoke.reason;
+  const revokeBusy = revoke.busy;
+  const revokeError = revoke.error;
+  const setRevokeTarget = revoke.setTarget;
+  const setRevokeReason = revoke.setReason;
+  const closeTarget = close.target;
+  const closeReason = close.reason;
+  const closeBusy = close.busy;
+  const closeErrorState = close.error;
+  const setCloseTarget = close.setTarget;
+  const setCloseReason = close.setReason;
 
   const anomalies = plan?.anomalies ?? [];
-  const unprocessedCount = anomalies.filter(
-    (anomaly) => anomaly.resolution_status !== "ACCEPTED",
-  ).length;
-  const unknownCount = anomalies.filter(
-    (anomaly) => !KNOWN_ISSUE_CODES.has(anomaly.issue_code),
-  ).length;
-  const blocked = Boolean(plan && plan.blockers.length > 0);
-  const canStart = Boolean(
-    plan &&
-    candidates &&
-    selectedDigest &&
-    submissionId &&
-    !blocked &&
-    unknownCount === 0 &&
-    unprocessedCount === 0 &&
-    confirmSelection &&
-    !loading &&
-    !running,
-  );
-
-  async function start() {
-    if (!plan || !candidates || !submissionId || !selectedDigest || !canStart) return;
-    setRunning(true);
-    setFailure(null);
-    try {
-      const required = plan.confirmation_requirements ?? [];
-      const outcome = await runArchiveJourney(
-        gatewayApi,
-        {
-          selected: buildArchiveSelectedRef({
-            submission_id: submissionId,
-            expected_candidate_digest: selectedDigest,
-          }),
-          confirmations: required.map((subjectDigest) => ({
-            subjectDigest,
-            action: "CONFIRM" as const,
-          })),
-        },
-        progress.current,
-      );
-      setResult(outcome.result);
-    } catch (cause) {
-      setFailure(archiveError(cause));
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  function startDisabledReason(): string | undefined {
-    return computeStartDisabledReason({
-      loading,
-      loadError,
-      plan,
-      blockerCount: plan?.blockers.length ?? 0,
-      unknownCount,
-      unprocessedCount,
-      confirmSelection,
-      running,
-    });
-  }
-
   const archivedCount =
     result?.dispositions.filter((item) => item.disposition === "ARCHIVED_BASELINE").length ?? 0;
   const closedCount =

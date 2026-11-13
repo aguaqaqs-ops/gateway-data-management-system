@@ -646,3 +646,4 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
   .device-path__region { max-width: 8em; }
   .device-path__project { min-width: min(4em, max-content); }
 }
+.compare-more__action { justify-self: start; font-size: 12px; }

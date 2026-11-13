@@ -33,7 +33,7 @@ describe("shared table and semantic themes", () => {
     const readToken: CssTokenReader = (name) => tokens[name] ?? "";
     const tableTheme = createTableTheme(readToken);
     expect(tableTheme.fontFamily).toContain("IBM Plex Sans");
-    expect(tableTheme.baseFontStyle).toContain("13px");
+    expect(tableTheme.baseFontStyle).toContain("14px");
     expect(tableTheme.headerFontStyle).toContain("13px");
     expect(tableTheme.accentColor).toBe(tokens["--color-accent"]);
     expect(tableTheme.borderColor).toBe(tokens["--color-row-separator"]);

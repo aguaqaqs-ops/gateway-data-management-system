@@ -70,6 +70,22 @@ function readSettings(): Settings {
   } catch { return DEFAULT_SETTINGS; }
 }
 
+type ColumnWidths = Record<string, Record<string, number>>;
+const COLUMN_WIDTHS_KEY = "gateway-comparison-column-widths-v1";
+
+/** Column widths the viewer set, per table name; a convenience that may be absent. */
+function readColumnWidths(): ColumnWidths {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(COLUMN_WIDTHS_KEY) ?? "null") as unknown;
+    if (!value || typeof value !== "object") return {};
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).flatMap(([table, widths]) => {
+      if (!widths || typeof widths !== "object") return [];
+      const clean = Object.fromEntries(Object.entries(widths as Record<string, unknown>).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])));
+      return [[table, clean]];
+    }));
+  } catch { return {}; }
+}
+
 function viewLabel(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
   if (mode === "REVIEW") return "基线 → 待审提交";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
@@ -191,9 +207,42 @@ function recordValues(value: unknown): Record<string, unknown> {
   }));
 }
 
-function columnWidth(name: string, values: unknown[]): number {
-  const longest = values.reduce<number>((length, value) => Math.max(length, Array.from(normalizeDisplayScalar(value)).length), Array.from(name).length);
-  return Math.min(360, Math.max(112, longest * 8 + 38));
+type TextMeasure = (text: string) => number;
+
+/** Measures text in the grid's own canvas font; falls back to a rough estimate. */
+function createTextMeasure(font: string): TextMeasure {
+  const context = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+  if (!context) return (text) => Array.from(text).length * 9;
+  context.font = font;
+  const cache = new Map<string, number>();
+  return (text) => {
+    let width = cache.get(text);
+    if (width === undefined) { width = context.measureText(text).width; if (cache.size < 20_000) cache.set(text, width); }
+    return width;
+  };
+}
+
+/** Up to `limit` rows spread evenly over the table, so long tables size from more than their head. */
+function sampleRows<T>(rows: readonly T[], limit: number): T[] {
+  if (rows.length <= limit) return [...rows];
+  const step = rows.length / limit;
+  return Array.from({ length: limit }, (_, index) => rows[Math.floor(index * step)] as T);
+}
+
+const COLUMN_PADDING = 26;
+const COLUMN_MIN = 56;
+const COLUMN_AUTO_MAX = 420;
+const COLUMN_FIT_MAX = 900;
+
+/**
+ * Width that fits the header and most values. Auto sizing uses the 95th
+ * percentile so a few very long values do not widen the column; a double-click
+ * fit uses the longest value.
+ */
+function fitWidth(headerWidth: number, valueWidths: number[], mode: "auto" | "fit"): number {
+  const sorted = valueWidths.filter((width) => width > 0).sort((left, right) => left - right);
+  const value = sorted.length === 0 ? 0 : mode === "fit" ? sorted[sorted.length - 1] ?? 0 : sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? 0;
+  return Math.round(Math.min(mode === "fit" ? COLUMN_FIT_MAX : COLUMN_AUTO_MAX, Math.max(COLUMN_MIN, headerWidth, value) + COLUMN_PADDING));
 }
 
 function matchesGroup(group: DerivedNavigationGroup, query: string): boolean {
@@ -401,6 +450,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     return () => { unsubscribe(); window.removeEventListener("popstate", restore); };
   }, [runtime]);
   useEffect(() => { try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* defaults remain in memory */ } }, [settings]);
+  const [columnWidths, setColumnWidths] = useState<ColumnWidths>(readColumnWidths);
+  useEffect(() => { try { window.localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths)); } catch { /* widths remain in memory */ } }, [columnWidths]);
 
   const loadBundle = useCallback(async () => {
     if (sessionState.kind !== "handoff" && sessionState.kind !== "preset") return;
@@ -640,6 +691,14 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter(isEmptyTab).length : 0;
   useEffect(() => { document.querySelector(".overflow-tabs button.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [selectedNodeKey, browse.tabKey]);
 
+  const widthTable = surfaceTable?.table_name ?? null;
+  const storedWidths = useMemo(() => (widthTable ? columnWidths[widthTable] : undefined) ?? {}, [columnWidths, widthTable]);
+  const changeColumnWidth = useCallback((columnId: string, width: number) => {
+    if (!widthTable) return;
+    setColumnWidths((old) => ({ ...old, [widthTable]: { ...old[widthTable], [columnId]: width } }));
+  }, [widthTable]);
+  const resetColumnWidths = () => { if (widthTable) setColumnWidths((old) => { const next = { ...old }; delete next[widthTable]; return next; }); };
+
   const chooseTab = (tableName: string, tabKey: string, itemKey = tableName) => {
     runtime.execute({ name: "select-node", nodeKey: itemKey }); runtime.execute({ name: "select-tab", tabKey });
   };
@@ -749,6 +808,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
           <div className="compare-more__menu">
             <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（两侧都没有行，共 {emptyTabCount} 个）</label>
             {import.meta.env.DEV && <div className="display-mode"><span>显示模式（开发环境）</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}
+            {widthTable && Object.keys(storedWidths).length > 0 && <button className="link-button compare-more__action" onClick={resetColumnWidths}>恢复本表默认列宽</button>}
             {bundle && <div className="compare-more__bundle"><span>本地 bundle · 浏览期间不请求后端</span><code>{bundle.manifest.bundle_digest}</code></div>}
           </div>
         </details>
@@ -800,7 +860,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             {presentation.navigationDiagnostics.filter((item) => !item.target.group_key && !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName).map((item, index) => <div className="diagnostic-note" key={item.code + index}><AlertTriangle size={15} /><span>{formatNavigationDiagnostic(item, presentation.surface.tables)}</span>{debugMode && <code>{item.code}</code>}</div>)}
             {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
               {tableLoading ? <LoadingSkeleton label="正在读取本地表格" /> : <div className={`table-grid-area${locations.length || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null) ? " has-distribution" : ""}`}>
-                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={() => void openFormula()} />
+                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={() => void openFormula()} />
                 {(locations.length > 0 || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null)) && <ChangeNavigator locations={locations} riskRows={rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null && row.rowNumber !== null)} rowCount={Math.max(table.rowCounts.before ?? 0, table.rowCounts.current ?? 0)} visibleRows={visibleRows} currentIndex={currentIndex} onJump={(index) => runtime.execute({ name: "jump-to-change", index })} />}
               </div>}
             </>}</> : <div className="empty-table">请选择一个导航页签。</div>}
@@ -915,11 +975,10 @@ function CopyDebugValue({ label, value }: { label: string; value: string }) {
   return <button className="debug-info-value" type="button" aria-label={`复制 ${label}`} title={`复制完整值：${value}`} onClick={() => void copy()}><span>{label}</span><code>{display}</code><Copy size={12} />{copied && <span className="sr-only" aria-live="polite">已复制</span>}</button>;
 }
 
-function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: () => void }) {
+function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, storedWidths, onWidthChange, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; storedWidths: Readonly<Record<string, number>>; onWidthChange: (columnId: string, width: number) => void; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: () => void }) {
   const gridRef = useRef<DataEditorRef>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
-  const frameWidth = frameSize.width;
   const [paintedToken, setPaintedToken] = useState<object | null>(null);
   const [hoveredCell, setHoveredCell] = useState<readonly [number, number] | null>(null);
   useEffect(() => {
@@ -936,16 +995,39 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const pinnedColumnCount = useMemo(() => { let count = 0; for (const column of orderedColumns) { if (!column.pinned) break; count += 1; } return count; }, [orderedColumns]);
   const metaColumnCount = debug ? 5 : 2;
   const frozenColumnCount = metaColumnCount + pinnedColumnCount;
+  const theme = useMemo(() => createTableTheme(), []);
+  const measureCell = useMemo(() => createTextMeasure(theme.baseFontStyle), [theme.baseFontStyle]);
+  const measureHeader = useMemo(() => createTextMeasure(theme.headerFontStyle), [theme.headerFontStyle]);
+  // Text the grid shows for a sizable column (row labels for 变更, values otherwise).
+  const columnText = useCallback((row: BrowseRow, columnId: string): string => columnId === "__diff" ? rowLabel(row) : row.kind === "collapsed" ? "" : normalizeDisplayScalar(row.values[columnId]), []);
+  const fitColumn = useCallback((columnId: string, title: string, sourceRows: readonly BrowseRow[], mode: "auto" | "fit") =>
+    fitWidth(measureHeader(title), sourceRows.map((row) => measureCell(columnText(row, columnId))), mode), [columnText, measureCell, measureHeader]);
+  // Automatic widths are worked out once per table view (when its rows first
+  // arrive), so expanding runs or toggling the scope does not shift columns.
+  const autoWidthKey = `${table.table_name}|${tabKey}|${debug ? "debug" : "user"}|${rows.length > 0 ? "rows" : "empty"}`;
+  const autoWidths = useMemo(() => {
+    const sample = sampleRows(rows, 600);
+    const widths = new Map<string, number>([["__diff", fitColumn("__diff", "变更", sample, "auto")]]);
+    for (const column of orderedColumns) widths.set(column.name, fitColumn(column.name, column.display_name || column.name, sample, "auto"));
+    return widths;
+    // Keyed on the table view only: later row changes must not move columns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoWidthKey, fitColumn, orderedColumns]);
   const columns = useMemo<SizedGridColumn[]>(() => {
-    const meta: SizedGridColumn[] = [{ id: "__number", title: "#", width: 54 }, { id: "__diff", title: "变更", width: 180 }];
-    if (debug) meta.push({ id: "__kind", title: "Diff Kind", width: 210 }, { id: "__role", title: "Row Role", width: 84 }, { id: "__semantic", title: "Ordered Semantic / Position", width: 260 });
-    const sample = rows.slice(0, 200);
-    const dataColumns: SizedGridColumn[] = orderedColumns.map((column) => ({ id: column.name, title: column.display_name || column.name, width: columnWidth(column.name, sample.map((row) => row.values[column.name])) }));
-    const naturalWidth = dataColumns.reduce((total, column) => total + column.width, 0);
-    const available = Math.max(0, frameWidth - meta.reduce((total, column) => total + column.width, 0) - 24);
-    const extra = dataColumns.length > 0 ? Math.max(0, (available - naturalWidth) / dataColumns.length) : 0;
-    return [...meta, ...dataColumns.map((column) => ({ ...column, width: Math.floor(column.width + extra) }))];
-  }, [debug, frameWidth, orderedColumns, rows]);
+    const width = (id: string, fallback: number) => storedWidths[id] ?? autoWidths.get(id) ?? fallback;
+    const meta: SizedGridColumn[] = [{ id: "__number", title: "#", width: 60 }, { id: "__diff", title: "变更", width: width("__diff", 150) }];
+    if (debug) meta.push({ id: "__kind", title: "Diff Kind", width: width("__kind", 210) }, { id: "__role", title: "Row Role", width: width("__role", 84) }, { id: "__semantic", title: "Ordered Semantic / Position", width: width("__semantic", 260) });
+    return [...meta, ...orderedColumns.map((column) => ({ id: column.name, title: column.display_name || column.name, width: width(column.name, 120) }))];
+  }, [autoWidths, debug, orderedColumns, storedWidths]);
+  const resizeColumn = useCallback((column: GridColumn, newSize: number) => {
+    if (typeof column.id === "string" && column.id !== "__number") onWidthChange(column.id, Math.round(newSize));
+  }, [onWidthChange]);
+  // Double-clicking a header's right edge fits the column to its longest value.
+  const headerClicked = useCallback((columnIndex: number, event: { isEdge: boolean; isDoubleClick?: boolean }) => {
+    const column = columns[columnIndex];
+    if (!column || typeof column.id !== "string" || column.id === "__number" || !event.isEdge || !event.isDoubleClick) return;
+    onWidthChange(column.id, fitColumn(column.id, String(column.title), sampleRows(rows, 5000), "fit"));
+  }, [columns, fitColumn, onWidthChange, rows]);
   const paintToken = useMemo(() => ({}), [columns, rows]);
   const rendered = paintedToken === paintToken;
   const markPainted = useCallback(() => {
@@ -960,7 +1042,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const formulaColumnIndex = columns.findIndex((column) => column.id === "formula_ast_json");
   const formulaColumnOffset = formulaColumnIndex < 0 ? undefined : columns.slice(0, formulaColumnIndex).reduce((width, column) => width + column.width, 0);
   const formulaColumnWidth = formulaColumnIndex < 0 ? undefined : columns[formulaColumnIndex]?.width;
-  const theme = useMemo(() => createTableTheme(), []);
+  // The row position is a ruler, not data: smaller, lighter, on the header tone.
+  const numberTheme = useMemo<Partial<Theme>>(() => ({ textDark: "#8B95A1", bgCell: theme.bgHeader, baseFontStyle: `12px ${theme.fontFamily}` }), [theme.bgHeader, theme.fontFamily]);
   const pairRows = useMemo(() => { const result = new Map<string, number[]>(); rows.forEach((row, index) => { if (row.pairKey) result.set(row.pairKey, [...(result.get(row.pairKey) ?? []), index]); }); return result; }, [rows]);
   useEffect(() => {
     if (!highlightedIdentity) return;
@@ -996,8 +1079,9 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
       : changed ? { bgCell: "#E6E9ED", textDark: "#1B2229", ...(boldStyle ? { baseFontStyle: boldStyle } : {}) } : undefined;
     return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value), displayData: normalizeDisplayScalar(value), allowOverlay: false,
       style: row.kind === "modified-before" || row.kind === "deleted" ? "faded" : "normal",
-      themeOverride: columnId === "__number" ? undefined : cellTheme };
-  }, [columns, orderedColumns, pairRows, rows, table.table_name, theme.baseFontStyle]);
+      ...(columnId === "__number" ? { contentAlign: "right" as const } : {}),
+      themeOverride: columnId === "__number" ? numberTheme : cellTheme };
+  }, [columns, numberTheme, orderedColumns, pairRows, rows, table.table_name, theme.baseFontStyle]);
   const getRowThemeOverride = useCallback((row: number): Partial<Theme> | undefined => { const value = rows[row]; if (!value?.riskLevel) return undefined; const risk = riskTokens(value.riskLevel); return { bgCell: risk.bg, textDark: risk.text }; }, [rows]);
   const drawCell = useCallback((args: Parameters<NonNullable<ComponentProps<typeof DataEditor>["drawCell"]>>[0], drawContent: () => void) => {
     drawContent();
@@ -1046,7 +1130,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
-  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={32} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
+  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} onHeaderClicked={headerClicked} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
     {showHoverDetail && hoverRow && <div className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}

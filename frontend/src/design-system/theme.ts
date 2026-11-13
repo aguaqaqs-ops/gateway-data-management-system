@@ -57,7 +57,8 @@ export function createTableTheme(readToken: CssTokenReader = readComputedToken):
     cellVerticalPadding: numericToken(readToken, "--space-1"),
     headerFontStyle: `600 ${fontSizeSm} ${fontFamily}`,
     headerIconSize: numericToken(readToken, "--size-icon-header"),
-    baseFontStyle: `${fontSizeSm} ${fontFamily}`,
+    // Table cells are the page's core content: one step above body small text.
+    baseFontStyle: `${fontSizeMd} ${fontFamily}`,
     markerFontStyle: `${fontSizeXs} ${fontFamily}`,
     fontFamily,
     editorFontSize: fontSizeMd,

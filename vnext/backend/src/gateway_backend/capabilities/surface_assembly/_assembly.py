@@ -88,7 +88,9 @@ def assemble_surface(
 
     try:
         checkpoint()
-        facts = request.comparison_facts
+        from gateway_backend.capabilities.comparison.presentation import visible_comparison_facts
+
+        facts = visible_comparison_facts(request.comparison_facts)
         if facts.summary.status.value in {"FAILED", "CANCELLED"}:
             raise _AssemblyError(f"COMPARISON_{facts.summary.status.value}")
         if facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT and facts.records_ref is not None:
@@ -353,6 +355,9 @@ def _project_table(
     before_presentation: TablePresentation | None = None,
     current_presentation: TablePresentation | None = None,
 ) -> SurfaceTable:
+    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+
+    table = visible_table_fact(table)
     table_refs = SurfaceTableRefs() if artifact_entry is None else artifact_entry.table_refs
     records = _records_refs(table, records_closure)
     ordered = _ordered_extension(table, records_closure)

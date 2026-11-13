@@ -100,3 +100,7 @@ B2 的 business_navigation unit/contract 共享参数表权威验证认领、集
 B3 共享 application/business_presentation 接上述输入，实际发布恰一个 projection，导航/诊断/locator 进入已有 closure/ref/保护路径。定位算法和预算由 [Row Location](row-location.md) 拥有；完整交付与退出仍须 B4/B5 证据，不能以 helper 单测替代。
 
 复合虚装置不依赖 device 的 65532 行；该特殊项在存在的共享测点侧使用 dev_addr=65532，不凭空构造 device_cfg 的 gid。无装置承载的空共享表只有完整 EXACT/无变化/无风险证明才可省略；证明不足时保留唯一整表入口，整表 tab 不产生局部事实不可用诊断。
+
+## 纯结构变化投影（2026-11-13）
+
+后台导航与风险、surface、摘要共用 Comparison v4 的统一展示判定。已证明的纯增删列不产生 table_change、变化标记或统计；表仍保留 current 浏览，不能把不同的 canonical 快照身份误宣称相同或构造缺失 before。其他真实行、有序、身份字段及诊断语义保留。导航文档版本与形状不变，projection digest 依实际产物重新生成。

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
+
 from gateway_backend.statistics.metrics import bind_scope
 
 from gateway_backend.statistics.metrics import input_shape
@@ -275,7 +277,7 @@ _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-c
 PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
 PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v2"
 PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
-PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v3"
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v4"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -828,6 +830,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             ready_closure_ref = _preview_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_preview_bundle_binding(envelope.job_state, closure.artifact_refs())
+            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs())
             _pin_preview_refs(
                 deps,
                 (
@@ -861,6 +864,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs)
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
@@ -989,6 +993,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
         ready_closure_ref = _preview_ready_ref(assemble_envelope.job_state)
         ready_closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
         _assert_preview_bundle_binding(assemble_envelope.job_state, ready_closure.artifact_refs())
+        verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_closure.artifact_refs())
 
         preview_result = _build_preview_result(
             payload=payload,
@@ -2120,6 +2125,8 @@ def _assemble_preview(
         )
         assemble_state: dict[str, object] = {
             "pair_ids": [item.pair_id for item in pair_results],
+            "structure_audit_bindings": [structure_audit_binding(
+                item.pair_id, item.comparison_digest, item.structure_audit_ref) for item in pair_results],
             "default_view": _PAIR_INITIAL_TO_MODIFIED,
             "input_completeness": payload.input_completeness.value,
             "digests": {
@@ -2425,6 +2432,8 @@ def _required_ready_refs(
         if pair_state.surface_result.surface is None:
             raise PreviewJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
+        if pair_state.structure_audit_ref is not None:
+            refs.append(pair_state.structure_audit_ref)
     refs.append(bundle_manifest_ref)
     refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))

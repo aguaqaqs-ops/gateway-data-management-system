@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Callable, ClassVar, Protocol, TypeAlias, runtime_checkable
+from typing import Literal, Callable, ClassVar, Protocol, TypeAlias, runtime_checkable
 
 import pyarrow as pa
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
@@ -32,7 +32,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 COMPARISON_BATCH_PORT_VERSION = 1
-COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v3"
+COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v4"
 RECORDS_ARTIFACT_CONTRACT_VERSION = "backend-vnext/comparison-records/v1"
 RECORDS_CLOSURE_CONTRACT_VERSION = "backend-vnext/comparison-records-closure/v1"
 RECORDS_PARQUET_FORMAT = "PARQUET"
@@ -774,6 +774,7 @@ class ComparisonTableFact:
     records: tuple[ComparisonRecord, ...] = ()
     diagnostics: tuple[str, ...] = ()
     content_changed: bool = False
+    shared_value_equality: Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"] | None = None
     table_fact_digest: DigestRef | None = None
     ordered_extension: OrderedExtension | None = None
     blank_extension: BlankExtension | None = None

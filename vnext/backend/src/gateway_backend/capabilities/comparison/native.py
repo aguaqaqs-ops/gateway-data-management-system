@@ -7,7 +7,7 @@ logical-content validation; raw artifact identity stays with the store.
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from gateway_shared_kernel import DigestRef
 
 import pyarrow as pa
@@ -31,7 +31,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ReplayGuarantee, SchemaEvolution, TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.row_encoding import (
-    _schema_changes_from_view, _schema_diagnostics, _ignored_values_changed,
+    _schema_changes_from_view, _schema_diagnostics, _ignored_values_changed, _pure_column_change,
 )
 
 
@@ -278,6 +278,10 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     assert before is not None and current is not None and policy is not None
     data: dict[str, Any] = json.loads(handle.metadata_json())
     changes = _schema_changes_from_view(schema, policy)
+    equality: Literal["NATIVE_SHARED_VALUES"] | None = ("NATIVE_SHARED_VALUES" if _pure_column_change(schema)
+        and schema.before_key and not schema.key_invalid
+        and not any(data[name] for name in ("row_added_count", "row_deleted_count", "row_modified_count"))
+        and not data.get("ignored_shared_content_changed", data.get("content_changed", False)) else None)
     if policy.ordered_policy is not None:
         return ComparisonTableFact(
             table_name=task.table_name, status=ComparisonTableStatus(data["status"]),
@@ -289,6 +293,7 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
             suppressed_added_count=data["suppressed_added_count"],
             suppressed_deleted_count=data["suppressed_deleted_count"],
             diagnostics=tuple(data["diagnostics"]), content_changed=data["content_changed"],
+            shared_value_equality=equality,
             ordered_extension=_ordered_extension(data["ordered_extension"]),
             blank_extension=_blank_extension(data["blank_extension"]),
         )
@@ -304,7 +309,7 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     if (count == 0 and not diagnostics and
             (not is_keyless or not changed_rows)):
         content_changed = (data["ignored_shared_content_changed"] if
-            changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else
+            (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED or _pure_column_change(schema)) else
             _ignored_values_changed(before, current, policy))
     return ComparisonTableFact(
         table_name=task.table_name, status=status,
@@ -315,5 +320,5 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
         row_modified_count=data["row_modified_count"],
         suppressed_added_count=data["suppressed_added_count"],
         suppressed_deleted_count=data["suppressed_deleted_count"],
-        diagnostics=diagnostics, content_changed=content_changed,
+        diagnostics=diagnostics, content_changed=content_changed, shared_value_equality=equality,
     )

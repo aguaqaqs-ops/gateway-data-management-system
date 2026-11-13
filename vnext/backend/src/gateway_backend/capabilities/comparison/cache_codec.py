@@ -18,8 +18,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.contracts import (
     BlankExtension, BlankSummary, ComparisonSchemaChanges, ComparisonTableFact,
-    ComparisonTableStatus, OrderedExtension, OrderedStatus, OrderedSummary,
-    OrderedTableProcessingMode, ReplayGuarantee, SchemaChangeSource, SchemaEvolution,
+    OrderedExtension, OrderedSummary,
     TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.task_input import (
@@ -135,37 +134,24 @@ def _neutral_fact(fact: ComparisonTableFact) -> bytes:
 
 def restore_table_fact(raw: bytes, task: TableComparisonTask) -> ComparisonTableFact:
     """Rebind the completed neutral outcome to this task's actual descriptors."""
-    data: dict[str, Any] = json.loads(raw)
-    schema = data.pop("schema_changes")
-    schema["change_source"] = None if schema["change_source"] is None else SchemaChangeSource(schema["change_source"])
-    schema["schema_evolution"] = SchemaEvolution(schema["schema_evolution"])
-    for name in ("before_only_columns", "current_only_columns", "selected_columns",
-                 "effective_compare_key_before", "effective_compare_key_current", "incompatible_columns"):
-        schema[name] = tuple(schema[name])
-    data["schema_changes"] = ComparisonSchemaChanges(**schema)
+    from gateway_backend.capabilities.comparison.cache_document import NeutralFactDocument
+
+    data = NeutralFactDocument.model_validate_json(raw).model_dump()
+    data["schema_changes"] = ComparisonSchemaChanges(**data["schema_changes"])
     for name in ("ordered_extension", "blank_extension"):
-        value = data.get(name)
+        value = data[name]
         if value is None:
             continue
-        value["status"] = OrderedStatus(value["status"])
-        value["replay_guarantee"] = ReplayGuarantee(value["replay_guarantee"])
-        value["records"] = tuple(value["records"])
-        value["diagnostics"] = tuple(value["diagnostics"])
         for key in ("before_ordered_digest", "current_ordered_digest", "before_occupancy_digest",
                     "current_occupancy_digest", "policy_digest"):
             if key in value and value[key] is not None:
                 value[key] = DigestRef(value[key])
         if name == "ordered_extension":
             value["ordered_summary"] = OrderedSummary(**value["ordered_summary"])
-            value["table_processing_mode"] = (None if value["table_processing_mode"] is None
-                                               else OrderedTableProcessingMode(value["table_processing_mode"]))
             data[name] = OrderedExtension(**value)
         else:
             value["blank_summary"] = BlankSummary(**value["blank_summary"])
             data[name] = BlankExtension(**value)
-    data["status"] = ComparisonTableStatus(data["status"])
-    data["records"] = tuple(data["records"])
-    data["diagnostics"] = tuple(data["diagnostics"])
     return ComparisonTableFact(table_name=task.table_name, before_descriptor=task.before_descriptor,
                                current_descriptor=task.current_descriptor, **data)
 

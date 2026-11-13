@@ -17,7 +17,7 @@ from gateway_backend.capabilities.comparison.errors import StandardComparisonErr
 from gateway_backend.capabilities.comparison.row_encoding import (
     _can_table_early_exit, _column_map, _empty_schema_changes,
     _ordered_policy_payload, _schema_changes_from_view,
-    _schema_diagnostics, _schema_only_fact, _schema_view,
+    _schema_diagnostics, _schema_only_fact, _schema_view, _pure_column_change,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     COMPARISON_PROJECTION_CONTRACT_VERSION, SCALAR_ENCODING_VERSION,
@@ -25,7 +25,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 
 COMPARISON_DIRECTION = "BEFORE_TO_CURRENT"
-STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v2"
+STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v3"
 
 
 def _compare_task_metadata(task: Any) -> ComparisonTableFact:
@@ -73,6 +73,13 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
     schema = _schema_view(before_descriptor, current_descriptor, policy)
     schema_changes = _schema_changes_from_view(schema, policy)
     schema_diagnostics = _schema_diagnostics(schema, policy)
+    if before_descriptor.row_count == current_descriptor.row_count == 0 and _pure_column_change(schema):
+        return ComparisonTableFact(
+            table_name=task.table_name, status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+            before_descriptor=before_descriptor, current_descriptor=current_descriptor,
+            schema_changes=schema_changes, row_count_before=0, row_count_current=0,
+            shared_value_equality="BOUND_EMPTY_DESCRIPTORS",
+        )
     # With no rows on either side, equal bound schemas prove equality even
     # when an explicit comparison column is absent. Do not guess a row key.
     if (before_descriptor.row_count == current_descriptor.row_count == 0
@@ -286,6 +293,9 @@ def _required_ruleset_digest(plan: ComparisonPlan) -> str:
 
 
 def _summary(tables: tuple[ComparisonTableFact, ...]) -> ComparisonSummary:
+    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+
+    tables = tuple(visible_table_fact(table) for table in tables)
     unchanged = sum(
         item.status is ComparisonTableStatus.UNCHANGED and not item.content_changed
         for item in tables

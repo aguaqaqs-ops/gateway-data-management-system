@@ -1,0 +1,118 @@
+"""Backend-only structural-change evidence, independently retained by READY closure."""
+from __future__ import annotations
+
+from typing import Literal, cast
+
+from pydantic import BaseModel, ConfigDict, JsonValue
+from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
+
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.capabilities.comparison.contracts import ComparisonFacts, ComparisonPlan
+from gateway_backend.capabilities.comparison.presentation import structure_change_is_audit_only
+from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
+
+
+class HiddenStructureFact(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    table_name: str
+    before_raw_content_digest: str
+    current_raw_content_digest: str
+    raw_fact: dict[str, JsonValue]
+    equality_evidence: Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"]
+    hidden_reason: Literal["ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL"]
+
+
+class ComparisonStructureAudit(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    document_type: Literal["comparison-structure-audit"]
+    comparison_contract_version: str
+    pair_id: str
+    before_snapshot_digest: str
+    current_snapshot_digest: str
+    comparison_digest: str
+    ruleset_digest: str
+    tables: tuple[HiddenStructureFact, ...]
+
+
+def publish_structure_audit(
+    plan: ComparisonPlan, facts: ComparisonFacts, store: ArtifactStorePort,
+) -> ArtifactRef | None:
+    tables = []
+    for table in facts.tables:
+        if not structure_change_is_audit_only(table):
+            continue
+        before, current = table.before_descriptor, table.current_descriptor
+        if (before is None or current is None or before.raw_content_digest is None
+                or current.raw_content_digest is None or table.shared_value_equality is None):
+            raise ValueError("hidden structure audit requires complete content bindings")
+        tables.append(HiddenStructureFact(
+            table_name=table.table_name,
+            before_raw_content_digest=before.raw_content_digest.value,
+            current_raw_content_digest=current.raw_content_digest.value,
+            raw_fact=cast(dict[str, JsonValue], _table_digest_payload(table)),
+            equality_evidence=cast(Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"], table.shared_value_equality),
+            hidden_reason="ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL",
+        ))
+    if not tables:
+        return None
+    if plan.rule_set.ruleset_digest is None:
+        raise ValueError("hidden structure audit requires ruleset identity")
+    document = ComparisonStructureAudit(
+        document_type="comparison-structure-audit",
+        comparison_contract_version=facts.comparison_contract_version,
+        pair_id=plan.pair_id,
+        before_snapshot_digest=facts.before_snapshot_digest.value,
+        current_snapshot_digest=facts.current_snapshot_digest.value,
+        comparison_digest=facts.comparison_digest.value,
+        ruleset_digest=plan.rule_set.ruleset_digest.value,
+        tables=tuple(tables),
+    )
+    raw = canonicalize_json_value(document.model_dump(mode="json"))
+    ref = put_with_built_ref(store, raw,
+        artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "structure-audit", raw_blob_digest(raw).value),
+        media_type="application/jcs")
+    # This exact read checks stored bytes as well as strict document shape before
+    # any successful hidden surface can be published, also on comparison reuse.
+    restored = ComparisonStructureAudit.model_validate_json(store.locate(ref))
+    if restored != document:
+        raise ValueError("hidden structure audit binding mismatch")
+    return ref
+
+
+class StructureAuditBinding(BaseModel):
+    """The assemble checkpoint binds every pair, including pairs needing no audit."""
+    model_config = ConfigDict(strict=True, extra="forbid")
+    pair_id: str
+    comparison_digest: str
+    audit_artifact_id: str | None
+
+
+def structure_audit_binding(pair_id: str, comparison_digest: str, ref: ArtifactRef | None) -> dict[str, JsonValue]:
+    return StructureAuditBinding(pair_id=pair_id, comparison_digest=comparison_digest,
+        audit_artifact_id=None if ref is None else ref.artifact_id).model_dump(mode="json")
+
+
+def verify_structure_audit_bindings(store: ArtifactStorePort, raw_bindings: object, refs: tuple[ArtifactRef, ...]) -> None:
+    from pydantic import TypeAdapter
+    from gateway_backend.application.payloads import CheckpointDecodeError
+
+    try:
+        bindings = TypeAdapter(tuple[StructureAuditBinding, ...]).validate_json(canonicalize_json_value(raw_bindings))
+        if len({binding.pair_id for binding in bindings}) != len(bindings):
+            raise ValueError("duplicate structure audit pair binding")
+        by_id = {ref.artifact_id: ref for ref in refs}
+        for binding in bindings:
+            if binding.audit_artifact_id is None:
+                continue
+            ref = by_id.get(binding.audit_artifact_id)
+            if ref is None:
+                raise ValueError("structure audit is missing from READY closure")
+            document = ComparisonStructureAudit.model_validate_json(store.locate(ref))
+            if (document.pair_id != binding.pair_id or document.comparison_digest != binding.comparison_digest
+                    or not document.tables):
+                raise ValueError("structure audit pair binding mismatch")
+    except (ValueError, TypeError) as exc:
+        raise CheckpointDecodeError(str(exc), code="STRUCTURE_AUDIT_INTEGRITY_ERROR") from exc

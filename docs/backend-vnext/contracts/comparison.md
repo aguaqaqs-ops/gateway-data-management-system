@@ -633,3 +633,13 @@ table/core/comparison任务身份与facts/records内容、规则和业务摘要�
 [ADR 0018](../refactoring/formal/adr/0018-canonical-domain-comparison-and-comparison-rule-view.md) 的 12 类精确配置表采用 STANDARD/ALL_CHANGES，以 `(page_no, no)` 对齐，不从 DDL 主键猜测比较键。同一 no 在不同 page_no 下为不同行；正常增删改进入 records 与摘要，供风险、surface 和业务导航消费。需按键对齐的两侧缺列、NULL、空字符串或重复键时按表 DEGRADED，不去重或回退 DDL 键；单侧和双侧空表保留既有元数据路径。合法存储中的无效比较键不阻止表浏览，非法 DDL 存储主键仍由 projection 拒绝。
 
 本次 ruleset `v5` 的规范规则文档和逐表 comparison-rule-view digest 反映新角色与键；`standard-reference/v2` 增加 native 键值验证，进入 TableTaskInputV1 的 standard_algorithm 身份，持久与运行内缓存经同一 task input 核对。未改变 DTO/checkpoint、规则文档形状或 digest preimage，也不提升 storage projection version；旧键语义缓存不得恢复到新结果。
+
+## 共有值证据与纯结构展示（2026-11-13）
+
+当前 Comparison selector 为 `backend-vnext/comparison/v4`，standard algorithm 为 `standard-reference/v3`。TableFact 新增 nullable `shared_value_equality`，其取值仅为 `BOUND_EMPTY_DESCRIPTORS`（已绑定双侧零行描述）或 `NATIVE_SHARED_VALUES`（native 实际按有效键比较共有字段）。未知必须为 null，零 records、默认零计数、`SCHEMA_ONLY_CHANGED` 或只浏览角色都不是证据。该字段进入 table/facts digest preimage 与完整 neutral cache document；现有 TableTaskInput 的 comparison/standard_algorithm 身份由运行内和持久缓存消费者核对，拒绝旧语义复用，无新增独立缓存版本轴。
+
+统一展示策略由 `comparison.presentation` 拥有，风险、surface、导航及 comparison summary 共用。仅隐藏双侧存在、已知等行数、只有列增删、共有类型兼容、键未变且没有其他诊断/内容证据的结构变化；不猜重命名，不掩盖兼容 ENUM/SET 演进中的其他内容。非空表必须有 native 键校验及共有值相等证据，原始 row_added/deleted/modified 与 suppressed 计数全部为零；row_added/deleted 已是原始计数，不再与 suppressed 相加。共有保留但排除比较的字段也须相等。双空表允许 descriptor 证据，不猜行键；明确键变化和类型不兼容仍可见。有序表的移动、位置、空白和降级均阻止隐藏。
+
+原始 table status/schema/diagnostics、计数与证据保持不变。仅派生对外 UNCHANGED、清除对应 schema 标记及风险与统计；该表仍可浏览。非空无有效键、无共有字段、比较失败或未知证据保持原有可见/降级语义。只浏览表只沿现有 native 路径做最小共有字段探测，不新增行级展示。canonical 保存身份及 NO_CANONICAL_CHANGE 资格完全独立。
+
+后台结构审计由共享 pair pipeline 在风险/surface 成功发布前写入并 exact-ref 回读校验，保存双方 snapshot/raw content 身份、pair、comparison digest、ruleset digest、原始 table digest preimage、被隐藏列和相等依据/原因，不复制整表。ArtifactStore 的内容寻址 ID 防止内容错配，由 exact-ref locate 和 READY closure 核对；不增加只计算不核对的新 digest 或版本。

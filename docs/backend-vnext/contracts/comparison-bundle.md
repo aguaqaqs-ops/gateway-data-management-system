@@ -431,3 +431,9 @@ artifact_id不直接进入semantic digest的规则不变，但被rewrite的JSON 
 
 
 S1a ref校验补充：所有四字段backend `ArtifactRef` 使用统一严格a1 codec；旧cache/flow/repository前缀不是合法artifact ID，也不保留为独立前缀判别路径。location只定位root，不替代kind/scope/完整closure/READY校验；合法opaque ref可由export/cache恢复后正式移交，不能按hash前的调用方标签猜授权。bundle-relative logical_path继续使用原路径约束，cache-local/host/repository/flow路径禁令不变。
+
+## 后台结构审计与 READY（2026-11-13）
+
+后台 `comparison-structure-audit` 是 ArtifactStore 产物，独立于前端 bundle 完整闭包；不得加入 bundle manifest、risk annotations 或普通 diagnostics。每个 pair 的共享 pipeline 在成功发布隐藏展示前写入及 exact-ref 校验，缓存命中同样恢复证据并建立当前 pair 的审计。Preview assemble-state v4 / History assemble-state v2 保存每对 `structure_audit_bindings={pair_id,comparison_digest,audit_artifact_id|null}`；严格解码，READY 创建、checkpoint 重放及最终 publish 均核对引用在完整 closure 内、审计可读且 pair/comparison 绑定相等。缺失、损坏和错绑定拒绝发布。
+
+现有 READY closure 的原始 SHA/size 和原有 operation/Preview/History 保护覆盖审计；closure 本身形状/preimage 不变。D 的 Submit 衔接必须在既有事务内把 **完整 READY closure 输出（含审计和审核 bundle）** 转为提交所有保护，再释放 Attempt/临时引用；终态与 workspace 复用不得释放该提交记录仍持有的审核闭包。C 仅建立并验证结果闭包，提交所有保护移交由 Submit/Review owning lifecycle 实施。

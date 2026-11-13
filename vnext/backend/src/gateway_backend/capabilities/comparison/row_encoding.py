@@ -108,6 +108,14 @@ def _schema_view(
     )
 
 
+def _pure_column_change(schema: _SchemaView) -> bool:
+    """Only added/deleted columns; no inferred rename or shared type evolution."""
+    return bool(schema.before_only or schema.current_only) and not (
+        schema.incompatible or schema.key_changed or schema.source_key_changed
+        or schema.enum_set_added
+    )
+
+
 def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> list[str]:
     diagnostics: list[str] = []
     if schema.before_only:
@@ -420,6 +428,7 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
         "table_name": fact.table_name,
         "status": fact.status.value,
         "content_changed": fact.content_changed,
+        "shared_value_equality": fact.shared_value_equality,
         "schema_changes": {
             "before_only": list(fact.schema_changes.before_only_columns),
             "current_only": list(fact.schema_changes.current_only_columns),

@@ -1328,7 +1328,8 @@ fn compare_ordered_table_inner(
         &digest_value_columns,
         context,
     )?);
-    let content_changed = (status == "UNCHANGED" || status == "SCHEMA_ONLY_CHANGED")
+    let content_changed = (status == "UNCHANGED"
+        || (status == "SCHEMA_ONLY_CHANGED" && options.columns_added))
         && if options.columns_added {
             options
                 .compare_excluded_columns

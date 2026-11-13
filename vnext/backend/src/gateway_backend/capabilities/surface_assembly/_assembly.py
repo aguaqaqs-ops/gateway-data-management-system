@@ -442,8 +442,10 @@ def table_change_kind(table: ComparisonTableFact, *, replacement: bool) -> Surfa
     from gateway_backend.capabilities.comparison.presentation import visible_table_fact
 
     table = visible_table_fact(table)
-    kind = _display_projection(table, SurfaceTableRefs(), SurfaceRecordsRefs(),
-        replacement, _ordered_unsupported(table))[0]
+    unsupported = _ordered_unsupported(table)
+    kind = _display_projection(table, SurfaceTableRefs(), SurfaceRecordsRefs(), replacement, unsupported)[0]
+    if unsupported:
+        return SurfaceChangeKind.DEGRADED
     if table.content_changed and kind is SurfaceChangeKind.UNCHANGED:
         return SurfaceChangeKind.UPDATED
     return kind

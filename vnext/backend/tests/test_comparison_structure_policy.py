@@ -263,7 +263,8 @@ def test_audit_is_verified_before_hidden_success_is_returned() -> None:
 
 
 @pytest.mark.parametrize("changed", (False, True))
-def test_empty_original_schema_change_stays_browsable_without_restoring_hidden_risk(changed: bool) -> None:
+@pytest.mark.parametrize("filtered", (False, True))
+def test_empty_original_schema_change_stays_browsable_without_restoring_hidden_risk(changed: bool, filtered: bool) -> None:
     import json
     from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
     from gateway_backend.capabilities.surface_assembly import SurfaceChangeKind
@@ -272,21 +273,25 @@ def test_empty_original_schema_change_stays_browsable_without_restoring_hidden_r
     from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
     store = InMemoryArtifactStore()
-    before = "CREATE TABLE t(id INT PRIMARY KEY,old TEXT);"
-    current = "CREATE TABLE t(id INT PRIMARY KEY,new TEXT);" if changed else before
+    name = "device_st" if filtered else "t"
+    registry = ("CREATE TABLE device(gid BIGINT PRIMARY KEY,dev_addr INT); INSERT INTO device VALUES(7,49);"
+                if filtered else "")
+    before = registry + f"CREATE TABLE {name}(id INT PRIMARY KEY,dev_addr INT,old TEXT);"
+    current = registry + f"CREATE TABLE {name}(id INT PRIMARY KEY,dev_addr INT,new TEXT);" if changed else before
     result = run_history_pair_pipeline(pair_id="empty-structure",
         before=_artifact_bound(before, store), current=_artifact_bound(current, store),
-        rule_set=comparison_ruleset_for(standard_rule_record("t")), store=store,
+        rule_set=comparison_ruleset_for(standard_rule_record(name), standard_rule_record("device")), store=store,
         control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
     surface = result.surface_result.surface
     assert surface is not None
-    table, = surface.tables
+    table = next(t for t in surface.tables if t.table_name == name)
     assert table.change_kind is SurfaceChangeKind.UNCHANGED
     assert table.risk_refs.risk_level is None
     document = json.loads(store.locate(surface.projections[0].projection_ref))
-    group = document["groups"][4]
-    tab, = group["items"][0]["tabs"]
+    group = document["groups"][1 if filtered else 4]
+    item = next(i for i in group["items"] if any(t["table_id"] == name for t in i["tabs"]))
+    tab = next(t for t in item["tabs"] if t["table_id"] == name)
     assert tab["empty"] is (not changed)
-    assert group["nonempty_item_count"] == int(changed)
-    assert group["items"][0]["summary"]["risk_level"] is None
+    assert group["nonempty_item_count"] == int(changed) + int(filtered)
+    assert item["summary"]["risk_level"] is None
     assert (result.structure_audit_ref is not None) is changed

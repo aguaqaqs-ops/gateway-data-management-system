@@ -236,3 +236,62 @@ def test_management_output_is_bounded_and_sanitized() -> None:
     assert (code, state, reason) == (3, "busy", "unknown")
     with pytest.raises(provision.Incomplete, match="output exceeded limit"):
         provision._management_command([sys.executable, "-c", "import sys; sys.stdout.write('x' * 65537); sys.stdout.flush()"], {})
+
+
+@pytest.mark.parametrize("role", ["registration", "public_scope"])
+def test_confirmation_diagnostics_preserve_pending_and_exclude_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], role: str
+) -> None:
+    conn = database(tmp_path / "db")
+    adapter = StubAdd()
+    events: list[dict[str, object]] = []
+    monkeypatch.setattr(provision, "_log", lambda _stream, event, **fields: events.append({"event": event, **fields}))
+    error = provision.Incomplete("synthetic secret must not be logged", reason="http_status", status=404, entry_route_not_loaded=role == "public_scope")
+    if role == "registration":
+        def registration(_device: str, _project: str) -> dict[str, Any]:
+            raise error
+        monkeypatch.setattr(adapter, "registration", registration)
+    else:
+        adapter.fail_receipt = False
+        def probe(_session: Any, _repository: str) -> None:
+            raise error
+        monkeypatch.setattr(adapter, "probe", probe)
+    with pytest.raises(provision.Incomplete):
+        provision._add_batch(conn, adapter, provision._targets(conn, None), False, RecordingLog(), tmp_path)  # type: ignore[arg-type]
+    assert len(adapter.candidates) == 1
+    assert conn.execute("SELECT current_session IS NULL,pending_session IS NOT NULL FROM provisioning").fetchone() == (1, 1)
+    diagnostic = next(v for v in events if v["event"] == "confirmation-unfinished")
+    assert diagnostic["role"] == role
+    assert diagnostic["reason"] == "http_status"
+    assert diagnostic["http_status"] == 404
+    assert diagnostic["entry_route_not_loaded"] == (role == "public_scope")
+    output = capsys.readouterr().out
+    assert "synthetic secret" not in output
+    assert adapter.candidates[0] not in output
+    assert "synthetic secret" not in json.dumps(events)
+    assert adapter.candidates[0] not in json.dumps(events)
+    conn.close()
+
+
+@pytest.mark.parametrize("entry_header,expected", [("route-not-loaded", True), ("another-rejection", False)])
+def test_http_diagnostic_records_only_status_and_specific_entry_predicate(
+    monkeypatch: pytest.MonkeyPatch, entry_header: str, expected: bool
+) -> None:
+    from email.message import Message
+    from urllib.error import HTTPError
+
+    headers = Message()
+    headers["X-Gateway-Entry-Rejection"] = entry_header
+    error = HTTPError("http://127.0.0.1/secret-url", 404, "secret error", headers, None)
+
+    def open_request(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr(provision, "build_opener", lambda *_args: SimpleNamespace(open=open_request))
+    with pytest.raises(provision.Incomplete) as caught:
+        provision._request("http://127.0.0.1/secret-url", "synthetic-secret-token", "dev-1")
+    assert provision._probe_diagnostic(caught.value, "public_scope") == {
+        "role": "public_scope", "reason": "http_status", "http_status": 404,
+        "entry_route_not_loaded": expected,
+    }
+    assert str(caught.value) == "probe not confirmed"

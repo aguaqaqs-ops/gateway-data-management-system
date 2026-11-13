@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Literal
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -105,8 +105,25 @@ class Rejected(Exception):
     """Safe configuration or preflight rejection."""
 
 
+ProbeRole = Literal["registration", "public_scope", "old_token"]
+ProbeReason = Literal["unknown", "http_status", "timeout", "transport_error", "invalid_json", "response_shape", "response_too_large", "expected_401", "scope_fields", "scope_identity", "repository_identity", "credential_unavailable"]
+
+
 class Incomplete(Exception):
     """A remote operation may have taken effect; retry the same operation."""
+
+    def __init__(self, message: str, *, reason: ProbeReason = "unknown", status: int | None = None, entry_route_not_loaded: bool = False) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.status = status
+        self.entry_route_not_loaded = entry_route_not_loaded
+
+
+def _probe_diagnostic(error: Incomplete, role: ProbeRole) -> dict[str, object]:
+    # Only owning fixed labels, numeric status and the specific entry header
+    # predicate leave the probe. Never include URLs, headers, bodies or errors.
+    return {"role": role, "reason": error.reason, "http_status": error.status,
+            "entry_route_not_loaded": error.entry_route_not_loaded}
 
 
 @dataclass(frozen=True)
@@ -187,23 +204,32 @@ def _request(url: str, token: str, device: str | None = None, *, unauthorized: b
         headers["X-Gateway-Device-Key"] = hashlib.sha256(device.encode("utf-8")).hexdigest()
     try:
         with build_opener(ProxyHandler({}), _NoRedirect()).open(Request(url, headers=headers), timeout=5) as response:
+            status = response.status
             raw = response.read(65537)
-            if len(raw) > 65536 or unauthorized:
-                raise Incomplete("probe not confirmed")
-            value = json.loads(raw)
+            if len(raw) > 65536:
+                raise Incomplete("probe not confirmed", reason="response_too_large", status=status)
+            if unauthorized:
+                raise Incomplete("probe not confirmed", reason="expected_401", status=status)
+            try:
+                value = json.loads(raw)
+            except (ValueError, UnicodeError):
+                raise Incomplete("probe not confirmed", reason="invalid_json", status=status) from None
             if not isinstance(value, dict):
-                raise Incomplete("probe not confirmed")
+                raise Incomplete("probe not confirmed", reason="response_shape", status=status)
             return value
     except HTTPError as exc:
         code = exc.code
+        pending = device is not None and code == 404 and exc.headers.get("X-Gateway-Entry-Rejection") == "route-not-loaded"
         exc.close()
         if unauthorized and code == 401:
             return None
         if missing_ok and code == 404:
             return None
-        raise Incomplete("probe not confirmed") from None
-    except (OSError, ValueError):
-        raise Incomplete("probe not confirmed") from None
+        raise Incomplete("probe not confirmed", reason="http_status", status=code, entry_route_not_loaded=pending) from None
+    except OSError as exc:
+        raise Incomplete("probe not confirmed", reason="timeout" if isinstance(exc, TimeoutError) else "transport_error") from None
+    except ValueError:
+        raise Incomplete("probe not confirmed", reason="invalid_json") from None
 
 
 def _scope(value: dict[str, Any] | None, env: str, group: str, device: str, project: str, repository: str | None = None, *, registration: bool = False) -> str:
@@ -211,12 +237,12 @@ def _scope(value: dict[str, Any] | None, env: str, group: str, device: str, proj
     if registration:
         fields |= {"initial_node_id", "initial_commit_id"}
     if value is None or set(value) != fields or any(not isinstance(value[x], str) or not value[x] for x in fields):
-        raise Incomplete("scope response invalid")
+        raise Incomplete("scope response invalid", reason="scope_fields", status=200)
     if (value["environment_id"], value["group_id"], value["gateway_device_external_key"], value["business_project_id"]) != (env, group, device, project):
-        raise Incomplete("scope response differs")
+        raise Incomplete("scope response differs", reason="scope_identity", status=200)
     result = str(value["repository_id"])
     if repository is not None and result != repository:
-        raise Incomplete("repository response differs")
+        raise Incomplete("repository response differs", reason="repository_identity", status=200)
     return result
 
 
@@ -323,7 +349,7 @@ class GatewayHostAdapter:
     def registration(self, device: str, project: str) -> dict[str, Any]:
         token = Path(self.group.internal_token_file).read_text(encoding="utf-8").strip()
         if not token:
-            raise Incomplete("management credential unavailable")
+            raise Incomplete("management credential unavailable", reason="credential_unavailable")
         response = _request(self.group.backend_endpoint + "/internal/v1/devices/registration?device=" + quote(device, safe=""), token)
         _scope(response, self.groups.environment_id, self.group.group_id, device, project, registration=True)
         assert response is not None
@@ -468,12 +494,15 @@ def _add_batch(conn: sqlite3.Connection, adapter: GatewayHostAdapter, rows: list
         if code != 0:
             print(json.dumps({"device": device, "pending": True, "completed": completed, "step": "management", "state": state, "reason": reason, "gateway_step": "unknown"}))
             return code
+        role: ProbeRole = "registration"
         try:
             receipt = adapter.registration(device, project)
+            role = "public_scope"
             adapter.probe(candidate, receipt["repository_id"])
-        except Incomplete:
-            _log(stream, "confirmation-unfinished", device=device, completed=completed, gateway_step="unknown")
-            print(json.dumps({"device": device, "pending": True, "completed": completed, "step": "confirmation", "gateway_step": "unknown"}))
+        except Incomplete as error:
+            diagnostic = _probe_diagnostic(error, role)
+            _log(stream, "confirmation-unfinished", device=device, completed=completed, gateway_step="unknown", **diagnostic)
+            print(json.dumps({"device": device, "pending": True, "completed": completed, "step": "confirmation", "gateway_step": "unknown", **diagnostic}))
             raise
         now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         with conn:
@@ -528,12 +557,15 @@ def _renew(conn: sqlite3.Connection, adapter: GatewayHostAdapter, stream: Any) -
         before, after = adapter.replace_sessions(list(zip(old, candidates, strict=True)))
         _log(stream, "sessions-replaced", before_sha256=before, after_sha256=after, recovered=recovered)
         for row, previous, candidate in zip(rows, old, candidates, strict=True):
+            role: ProbeRole = "public_scope"
             try:
                 adapter.probe(candidate, row[6])
+                role = "old_token"
                 adapter.probe(previous, row[6], revoked=True)
-            except Incomplete:
-                _log(stream, "renewal-probe-unfinished", device=row[0])
-                print(json.dumps({"device": row[0], "pending": True, "step": "renewal-probe", "gateway_step": "unknown"}))
+            except Incomplete as error:
+                diagnostic = _probe_diagnostic(error, role)
+                _log(stream, "renewal-probe-unfinished", device=row[0], **diagnostic)
+                print(json.dumps({"device": row[0], "pending": True, "step": "renewal-probe", "gateway_step": "unknown", **diagnostic}))
                 raise
             _log(stream, "renewal-probe", device=row[0], new_scope="confirmed", old_token="unauthorized")
         with conn:

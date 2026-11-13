@@ -73,6 +73,20 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
     schema = _schema_view(before_descriptor, current_descriptor, policy)
     schema_changes = _schema_changes_from_view(schema, policy)
     schema_diagnostics = _schema_diagnostics(schema, policy)
+    # With no rows on either side, equal bound schemas prove equality even
+    # when an explicit comparison column is absent. Do not guess a row key.
+    if (before_descriptor.row_count == current_descriptor.row_count == 0
+            and before_descriptor.business_schema_digest == current_descriptor.business_schema_digest
+            and not schema.key_changed):
+        return ComparisonTableFact(
+            table_name=task.table_name,
+            status=ComparisonTableStatus.UNCHANGED,
+            before_descriptor=before_descriptor,
+            current_descriptor=current_descriptor,
+            schema_changes=schema_changes,
+            row_count_before=0,
+            row_count_current=0,
+        )
     if schema.key_invalid or schema.key_changed:
         return ComparisonTableFact(
             table_name=task.table_name,

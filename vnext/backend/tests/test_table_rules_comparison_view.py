@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 from contextlib import closing
+from typing import Any
 
 from gateway_backend.capabilities.comparison import (
-    ComparisonPlan, ComparisonRequest, ComparisonRecordKind, ComparisonTableStatus,
+    ComparisonFacts, ComparisonPlan, ComparisonRequest, ComparisonRecordKind, ComparisonTableStatus,
     DetailedFactsResult, plan_comparison,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
@@ -72,7 +73,9 @@ def _configuration_sql(name: str, rows: str, *, key_column: str = "page_no",
     return sql + (f"INSERT INTO {name} VALUES {rows};" if rows else "")
 
 
-def _configuration_compare(before_sql: str, current_sql: str) -> DetailedFactsResult:
+def _configuration_compare(
+    before_sql: str, current_sql: str, *, records_out: list[dict[str, Any]] | None = None,
+) -> ComparisonFacts:
     planned = plan_comparison(ComparisonRequest(
         pair_id="configuration-contract", before=canonical_bound(before_sql),
         current=canonical_bound(current_sql),
@@ -81,7 +84,12 @@ def _configuration_compare(before_sql: str, current_sql: str) -> DetailedFactsRe
     assert isinstance(planned, ComparisonPlan)
     with closing(compare_plan_native(planned)) as product:
         assert isinstance(product.result, DetailedFactsResult)
-        return product.result
+        assert product.result.facts is not None
+        if records_out is not None:
+            for handle in product.handles.values():
+                with closing(handle.record_batches("STANDARD")) as reader:
+                    records_out.extend(row for batch in reader for row in batch.to_pylist())
+        return product.result.facts
 
 
 @pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
@@ -92,22 +100,23 @@ def test_configuration_rows_align_page_and_number_and_emit_all_changes(table_nam
     assert view.comparison_role is ComparisonRole.STANDARD
     assert view.effective_key_columns == ("page_no", "no")
     assert view.artifact_scope is TableArtifactScope.ALL_CHANGES
+    records: list[dict[str, Any]] = []
     facts = _configuration_compare(
         _configuration_sql(table_name, "(1,'1','1','same'),(2,'2','1','old'),(3,'3','1','gone')"),
         _configuration_sql(table_name, "(1,'1','1','same'),(2,'2','1','new'),(4,'4','1','added')"),
-    ).facts
+        records_out=records,
+    )
     table, = facts.tables
     assert table.status is ComparisonTableStatus.MODIFIED
     assert (table.row_added_count, table.row_deleted_count, table.row_modified_count) == (1, 1, 1)
-    assert {record.record_kind for record in table.records} == {
-        ComparisonRecordKind.ROW_ADDED, ComparisonRecordKind.ROW_DELETED,
-        ComparisonRecordKind.ROW_MODIFIED,
+    assert {record["record_kind"] for record in records} == {
+        "ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED",
     }
-    modified, = (record for record in table.records
-                 if record.record_kind is ComparisonRecordKind.ROW_MODIFIED)
-    assert modified.changed_columns == ("value",)
-    assert dict(modified.before_values)["page_no"] == "2"
-    assert dict(modified.before_values)["no"] == "1"
+    modified, = (record for record in records if record["record_kind"] == "ROW_MODIFIED")
+    assert modified["changed_columns"] == ["value"]
+    before_values = {item["column_name"]: item["value"]["text"] for item in modified["before_values"]}
+    assert before_values["page_no"] == "2"
+    assert before_values["no"] == "1"
     assert (facts.summary.row_added_count, facts.summary.row_deleted_count,
             facts.summary.row_modified_count) == (1, 1, 1)
 
@@ -132,7 +141,7 @@ def test_invalid_comparison_key_degrades_without_using_ddl_key(
     bad = _configuration_sql("iec104_cfg", rows, key_column=key_column)
     result = _configuration_compare(bad if fault_side == "before" else good,
                                     good if fault_side == "before" else bad)
-    table, = result.facts.tables
+    table, = result.tables
     assert table.status is ComparisonTableStatus.DEGRADED
     assert [record.record_kind for record in table.records] == [ComparisonRecordKind.TABLE_DEGRADED]
     if diagnostic is not None:
@@ -145,7 +154,7 @@ def test_configuration_comparison_works_with_keyless_or_ddl_storage(primary_key:
     facts = _configuration_compare(
         _configuration_sql("iec104_cfg", "(1,'1','1','old')", primary_key=primary_key),
         _configuration_sql("iec104_cfg", "(1,'1','1','new')", primary_key=primary_key),
-    ).facts
+    )
     assert facts.tables[0].row_modified_count == 1
 
 
@@ -155,7 +164,7 @@ def test_configuration_empty_and_single_side_need_no_key_values(side: str) -> No
     empty = _configuration_sql("iec104_cfg", "", key_column="other", primary_key=False)
     result = _configuration_compare("" if side == "current" else empty,
                                     "" if side == "before" else empty)
-    table, = result.facts.tables
+    table, = result.tables
     assert table.status is {
         "before": ComparisonTableStatus.DELETED_TABLE,
         "current": ComparisonTableStatus.ADDED_TABLE,

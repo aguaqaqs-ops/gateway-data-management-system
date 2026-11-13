@@ -395,7 +395,9 @@ def test_configuration_contract_separates_storage_and_comparison_keys(table_name
     assert record.compare_key_mode is TableCompareKeyMode.EXPLICIT_KEY
     assert record.artifact_scope is TableArtifactScope.ALL_CHANGES
     assert record.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
-    assert record.ignored_columns == record.dropped_columns == record.compare_excluded_columns == ()
+    assert record.ignored_columns == ()
+    assert record.dropped_columns == ()
+    assert record.compare_excluded_columns == ()
 
 
 @pytest.mark.parametrize("field,value", (

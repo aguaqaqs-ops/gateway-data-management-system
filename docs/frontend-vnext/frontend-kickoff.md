@@ -2,7 +2,7 @@
 
 - **状态：** 已确认（owner，2026-11-02）；FE0 可以开始。
 - **日期：** 2026-11-02。
-- **修订：** 2026-11-04 按后端 [DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)（方向经 owner 确认，后端设计 main `f20f08bea9`）更新 §3.3、§4.3、§5 BE-a 与 §7 FE3；BE-a 尚未实施。2026-11-12 按前端专项整顿（[执行计划](frontend-remediation-plan.md)）与 owner 决定修改 §1、§4.1、§4.2、§6、§7、§9；2026-11-13 按整顿计划评审与 owner 决定修改 §4.2、§6、§7。
+- **修订：** 2026-11-04 按后端 [DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)（方向经 owner 确认，后端设计 main `f20f08bea9`）更新 §3.3、§4.3、§5 BE-a 与 §7 FE3；BE-a 尚未实施。2026-11-12 按前端专项整顿（[执行计划](frontend-remediation-plan.md)）与 owner 决定修改 §1、§4.1、§4.2、§6、§7、§9；2026-11-13 按整顿计划评审与 owner 决定修改 §4.2、§6、§7，按计划复审补全 §6 凭据检索的 token 类别。
 - **会话分工：** 本设计会话负责 kickoff、决定记录与设计问题答复；实施与审核各由独立会话负责（§10）。
 - **范围：** 新建前端工程，对接 vnext 后端；`legacy/frontend/` 只作行为与问题来源。
 - **依据：**
@@ -161,7 +161,7 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 - **入口：** FE0 提供 `frontend/scripts/run-tests.sh` 作为前端权威入口；是否并入 `vnext/scripts/run-tests.sh` 的包选择（例如新增 `frontend` 包名）在 FE0 评估。并入会修改 runner 与闭包脚本，影响后端闭包，倾向保持独立。
 - **格式与分层（前端专项整顿 H4、H1 之后）：** 入口在 `npm ci` 之后执行 `npm run format:check`（Prettier，配置 `frontend/.prettierrc.json`），`npm run lint` 含 §4.2 的分层规则。格式问题在 CT201 的开发 worktree 执行 `npm run format` 后提交，不在测试节点上改写源码。
 - **运行尝试的记录：** handoff 记录每一次运行尝试，包括被测对象运行之前就失败的尝试：原因、修正与结果。
-- **凭据检索：** 在全部真实运行（含重跑与运行前失败的尝试）结束之后执行，覆盖每一次运行的日志目录与证据目录。检索项：`Bearer ` 后接 token 字符、`dir-token`、`gdds-handoff=`，以及真实 backend 入口生成的两种 token：smoke 的 `fe3a-<身份段>-<32 位十六进制>`（身份段是角色或输入 scope 名，可含连字符）与 journeys 的 `fe3b-<场景>-<角色>-<32 位十六进制>`。trace 与其他 zip 逐成员解压后再检索；源码模板 `Bearer ${` 单独计数，不算凭据。检索方法先在构造样本上证明有检出能力：两种格式的假 token 分别放进明文文件与 zip 成员，各项计数都不为 0；样本不用真实 token。整顿 T5 之后用 `frontend/scripts/scan-credentials.py`（只读，自带上述自检），之前按同一口径检索。
+- **凭据检索：** 在全部真实运行（含重跑与运行前失败的尝试）结束之后执行，覆盖每一次运行的日志目录与证据目录。检索项：`Bearer ` 后接 token 字符、`dir-token`、`gdds-handoff=`，以及真实 backend 入口生成的四类 token：两个服务级 token，即 Repository Service 的 bearer `<前缀>-rs-<32 位十六进制>` 与 backend 的 internal bearer `<前缀>-internal-<32 位十六进制>`（前缀 journeys 是 `fe3b`，smoke 与 t1 是 `fe3a`）；smoke 的角色与输入 scope `fe3a-<身份段>-<32 位十六进制>`（身份段可含连字符）；journeys 与 t1 的“场景-角色” `fe3b-<场景>-<角色>-<32 位十六进制>`。四类用一条模式检索，不按格式分别写：`fe3a-` 或 `fe3b-`，接一段或多段小写字母、数字和连字符，再接 `-` 与 32 位十六进制，其后不再跟十六进制字符（`fe3[ab]-[a-z0-9-]+?-[0-9a-f]{32}(?![0-9a-f])`）。trace 与其他 zip 逐成员解压后再检索；源码模板 `Bearer ${` 单独计数，不算凭据。检索方法先在构造样本上证明有检出能力：smoke 形、journeys 形与服务级 `fe3b-rs-` 形的假 token 各在明文文件与 zip 成员中放一份，每份都被命中、各项计数都不为 0；样本不用真实 token。整顿 T5 之后用 `frontend/scripts/scan-credentials.py`（只读，自带上述自检），之前按同一口径检索。
 - **真实 backend 入口的日志目录：** 每次运行用单独的 `--log-dir`。入口把 `results.json`、`groups-control/` 等写成固定文件名，两次运行共用目录会覆盖上一次的结果；整顿 T3 之后入口拒绝这样的目录。
 - **截图验收（owner 2026-11-02）：** FE2 起，由 Playwright 在 1280 与 1920 两种宽度下，对 UI 优化方向 §7 草图清单中的每个页面与状态截图（模拟接口，固定示例数据），截图与运行日志存于 worktree 外的证据目录并记录 SHA256。审核会话逐张对照草图核对布局、层级、语义色、按钮层级、禁用原因与焦点样式；不做像素级比对（示例数据不同）。与草图不符处要么修正，要么作为偏差列入 handoff 交 owner 确认。FE4 在合格空闲池内节点上用真实 backend 与 t1 数据重拍一次关键页面作为证据。
 - 规则写入 AGENTS 与 testing-conventions，由治理会话在 FE0 首次运行测试前完成。

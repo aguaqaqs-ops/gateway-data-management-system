@@ -69,8 +69,10 @@ def test_unknown_metadata_and_other_ordered_semantics_are_never_hidden() -> None
     with closing(native_product(_BEFORE, "CREATE TABLE t(id INT PRIMARY KEY,v INT); INSERT INTO t VALUES (1,10);")) as product:
         assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
         table, = product.result.facts.tables
+        assert table.before_descriptor is not None
         rejected = (
             replace(table, shared_value_equality=None),
+            replace(table, before_descriptor=replace(table.before_descriptor, primary_key_columns=("v",))),
             replace(table, content_changed=True),
             replace(table, status=ComparisonTableStatus.DEGRADED),
             replace(table, row_count_current=None),

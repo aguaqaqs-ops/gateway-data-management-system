@@ -15,6 +15,7 @@ _SCHEMA_DIAGNOSTICS = frozenset({"BEFORE_ONLY_COLUMNS", "CURRENT_ONLY_COLUMNS", 
 def structure_change_is_audit_only(table: ComparisonTableFact) -> bool:
     changes = table.schema_changes
     if (table.before_descriptor is None or table.current_descriptor is None
+            or table.before_descriptor.primary_key_columns != table.current_descriptor.primary_key_columns
             or table.row_count_before is None or table.row_count_before != table.row_count_current
             or table.row_count_before != table.before_descriptor.row_count
             or table.row_count_current != table.current_descriptor.row_count

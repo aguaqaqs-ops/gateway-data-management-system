@@ -64,6 +64,26 @@ class ResetScopeTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 reset_a.inspect_scope(allow_owned=True)
 
+    def test_compose_config_cannot_bind_b_or_publish_another_port(self):
+        group = {'name': 'gdds08-a', 'services': {
+            'backend': {'volumes': [{'type': 'bind', 'source': str(self.a / 'group/roots/be-durable')}],
+                        'ports': [{'target': 8000, 'published': '18000', 'host_ip': '127.0.0.1'}]},
+            'worker': {}, 'repository-service': {}},
+            'networks': {'default': {'name': 'gdds08-a_default'}}}
+        entry = {'name': 'gdds08-a-entry', 'services': {'entry': {'network_mode': 'host',
+                  'volumes': [{'type': 'bind', 'source': str(self.a / 'entry')}]}}}
+        def fake_call(*args, **kwargs):
+            return json.dumps(group if args[0] == 'group' else entry)
+        with patch.object(reset_a, 'call', side_effect=fake_call):
+            reset_a.validate_compose(('group',), ('entry',), {})
+            group['services']['backend']['volumes'][0]['source'] = str(self.root / 'b')
+            with self.assertRaises(ValueError):
+                reset_a.validate_compose(('group',), ('entry',), {})
+            group['services']['backend']['volumes'][0]['source'] = str(self.a / 'group/roots/be-durable')
+            group['services']['backend']['ports'][0]['published'] = '18001'
+            with self.assertRaises(ValueError):
+                reset_a.validate_compose(('group',), ('entry',), {})
+
 
 if __name__ == '__main__':
     unittest.main()

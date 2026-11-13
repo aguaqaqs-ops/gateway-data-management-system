@@ -100,6 +100,14 @@ def http(url, headers=None):
         return error.code, b''
 
 
+def check_free_port(port):
+    # A closed TCP connection can retain TIME_WAIT without a listening service.
+    # REUSEADDR permits that ordinary state while active listeners still reject.
+    with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('127.0.0.1', port))
+
+
 def wait(check, seconds=180):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -288,10 +296,10 @@ class Journey:
         if document(Path(self.config['seed_file'])) != {'mappings': []}:
             raise ValueError('fresh empty seed required')
         for port in ports:
-            with socket.socket() as sock:
-                sock.bind(('127.0.0.1', port))
+            check_free_port(port)
         self.private = outside(self.config['private_dir'])
         self.private.mkdir(mode=0o700)
+        (self.evidence / 'provision').mkdir(mode=0o700)
         self.env = {'PATH': os.environ['PATH'], 'HOME': '/home/dev', 'TMPDIR': str(TMP),
             'UV_OFFLINE': '1', 'CARGO_NET_OFFLINE': 'true', 'PYTHONDONTWRITEBYTECODE': '1',
             'PYTHONPATH': str(ROOT / 'directory/service'),
@@ -547,9 +555,10 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
         if self.started:
             for port in (8100, 4173, self.groups['entry']['listen_port'], self.groups['entry']['management_port'], self.group['backend_port']):
                 try:
-                    with socket.socket() as sock:
-                        sock.bind(('127.0.0.1', port))
+                    check_free_port(port)
+                    self.record('cleanup_port', port=port, free=True)
                 except OSError:
+                    self.record('cleanup_port', port=port, free=False)
                     cleanup_ok = False
         # Private DB/session documents are not evidence and must remain private.
         # Scan raw evidence using actual old and current tokens without printing any.

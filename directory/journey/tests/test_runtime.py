@@ -80,6 +80,20 @@ class RuntimeBoundaries(unittest.TestCase):
                         else:
                             docker(kind, 'rm', identity)
 
+    def test_port_check_rejects_listener_and_accepts_closed_connection(self):
+        with socket.socket() as server:
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(('127.0.0.1', 0))
+            port = server.getsockname()[1]
+            server.listen()
+            with self.assertRaises(OSError):
+                JOURNEY.check_free_port(port)
+            with socket.create_connection(('127.0.0.1', port)) as client:
+                connection, _ = server.accept()
+                connection.close()
+                self.assertEqual(client.recv(1), b'')
+        JOURNEY.check_free_port(port)
+
     def test_timeout_and_interrupt_stop_detached_management_helper(self):
         with tempfile.TemporaryDirectory(prefix='directory-command-', dir=JOURNEY.TMP) as folder:
             root = Path(folder)

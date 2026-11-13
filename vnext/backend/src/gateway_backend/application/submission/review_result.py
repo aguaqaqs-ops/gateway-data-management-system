@@ -6,6 +6,10 @@ from typing import Protocol
 from dataclasses import dataclass
 
 from gateway_backend.application.checkpoints import ReadyClosureDocument
+from gateway_backend.application.submission.accept_transaction import deterministic_submit_operation_id
+from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
+from gateway_backend.operations import BusinessReference
+from gateway_backend.operations.store import RecordNotFound
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
 from gateway_backend.application.submission.ports import ReviewApplyControlUnitOfWorkFactory
 from gateway_backend.application.submission.review import (
@@ -53,6 +57,12 @@ def load_preview_review_closure(
     if (tuple(pair.pair_id for pair in preview.comparison_pairs) != expected_pair_ids
             or tuple(pair.pair_id for pair in preview.identity_pairs) != expected_pair_ids):
         raise BundleIntegrityError("Preview pair count does not match its input mode")
+    current_pair = preview.comparison_pairs[-1]
+    if (current_pair.current_snapshot_digest != preview.digests.snapshot_digest
+            or current_pair.comparison_digest != preview.digests.comparison_digest
+            or (current_pair.risk_digest is not None and current_pair.risk_digest != preview.digests.risk_digest)
+            or len({pair.ruleset_digest for pair in preview.comparison_pairs}) != 1):
+        raise BundleIntegrityError("Preview comparison input binding mismatch")
     ready_ref = lookup.lookup_ref(preview.ready_closure_artifact_id)
     if ready_ref is None:
         raise ArtifactUnavailableError("preview READY closure is unavailable")
@@ -138,7 +148,8 @@ def read_submission_preview(
         if preview is None:
             raise ArtifactUnavailableError("Submission Preview is unavailable")
         assert_submission_preview_binding(facts.submission, preview)
-        attempt = unit_of_work.submission.get_submit_attempt(facts.submission.submit_attempt_id)
+        attempt = unit_of_work.submission.get_submit_attempt(facts.submission.submit_attempt_id,
+            workspace_id=facts.submission.workspace_id, repository_id=fresh.repository_id)
         if (attempt is None or attempt.preview_result_id != preview.preview_result_id
                 or attempt.submission_id != submission_id
                 or attempt.preview_ready_closure_ref != preview.ready_closure_artifact_id
@@ -146,7 +157,18 @@ def read_submission_preview(
                 or attempt.configuration_facts != preview.canonical.configuration_facts
                 or attempt.snapshot_digest != preview.digests.snapshot_digest):
             raise BundleIntegrityError("Submission accepted Preview binding mismatch")
-        refs = unit_of_work.operations.get_operation(attempt.operation_id).artifact_refs
+        if attempt.operation_id != deterministic_submit_operation_id(
+                workspace_id=attempt.workspace_id, idempotency_key=attempt.accept_idempotency_key):
+            raise BundleIntegrityError("Submission operation binding mismatch")
+        try:
+            operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        except RecordNotFound as exc:
+            raise ArtifactUnavailableError("Submission operation is unavailable") from exc
+        if operation.job_kind != SUBMIT_JOB_KIND or operation.business_refs != (
+                BusinessReference(kind="workspace", value=attempt.workspace_id),
+                BusinessReference(kind="submit_attempt", value=attempt.submit_attempt_id)):
+            raise BundleIntegrityError("Submission operation scope mismatch")
+        refs = operation.artifact_refs
         held = unit_of_work.list_artifact_protection_for_owner(
             owner_kind="submission-review", owner_id=submission_id)
         ready_ref = next((ref for ref in refs if ref.artifact_id == preview.ready_closure_artifact_id), None)

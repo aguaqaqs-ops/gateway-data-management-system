@@ -37,5 +37,5 @@ def test_real_preview_review_pairs_match_final_bundle_and_ready(mode: InputCompl
     assert preview.bundle_artifact_id in {ref.artifact_id for ref in refs}
     changed = preview.comparison_pairs[-1].model_copy(update={"comparison_digest": "sha256:" + "0" * 64})
     bad = replace(preview, comparison_pairs=(*preview.comparison_pairs[:-1], changed))
-    with pytest.raises(BundleIntegrityError, match="pair binding"):
+    with pytest.raises(BundleIntegrityError, match="binding"):
         load_preview_review_closure(bad, lookup=lookup, store=store)

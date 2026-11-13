@@ -105,6 +105,7 @@ def test_full_result_stays_bound_after_review_release_and_workspace_reuse(tmp_pa
         assert not uow.list_artifact_protection_for_owner(owner_kind="submit-attempt",
             owner_id=submission.submit_attempt_id)
         assert uow.connection.execute("SELECT count(*) FROM operation_records WHERE job_kind='history-compare'").fetchone()[0] == 0
+        uow.connection.execute("UPDATE baseline_head_records SET optimistic_version=optimistic_version+1 WHERE repository_id=?", (seed.workspace.repository_id,))
     for _ in range(2):
         result = env.client.get(path, headers=env.auth_headers())
         assert result.status_code == 200 and result.json() == body

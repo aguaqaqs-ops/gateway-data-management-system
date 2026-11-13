@@ -452,6 +452,7 @@ def seed_submit_ready_workspace(
     device_key: str = "device-1",
     project_id: str = "project-1",
     baseline_head: BaselineHead = BASELINE_HEAD,
+    input_completeness: InputCompleteness = InputCompleteness.FULL,
 ) -> SubmitSeed:
     from tests.support.baseline_fixtures import read_authoritative_baseline_head
 
@@ -505,6 +506,9 @@ def seed_submit_ready_workspace(
             created_by=actor_id,
             created_at=TS0,
         )
+        if input_completeness is InputCompleteness.MODIFIED_ONLY:
+            upload_revision = replace(upload_revision, input_completeness=input_completeness,
+                source_artifacts={SourceArtifactRole.MODIFIED: upload_revision.source_artifacts[SourceArtifactRole.MODIFIED]})
         preview = replace_preview_with_facts(
             _preview_result(workspace.workspace_id, repository_id),
             preview_result_id=preview_result_id,
@@ -515,10 +519,14 @@ def seed_submit_ready_workspace(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
         )
+        if input_completeness is InputCompleteness.MODIFIED_ONLY:
+            preview = replace(preview, canonical=replace(preview.canonical,
+                configuration_facts=replace(preview.canonical.configuration_facts, initial_origin="BASELINE_REUSED")))
         from tests.support.review_result_fixtures import closed_review_preview
         preview, review_refs, _payloads = closed_review_preview(
             preview, make_canonical_artifact_fixture(repository_id).refs)
-        protected_refs = (*_protected_preview_refs(repository_id)[:2], *review_refs)
+        source_ids = {binding.artifact_id for binding in upload_revision.source_artifacts.values()}
+        protected_refs = (*(ref for ref in _protected_preview_refs(repository_id) if ref.artifact_id in source_ids), *review_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(

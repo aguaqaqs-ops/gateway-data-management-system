@@ -185,10 +185,11 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .nav-group__heading .is-closed { transform: rotate(-90deg); }
 .nav-item { margin: 1px 0; border-radius: 5px; }
 .nav-item.is-active { background: var(--color-accent-soft); }
-.nav-item__button { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 8px; padding: 0 7px; border: 0; border-radius: 5px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; font-size: 12px; }
-.nav-item__button:hover, .nav-item__tabs button:hover { background: #f0f3f7; }
+.nav-item__button { display: flex; width: 100%; min-height: 30px; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 5px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; font-size: 12px; }
+.nav-item__button:hover { background: #f0f3f7; }
 .nav-item.is-active > .nav-item__button { color: var(--color-accent); font-weight: 650; }
-.nav-icon { display: grid; width: 21px; height: 21px; flex: none; place-items: center; border: 1px solid #cbd4de; border-radius: 5px; color: #536475; }
+.nav-icon { display: grid; width: 18px; height: 18px; flex: none; place-items: center; border: 1px solid #cbd4de; border-radius: 4px; color: #536475; }
+.nav-icon svg { width: 12px; height: 12px; }
 .nav-item__label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-item__label.is-deleted { text-decoration: line-through; color: var(--color-text-muted); }
 .nav-change { color: var(--color-accent); font-size: 10px; }
@@ -199,11 +200,6 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .surface-change-badge--updated { background: var(--diff-surface); color: var(--diff-text); }
 .surface-change-badge--failed { background: #edf0f3; color: #596574; }
 .surface-change-badge--replaced { background: #f1eafe; color: #6546a5; }
-.nav-item__tabs { display: grid; gap: 1px; padding: 1px 0 3px 30px; }
-.nav-item__tabs button { display: flex; min-height: 30px; min-width: 0; align-items: center; gap: 6px; overflow: hidden; padding: 3px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-muted); text-align: left; cursor: pointer; font-size: 11px; white-space: nowrap; }
-.nav-item__tabs button > span:first-child { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.nav-item__tabs button small { color: var(--color-text-subtle); font-size: 9px; }
-.nav-item__tabs button.is-active { background: #e7effb; color: var(--color-accent); font-weight: 650; }
 .sidebar-expand { display: none; }
 .sidebar-resize { position: sticky; top: var(--compare-header-height, 100px); z-index: 2; height: calc(100vh - var(--compare-header-height, 100px)); min-height: 420px; cursor: col-resize; touch-action: none; }
 .sidebar-resize:hover, .sidebar-resize:focus-visible { background: var(--color-accent); outline: 0; }
@@ -215,17 +211,15 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
    area takes whatever the tab strip and table heading leave. */
 .comparison-content { display: flex; min-width: 0; height: calc(100vh - var(--compare-header-height, 100px)); flex-direction: column; overflow: auto; padding: 4px 12px 10px; }
 .overflow-tabs { position: relative; display: flex; min-height: 34px; flex: none; align-items: stretch; gap: 4px; margin: 0 0 6px; border-bottom: 1px solid var(--color-border); }
-.overflow-tabs__visible { display: flex; min-width: 0; flex: 1; gap: 2px; overflow: hidden; }
-.overflow-tabs button { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; padding: 3px 10px; border: 0; border-radius: 5px 5px 0 0; background: transparent; color: var(--color-text-muted); cursor: pointer; font-size: 11px; white-space: nowrap; }
-.overflow-tabs button span { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
-.overflow-tabs button small { color: var(--color-text-subtle); font-size: 9px; }
-.overflow-tabs button.is-active { border-bottom: 2px solid var(--color-accent); color: var(--color-accent); font-weight: 650; }
-.overflow-tabs__menu { position: relative; }
-.overflow-tabs__menu > button { display: flex; align-items: center; gap: 5px; }
-.overflow-menu { position: absolute; z-index: 4; top: 34px; right: 0; min-width: 190px; padding: 5px; border: 1px solid var(--color-border); border-radius: 6px; background: #fff; box-shadow: var(--shadow-panel); }
-.overflow-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; border-radius: 4px; text-align: left; }
-.overflow-menu button:hover { background: var(--color-surface-muted); }
-.overflow-tab-dot { display: inline-block; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--color-accent); }
+/* Tabs of the selected item only; a long strip scrolls sideways instead of overflowing into a menu. */
+.overflow-tabs__visible { display: flex; min-width: 0; flex: 1; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
+.overflow-tabs button { display: inline-flex; min-height: 32px; flex: none; align-items: center; gap: 6px; padding: 3px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 5px 5px 0 0; background: transparent; color: var(--color-text-muted); cursor: pointer; font-size: 12px; white-space: nowrap; }
+.overflow-tabs button:hover { background: #f0f3f7; }
+.overflow-tabs button span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.overflow-tabs button small { color: var(--color-text-subtle); font-size: 10px; }
+.overflow-tabs button .risk-badge { min-height: 18px; padding: 1px 6px; font-size: 10px; }
+.overflow-tabs button.is-active { border-bottom-color: var(--color-accent); color: var(--color-accent); font-weight: 650; }
+.overflow-tabs__warn { flex: none; color: #9a7a25; }
 .table-heading { display: flex; flex: none; flex-direction: column; gap: 3px; margin: 0 0 6px; padding: 4px 10px; border: 1px solid var(--color-border); border-left: 3px solid #9cabb9; border-radius: 5px; background: #fff; }
 .table-heading__title { display: flex; align-items: center; gap: 8px; margin-right: 5px; }
 .table-heading h2 { margin: 0; font-size: 14px; font-weight: 650; }
@@ -254,8 +248,6 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .diagnostic-note--navigation { flex-wrap: wrap; margin: 5px 8px; padding: 7px 8px; font-size: 11px; }
 .diagnostic-note--navigation code { flex: 1 1 100%; min-width: 0; margin: 2px 0 0 22px; overflow-wrap: anywhere; white-space: normal; }
 .diagnostic-note--navigation button { flex: none; padding: 2px 6px; border: 1px solid #c9b88e; border-radius: 4px; background: #fff; color: #5d4a1d; cursor: pointer; font-size: 10px; }
-.nav-tab { min-width: 0; }
-.nav-tab > .diagnostic-note--navigation { margin-left: 0; }
 .risk-legend { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 9px; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 5px; background: #fff; }
 .risk-legend > div:first-child { display: flex; align-items: center; gap: 8px; }
 .risk-legend strong { font-size: 12px; }

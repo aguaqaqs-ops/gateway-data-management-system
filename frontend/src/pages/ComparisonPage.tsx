@@ -112,6 +112,15 @@ function tabRiskLevel(tab: { facts: { risk_level?: RiskLevel | null } | null; ta
   return tab.facts?.risk_level ?? tab.table?.riskLevel ?? null;
 }
 
+type NavItem = DerivedNavigationGroup["items"][number];
+type NavTab = NavItem["tabs"][number];
+
+/** A filter tab with exact facts speaks for its own rows; otherwise the whole table speaks. */
+function tabOwnState(tab: NavTab): { kind: string | null; risk: RiskLevel | null } {
+  if (tab.rowFilter !== null && tab.facts?.basis === "EXACT") return { kind: tab.facts.change_kind ?? null, risk: tab.facts.risk_level ?? null };
+  return { kind: tab.table?.changeKind ?? null, risk: tab.table?.riskLevel ?? null };
+}
+
 function itemBadgeKind(kinds: readonly string[]): string {
   return kinds.find((kind) => surfaceChangePresentation(kind).badgeText !== null) ?? "UNCHANGED";
 }
@@ -324,7 +333,6 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   }, [workspace, review, refreshUploadMode, refreshUploadSnapshot]);
   const [settings, setSettings] = useState<Settings>(readSettings);
   const collapsed = settings.sidebarCollapsed;
-  const [overflow, setOverflow] = useState(false);
   const [formulaOpen, setFormulaOpen] = useState(false);
   const [formulas, setFormulas] = useState<ReturnType<typeof deriveFormulaDisplays>>([]);
   const [rows, setRows] = useState<BrowseRow[]>([]);
@@ -476,11 +484,19 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const activePair = pairs.find(({ pair }) => pair.pair_id === browse.pairId) ?? pairs[0];
   const presentation = activePair?.presentation ?? null;
   const groups = useMemo(() => presentation?.view.groups ?? [], [presentation]);
+  const navigationDiagnostics = presentation?.navigationDiagnostics;
+  // Tabs an item shows in the tab strip; the sidebar lists an item only when it has some.
+  const shownTabs = useCallback((item: NavItem): NavTab[] => item.tabs.filter((tab) => {
+    if (!browse.onlyInteresting) return true;
+    const { kind, risk } = tabOwnState(tab);
+    return (kind !== null && kind !== "UNCHANGED") || risk !== null
+      || (navigationDiagnostics ?? []).some(({ target }) => target.item_key === item.itemKey && (!target.tab_key || target.tab_key === tab.tabKey));
+  }), [browse.onlyInteresting, navigationDiagnostics]);
   const visibleGroups = useMemo(() => groups.filter((group) => {
     if (!matchesGroup(group, browse.search)) return false;
-    return !browse.onlyInteresting || group.items.some((item) => item.changeKinds.some((kind) => kind !== "UNCHANGED") || item.riskLevels.length > 0)
-      || presentation?.navigationDiagnostics.some((diagnostic) => diagnostic.target.group_key === group.groupKey) === true;
-  }), [browse.onlyInteresting, browse.search, groups, presentation?.navigationDiagnostics]);
+    return group.items.some((item) => shownTabs(item).length > 0)
+      || navigationDiagnostics?.some((diagnostic) => diagnostic.target.group_key === group.groupKey) === true;
+  }), [browse.search, groups, navigationDiagnostics, shownTabs]);
   const navigationEntries = useMemo(() => groups.flatMap((group) => group.items.flatMap((item) => item.tabs.map((tab) => ({ group, item, tab })))), [groups]);
   const wholeTableName = browse.tabKey?.startsWith("__whole__:") ? browse.tabKey.slice("__whole__:".length) : null;
   const wholeTable = wholeTableName ? presentation?.view.tables.find((item) => item.tableName === wholeTableName) : null;
@@ -587,13 +603,18 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     }
     return [...result.values()];
   }, [annotations, surfaceTable]);
-  const selectedGlobalIndex = navigationEntries.findIndex(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === selectedTab?.tabKey && tab.tableName === selectedTab?.tableName);
-  const visibleTabs = selectedGlobalIndex > 5 ? [...navigationEntries.slice(0, 5), navigationEntries[selectedGlobalIndex]].filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)) : navigationEntries.slice(0, 6);
-  const visibleTabKeys = new Set(visibleTabs.map(({ item, tab }) => item.itemKey + "|" + tab.tabKey + "|" + tab.tableName));
-  const overflowTabs = navigationEntries.filter(({ item, tab }) => !visibleTabKeys.has(item.itemKey + "|" + tab.tabKey + "|" + tab.tableName));
+  // The tab strip belongs to the selected navigation item only; the selected
+  // tab stays visible even when the scope filter would hide it.
+  const selectedItem = useMemo(() => groups.flatMap((group) => group.items).find((item) => item.itemKey === selectedNodeKey) ?? null, [groups, selectedNodeKey]);
+  const stripTabs = useMemo(() => {
+    if (!selectedItem) return [];
+    const shown = shownTabs(selectedItem);
+    return selectedItem.tabs.filter((tab) => shown.includes(tab) || (!wholeTable && tab.tabKey === selectedTab?.tabKey && tab.tableName === selectedTab.tableName));
+  }, [selectedItem, selectedTab, shownTabs, wholeTable]);
+  useEffect(() => { document.querySelector(".overflow-tabs button.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [selectedNodeKey, browse.tabKey]);
 
   const chooseTab = (tableName: string, tabKey: string, itemKey = tableName) => {
-    runtime.execute({ name: "select-node", nodeKey: itemKey }); runtime.execute({ name: "select-tab", tabKey }); setOverflow(false);
+    runtime.execute({ name: "select-node", nodeKey: itemKey }); runtime.execute({ name: "select-tab", tabKey });
   };
   const choosePair = (pair: PairPresentation) => {
     runtime.execute({ name: "select-pair", pairId: pair.pair.pair_id });
@@ -715,22 +736,19 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         {globalNavigationDiagnostics.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
         <div className="sidebar-scroll">{visibleGroups.map((group) => {
           const groupMatches = group.label.toLocaleLowerCase().includes(browse.search.trim().toLocaleLowerCase());
-          const items = group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && (!browse.onlyInteresting
-            || item.changeKinds.some((kind) => kind !== "UNCHANGED")
-            || item.riskLevels.length > 0
-            || presentation.navigationDiagnostics.some((diagnostic) => diagnostic.target.item_key === item.itemKey)));
+          const items = group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
           const groupDiagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey);
           if (items.length === 0 && groupDiagnostics.length === 0) return null;
           return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span>{group.label}</span><small>{items.length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
           {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey && !diagnostic.target.item_key && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
-          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = item.tabs.filter((tab) => (groupMatches || matchesItem(item, browse.search)) && (!browse.onlyInteresting || tab.table?.changeKind !== "UNCHANGED" || item.riskLevels.length > 0 || tab.facts?.change_kind && tab.facts.change_kind !== "UNCHANGED" || tab.facts?.risk_level || presentation.navigationDiagnostics.some((diagnostic) => diagnostic.target.item_key === item.itemKey && diagnostic.target.tab_key === tab.tabKey))); if (!itemTabs.length) return null; const active = item.itemKey === browse.nodeKey; const tabDiagnostics = (tabKey: string) => presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.tab_key === tabKey && diagnostic.target.item_key === item.itemKey).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />); const itemState = item.changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(item.changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(item.changeKinds) ? " · " + itemStatusTooltip(item.changeKinds) : ""}${item.riskLevels[0] ? " · " + riskLevelText(item.riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={item.changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{item.riskLevels[0] ? <RiskBadge level={item.riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
+          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const itemState = item.changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(item.changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(item.changeKinds) ? " · " + itemStatusTooltip(item.changeKinds) : ""}${item.riskLevels[0] ? " · " + riskLevelText(item.riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={item.changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{item.riskLevels[0] ? <RiskBadge level={item.riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
             {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
-            {item.showTabs ? <div className="nav-item__tabs">{itemTabs.map((tab) => { const risk = tabRiskLevel(tab); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); return <div className="nav-tab" key={tab.tabKey}><button className={browse.nodeKey === item.itemKey && browse.tabKey === tab.tabKey ? "is-active" : ""} data-tab-key={tab.tabKey} title={tabTitle(tabChangeKind(tab), risk, beforeCount, currentCount)} onClick={() => chooseTab(tab.tableName, tab.tabKey, item.itemKey)}><span className={surfaceChangePresentation(tabChangeKind(tab)).deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={tabChangeKind(tab)} />}</button>{tab.facts?.basis === "TABLE_FALLBACK" && <small className="nav-tab__basis">此页签按整表提示</small>}{tabDiagnostics(tab.tabKey)}</div>; })}</div> : itemTabs.flatMap((tab) => tabDiagnostics(tab.tabKey))}</div>; })}</section>; })}</div>
+          </div>; })}</section>; })}</div>
       </aside>
       {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
-        {navigationEntries.length > 0 && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{visibleTabs.map(({ item, tab }) => { const active = browse.nodeKey === item.itemKey && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); return <button role="tab" aria-selected={active} key={item.itemKey + "|" + tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, item.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount)}><span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}</div>{overflowTabs.length > 0 && <div className="overflow-tabs__menu"><button aria-expanded={overflow} onClick={() => setOverflow(!overflow)}>更多 {overflowTabs.length}<ChevronDown size={14} /></button>{overflow && <div className="overflow-menu">{overflowTabs.map(({ item, tab }) => { const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); return <button key={item.itemKey + "|" + tab.tabKey + "|" + tab.tableName} title={tabTitle(kind, risk, beforeCount, currentCount)} onClick={() => chooseTab(tab.tableName, tab.tabKey, item.itemKey)}><span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}</div>}</div>}</div>}
+        {selectedItem && (stripTabs.length > 1 || wholeTable) && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</div></div>}
           {selectedTab && table && surfaceTable ? <>
             <div className="table-heading">
               <div className="table-heading__meta">
@@ -742,11 +760,13 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                 <span className="table-heading__row-changes">+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}</span>
                 {rowRiskCounts.map(({ level, count }) => <span className="table-heading__risk-count" key={level}><RiskBadge level={level} /><span>{count}</span></span>)}
                 {table.annotationCount > 0 && <span>{table.annotationCount} 条风险标注</span>}
+                {selectedTab.facts?.basis === "TABLE_FALLBACK" && <span className="degraded-reason">此页签按整表提示</span>}
                 {selectedTab.tabKey.startsWith("__whole__:") && <span>整表视图</span>}{(() => { const scope = selectedTab.rowFilter !== null ? selectedTab.facts?.table_scope ?? table.tableScope : table.tableScope; return scope && <span className="table-scope-marker" title={scope.risk_level ? riskLevelText(scope.risk_level) : "整表范围"}>{scope.change ? "整表发生变化" : "整表未变化"}{scope.risk_level ? " · 整表风险" : ""}</span>; })()}
               </div>
               {(surfaceTable.diagnostics?.diagnostics_summary?.length ?? 0) > 0 && <div className="table-heading__diagnostics">{(surfaceTable.diagnostics?.diagnostics_summary ?? []).map((diagnostic, index) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <span key={diagnostic + index}><AlertTriangle size={13} />{formatted.message}{debugMode && <code>{formatted.raw}</code>}</span>; })}</div>}
               {riskReasonDetails.length > 0 && <details className="table-risk-reasons-toggle"><summary>风险原因（{riskReasonDetails.length}）</summary><div className="table-risk-reasons">{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div></details>}
             </div>
+            {selectedItem && presentation.navigationDiagnostics.filter(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === selectedTab.tabKey).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
             {debugMode && <DebugInfoBar table={surfaceTable} reasonDetails={riskReasonDetails} />}
             {table.changeKind === "SCHEMA_CHANGED" && <div className="table-state-note">{formatSchemaSummary(surfaceTable.schema_summary)}</div>}
             {presentation.navigationDiagnostics.filter((item) => !item.target.group_key && !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName).map((item, index) => <div className="diagnostic-note" key={item.code + index}><AlertTriangle size={15} /><span>{formatNavigationDiagnostic(item, presentation.surface.tables)}</span>{debugMode && <code>{item.code}</code>}</div>)}

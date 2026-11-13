@@ -18,7 +18,7 @@ Repository Service范围和交付控制遵循
 interface reconciliation也已由
 [DX plan](../plans/dx-cross-phase-interface-reconciliation.md)闭合，S02联合代码清理已
 完成。P2-R1 v8 formal 已通过，默认 provider 为
-Candidate A offline CLI，Candidate B保留但默认禁用。
+Candidate A offline CLI。2026-11-12 决议取消 Candidate B 的代码保留要求：P2-R1 无消费者选型代码及 probe 按[后端整顿 C1](../plans/p7-backend-remediation-execution-plan.md)删除，测量记录保留；现用 CLI/构建身份不变。当前为删除决定，代码尚待 C1 实施，不能标记已删除。
 2026-09-06：P2-R6-S11 `phase_2_complete: yes`；P3 final closure `p3_exit: pass`；P4-R1至R5
 module gate均为`pass`。P4-R6最终acceptance/integration gate尚未exit（parallel prerequisite）。
 P5-5A slice exit `pass`，container gate `pass`（证据见
@@ -62,7 +62,7 @@ accepted且`p5_5b_design_s0_authorized: yes`；P5-5B implementation与real Repos
   gRPC还是组合协议。
 - 生产环境最终使用何种数据库、对象存储和部署编排平台。
 - 是否将所有 backend vNext 模块拆成独立进程。除 Repository Service 外，第一阶段仍以模块化单体为默认部署形态。
-- Legacy Dolt repository 的迁移或兼容策略；它是独立 cutover gate。
+- 当前无在用旧系统，不设 Legacy Dolt migration/cutover gate；首次保留数据部署按[Phase 8/9](../plans/implementation-stages.md#11-phase-8首次保留数据的部署准备)准备前向升级和恢复。确有旧系统替换需求时再重开。
 
 ### 1.1 适度保障原则
 
@@ -691,8 +691,8 @@ Phase 0  canonical cases + necessary business golden
   -> Phase 5  business vertical slices
   -> Phase 6  Rust coverage expansion and compute optimization
   -> Phase 7  concurrency/cache/performance
-  -> Phase 8  shadow traffic and cutover
-  -> Phase 9  cleanup and production hardening
+  -> Phase 8  first data-preserving deployment preparation
+  -> Phase 9  deployment recovery and operational acceptance
 ```
 
 阶段不是纯水平层交付。WP1-R1只形成历史checkpoint；Phase 2简化设计、Phase 0–1

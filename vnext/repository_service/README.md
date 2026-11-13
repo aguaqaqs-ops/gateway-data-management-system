@@ -270,39 +270,16 @@ S10 集成测试 `tests/test_import_compose_e2e.py` 调用同一脚本；可通�
 **禁止**包含 `vnext/rust`（约 24G）。S10 e2e 的 `os.chown` 步骤需在远端以交互式 `sudo`
 执行 pytest；不得在文档或脚本中嵌入密码，也不使用无密码 sudo 提权运行 pytest。
 
-## P2-R1 probe（`p2-r1` profile）
+## 选型工具与当前升级依据
 
-P2-R1 private runtime/provider feasibility probe 仍使用 `repository-probe` compose
-profile 与 named volume `repository-data`；与 R2 HTTP service 使用不同 volume，不得共享
-durable root。
-
-旧 v7 diagnostics 示例：
-
-```bash
-uv run python -m gateway_repository_service.matrix \
-  --output /tmp/p2-r1-measurements.jsonl \
-  --data-root /tmp/p2-r1-target
-```
-
-Target container 使用 `repository-probe` compose profile 和 named volume；matrix 的
-raw records 与 decision summary 只记录脱敏测量，不保存 repository、secret、SQL 或 host
-path。
-
-审核通过后，v8 formal 只能使用 target launcher、clean provenance image 和全新输出路径：
-
-```bash
-uv run python -m gateway_repository_service.matrix \
-  --v8-formal \
-  --output <new-audit-rerun>/p2-r1-v8.jsonl \
-  --runs 5
-```
-
-v8 formal 固定为 Candidate A、66 records、1 MiB effective byte bound；不得附加
-`--diagnostic`、`--workloads` 或 `--candidates`。Candidate B 只允许通过独立的
-`--reserved-b-w0-smoke` 诊断入口验证代码路径，该诊断永不产生 provider selection。
-P2-R1 v8 formal retest 延期至 P2-R6 final candidate；R6 canonical command 见
-[P2-R5 execution plan §9](../../docs/backend-vnext/refactoring/formal/plans/p2-r5-commit-pinned-read-execution-plan.md#9-production-retest-handoff-to-r6)。
-
+P2-R1 选型测量记录保留在历史文档/Git 中，probe 不再作为操作或 Dolt 升级入口。
+[后端专项整顿 C1](../../docs/backend-vnext/refactoring/formal/plans/p7-backend-remediation-execution-plan.md)
+已决定删除无消费者的测量源码、专属测试与 `repository-probe`；本次只更新说明，代码删除须由 C1 提交证明。
+产品导入/读取使用 `versioned_import/provider.py` 的 `CandidateADoltCli`。
+仍在用的 `p2r1-cache/Dockerfile.dependency-base`、构建缓存、`gateway.p2r1.*` labels 和
+`gateway-p2r1-repository` image 名保持；不因旧名字删除活跃依赖链。
+Dolt 升级按[部署操作说明](../deploy/README.md#dolt-升级核对流程)，使用当前产品门禁与真实 t4 参考，
+不恢复测量工具的平行 provider。离线 CLI 真实读取/并发出现硬限制时才从 Git 历史重开选型。
 
 P7 S1a production startup also requires `GATEWAY_RESOURCE_PROFILE_FILE`, paired
 with `GATEWAY_STORAGE_LAYOUT_FILE`. Host mount/source and explicit marker

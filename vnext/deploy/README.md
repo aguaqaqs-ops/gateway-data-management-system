@@ -62,6 +62,10 @@ container runtime.
 
 ## Compose services
 
+P2-R1 测量 probe 不属于当前部署入口，其源码/专属 Compose 服务按
+[后端整顿 C1](../../docs/backend-vnext/refactoring/formal/plans/p7-backend-remediation-execution-plan.md)删除
+（删除实施待 C1 提交，本次仅修订说明）。保留正在使用的依赖基础镜像和 `gateway.p2r1.*` 构建身份。
+
 - `backend` — HTTP API, control DB, artifact root, session, and mapping mounts
 - `worker` — operation worker sharing backend control DB and artifacts
 - `repository-service` — isolated repository volume; not mounted into backend
@@ -463,3 +467,33 @@ is promised. These checks read existing roots and do not initialize or repair
 user business directories. Initialize explicitly prepared empty roots through
 `init-layout` before starting a new group. Thin guest free space does not prove
 free capacity in the physical host pool.
+
+
+## Dolt 升级核对流程
+
+这是后续**已授权版本升级**的操作入口；本次整顿不升级 Dolt、不运行验证。以当前产品
+`CandidateADoltCli` 路径及整顿 D24 保存的真实 t4 为依据，不使用已退役的 P2-R1 平行测量工具。
+
+1. 在 clean 开发 worktree 同步 `vnext/repository_service/Dockerfile` 的 `DOLT_VERSION`、
+   `vnext/deploy/p2r1-cache/Dockerfile.dependency-base` 的 `DOLT_VERSION` 和
+   `vnext/repository_service/src/gateway_repository_service/settings.py` 的 `dolt_version`。
+   复核其他镜像参数/版本断言与当前 HEAD；`process.py` 的 `DoltRunner._validate_version`
+   必须继续在实际版本不符时拒绝启动。版本/基础镜像变更均本地提交，不夹带 schema 或业务语义调整。
+2. 按 DC67 在 CT201 取得所需 Dolt/基础镜像制品，经获准 LAN 预填充到实际验证节点；不让测试 CT
+   访问公网。记录来源提交、制品归档 SHA256、预填充时间、config digest 和全部 RootFS DiffID，
+   不用跨节点 `docker inspect` ID 比身份，不记录凭据。保留实际可达缓存/预置依赖模式；缺缓存停止补齐。
+3. 由开发机编排 `python3 scripts/run-stage-gate.py <完整SHA> --fresh --purpose stage --session dolt-upgrade`，
+   目标源码先按获准方式到 04；脚本在固定 clean worktree 原子占用、重建当前 RS 产品镜像并运行六包。
+   backend/worker 容器由 runner 正常构建；无需重复单跑同次通过的 Compose。
+   仅构建成功或历史包通过不能替代本次 fresh 结果；失败停止依赖验收并保留日志。
+4. 在 DC33 确认的专用节点/输入范围跑真实 t4 完整旅程；与
+   `/home/dev/gdds-stage-exchange/p7-backend-remediation/reference/` 中经核收的 D24 参考比对：
+   相同输入/规则/资源与缓存条件下，正式结果和 digest 一致，核 RS 导入耗时与内存峰值。
+   保存 P7-D23 逐尝试摘要、版本/输入/配置/结果引用、hostname、起止 HEAD/时间、exit 与日志 SHA256。
+   参考尚未产出或条件不一致就不能声称对照通过；明显回归按 D22 说明瓶颈/收益，不用增加样本掩盖失败。
+5. 记录升级提交、镜像身份、六包/容器/真实旅程结论和限制；按实际风险独审核收。
+   当前可重建测试数据由本任务独立准备，不能破坏别人的卷。
+   首次需要保留部署数据时，先按 Phase 8/9 的一致备份、前向升级和隔离恢复方案演练；
+   不能假设新 Dolt 数据可由旧二进制直接打开或以删除 immutable commit 回退。
+
+不另建设升级脚本/框架，版本数量、测试文件数量和代码行号均在每次升级时重新核对。

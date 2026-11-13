@@ -553,9 +553,16 @@ Mutation使用`idempotency_key + internal request fingerprint`：
 
 `service-state/repository-service.sqlite3`是唯一control DB，保存create/upload ledger、
 import queue/operation/result、idempotency fingerprint和recovery audit。启用WAL、
-`synchronous=FULL`、foreign keys和bounded busy timeout；migration使用transactional
-`PRAGMA user_version`只向前升级，遇到newer version启动失败。Control DB不保存table
-data，也不占用未来`current/<repository_key>/`的SQLite namespace。
+`synchronous=FULL`、foreign keys和bounded busy timeout。按 DC6 延伸到 RS 的
+[2026-11-12 决议](../plans/p7-s0-owner-decisions.md#19-后端专项整顿与后续阶段收窄2026-11-12)，
+使用单一基线 schema 创建；`PRAGMA user_version` 与 schema 结构均须匹配代码预期，
+任何不匹配（含旧版、新版或同版本结构漂移）均拒绝启动，不保留 V2–V16 迁移链、双读写或回填。
+删除无人写入的 cleanup intent/generation/receipt 列和 `artifact_residual` 表，保留在用的
+mutation/idempotency/result 与恢复事实及约束。开发者确认本地实例无需保留数据并停服后，
+删除该 RS control DB 及 `-wal`、`-shm` 重建；不自动删除 Dolt 或 artifact roots。
+首次承诺保留部署数据前，从此基线引入事务性前向 migration 与备份恢复。
+本条由专项整顿 C2/C3 落实，不代表本次文档更新已经删除实现。
+Control DB不保存table data，也不占用未来`current/<repository_key>/`的SQLite namespace。
 
 Import先在SQLite持久化QUEUED再返回202。Worker claim为RUNNING；graceful shutdown先
 停止intake，在短grace内等待active work，未完成RUNNING在下次startup reconcile。
@@ -827,7 +834,7 @@ E 已将 §14.1/§15 的应用/文件系统布局改为具名 roots；完整部�
 
 create/upload/import/reconciliation/recovery/cleanup/offline admin/snapshot工具全部显式理解新roots；单服务锁保留在metadata。停服取得锁后收集一致的DB/WAL、Dolt、artifact与layout集合；不承诺在线跨盘原子snapshot或仅复制某个root即可恢复。backend不挂RS卷，统计观测由RS窄接口提供，不增加业务成功依赖。
 
-新项目按本轮AGENTS直接调整唯一基线，无迁移/旧layout fallback。ADR0012关于历史兼容列/残留的段落是原决策历史，不成为本轮新建兼容路径的要求；其协作admission pin、统一eligibility、未知形状仅诊断及成功cleanup不改commit/result仍保持。不新增broker/sidecar/receipt或另一安全主体。
+新项目按本轮AGENTS直接调整唯一基线，无迁移/旧layout fallback。ADR0012 的历史兼容条款已于 2026-11-12 删除，旧残留仅作未知路径诊断；其协作admission pin、统一eligibility、未知形状仅诊断及成功cleanup不改commit/result仍保持。不新增broker/sidecar/receipt或另一安全主体。
 
 
 S2a 维护信号接线：容器 entrypoint 在既有 root/layout 前置检查后，通过标准 Python

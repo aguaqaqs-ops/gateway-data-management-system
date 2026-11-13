@@ -62,7 +62,7 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
     def preview_ref(ref: Any) -> PreviewArtifactRef:
         return PreviewArtifactRef(**{**artifact_ref_to_dict(ref), "raw_sha256": ref.raw_sha256})
     transport = read_bundle_transport_metadata(store.locate(manifest_ref))
-    ((pair_id, comparison_digest, final_surface_digest),) = transport.pair_digests
+    ((pair_id, final_surface_digest, comparison_digest),) = transport.pair_digests
     if pair_id != pair.pair_id or comparison_digest != surface.comparison_digest.value:
         raise ValueError("comment-only fixture bundle changed comparison binding")
     preview = PreviewResult(

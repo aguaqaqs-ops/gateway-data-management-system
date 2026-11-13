@@ -1,11 +1,13 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const directory = 'http://127.0.0.1:8100';
 const facts: Record<string, unknown> = {};
+const identity = { head: process.env.GDDS_JOURNEY_HEAD, session: process.env.GDDS_JOURNEY_SESSION };
+const screenshots: object[] = [];
 function record(stage: string, values: Record<string, unknown>) {
   facts[stage] = { status: 'passed', ...values };
-  writeFileSync('/evidence/browser-facts.json', JSON.stringify(facts) + '\n');
+  writeFileSync('/evidence/browser-facts.json', JSON.stringify({ ...identity, stages: facts }) + '\n');
 }
 async function pictures(page: Page, state: string) {
   // No URL matcher can serialize a secret fragment into an assertion error.
@@ -15,6 +17,17 @@ async function pictures(page: Page, state: string) {
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     const grid = page.locator('div.grid-frame[aria-label="比较表格"]');
     if (await grid.count()) await expect(grid).toHaveAttribute('data-rendered', 'true', { timeout: 300_000 });
+    const secretFree = await page.evaluate(() => {
+      const html = document.documentElement.outerHTML;
+      const value = html + location.href;
+      const session = (window as unknown as { __gatewaySession?: { accessToken?: string } }).__gatewaySession;
+      return location.hash === '' && (!session?.accessToken || !value.includes(session.accessToken))
+        && !/dir-[A-Za-z0-9_-]{43}/.test(value) && !/gdds-handoff(?:=|%3d)/i.test(value)
+        && !/"sessions"\s*:/.test(value) && !/authorization\s*[:=]\s*bearer/i.test(value);
+    });
+    expect(secretFree).toBe(true);
+    screenshots.push({ ...identity, name: `${state}-${width}.png`, secret_free: true, fragment_cleared: true });
+    writeFileSync('/evidence/screenshot-checks.json', JSON.stringify(screenshots) + '\n');
     await page.screenshot({ path: `/evidence/${state}-${width}.png`, fullPage: true });
   }
 }
@@ -69,9 +82,14 @@ test('directory A upload review B isolation renewal', async ({ page }) => {
   const uploadResponse = post(page, '/upload-revisions');
   const previewResponse = post(page, '/preview-operations');
   await page.getByRole('button', { name: '上传并生成预览' }).click();
-  expect((await uploadResponse).status()).toBe(201);
+  const uploadedResponse = await uploadResponse;
+  expect(uploadedResponse.status()).toBe(201);
+  const uploaded = await uploadedResponse.json() as { workspace_id: string; upload_revision_id: string };
+  const aWorkspace = uploaded.workspace_id;
   expect((await previewResponse).status()).toBe(202);
   await diff(page);
+  const aPreview = new URL(page.url()).searchParams.get('previewResultId');
+  expect(Boolean(aPreview)).toBe(true);
   const submitResponse = post(page, '/submit-attempts');
   await page.locator('.compare-actions').getByRole('button', { name: '提交', exact: true }).click();
   const submitDialog = page.getByRole('dialog');
@@ -108,18 +126,39 @@ test('directory A upload review B isolation renewal', async ({ page }) => {
   await diff(page);
   await pictures(page, 'a-reviewed');
   const oldToken = await page.evaluate(() => (window as unknown as { __gatewaySession: { accessToken: string } }).__gatewaySession.accessToken);
+  writeFileSync('/evidence/business-ids.json', JSON.stringify({ ...identity, a: { workspace_id: aWorkspace, preview_id: aPreview, submission_id: submissionId }, scope: 'dev-fbe8accb4da11574' }) + '\n');
   record('J4', { ui_upload: true, preview: true, ui_submit: true, ui_approve: true, actor_test1: true, refresh_scope: true });
 
   await page.getByRole('link', { name: '返回目录', exact: true }).first().click();
   expect(new URL(page.url()).origin).toBe(directory);
   expect(new URL(page.url()).search).toBe(savedQuery);
   await page.getByLabel('搜索项目', { exact: true }).fill('WX-0207');
+  const bWorkspaceResponse = post(page, '/workspaces');
   await enter(page, 'WX-0207');
   await scope(page, 'WX-0207');
   await expect(page.getByText('尚无数据', { exact: true })).toBeVisible();
-  await expect(page.locator('table[aria-label="History 组态树"]')).not.toContainText('待审核');
+  const bResponse = await bWorkspaceResponse;
+  expect([200, 201].includes(bResponse.status())).toBe(true);
+  const bWorkspace = await bResponse.json();
+  const publicInputs = JSON.parse(readFileSync('/control/public-inputs.json', 'utf8'));
+  const isolated = await page.evaluate(async (a) => {
+    const s = (window as unknown as { __gatewaySession: { accessToken: string; gatewayDeviceExternalKey: string; businessProjectId: string } }).__gatewaySession;
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s.gatewayDeviceExternalKey));
+    const key = Array.from(new Uint8Array(hash)).map(v => v.toString(16).padStart(2, '0')).join('');
+    const headers = { Authorization: `Bearer ${s.accessToken}`, 'X-Gateway-Device-Key': key };
+    const historyResponse = await fetch('/v1/history?limit=100', { headers });
+    if (!historyResponse.ok) return { scope: false, empty: false, initial: false, excludes_a: false };
+    const ws = a.workspaceBody;
+    const history = await historyResponse.json();
+    const empty = ['current_upload_revision_id', 'current_preview_result_id', 'active_submit_attempt_id', 'active_submission_id'].every(k => ws[k] === null);
+    return { scope: ws.gateway_device_external_key === 'dev-0a5e7c9870eaba0b' && ws.business_project_id === 'prj-0a5e7c9870eaba0b', empty,
+      initial: history.nodes.length === 1 && history.nodes[0].baseline_kind === 'INITIAL' && history.nodes[0].ref_id === a.initial && history.nodes[0].commit_id === a.commit,
+      excludes_a: ws.workspace_id !== a.workspace && !JSON.stringify({ ws, history }).includes(a.preview!) && !JSON.stringify({ ws, history }).includes(a.submission!) };
+  }, { workspace: aWorkspace, preview: aPreview, submission: submissionId, workspaceBody: bWorkspace, initial: publicInputs['WX-0207'].initial, commit: publicInputs['WX-0207'].commit });
+  expect(Object.values(isolated).every(Boolean)).toBe(true);
+  writeFileSync('/evidence/business-ids.json', JSON.stringify({ ...identity, a: { workspace_id: aWorkspace, preview_id: aPreview, submission_id: submissionId }, b: { workspace_id: bWorkspace.workspace_id, initial_id: publicInputs['WX-0207'].initial }, a_scope: 'dev-fbe8accb4da11574', b_scope: 'dev-0a5e7c9870eaba0b' }) + '\n');
   await pictures(page, 'b-initial');
-  record('J5', { return_query_restored: true, b_initial_only: true, b_scope: true });
+  record('J5', { return_query_restored: true, b_initial_only: true, b_scope: true, b_workspace_empty: true, excludes_a_ids: true });
 
   writeFileSync('/control/renew-request', 'renew\n');
   await expect.poll(() => existsSync('/control/renew-complete'), { timeout: 180_000 }).toBe(true);

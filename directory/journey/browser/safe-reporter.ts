@@ -7,6 +7,7 @@ export default class SafeReporter implements Reporter {
   onTestEnd(_test: unknown, result: TestResult) { this.passed = result.status === 'passed' && result.retry === 0; }
   onEnd(result: FullResult) {
     writeFileSync('/evidence/browser-exit.json', JSON.stringify({
+      head: process.env.GDDS_JOURNEY_HEAD, session: process.env.GDDS_JOURNEY_SESSION,
       status: result.status, passed: this.passed && result.status === 'passed',
     }) + '\n');
   }

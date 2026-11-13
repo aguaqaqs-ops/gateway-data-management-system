@@ -23,6 +23,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+# -I excludes the script directory; load only this committed sibling.
+import importlib.util
+_process_spec = importlib.util.spec_from_file_location('journey_process', Path(__file__).with_name('journey_process.py'))
+_process_module = importlib.util.module_from_spec(_process_spec)
+_process_spec.loader.exec_module(_process_module)
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -121,8 +127,9 @@ class Journey:
         self.owned = False
         self.lock = None
         self.processes = []
+        self.commands = _process_module.ScopedCommands(args.session)
         self.container = 'directory-journey-' + args.session
-        self.tool_started = False
+        self.tool_id = None
         self.started = False
         self.entry_started = False
         self.tokens = []
@@ -131,10 +138,10 @@ class Journey:
         self.compose_args = []
         self.entry_args = []
         self.private = None
-        self.record('begin', head=args.head, session=args.session, hostname=socket.gethostname(), clean=self.result['clean_start'])
+        self.record('begin', clean=self.result['clean_start'])
 
-    def record(self, label, **values):
-        line = json.dumps(dict(utc=utc(), event=label, **values), sort_keys=True) + '\n'
+    def record(self, event, **values):
+        line = json.dumps(dict(utc=utc(), event=event, head=self.args.head, session=self.args.session, hostname=socket.gethostname(), **values), sort_keys=True) + '\n'
         self.log.write(line)
         self.log.flush()
         self.events.write(line)
@@ -143,13 +150,40 @@ class Journey:
     def command(self, label, args, timeout=300, env=None, capture=False):
         # Never log argv/output containing credentials or HTTP response bodies.
         self.record('command_start', label=label)
-        result = subprocess.run([str(arg) for arg in args], env=env or self.env,
-            cwd=ROOT, stdout=subprocess.PIPE if capture else self.log,
-            stderr=self.log, text=True, timeout=timeout, check=False)
-        self.record('command_end', label=label, exit=result.returncode)
-        if result.returncode:
+        try:
+            code, output = self.commands.run(args, env=env or self.env or os.environ.copy(),
+                cwd=ROOT, stdout=subprocess.PIPE if capture else self.log,
+                stderr=self.log, timeout=timeout)
+        except BaseException as error:
+            self.record('command_abort', label=label, error_class=type(error).__name__)
+            raise
+        self.record('command_end', label=label, exit=code)
+        if code:
             raise RuntimeError('command failed: ' + label)
-        return result.stdout if capture else ''
+        return output if capture else ''
+
+    def empty_project(self, project):
+        for resource, command in [('containers', ['ps', '-aq']), ('networks', ['network', 'ls', '-q']), ('volumes', ['volume', 'ls', '-q'])]:
+            if self.command('reject_existing_' + resource, ['docker', *command,
+                    '--filter', 'label=com.docker.compose.project=' + project], capture=True).strip():
+                raise ValueError('selected project already has resources')
+
+    def reject_tool_collision(self):
+        if self.command('reject_existing_tool', ['docker', 'ps', '-aq', '--filter', 'name=^/' + self.container + '$'], capture=True).strip():
+            raise ValueError('tool container name already exists')
+
+    def owned_tool(self):
+        cidfile = self.private / 'toolchain.cid' if self.private else None
+        if cidfile is None or not cidfile.exists():
+            return None
+        value = cidfile.read_text().strip()
+        if not re.fullmatch('[0-9a-f]{64}', value):
+            raise ValueError('invalid owned container receipt')
+        data = json.loads(self.command('tool_ownership', ['docker', 'inspect', value], capture=True))[0]
+        if (data['Id'] != value or data['Name'] != '/' + self.container
+                or data['Config']['Labels'].get('gateway.directory.session') != self.args.session):
+            raise ValueError('tool ownership mismatch')
+        return value
 
     def mark(self, stage, **facts):
         self.result['stages'][stage] = dict(status='passed', **facts)
@@ -207,13 +241,13 @@ class Journey:
                 raise ValueError('credential probe failed')
 
     def prepare(self):
-        if socket.gethostname() != 'gw-dms-05' or not re.fullmatch('[0-9a-f]{40}', self.args.head):
+        if socket.gethostname() != 'gw-dms-test-05' or not re.fullmatch('[0-9a-f]{40}', self.args.head):
             raise ValueError('dedicated 05 node and full HEAD required')
         if self.result['start_head'] != self.args.head or not self.result['clean_start']:
             raise ValueError('clean expected HEAD required')
         config_path = outside(self.args.config)
         info = config_path.stat()
-        if info.st_uid != os.geteuid() or info.st_mode & 0o077 or not stat.S_ISREG(info.st_mode):
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600 or not stat.S_ISREG(info.st_mode):
             raise ValueError('private owned config required')
         self.config = document(config_path)
         fields = {'python', 'private_dir', 'groups_file', 'directory_file', 'entry_directory',
@@ -281,6 +315,11 @@ class Journey:
             'GATEWAY_ENTRY_DIRECTORY': self.config['entry_directory'], 'GATEWAY_ENTRY_IMAGE': entry['image']}
         self.compose_args = ['docker', 'compose', '-p', self.group['project'], '-f', str(ROOT / 'vnext/deploy/compose.yaml'), '-f', self.config['runtime_override']]
         self.entry_args = ['docker', 'compose', '-p', self.config['entry_project'], '-f', str(ROOT / 'vnext/deploy/compose.entry.yaml')]
+        if self.group['project'] == self.config['entry_project']:
+            raise ValueError('group and entry projects overlap')
+        self.empty_project(self.group['project'])
+        self.empty_project(self.config['entry_project'])
+        self.reject_tool_collision()
         self.command('python_version', [self.config['python'], '-c', 'import sys; assert sys.version_info[:3] == (3,14,6)'])
         for prefix, lock in [('directory', ROOT / 'directory/frontend/package-lock.json'), ('gateway', ROOT / 'frontend/package-lock.json')]:
             self.command(prefix + '_cache', [self.config['python'], '-I', ROOT / 'directory/scripts/frontend-inputs.py', 'verify',
@@ -302,7 +341,8 @@ class Journey:
                 self.command('fixed_toolchain', [self.config['python'], '-I', ROOT / 'directory/scripts/frontend-inputs.py', 'image', json.dumps(actual)])
         write(self.evidence / 'verified-images.json', verified_images)
         shutil.copyfile(self.config['image_identities'], self.evidence / 'image-identities.json')
-        write(self.evidence / 'inputs.json', dict(head=self.args.head,
+        write(self.evidence / 'inputs.json', dict(head=self.args.head, session=self.args.session, hostname=socket.gethostname(),
+            images=dict(toolchain=IMAGE, entry=entry['image'], **{k: self.group['images'][k] for k in ('backend', 'worker', 'repository_service')}),
             trees={p: git('rev-parse', 'HEAD:' + p) for p in ('directory', 'frontend', 'vnext')},
             locks={p: digest(ROOT / p) for p in ('directory/service/uv.lock', 'directory/frontend/package-lock.json', 'frontend/package-lock.json')},
             config_sha256=digest(config_path), config_path=str(config_path), config_mode=oct(stat.S_IMODE(info.st_mode)),
@@ -313,9 +353,11 @@ class Journey:
         self.command('deployment_validate', self.management('validate'))
         if document(Path(self.config['directory_file']))['devices'] or document(Path(self.group['session_directory']) / 'session.json')['sessions']:
             raise ValueError('fresh empty target environment required')
+        self.empty_project(self.group['project'])
         self.started = True
         self.command('group_up', [*self.compose_args, 'up', '-d', '--no-build', '--pull', 'never', 'backend', 'worker'], timeout=300)
         wait(lambda: http('http://127.0.0.1:' + str(self.group['backend_port']) + '/readyz')[0] == 200)
+        self.empty_project(self.config['entry_project'])
         self.entry_started = True
         self.command('entry_up', [*self.entry_args, 'up', '-d', '--no-build', '--pull', 'never', 'entry'])
         wait(lambda: http(self.entry_url + '/healthz')[0] == 200)
@@ -349,23 +391,26 @@ class Journey:
             (target / 'upload.pmc').write_text('directory-stage2-' + name + '\n')
             shutil.copyfile(ROOT / 'frontend/e2e-real/fixtures/upload-inputs' / sql, target / 'sql/dbcfg.sql')
             shutil.copyfile(ROOT / 'frontend/src/test/fixtures/source/upload-inputs' / logic, target / 'comps/logic/logics.xml')
-        write(self.evidence / 'upload-inputs.json', dict(source_head=self.args.head,
+        write(self.evidence / 'upload-inputs.json', dict(source_head=self.args.head, session=self.args.session, root=str(inputs),
             files={str(p.relative_to(inputs)): digest(p) for p in sorted(inputs.rglob('*')) if p.is_file()},
             mode='FULL', source='frontend/scripts/run-real-backend-e2e.sh full_initial/full_modified'))
         (self.private / 'static').mkdir()
         control = self.private / 'control'
         control.mkdir()
-        self.tool_started = True
+        write(control / 'public-inputs.json', {k: {f: v[f] for f in ('repository', 'initial', 'commit')} for k, v in old.items()})
+        self.reject_tool_collision()
         self.command('toolchain_start', ['docker', 'run', '-d', '--init', '--ipc=host', '--pull', 'never',
-            '--name', self.container, '--network', 'host',
+            '--name', self.container, '--cidfile', str(self.private / 'toolchain.cid'),
+            '--label', 'gateway.directory.session=' + self.args.session, '--network', 'host',
             '-v', str(source) + ':/source.tar:ro',
             '-v', self.config['directory_npm_cache'] + ':/directory-cache:ro',
             '-v', self.config['gateway_npm_cache'] + ':/gateway-cache:ro',
             '-v', str(self.private / 'static') + ':/directory-static',
             '-v', str(inputs) + ':/input:ro', '-v', str(control) + ':/control',
             '-v', str(self.evidence) + ':/evidence',
-            '-e', 'GATEWAY_FRONTEND_ENTRY_ORIGIN=' + self.entry_url, IMAGE, 'sleep', 'infinity'])
-        self.tool_started = True
+            '-e', 'GATEWAY_FRONTEND_ENTRY_ORIGIN=' + self.entry_url,
+            '-e', 'GDDS_JOURNEY_HEAD=' + self.args.head, '-e', 'GDDS_JOURNEY_SESSION=' + self.args.session, IMAGE, 'sleep', 'infinity'])
+        self.tool_id = self.owned_tool()
         self.command('offline_builds', ['docker', 'exec', self.container, 'bash', '-euo', 'pipefail', '-c', '''
 mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
  tar -xf /source.tar -C /tmp/source
@@ -383,7 +428,7 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
  cp /tmp/source/directory/journey/browser/* directory-journey/
 '''], timeout=900)
         static = self.private / 'static'
-        write(self.evidence / 'static-files.json', {str(p.relative_to(static)): digest(p) for p in sorted(static.rglob('*')) if p.is_file()})
+        write(self.evidence / 'static-files.json', dict(head=self.args.head, session=self.args.session, root=str(static), files={str(p.relative_to(static)): digest(p) for p in sorted(static.rglob('*')) if p.is_file()}))
         self.command('preview_start', ['docker', 'exec', '-d', self.container, 'bash', '-c',
             'cd /tmp/source/frontend && exec npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/preview.log 2>&1'])
         process = subprocess.Popen([self.config['python'], '-B', '-m', 'gdds_directory', 'serve'],
@@ -433,9 +478,12 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
         finally:
             browser_log.close()
         browser_exit = document(self.evidence / 'browser-exit.json')
-        if browser_exit != {'status': 'passed', 'passed': True}:
+        if browser_exit != {'head': self.args.head, 'session': self.args.session, 'status': 'passed', 'passed': True}:
             raise ValueError('browser completion missing')
-        facts = document(self.evidence / 'browser-facts.json')
+        browser_facts = document(self.evidence / 'browser-facts.json')
+        if browser_facts['head'] != self.args.head or browser_facts['session'] != self.args.session:
+            raise ValueError('browser run identity mismatch')
+        facts = browser_facts['stages']
         if set(facts) != {'J2', 'J3', 'J4', 'J5', 'J6'}:
             raise ValueError('incomplete browser stages')
         for stage, value in facts.items():
@@ -458,14 +506,33 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
                         process.wait(timeout=10)
                     except (OSError, subprocess.TimeoutExpired):
                         cleanup_ok = False
-        for label, args, condition in [('toolchain_remove', ['docker', 'rm', '-f', self.container], self.tool_started),
+        try:
+            self.commands.close()
+        except Exception:
+            cleanup_ok = False
+        commands_stopped = cleanup_ok
+        # No resource teardown while an unconfirmed management scope can write.
+        if not cleanup_ok:
+            self.record('cleanup_management_scopes', status='failed')
+        try:
+            tool_id = self.owned_tool()
+        except Exception:
+            tool_id = None
+            cleanup_ok = False
+        for label, args, condition in [('toolchain_remove', ['docker', 'rm', '-f', tool_id or ''], bool(tool_id)),
                 ('entry_down', [*self.entry_args, 'down', '--volumes', '--remove-orphans'], self.entry_started),
                 ('group_down', [*self.compose_args, 'down', '--volumes', '--remove-orphans'], self.started)]:
-            if condition:
+            if condition and commands_stopped:
                 try:
                     self.command(label, args, timeout=180)
                 except Exception:
                     cleanup_ok = False
+        try:
+            self.commands.close()
+            if self.private is not None and self.command('tool_residual', ['docker', 'ps', '-aq', '--filter', 'name=^/' + self.container + '$'], capture=True).strip():
+                cleanup_ok = False
+        except Exception:
+            cleanup_ok = False
         if self.started:
             for project in (self.group['project'], self.config['entry_project']):
                 for resource, subcommand in [('containers', ['ps', '-aq']), ('networks', ['network', 'ls', '-q']), ('volumes', ['volume', 'ls', '-q'])]:
@@ -503,10 +570,12 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
             if path.is_file() and path.name != 'run.log':
                 data = path.read_bytes()
                 hits = sum(data.count(token.encode()) for token in set(self.tokens))
+                hits += len(re.findall(rb'gdds-handoff(?:=|%3[dD])', data))
                 if hits:
                     leaks.append({'file': str(path.relative_to(self.evidence)), 'hits': hits})
         self.log.flush()
         log_hits = sum((self.evidence / 'run.log').read_bytes().count(token.encode()) for token in set(self.tokens))
+        log_hits += len(re.findall(rb'gdds-handoff(?:=|%3[dD])', (self.evidence / 'run.log').read_bytes()))
         if log_hits:
             leaks.append({'file': 'run.log', 'hits': log_hits})
         self.result['credential_scan'] = {'status': 'failed' if leaks else 'passed', 'leaks': leaks}
@@ -543,6 +612,7 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
         code = 0 if primary == 0 and cleanup_ok and not leaks else 1
         self.result['exit'] = code
         self.record('end', exit=code, original_exit=primary, cleanup_ok=cleanup_ok)
+        self.result['end_utc'] = utc()
         self.log.close()
         self.events.close()
         # The finalized original log is hashed only after its end record.

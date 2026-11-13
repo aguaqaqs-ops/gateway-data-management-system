@@ -30,3 +30,9 @@ python3 -B -I directory/scripts/verify-real-journey.py --run-dir <原件绝对�
 可选 `--copy-dir` 对可访问副本逐文件核对。无原件、缺字段/文件、unknown、非零、同次身份不符、hash/尺寸或十图清单不符均失败。程序结果只证明确定性条件，视觉/语义由既定角色集中核收。`browser/mock.config.ts` + `mock.spec.ts` 独立补错误初始画面和首末键盘焦点/滚动边界，使用 mock catalog、两宽度六图，不能计入真实 J0–J7。其执行也在专用节点工具链容器；从目录自己的 lock 安装依赖后将 `browser/` 复制到目录 frontend 下运行，`/evidence` 指向独立 mock 输出。
 
 SHA256 用于审核时核原件/副本完整性、锁/缓存和选定镜像来源；不生成新的产品身份/版本。配置和证据 JSON 因用户禁止新依赖而保持 stdlib 严格固定字段校验，这与最新 main 的新增 pydantic 解码要求存在具体冲突，按本轮用户优先约束实施；不改变产品 Contract。
+
+P1 风险修订：入口在任何创建前拒绝同名容器（包括停止态）和两个 project 的既有容器、网络及卷；工具容器用本次 `--cidfile` 和 session label 核实际 ID 后清理。同步管理命令在节点现有 systemd transient scope 内运行，scope 跟随后代而不受 `setsid()` 影响；超时/中断停止 scope 并确认 inactive/消失后才拆栈和释放占用。无需安装新软件；05 预检须有 `systemd-run` / `systemctl`。scope 名仅为本次临时清理归属，不是产品 ID。
+
+每张真实截图在 fragment 清除后还检查 DOM/属性/URL 不含当前凭据、目录 token、session 文档或 handoff 标记，只保存布尔结果。原件文本中的完整编码 handoff 标记也被拒绝；PNG 无秘密由截图前页面断言证明，收尾字节扫描不承担像素识别。B 的工作区由实际 UI 建立/加载响应核 scope 和空指针，再用公共只读 History 核固定 INITIAL，明确排除 A 的工作区/Preview/提交 ID。
+
+证据核对要求五个镜像角色、完整 config+DiffID、源提交 tree/locks、来源 manifest/原缓存、两份固定回执、原上传及静态构建文件、完整容器三字段和有界同次事件链。空对象、缺字段、跨 run、任何中间失败及截断/坏 CRC PNG 都拒绝。focused 检查位于 `tests/test_evidence.py`（完整最小原件与拒绝反例）和 `tests/test_runtime.py`（停止容器/既有项目保留、真实管理 helper 的超时/中断）；只在持有整机占用的05执行，不能把其模拟原件当真实旅程。

@@ -37,9 +37,10 @@ pytestmark = [pytest.mark.unit, pytest.mark.integration]
 def test_hidden_schema_preview_preserves_ready_audit_and_accepts_canonical_change(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, include_identity_table=True)
     modified = store_source_package(harness.artifact_store,
-        b"CREATE TABLE t(id INT NOT NULL PRIMARY KEY,note TEXT); INSERT INTO t VALUES(1,'new');",
+        b"CREATE TABLE t(id INT NOT NULL PRIMARY KEY,note TEXT); INSERT INTO t VALUES(1,'new');"
+        b"CREATE TABLE version_manager (`project_id` VARCHAR(32)); INSERT INTO version_manager VALUES ('project-a');",
         artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-structure-input", "modified"))
     harness.upload_revision = build_upload_revision(input_completeness=InputCompleteness.MODIFIED_ONLY,
         initial_binding=None, modified_binding=modified, generation=harness.upload_revision.generation)

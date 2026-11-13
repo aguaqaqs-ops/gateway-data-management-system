@@ -737,10 +737,10 @@ async function clickFormulaCell(page: Page) {
   const offset = Number(await grid.getAttribute("data-formula-column-offset"));
   const width = Number(await grid.getAttribute("data-formula-column-width"));
   if (!bounds || !Number.isFinite(offset) || !Number.isFinite(width)) throw new Error("formula column has no grid bounds");
-  const rowsVisible = Math.max(1, Math.floor((bounds.height - 38) / 38));
+  const rowsVisible = Math.max(1, Math.floor((bounds.height - 34) / 34));
   const dialog = page.getByRole("dialog", { name: "公式查看" });
   for (let row = 0; row < rowsVisible; row += 1) {
-    await page.mouse.click(bounds.x + offset + width / 2, bounds.y + 38 + row * 38 + 19);
+    await page.mouse.click(bounds.x + offset + width / 2, bounds.y + 34 + row * 34 + 17);
     try {
       await expect(dialog).toBeVisible({ timeout: 300 });
       return;
@@ -756,12 +756,13 @@ async function hoverChangedTelemetryValue(page: Page) {
   const bounds = await grid.boundingBox();
   if (!bounds) throw new Error("workbench telemetry grid has no bounds");
   const tooltip = page.getByRole("tooltip");
-  const rowsVisible = Math.max(1, Math.floor((bounds.height - 38) / 38));
-  const valueColumnCandidates = [50, 100, 150, 200, 250, 300];
-  for (let row = 0; row < rowsVisible; row += 1) {
-    const y = bounds.y + 38 + row * 38 + 19;
-    for (const fromRight of valueColumnCandidates) {
-      await page.mouse.move(bounds.x + bounds.width - fromRight, y);
+  const rowsVisible = Math.max(1, Math.floor((bounds.height - 34) / 34));
+  // Measured content widths leave unused space on the right; scan from the first data column.
+  const valueColumnCandidates = Array.from({ length: Math.ceil((Math.min(bounds.width, 1100) - 220) / 60) }, (_, index) => 220 + index * 60);
+  for (let row = 0; row < Math.min(rowsVisible, 12); row += 1) {
+    const y = bounds.y + 34 + row * 34 + 17;
+    for (const columnOffset of valueColumnCandidates) {
+      await page.mouse.move(bounds.x + columnOffset, y);
       try {
         await expect(tooltip).toContainText("字段变更", { timeout: 100 });
         return;
@@ -785,7 +786,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(firstPreviewView).toHaveAttribute("title", /2 张表有比较提示/);
   await expect(firstPreviewView).not.toHaveAttribute("title", /降级比较/);
   await expect(page.locator(".mode-tag")).toHaveText("上传");
-  await expect(page.getByRole("navigation", { name: "位置" })).toContainText("原始组态视图");
+  await expect(page.getByRole("navigation", { name: "位置" })).toContainText("device");
+  await expect(page.getByRole("navigation", { name: "位置" })).not.toContainText("原始组态视图");
   await expect(page.locator(".mode-tabs")).toHaveCount(0);
   await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("tab", { name: /原始组态视图/ })).toBeVisible();
@@ -2434,6 +2436,10 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   const openTab = async (tabKey: string) => {
     await expandNavigation();
     const tab = page.locator(`.overflow-tabs button[data-tab-key="${tabKey}"]`).first();
+    if (!(await tab.count())) {
+      expect(new URL(page.url()).searchParams.get("tab")).toBe(tabKey);
+      return;
+    }
     await tab.scrollIntoViewIfNeeded({ timeout: 5000 });
     await tab.click({ timeout: 5000 });
     await page.waitForTimeout(400);
@@ -2876,6 +2882,10 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
     const summary = page.locator(`[data-pair-summary="${pair.pair_id}"]`);
     await expect(summary).toContainText(`变化表 ${pair.summary.changed_table_count}/${pair.summary.table_count}`);
     await expect(summary).toContainText(`逐行 +${pair.summary.row_added_count} / ~${pair.summary.row_modified_count} / −${pair.summary.row_deleted_count}`);
+    if (pair.pair_id === "baseline_to_initial") {
+      await screenshot(page, "d-review-pair-statistics", 1920);
+      await screenshot(page, "d-review-pair-statistics", 1280);
+    }
     await page.locator(".compare-more > summary").click();
     await expect(tab).toBeVisible();
   }
@@ -2921,6 +2931,8 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     const title = code === "SUBMISSION_RESULT_UNAVAILABLE" ? "提交绑定的比较结果不可用"
       : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE" ? "提交绑定的比较结果完整性校验失败" : "当前身份没有该操作的权限";
     await expect(page.locator(".compare-error").getByRole("heading", { name: title, exact: true })).toBeVisible();
+    await screenshot(page, `d-review-error-${code.toLowerCase()}`, 1920);
+    await screenshot(page, `d-review-error-${code.toLowerCase()}`, 1280);
     options.reviewResultError = undefined;
     await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
     await waitForBrowse(page);

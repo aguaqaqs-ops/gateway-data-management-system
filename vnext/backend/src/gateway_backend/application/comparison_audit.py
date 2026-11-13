@@ -145,7 +145,12 @@ def structure_audit_binding(pair_id: str, comparison_digest: str, ref: ArtifactR
 def verify_structure_audit_bindings(store: ArtifactStorePort, raw_bindings: object, refs: tuple[ArtifactRef, ...], expected_pair_ids: object) -> None:
     from pydantic import TypeAdapter
     from gateway_backend.application.payloads import CheckpointDecodeError
+    from gateway_backend.application.kernel_execution import reserved_artifact_bytes
+    from gateway_backend.capabilities.table_access import current_kernel_context
 
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("structure audit verification requires the operation kernel context")
     try:
         bindings = TypeAdapter(tuple[StructureAuditBinding, ...]).validate_json(canonicalize_json_value(raw_bindings))
         pair_ids = TypeAdapter(tuple[str, ...]).validate_json(canonicalize_json_value(expected_pair_ids))
@@ -160,9 +165,11 @@ def verify_structure_audit_bindings(store: ArtifactStorePort, raw_bindings: obje
             ref = by_id.get(binding.audit_artifact_id)
             if ref is None:
                 raise ValueError("structure audit is missing from READY closure")
-            document = ComparisonStructureAudit.model_validate_json(store.locate(ref))
-            if (document.pair_id != binding.pair_id or document.comparison_digest != binding.comparison_digest
-                    or not document.tables):
-                raise ValueError("structure audit pair binding mismatch")
+            with reserved_artifact_bytes(store, ref) as raw:
+                with context.memory.reserve(65536 + ref.size_bytes * 32):
+                    document = ComparisonStructureAudit.model_validate_json(raw)
+                    if (document.pair_id != binding.pair_id or document.comparison_digest != binding.comparison_digest
+                            or not document.tables):
+                        raise ValueError("structure audit pair binding mismatch")
     except (ValueError, TypeError) as exc:
         raise CheckpointDecodeError(str(exc), code="STRUCTURE_AUDIT_INTEGRITY_ERROR") from exc

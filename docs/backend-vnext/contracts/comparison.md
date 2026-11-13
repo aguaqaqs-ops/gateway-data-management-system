@@ -416,7 +416,7 @@ SchemaChanges:
 - 删除表输出 `DELETED_TABLE`。
 - 仅对 before/current 都存在的表分类 schema 演进。字段只增、ENUM 只增标签（标签位置不限）、SET 只增成员且共有字段兼容时为 `COLUMNS_ADDED`；字段只删且共有字段兼容时为 `COLUMNS_REMOVED`；其余 schema 变化为 `INCOMPATIBLE`。有效比较键变化、键无效或共有字段不兼容时不得归类为只增列。
 - ENUM/SET 兼容性按解析后的类型和标签精确比较；只规范化类型关键字，不改写标签字符串字面量。大小写变化或标签替换都是 `INCOMPATIBLE`，不能被其他新增列豁免。
-- `COLUMNS_ADDED` 按共有列计算行变化，不改变 table status、不降级，也不产生 schema-change record。新增列名保留在内部 comparison facts 中；surface 不发布新增列列表，Submission/History 面向用户的结果不列出新增列。
+- `COLUMNS_ADDED` 的原始行比较按共有列计算，不因分类本身产生 schema-change record；原始 table status、schema 分类与对外展示分开。v4 只有具备下述严格证据的纯增删列才对外隐藏；未知的零计数不得无条件视为未变化。兼容 ENUM/SET 演进及真实共有字段变化继续使用现有行/content 口径。新增列名保留在后台原始事实；surface 不发布新增列列表。
 - `COLUMNS_REMOVED` 保持 `SCHEMA_CHANGED`；`INCOMPATIBLE` 保持现行 schema-change/degraded 规则。
 - key 不变时，row diff 只比较 selected columns。
 - before-only/current-only columns 不进入 row diff。

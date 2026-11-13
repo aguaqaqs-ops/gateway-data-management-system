@@ -1010,8 +1010,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const widths = new Map<string, number>([["__diff", fitColumn("__diff", "变更", sample, "auto")]]);
     for (const column of orderedColumns) widths.set(column.name, fitColumn(column.name, column.display_name || column.name, sample, "auto"));
     return widths;
-    // Keyed on the table view only: later row changes must not move columns.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keyed on the table view, not on rows: later row changes must not move columns.
   }, [autoWidthKey, fitColumn, orderedColumns]);
   const columns = useMemo<SizedGridColumn[]>(() => {
     const width = (id: string, fallback: number) => storedWidths[id] ?? autoWidths.get(id) ?? fallback;

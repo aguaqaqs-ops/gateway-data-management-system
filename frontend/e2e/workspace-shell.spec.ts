@@ -2965,7 +2965,7 @@ test("D review formula retains the accepted Preview rendering and clicked point"
   const reviewStart = observed.apiRequests.length;
   await page.goto(browseUrl("REVIEW", "preview-full"));
   const review = await openFormula();
-  await expect(review.locator(".formula-card")).toHaveText(text);
+  await expect(review.locator(".formula-card")).toHaveText(text, { useInnerText: true });
   await screenshot(page, "d-review-formula", 1920);
   await screenshot(page, "d-review-formula", 1280);
   expect(observed.apiRequests.slice(reviewStart).some((request) => request.path.startsWith("/v1/history"))).toBe(false);

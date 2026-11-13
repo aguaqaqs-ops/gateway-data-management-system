@@ -763,7 +763,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         deletedPointKeys.add(`${values.source_table}:${String(values.point_gid)}`);
         continue;
       }
-      if (browse.mode !== "PREVIEW" || hasBeforeSnapshot || !["ROW_MODIFIED", "ORDERED_ROW_MODIFIED"].includes(recordKind)
+      if (browse.mode === "HISTORY" || hasBeforeSnapshot || !["ROW_MODIFIED", "ORDERED_ROW_MODIFIED"].includes(recordKind)
         || !("formula_digest" in values)) continue;
       const recordIdentity = normalizeRowIdentity((record.current_row_identity ?? record.row_identity) as never);
       const locatedIndex = recordIdentity ? compositeLocator.get(recordIdentity)?.currentRowIndex ?? null : null;
@@ -771,7 +771,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       if (!currentRow) continue;
       beforeRows.push({ ...currentRow, ...values, formula_ast_json: null });
     }
-    setFormulas(deriveFormulaDisplays({ mode: browse.mode === "PREVIEW" ? "PREVIEW" : "HISTORY", before: beforeRows, current: currentRows,
+    setFormulas(deriveFormulaDisplays({ mode: browse.mode === "HISTORY" ? "HISTORY" : "PREVIEW", before: beforeRows, current: currentRows,
       beforeDevices: beforeDevices as Record<string, unknown>[], currentDevices: currentDevices as Record<string, unknown>[], deletedPointKeys }));
     setFormulaFocus(pointKey);
     setFormulaOpen(true);
@@ -929,7 +929,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       return <>
         {formulaFocus && focused.length === 0 && <p className="formula-drawer__note">没有找到该行的公式，下面列出全部 {formulas.length} 条。</p>}
         {focused.length > 0 && formulas.length > 1 && <button className="link-button formula-drawer__all" onClick={() => setFormulaFocus(null)}>显示全部 {formulas.length} 条公式</button>}
-        {shown.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}
+        {shown.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode !== "HISTORY"} />)}
       </>;
     })()}</div></aside></div>}
   </main>;

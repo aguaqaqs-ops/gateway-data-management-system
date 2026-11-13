@@ -2945,3 +2945,28 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
   });
 }
+
+
+test("D review formula retains the accepted Preview rendering and clicked point", async ({ page }) => {
+  const observed = await installFixtureRoutes(page, { reviewFixture: "preview-full" });
+  const openFormula = async () => {
+    await waitForBrowse(page);
+    await page.locator('.nav-item[data-item-key="device:composite"] .nav-item__button').click();
+    await waitForGridPaint(page, "table");
+    await clickFormulaCell(page);
+    const dialog = page.getByRole("dialog", { name: "公式查看" });
+    await expect(dialog.locator(".formula-card")).toHaveCount(1);
+    await expect(dialog).toContainText("线路保护装置 A:线路电流");
+    return dialog;
+  };
+  await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
+  const preview = await openFormula();
+  const text = await preview.locator(".formula-card").innerText();
+  const reviewStart = observed.apiRequests.length;
+  await page.goto(browseUrl("REVIEW", "preview-full"));
+  const review = await openFormula();
+  await expect(review.locator(".formula-card")).toHaveText(text);
+  await screenshot(page, "d-review-formula", 1920);
+  await screenshot(page, "d-review-formula", 1280);
+  expect(observed.apiRequests.slice(reviewStart).some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+});

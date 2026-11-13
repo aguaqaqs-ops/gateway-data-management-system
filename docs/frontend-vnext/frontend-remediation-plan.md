@@ -1,8 +1,8 @@
 # 前端专项整顿执行计划
 
-- **状态：** Owner 已确认（2026-11-12）：§11 七项均按本文建议。§2 的开始条件满足后实施。
+- **状态：** Owner 已确认（2026-11-12）：§11.1 七项均按本文建议。2026-11-13 按计划评审意见与 Owner 同日的决定修订：并入 T4、T5、T6，加入整顿后后端上的一次 journeys（§9.1），补 T3 的检查清单、收窄 kickoff §4.2 的措辞（§11.2）。T4 的 t1 验证范围待 Owner 确认（§11.2 第 3 项）。§2 的开始条件满足后实施。
 - **会话分工：** 前端设计会话写本计划、答复设计问题并给出 F7 判断；实施与审核各由独立会话负责（[前端 kickoff](frontend-kickoff.md) §10）。
-- **依据：** 主 checkout 根目录的未提交文件 `remediation-input-frontend.md`（下称“输入”）与 `project-review-2026-11.md` §11、§12；[FE4 kickoff](fe4-kickoff.md) §20；AGENTS“前端测试（FD7）”。
+- **依据：** 主 checkout 根目录的未提交文件 `remediation-input-frontend.md`（下称“输入”）与 `project-review-2026-11.md` §11、§12、§20；计划评审意见 `remediation-plan-review-frontend.md`（同目录，2026-11-13）；[FE4 kickoff](fe4-kickoff.md) §20；AGENTS“前端测试（FD7）”。
 - **代码事实基线：** main `eb6530b36e`（FE4 合并后的 H，`H:frontend` `b4806ba6a5`）。本文按函数名引用代码，不引用行号：H4 之后行号全部改变。
 - **阶段材料：** 开发主机 `/home/dev/gdds-stage-exchange/fe-remediation/`（`log.md`、`prompts/`、`handoffs/`、`reviews/`、`evidence/`）。入库的只有本计划、kickoff 的修改与退出时的一页总结。
 
@@ -17,7 +17,10 @@
 | G1 | 比较对的标签与标题从 `inputs[].role` 推导 | §6 | 实施者与门禁，末尾审核一并看 |
 | G2 | 刷新 OpenAPI 快照 | §7 | 等 Owner 转交后端 SHA |
 | O1、O2、O4、R9、T1、T2 | FE4b 遗留中不改行为的项 | §8 | 实施者与门禁，末尾审核一并看 |
-| T3 | 真实 backend 入口复用日志目录时失败（FE4 合并后验证交来，输入之后才出现） | — | 实施者与门禁，末尾审核一并看 |
+| T3 | 真实 backend 入口复用日志目录时失败（FE4 合并后验证交来，即同批的 E1，输入之后才出现） | — | 实施者与门禁，末尾审核一并看 |
+| T4、T5、T6 | 只改测试工具：t1 稳定门使 1280 正式截图取景偏移（T4）；凭据检索的 token 格式与执行时点，做成只读脚本（T5）；`check-handoff-hex.py` 核对截断形式（T6）。来源是 FE4 合并后验证审核（交换目录 `fe4b/reviews/fe4-post-merge-eb6530b36e.md` §2.3、§2.4、§3、§6）的 E2、E3、E4，记在 `fe4b/followups/fe4-behavior-small-task.md` 末节；Owner 2026-11-13 决定并入本轮 | — | 实施者与门禁，末尾审核一并看 |
+
+另有一次跨端运行：前端 `journeys` 完整集至少有一次跑在包含后端整顿退出提交的后端上（§9.1，Owner 2026-11-13）。它不是改动项，不阻塞退出。
 
 本轮不做：S2b 的设备路由头；会改行为的 FE4b 遗留（小任务，见 §8.3 与交换目录 `fe4b/followups/fe4-behavior-small-task.md`）；`presentation.ts` 中 `logical_path.includes("/blank/")`（等后端给出显式引用）；Prettier 以外的新依赖与状态管理库；顺手改交互、文案或样式。任何一项必须改行为时停下，交设计会话与 Owner。
 
@@ -32,7 +35,7 @@
 
 - **分支：** 实施在 `fe-vnext`（worktree `/home/dev/gdds-fe`，现为 `dddccd359c`，是 H 的祖先）。开始时确认 clean、无人使用，快进到 B。审核对象为 `B..候选提交`。
 - **提交：** 每一项单独提交，H3 每个组件一个提交；格式化提交只含 Prettier 的输出。提交说明写代号（例如 `H3:`），不写审核轮次编号。
-- **节点：** 按 AGENTS DC91 节点池与原子占用规则。日常 mock 全量在 `ct109-gw-dms-07`（`GATEWAY_FE_TEST_WORKERS=2`）；T1、T3 的真实 backend 调试在 `ct108-gw-dms-05`；退出证据在 `ct108-gw-dms-04`。不在开发主机运行类型检查、lint、单元测试、构建或 e2e。
+- **节点：** 按 AGENTS DC91 节点池与原子占用规则。日常 mock 全量在 `ct109-gw-dms-07`（`GATEWAY_FE_TEST_WORKERS=2`）；T1、T3、T4 的真实 backend 调试在 `ct108-gw-dms-05`；退出证据在 `ct108-gw-dms-04`，t1 证据在 05（§9）。不在开发主机运行类型检查、lint、单元测试、构建或 e2e。
 - **格式化在哪里做：** `prettier --write` 是改写源码的开发操作，与 `npm run generate:api-types` 相同，在 CT201 的开发 worktree 中执行；格式检查作为测试的一部分，只在测试节点由入口执行。
 - **npm 缓存（DC67）：** H4 的工具提交改了 `package-lock.json`，之后凡是执行 `npm ci --offline` 的入口（`run-tests.sh`、`run-real-backend-e2e.sh`、`run-packaging-measure.sh`）都需要含 Prettier 的缓存；`validate-upload-package.sh` 不装依赖，不受影响。做法同 FE0（`fe0-handoff.md`）：在 CT201 用该提交的 `frontend/`（`git archive` 导出到 worktree 外）执行 `npm ci --cache <新目录> --no-audit --no-fund`，得到只对应新 lockfile 的完整缓存；打包、计算 SHA256，经局域网传到 07、05、04，解包到 `/home/dev/gdds-fe-cache/fe-remediation/npm-cache`，归档放在同目录。工具提交之后的运行都显式设置 `GATEWAY_FRONTEND_NPM_CACHE`、`GATEWAY_FRONTEND_NPM_CACHE_ARCHIVE` 与 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT`（工具提交）；第 0 步 B 的 lockfile 未变，照旧用节点现有缓存。现有缓存在本轮内不动：04、07 用入口默认目录 `/home/dev/gdds-fe-cache/frontend/`，05 用显式变量指向 `/home/dev/gdds-fe-cache/fe0/npm-cache`，其他会话的预检按 FE4b 的归档 SHA256（`0d861824…`）核对。它们在退出时更新（§9）。缓存缺失即停止，补齐后从头运行。
 
@@ -56,11 +59,12 @@
 | 同上目录中的 `*.test.{ts,tsx}` | `design-system`、`pages`、`workbench`（允许 `dev`，见下） |
 | `src/features/workbench/**` | `pages` |
 
-- **测试文件的范围（与输入的出入，§11 第 1 项）：** 输入说“现有违规只有一处”，按生产代码计是对的；连测试文件算，还有 6 处：A 层的 5 个测试导入 `features/dev` 的模拟数据与模拟接口（`client`、`scope-session`、`polling`、`journeys`、`workspace` 的测试），`features/api/connection-status.test.ts` 渲染了 `ConnectionStatusIndicator`。设计：规则同样作用于测试文件，只允许 A 层测试导入 `features/dev`（那是共享的测试数据，不是 UI）；把那个渲染组件的用例随组件移走。这是规则范围的定义，不是逐处豁免。
+- **测试文件的范围（与输入的出入，§11.1 第 1 项）：** 输入说“现有违规只有一处”，按生产代码计是对的；连测试文件算，还有 6 处：A 层的 5 个测试导入 `features/dev` 的模拟数据与模拟接口（`client`、`scope-session`、`polling`、`journeys`、`workspace` 的测试），`features/api/connection-status.test.ts` 渲染了 `ConnectionStatusIndicator`。设计：规则同样作用于测试文件，只允许 A 层测试导入 `features/dev`（那是共享的测试数据，不是 UI）；把那个渲染组件的用例随组件移走。这是规则范围的定义，不是逐处豁免。
 - **移动：** `src/design-system/ConnectionStatusIndicator.tsx` → `src/features/workbench/ConnectionStatusIndicator.tsx`（`git mv`，组件内导入改为 `../api/connection-status`），两个页面的导入随之修改；`connection-status.test.ts` 中渲染组件的用例原样移到 `src/features/workbench/ConnectionStatusIndicator.test.ts`，另两个用例留下。用例数不变，单测文件数加 1。
 - **证明规则生效：** 加一个参数化单测（`// @vitest-environment node`），用 ESLint 的 Node API `lintText` 对每条规则各给一个违规样例（必须报 `no-restricted-imports`）和一个合法样例（不报）。门禁配置写错（例如 glob 不匹配）时它会失败，否则规则可能一直“静默通过”。
 - **文档：** kickoff §4.2 已写入目录与层的对应关系（本计划的同一提交）。
-- **不处理：** A 层内部方向不整齐的导入（`bundle` → `view-model`、`api` → `bundle`）。另见 §11 第 2 项：两个放在 A 层目录里的 UI 组件，Owner 决定本轮不动、记为遗留。
+- **规则单测是与输入的出入**（§11.2 第 6 项）：输入没有这一项，它不加依赖。
+- **不处理：** A 层内部方向不整齐的导入（`bundle` → `view-model`、`api` → `bundle`）。另见 §11.1 第 2 项：两个放在 A 层目录里的 UI 组件，Owner 决定本轮不动、记为遗留。
 
 ## 6. H2：机械拆 `ComparisonPage.tsx`
 
@@ -180,7 +184,7 @@
 
 ### 8.2 G2：OpenAPI 快照
 
-等 Owner 转交后端“`/internal/v1` 移出公开 schema”的提交 SHA，且该提交已在 main。把 main 合入 `fe-vnext` 后，按 S2b `116e831701`、`223e073cb4` 的做法从运行中的 backend 取 `/openapi.json`、保持 canonical 排序写回 `frontend/openapi.json`，用锁定的 `openapi-typescript` 重新生成类型，两者同一个提交，说明写明来源 main 提交与 `vnext/` 树。验证：真实 backend smoke 的 `openapi_compare=match`、快照中没有 `/internal/` 路径、mock 全量与类型检查通过。新增的统计端点出现在快照里，前端不调用。届时整轮已退出的，作为退出后的单独提交按同样验证进入 main；后端迟迟未完成的，记为遗留，不阻塞退出。
+等 Owner 转交后端“`/internal/v1` 移出公开 schema”的提交 SHA，且该提交已在 main。转交的应是后端本轮公开 schema 不再变化的提交，不一定就是 G2 那一个提交，以 Owner 转交的为准（Owner 2026-11-13 已确认后端 G2 可以修改公开 OpenAPI：移出的只有 `/internal/v1` 路径与只被它们引用的 schema 组件）。把 main 合入 `fe-vnext` 后，按 S2b `116e831701`、`223e073cb4` 的做法从运行中的 backend 取 `/openapi.json`、保持 canonical 排序写回 `frontend/openapi.json`，用锁定的 `openapi-typescript` 重新生成类型，两者同一个提交，说明写明来源 main 提交与 `vnext/` 树。验证：真实 backend smoke 的 `openapi_compare=match`、快照中没有 `/internal/` 路径、mock 全量与类型检查通过。新增的统计端点出现在快照里，前端不调用。届时整轮已退出的，作为退出后的单独提交按同样验证进入 main；后端迟迟未完成的，记为遗留，不阻塞退出。
 
 ### 8.3 F7 汇总口径的判断（输入 §8.3）
 
@@ -202,10 +206,13 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 | O2 | `table_scope` 提升的死代码 | 删除 `deriveBundleView` 中只从整表页签提升 `table_scope` 的循环、`DerivedTable.tableScope` 字段与初值，以及表头标记中随之恒为 null 的 `?? table.tableScope` 回退 | 单测与截图不变 |
 | O4 | 过时注释 | 改写 `styles.css` 中 `.compare-status` 上方 N5 注释，与删除 `flex-wrap` 后的实际一致 | 只改注释 |
 | O5 | handoff 的尝试记录 | 写进 kickoff §6（本计划的同一提交） | 已写 |
-| R9 | W6 忙态截图不稳定 | 先查根因；查不明时把 `upload-mode.spec.ts` 的稳定门移到 `settleAfterResize` 之后，改为按状态特征判定（例如顶栏各元素的位置在连续 3 帧内不变）。只改测试工具 | 07 连续两次 mock 全量、04 对 07 各一次 `compare-screenshots.py --stable`，都只有相同与噪声 |
+| R9 | W6 忙态截图不稳定 | 先查根因；查不明时把 `upload-mode.spec.ts` 的稳定门移到 `settleAfterResize` 之后。与 T4 是同一类问题（稳定门用元素截图），判定方式与 T4 一致：不改变滚动位置的区域截图连续两次逐字节相同；仍不稳定时再加状态特征（例如顶栏各元素的位置在连续 3 帧内不变），handoff 写明。两处各自实现或共用一个 helper 由实施会话定。只改测试工具 | 07 连续两次 mock 全量、04 对 07 各一次 `compare-screenshots.py --stable`，都只有相同与噪声 |
 | T1 | 真实旅程 trace 带 `authorization` | 见下 | 见下 |
-| T2 | 凭据检索必须解压 zip | 规则写进 kickoff §6（本计划的同一提交）；T1 的入口检索按此实现；`run-evidence-wrapper.sh` 没有自带检索，不改 | 规则已写；§20.5 起已按此执行 |
-| T3 | 真实 backend 入口复用日志目录时失败（FE4 合并后验证 handoff §4：`smoke` 与 `journeys` 共用 `--log-dir`，`mkdir groups-control` 报 `File exists`，在被测对象运行前退出） | 入口在取得占用之前检查 `--log-dir` 中是否已有上一次运行的固定名输出（实施会话列全，至少 `results.json`、`suite-summary.txt`、`groups-control/`、`processing-groups.log`、`openapi-runtime.json`），有则逐个列出并以 2 退出，提示每次运行用单独的空目录。不改成 `mkdir -p`：残留的 `groups-ready.json` 会被等待循环立刻读到，拿到上一次运行的地址；共用目录还会覆盖上一次的 `results.json` 等结果。只改测试工具；kickoff §6 写明每次真实运行用单独的日志目录（本计划的同一提交） | 05 上向带旧 `groups-control/` 的目录运行一次，在取得占用之前以 2 退出并写明原因；T1 的 smoke 用新目录正常通过；04 证据每次真实运行用单独的日志目录 |
+| T2 | 凭据检索必须解压 zip | 规则写进 kickoff §6（本计划的同一提交）；T1 的入口检索按此实现；`run-evidence-wrapper.sh` 没有自带检索，不改。token 格式与检索时点由 T5 补 | 规则已写；§20.5 起已按此执行 |
+| T3 | 真实 backend 入口复用日志目录时失败（FE4 合并后验证 handoff §4：`smoke` 与 `journeys` 共用 `--log-dir`，`mkdir groups-control` 报 `File exists`，在被测对象运行前退出；即审核报告 §6 的 E1） | 入口在取得占用之前检查 `--log-dir` 中是否已有上一次运行的固定名输出，有则逐个列出并以 2 退出，提示每次运行用单独的空目录。清单至少包括：`groups-control/`、`processing-groups.log`、`openapi-runtime.json`、`openapi-runtime.normalized.json`、`openapi-snapshot.normalized.json`、`openapi.diff`、`results.json`、`suite-summary.txt`、`input-scope-results.json`（入口按“文件存在才读”把它写进日志，残留的会被当成本次结果）；容器经 `/results` 挂载写出的其他固定名文件由实施会话补全，handoff 列出完整清单与查找方法。不改成 `mkdir -p`：残留的 `groups-ready.json` 会被等待循环立刻读到，拿到上一次运行的地址；共用目录还会覆盖上一次的 `results.json` 等结果。E1 建议的 `mkdir -p` 加“同目录先 smoke 后 journeys”回归不采用（Owner 2026-11-12、2026-11-13）。只改测试工具；kickoff §6 写明每次真实运行用单独的日志目录（本计划的同一提交） | 05 上向带旧 `groups-control/` 的目录运行一次，在取得占用之前以 2 退出并写明原因；T1 的 smoke 用新目录正常通过；04 证据每次真实运行用单独的日志目录 |
+| T4 | t1 稳定门使 1280 正式截图取景偏移（E2；审核报告 §3 O1）。`t1.spec.ts` 的 `waitForGridShotReady` 用 `grids.first().screenshot()` 连续截元素图，Playwright 截元素图前把网格滚入视口；1280×800 下网格底边约 853 像素，页面被滚动，随后的整页截图里吸顶顶栏画在滚动后的位置，顶部出现 33–53 像素空带，表格页签条被顶栏盖住。合并后验证的 13 张正式 1280 图中 9 张如此，1920 图与诊断图没有 | 稳定门不改变页面滚动位置：改用不滚动的区域截图比较（例如按网格在视口内的可见部分做 `page.screenshot({ clip })`），或在门前记录、门后恢复滚动位置并核对。`shot-gate` 行加记门前与门后的滚动位置，其余字段与判定含义不变。R9 用同一种判定方式（上一行）。只改测试工具，不改 t1 的旅程步骤、判据与 M1 | 05 上的 t1 运行（范围见 §9“t1”一段，待 Owner 确认）满足：① `shot-gate` 26 行全部 `rendered=ok`，`stable` 为数字，无 `timeout`、`unstable`、`error`，门前与门后滚动位置相同；② 按审核报告 `t1-frame-scan.txt` 的方法（`evidence/fe4-post-merge-review-eb6530b36e/scripts/t1-frame-scan.py`）测顶部均匀行数：有 pregate 诊断图的 11 张正式 1280 图与各自的 pregate 相同，没有 pregate 的 `device-tabs`、`forward-channel` 为 0；原受影响的 9 张目检表格页签条可见；③ t1 判据行（页签与定位计数、`anomalies`、`openapi_compare`、诊断码）与 §20.5 的 05 t1 相同 |
+| T5 | 凭据检索的模式与时点（E3；审核报告 §2.3）。入口生成两种 token：smoke 是 `fe3a-<身份段>-<32 位十六进制>`（身份段是角色或输入 scope 名，如 `submitter`、`input-b-mod`，可含连字符），journeys 是 `fe3b-<场景>-<角色>-<32 位十六进制>`。合并后验证 handoff 用的 `fe3[ab]-[0-9a-f]{32}` 一个也匹配不到，“计数为 0”没有检出能力；检索又在 journeys 重跑之前执行，漏了重跑的日志目录。T1 只覆盖一次运行内部的 trace，T2 没写格式与时点，事后对日志与证据目录的检索两者都没有覆盖 | 新增只读脚本 `frontend/scripts/scan-credentials.py`：只用标准库，`python3 -I` 运行，不加依赖。参数是若干目录；递归读全部文件，zip（含 Playwright trace）逐成员解压；分别计数 `Bearer ` 后接 token 字符、`dir-token`、`gdds-handoff=`、上述两种 token，源码模板 `Bearer ${` 单列；只输出计数与命中文件的路径，不输出匹配值；输出头记 hostname、起止 UTC 与各目录。每次先自检：在临时目录生成两种格式的随机假 token，明文文件与 zip 成员中各放一份，各项计数都不为 0 才继续，否则以非零退出；自检结果写进输出。实际计数任一不为 0 时以非零退出。仓库中不放含 token 形状的样本文件。kickoff §6 的规则同步（本计划的同一提交）；实施与审核提示词改为调用它；T1 的入口检索可以复用它的匹配规则 | 自检在 05 上通过；第 7 步全部真实运行（含失败尝试）结束后对其日志与证据目录执行，计数为 0；§9 第 10 步全部运行（含重跑）结束后对每一次运行的日志与证据目录执行，计数为 0 |
+| T6 | `check-handoff-hex.py` 不核截断形式（E4；审核报告 §2.4）。`<十六进制>…<十六进制>` 只打印 `truncated (not verified)`（文件头说明也这样写）；合并后验证 handoff 的 30 种截断形式中 15 种与真实值不符（有的前缀就错，有的后缀取自值的中间），退出码仍为 0 | 每个截断形式的前缀与后缀必须唯一匹配一个已知完整值：`--sha-file`、`--evidence-file`、`--source-dir` 得到的 SHA256，或 `--git-objects` 下的 git 对象。匹配不到或匹配到多个时逐个列出行号与形式，以 1 退出。前缀或后缀不足 4 位的无法唯一核对，同样失败。文件头说明与汇总行同步改写。只改测试工具 | 一份样本 handoff（含正确截断各一处，以及前缀错、后缀取自值中间的错误截断各一处）：脚本以 1 退出并逐行指出两处错误；对本轮实施 handoff 运行通过。样本放交换目录 `evidence/`，不入库。回源与以往相同，在开发主机的交换目录上执行（只读后处理） |
 
 **T1 的设计。** token 进入 trace 的途径不止请求头：`addInitScript` 与 `page.evaluate` 的参数、Node 侧 `APIRequestContext` 请求都会被记录（FE4b 的 trace 中 16 个 token，14 个在请求头、2 个在动作记录）。只关掉网络记录不够。建议由真实 backend 入口在 Playwright 结束后处理保留下来的 trace：入口自己生成全部 token，逐个 zip 成员把每个 token 值与 `gdds-handoff=` 的载荷换成固定占位，再逐成员检索并把计数写进日志（`trace_redaction=ok|failed` 与各项计数）；处理失败或检索不为 0 时入口以非零退出并写明原因，不覆盖测试本身的结果。其余排障内容（动作、截图、DOM 快照、网络时序）保留。实施会话可以选别的做法，但必须满足同一完成标准：在 05 上用一个只为制造失败的临时提交（不入候选，SHA 记入 handoff）跑一次真实 backend smoke，保留的 trace 逐成员解压后，入口生成的 token 前缀与“`Bearer ` 后接 token 字符”均为 0；源码模板 `Bearer ${` 单独计数，不算凭据（与 FE4b 证据核对的口径相同）。
 
@@ -219,18 +226,29 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 | 3 | H2 | 同上；`color-moved` 自查 |
 | 4 | H3，三个提交 | 每个提交后各跑一次；计数不变；截图同上 |
 | 5 | O1、O2、O4 | 同上；O1 的两个探针 |
-| 6 | R9 | 07 连续两次 `--stable` |
-| 7 | T1、T3 | 05：临时失败提交的真实 smoke 与 trace 检索；T3 的拒绝检查 |
+| 6 | R9、T4 的稳定门 | 07 连续两次 `--stable`；T4 的 t1 验证在第 7 步 |
+| 7 | T1、T3、T4、T5、T6 | 05：T1 临时失败提交的真实 smoke 与 trace 检索；T3 的拒绝检查；T4 的 t1 一次（调试，待 Owner 确认，见下文“t1”）；以上全部结束后 T5 自检并检索这些运行的日志与证据目录。T6 的样本 handoff 在开发主机 |
 | 8 | G1 | 同上 |
 | 9 | 候选 C、handoff、独立审核（§10）；有修复按审核结论定向复审 | — |
-| 10 | 04 证据：在 C 的 clean detached worktree 经 `run-evidence-wrapper.sh` 依次跑 mock 全量带截图、上传包校验、真实 `smoke`、`journeys` 完整集。参数与 §20.5 相同：`smoke` 不传 `--subphase`，`journeys` 用 `--subphase fe4b`；两个真实 suite 各用单独的 `--log-dir`（T3） | 全部通过；mock 计数等于 §20.5 加本轮新增，`smoke`、`journeys` 用例数与 §20.5 相同；04 截图对 §20.5 的 04 截图只有相同与噪声；04 对 07 `--stable`；四个上传包与 §20.5 的 04 输出逐字节相同；OpenAPI 比对通过；日志、证据目录与 trace 逐成员检索为 0 |
+| 10 | 04 证据：在 C 的 clean detached worktree 经 `run-evidence-wrapper.sh` 依次跑 mock 全量带截图、上传包校验、真实 `smoke`、`journeys` 完整集。参数与 §20.5 相同：`smoke` 不传 `--subphase`，`journeys` 用 `--subphase fe4b`；两个真实 suite 各用单独的 `--log-dir`（T3）。同时在 05 上对 C 跑 t1（参数与 §20.5 的 05 t1 相同，单独的 `--log-dir`；待 Owner 确认，见下文“t1”）。全部运行（含重跑与运行前失败的尝试）结束后，用 `scan-credentials.py` 检索每一次运行的日志与证据目录 | 全部通过；mock 计数等于 §20.5 加本轮新增，`smoke`、`journeys` 用例数与 §20.5 相同；04 截图对 §20.5 的 04 截图只有相同与噪声；04 对 07 `--stable`；四个上传包与 §20.5 的 04 输出逐字节相同；OpenAPI 比对通过；t1 满足 §8.4 T4 的标准；凭据检索自检通过、计数为 0；handoff 回源（含截断形式，T6）通过 |
 | 11 | G2（收到 SHA 后，可在 9 之前或退出之后） | §8.2 |
+| 12 | 整顿后的后端上跑一次 `journeys`（§9.1） | §9.1 |
 
 - **t4 筛查（FE4 kickoff §7.4 的做法）：** 格式化会改到 `upload-package.ts`（试算 10 行）与 `UploadStepCard.tsx`（685 行），所以 `B..C` 对这两个文件的筛查必然非空。其他各项都不改这两个文件（H3 只动 `WorkbenchPage` 一侧，`UploadStepCard` 的接口不变）。审核会话确认这两个文件在 `B..C` 中只有格式化提交的改动、该提交可重放（§4）；满足时打包流程没有改变，不触发 t4 重测。上传包校验的四个包与 §20.5 逐字节相同是直接证据：包内 tar 头是确定性的（mtime 0 等）。B 的 `upload-package.ts` 与 H 不同时，改为只要求校验通过，并在 handoff 写明。
-- **不跑 t1：** 本轮不改真实数据的处理、判据与 t1 用例；G1 的三种 Preview 标签由 `journeys` 的 `r2-preview`（面包屑“当前基线 → 本次归档组态”）与 `r2-full`（两个视图页签名）在真实 backend 上覆盖。
+- **t1（T4，范围待 Owner 按 DC33 确认，§11.2 第 3 项）：** 本轮不改真实数据的处理、t1 的旅程步骤与判据；但 T4 改了 `t1.spec.ts` 的截图稳定门，不跑 t1 无法证明修好，所以至少跑一次。建议甲：第 7 步在 05 上用含 T4 的提交跑一次 t1（调试，不作证据），按 §8.4 T4 的标准核对；第 10 步在 05 上对 C 跑一次 t1 作为证据，与 04 并行，参数同 §20.5 的 05 t1（`--suite t1 --subphase fe4b`，输入 `/home/dev/gateway-real-dumps/source-dirs/` 的 `t1-v1`、`t1-v2`）。§20.5 的 t1 约 8 分钟，两次合计约 20 分钟。04 的退出证据不加 t1：按 AGENTS 的节点分工，真实数据 t1 在 05，FE4 各阶段与 §20.5 的 t1 证据都在 05。乙：省掉第 7 步的调试运行，只在第 10 步对 C 跑一次；T4 没修好时要修复后换新候选重做证据。G1 的 Preview 标签仍由 `journeys` 的 `r2-preview`（面包屑“当前基线 → 本次归档组态”）与 `r2-full`（两个视图页签名）在真实 backend 上覆盖，t1 的两个页签名断言也一并覆盖。
 - **失败处理：** 证据失败即停，交设计会话与 Owner。被测对象运行前的命令、环境与缓存问题按 AGENTS 的构建故障快速修复处理，每次尝试（包括运行前失败）都记进 handoff。
-- **退出：** 审核结论为可以退出且 Owner 确认后，设计会话（或 Owner 指定的会话）打附注 tag `fe-remediation-exit`，以 `--no-ff` 合入 main；合入前与当时的 main 头试合并，`frontend/` 有冲突时停下。合入后，在 04、05、07 上把新缓存解包到默认目录 `/home/dev/gdds-fe-cache/frontend/npm-cache`（解包只增加条目，旧提交仍可用；05 没有该目录时新建），默认归档换成新归档、旧归档改名保留，记录前后 SHA256；`fe0` 目录不动，只适用于整顿合入之前的提交。随后告知 Owner，由 Owner 转告后端与其他前端会话：此后 main 上的前端入口用默认目录的新缓存，预检改为核对新归档的 SHA256。不推送。
+- **退出：** 审核结论为可以退出且 Owner 确认后，设计会话（或 Owner 指定的会话）打附注 tag `fe-remediation-exit`，以 `--no-ff` 合入 main；合入前与当时的 main 头试合并，`frontend/` 有冲突时停下。合入后，在 04、05、07 上把新缓存解包到默认目录 `/home/dev/gdds-fe-cache/frontend/npm-cache`（解包只增加条目，旧提交仍可用；05 没有该目录时新建），默认归档换成新归档、旧归档改名保留，记录前后 SHA256；`fe0` 目录不动，只适用于整顿合入之前的提交。随后告知 Owner，由 Owner 转告后端与其他前端会话：此后 main 上的前端入口用默认目录的新缓存，预检改为核对新归档的 SHA256。不推送。§9.1 的那次 `journeys` 不阻塞打 tag。
 - **一页总结：** 实施会话在退出前写 `docs/frontend-vnext/frontend-remediation-summary.md`，含 §12 的门禁说明。
+
+### 9.1 整顿后的后端上跑一次 `journeys`（Owner 2026-11-13）
+
+- **决定：** 前端 `journeys` 完整集至少有一次跑在包含后端整顿退出提交（下称 Sx）的后端上，由前端会话在 04 执行（`project-review-2026-11.md` §20.2）。依据：第 10 步的证据跑在分支起点 B 的后端上，而后端整顿会把授权与错误码映射从 `http` 搬到 `application`。
+- **触发：** Sx 由 Owner 转交并记入 `log.md`。收到之前不猜测后端进度。
+- **方式 1：** 第 10 步运行时 C 的 `vnext/` 已包含 Sx（`git merge-base --is-ancestor Sx C` 成立，例如做 G2 时合入的 main 已含它）。这时第 10 步的 `journeys` 就算数，不另跑；在 `log.md` 记一句并写明核对命令的结果。
+- **方式 2：** 否则在两端都合入 main、且 G2 的快照提交也已进入 main 之后补跑一次：取当时的 main 头 M2（核对 Sx 与 G2 快照提交都是 M2 的祖先），在 04 上 M2 的 clean detached worktree 中经 `run-evidence-wrapper.sh` 跑 `journeys` 完整集，参数与第 10 步相同（`--subphase fe4b`），用单独的 `--log-dir`；npm 缓存用“退出”一段更新后的默认目录。快照必须与该后端一致，否则入口会停在 OpenAPI 比对，所以排在 G2 之后。运行结束后用 `scan-credentials.py` 检索其日志与证据目录。
+- **时限：** 不阻塞 `fe-remediation-exit`；在后端 S3 实施开始之前完成（`project-review-2026-11.md` §20.2）。
+- **记录：** 结果记入 `log.md`（M2 或 C、Sx、节点、hostname、起止 UTC、起止 HEAD、exit code、用例数、日志 SHA256、凭据检索结果），证据放交换目录 `evidence/`，并用一句话告知 Owner。
+- **失败：** 失败即停，不改断言、不放宽判据。把失败的用例和观察到的错误码、状态码交 Owner，由 Owner 判断转给哪一端。被测对象运行前的命令、环境与缓存问题仍按 AGENTS 的构建故障快速修复与 DC68 处理并记录每次尝试。
 
 ## 10. 独立审核
 
@@ -241,11 +259,17 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 - **H3：** 每个 hook 的职责与 §7.2 一致；`git diff --color-moved` 下非移动改动逐条有理由；§7.1 的各条规则与 §7.3 的 effect 顺序、重置序列、具名函数与捕获值逐项核对；在 07 上对每个组件挑一两处风险最高的接线做探针（例如撤掉某个重置或调换两个 hook 的调用顺序），看 mock e2e 是否失败；不失败的记为覆盖缺口，写进报告，不阻塞。
 - **H4、H1、H2：** 格式化提交可重放；三条规则与规则单测；移动是否整块；t4 筛查（§9）：两个打包文件在 `B..C` 中只有格式化提交的改动。
 - **G1：** 推导表、等价性论证与单测；源码中不再有 `pair_id` 子串匹配。
-- **O1、O2、R9、T1、T3：** 按 §8.4 的完成标准复核，T1 的检索在审核会话自己的解压结果上重做。
+- **O1、O2、R9、T1、T3：** 按 §8.4 的完成标准复核，T1 的检索在审核会话自己的解压结果上重做。T3 的清单含 `input-scope-results.json`，并与入口实际的固定名输出对照。
+- **T4：** 稳定门不再改变滚动位置，R9 与 T4 的判定方式一致；对第 7 步 t1 的 `shot-gate` 行与截图，审核会话自己用 `t1-frame-scan` 的方法重测顶部均匀行数，并目检原受影响的 9 张。
+- **T5：** 脚本只用标准库、只输出计数、先自检；两种 token 格式（含可带连字符的身份段）都能命中；审核会话在节点上自己运行它，自检通过后检索第 7 步的日志与证据目录。
+- **T6：** 审核会话另做一份含错误截断的样本 handoff，脚本以 1 退出并指出行号；对实施 handoff 运行通过。
 - **截图：** 审核会话在 07 跑一次 C 的 mock 全量，与 B@07 比较。
 - **结论：** 可以退出、定向修复或停下交 Owner。报告放交换目录 `reviews/`。
+- **证据核对（第 10 步之后）：** 按第 10 步的判据逐项核对；05 t1 按 T4 的标准；凭据检索在全部运行（含重跑）结束之后执行、覆盖每一次运行的目录，审核会话自己再运行一次 `scan-credentials.py`；handoff 回源含截断形式；写明 §9.1 是方式 1（核对 Sx 是 C 的祖先、`journeys` 用例数与 §20.5 相同）还是留待方式 2；Sx 尚未转交时写“待定”。
 
-## 11. 与输入的出入（Owner 2026-11-12 已决定）
+## 11. 与输入的出入与 Owner 决定
+
+### 11.1 2026-11-12（已决定）
 
 **Owner 决定：** 七项均按本节建议。第 1 项选甲；第 2 项本轮不动，记为遗留；第 3、5、6、7 项按本文执行；第 4 项 F7 转入小任务第 6 项。
 
@@ -256,6 +280,17 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 5. **T1 的完成标准：** “`Bearer `为 0”细化为“`Bearer ` 后接 token 字符为 0，源码模板 `Bearer ${` 单列”，与 FE4b 的核对口径一致。
 6. **退出证据加上传包校验**（§9 第 10 步）：输入只列了 mock 全量、`smoke`、`journeys`。格式化改到 `upload-package.ts`，而前端各阶段（含 §20.5）的 04 证据都含这一项；四个包与 §20.5 逐字节相同即证明打包输出未变，t4 不触发。
 7. **新增 T3，修法与 handoff 的建议不同。** FE4 合并后验证的 handoff 建议 `mkdir -p` 或清理后复用，并补“同一 `--log-dir` 先后跑 `smoke` 与 `journeys`”的回归。本计划改为拒绝复用、每次运行用单独目录（理由见 §8.4），回归检查相应改为拒绝检查，不需要为此多跑一次完整 `journeys`。
+
+### 11.2 2026-11-13（计划评审之后）
+
+计划评审意见（主 checkout 根目录 `remediation-plan-review-frontend.md`）与 Owner 同日的决定（`project-review-2026-11.md` §20.2）。
+
+1. **Owner 决定：E2、E3、E4 并入本轮**，代号 T4、T5、T6（§1、§8.4、§9、§10）。同批的 E1 就是 T3，以 T3 的修法为准；E1 建议的 `mkdir -p` 与同目录回归不采用。三项都只改测试工具。T5 采用审核报告的建议，做成仓库内的只读脚本 `frontend/scripts/scan-credentials.py`，并加自检，使每次检索都先证明有检出能力。
+2. **Owner 决定：整顿后的后端上跑一次 `journeys`**（§9.1）。
+3. **待 Owner 确认：T4 的 t1 验证范围**（DC33）。建议甲：05 上调试一次（第 7 步）加 C 上的证据一次（第 10 步，与 04 并行），04 不加 t1。乙：只在第 10 步对 C 跑一次。理由与耗时见 §9“t1”一段。
+4. **评审补充，采纳：** T3 的检查清单点名 `input-scope-results.json` 与入口的其他固定名输出（§8.4 T3）。
+5. **评审补充，采纳：** kickoff §4.2 的页面 state 规则收窄到 `ComparisonPage`、`WorkbenchPage`、`ArchiveMainlineDialog` 三个组件，与 §7.1 第 1 条的完成标准一致，并保留输入原话“新功能的 state 进入对应的 hook 或新 hook”。原措辞把三个组件的完成标准变成了对所有页面组件的禁令，又没有门禁支撑。
+6. **补记与输入的出入：** H1 加了一个用 ESLint Node API 的规则单测（§5），证明三条规则确实生效；输入没有这一项。它不加依赖。
 
 ## 12. 交规则会话的门禁说明（整顿结束时，由 Owner 转交）
 

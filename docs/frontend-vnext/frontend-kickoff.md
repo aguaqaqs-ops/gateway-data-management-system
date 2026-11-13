@@ -2,7 +2,7 @@
 
 - **状态：** 已确认（owner，2026-11-02）；FE0 可以开始。
 - **日期：** 2026-11-02。
-- **修订：** 2026-11-04 按后端 [DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)（方向经 owner 确认，后端设计 main `f20f08bea9`）更新 §3.3、§4.3、§5 BE-a 与 §7 FE3；BE-a 尚未实施。2026-11-12 按前端专项整顿（[执行计划](frontend-remediation-plan.md)）与 owner 决定修改 §1、§4.1、§4.2、§6、§7、§9。
+- **修订：** 2026-11-04 按后端 [DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)（方向经 owner 确认，后端设计 main `f20f08bea9`）更新 §3.3、§4.3、§5 BE-a 与 §7 FE3；BE-a 尚未实施。2026-11-12 按前端专项整顿（[执行计划](frontend-remediation-plan.md)）与 owner 决定修改 §1、§4.1、§4.2、§6、§7、§9；2026-11-13 按整顿计划评审与 owner 决定修改 §4.2、§6、§7。
 - **会话分工：** 本设计会话负责 kickoff、决定记录与设计问题答复；实施与审核各由独立会话负责（§10）。
 - **范围：** 新建前端工程，对接 vnext 后端；`legacy/frontend/` 只作行为与问题来源。
 - **依据：**
@@ -96,7 +96,7 @@ vnext bundle 是精简的表索引（`ComparisonSurface`）加 artifact 闭包�
 A 与 B 可以并行；C 才对接真实后端。
 
 - **目录与层（前端专项整顿，2026-11-12）：** `src/features/{api,bundle,session,view-model}` 属 A 层；`src/design-system` 属 B 层；`src/pages` 与 `src/features/workbench` 属 C 层（后者是带 UI 的对话框与卡片）；`src/features/dev` 是模拟数据与模拟接口，只供开发与测试。整顿 H1 起由 `eslint.config.js` 的 `no-restricted-imports` 按此检查，规则与适用范围见[执行计划](frontend-remediation-plan.md) §5。
-- **页面的 state（整顿 H3 之后）：** 页面组件体不直接调用 `useState`、`useReducer`、`useEffect`；新功能的 state 进入对应的 hook 或新建 hook（现有分组见执行计划 §7.2），不再直接加进组件体。
+- **页面的 state（整顿 H3 之后）：** `ComparisonPage`、`WorkbenchPage`、`ArchiveMainlineDialog` 三个组件体不直接调用 `useState`、`useReducer`、`useEffect`、`useLayoutEffect`（整顿 H3 的完成标准，执行计划 §7.1）；新功能的 state 进入对应的 hook 或新 hook（现有分组见执行计划 §7.2），不再直接加进这三个组件体。
 
 OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并由它生成类型；快照与当前 backend 是否一致，在 FE3 的 e2e 中用运行中的 `/openapi.json` 比对。不在 `vnext/` 中新增导出脚本。
 
@@ -161,7 +161,7 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 - **入口：** FE0 提供 `frontend/scripts/run-tests.sh` 作为前端权威入口；是否并入 `vnext/scripts/run-tests.sh` 的包选择（例如新增 `frontend` 包名）在 FE0 评估。并入会修改 runner 与闭包脚本，影响后端闭包，倾向保持独立。
 - **格式与分层（前端专项整顿 H4、H1 之后）：** 入口在 `npm ci` 之后执行 `npm run format:check`（Prettier，配置 `frontend/.prettierrc.json`），`npm run lint` 含 §4.2 的分层规则。格式问题在 CT201 的开发 worktree 执行 `npm run format` 后提交，不在测试节点上改写源码。
 - **运行尝试的记录：** handoff 记录每一次运行尝试，包括被测对象运行之前就失败的尝试：原因、修正与结果。
-- **凭据检索：** 在日志、证据目录与 trace 中检索 `Bearer `、`dir-token`、`gdds-handoff=` 与入口生成的 token 前缀时，trace 与其他 zip 逐成员解压后再检索；源码模板 `Bearer ${` 单独计数，不算凭据。
+- **凭据检索：** 在全部真实运行（含重跑与运行前失败的尝试）结束之后执行，覆盖每一次运行的日志目录与证据目录。检索项：`Bearer ` 后接 token 字符、`dir-token`、`gdds-handoff=`，以及真实 backend 入口生成的两种 token：smoke 的 `fe3a-<身份段>-<32 位十六进制>`（身份段是角色或输入 scope 名，可含连字符）与 journeys 的 `fe3b-<场景>-<角色>-<32 位十六进制>`。trace 与其他 zip 逐成员解压后再检索；源码模板 `Bearer ${` 单独计数，不算凭据。检索方法先在构造样本上证明有检出能力：两种格式的假 token 分别放进明文文件与 zip 成员，各项计数都不为 0；样本不用真实 token。整顿 T5 之后用 `frontend/scripts/scan-credentials.py`（只读，自带上述自检），之前按同一口径检索。
 - **真实 backend 入口的日志目录：** 每次运行用单独的 `--log-dir`。入口把 `results.json`、`groups-control/` 等写成固定文件名，两次运行共用目录会覆盖上一次的结果；整顿 T3 之后入口拒绝这样的目录。
 - **截图验收（owner 2026-11-02）：** FE2 起，由 Playwright 在 1280 与 1920 两种宽度下，对 UI 优化方向 §7 草图清单中的每个页面与状态截图（模拟接口，固定示例数据），截图与运行日志存于 worktree 外的证据目录并记录 SHA256。审核会话逐张对照草图核对布局、层级、语义色、按钮层级、禁用原因与焦点样式；不做像素级比对（示例数据不同）。与草图不符处要么修正，要么作为偏差列入 handoff 交 owner 确认。FE4 在合格空闲池内节点上用真实 backend 与 t1 数据重拍一次关键页面作为证据。
 - 规则写入 AGENTS 与 testing-conventions，由治理会话在 FE0 首次运行测试前完成。
@@ -177,7 +177,7 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 | FE2 页面 | 正式工作台（树、上下文工具栏、上传步骤卡、比较托盘、结果抽屉）、差异浏览（两行顶栏、侧栏 A、tab、表格、变更定位）、审核与撤回、归档、历史比较、数据集替换浏览与确认。分为 FE2a 差异浏览、FE2b 工作台、路由与历史比较、FE2c 写操作旅程，各自审核、取证与打 tag（[FE2 kickoff](fe2-kickoff.md) §2，owner 2026-11-02、2026-11-03） | FE1 | 用模拟接口完成全部旅程；UI 优化方向 P3、P4 条目落地；截图验收通过（§6） |
 | FE3 对接 | 对接 Compose 中的真实 backend；刷新 OpenAPI 快照并做一致性比对；接回上传模式顶栏撤回（§7.1）；真实数据 t1 完整旅程；FE2 带入项（[FE2 kickoff](fe2-kickoff.md) §6.5，owner 2026-11-05） | FE2、BE-a、BE-d | e2e 全部旅程通过（含 §7.1 场景）；t1 旅程通过 |
 | FE4 收口 | 接入 BE-b 的分组与列展示与行定位产物，移除占位数据与浏览器中的行标识计算（保留回退行为）；FE3 带入项与真实数据重拍。拆段与范围见 [FE4 kickoff](fe4-kickoff.md)（owner 2026-11-10 已确认）：FE4a 不依赖 BE-b，FE4b 接入 BE-b | FE4a：`fe-fe3c-exit`；FE4b：BE-b | 按 FE4 kickoff §5.2；owner 退出审核 |
-| 专项整顿 | 不改行为的工程整顿：Prettier 与全量格式化、分层门禁、拆 `ComparisonPage.tsx` 与三个组件的 state、比较对标签按角色推导、OpenAPI 快照刷新、FE4b 中不改行为的遗留。见[前端专项整顿执行计划](frontend-remediation-plan.md) | FE4 合并且合并后验证（FE4 kickoff §20.5）通过 | 执行计划 §9、§10；owner 确认，tag `fe-remediation-exit` |
+| 专项整顿 | 不改行为的工程整顿：Prettier 与全量格式化、分层门禁、拆 `ComparisonPage.tsx` 与三个组件的 state、比较对标签按角色推导、OpenAPI 快照刷新、FE4b 中不改行为的遗留与 FE4 合并后验证交来的测试工具缺陷。见[前端专项整顿执行计划](frontend-remediation-plan.md) | FE4 合并且合并后验证（FE4 kickoff §20.5）通过 | 执行计划 §9、§10；owner 确认，tag `fe-remediation-exit` |
 
 FE0–FE2 不依赖后端剩余工作；FE4 依赖 BE-b，按 FD8 排在 P6 退出之后。
 

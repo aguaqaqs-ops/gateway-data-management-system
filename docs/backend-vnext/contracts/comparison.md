@@ -626,3 +626,10 @@ ComparisonComputeResult:
 状态：S1a comparison 位置接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。records、records manifest/closure、comparison cache成员与cache manifest均显式归comparison；恢复重绑后的新对象仍归comparison，不因进入READY或冻结Attempt而搬盘。producer固定kind与完整身份输入统一经位置codec，cache中empty view仍不造文件。
 
 table/core/comparison任务身份与facts/records内容、规则和业务摘要不新增物理位置输入。含完整新ref的closure/cache envelope原字节与raw SHA可变；原records manifest不含ref的业务摘要不因位置变化而变。当前operation依原公式重绑/闭合/保护，optional cache miss与冻结输入丢失不能混淆；root SH→短DB pin→事务外hash的顺序和READY前释放窄cache intent保持。Bundle物理metadata完整性带来的传递变化见A§4，不全量重录golden。Parquet records的SpooledTemporaryFile必须显式使用本operation scratch（包括rollover）；共享temporary cap与原records/spool上限共同约束，返回bytes的M预约另计。取消、ENOSPC、writer/close失败均释放writer/spool，不发表READY，不能回退系统temp。
+
+
+### 配置表比较键（2026-11-13）
+
+[ADR 0018](../refactoring/formal/adr/0018-canonical-domain-comparison-and-comparison-rule-view.md) 的 12 类精确配置表采用 STANDARD/ALL_CHANGES，以 `(page_no, no)` 对齐，不从 DDL 主键猜测比较键。同一 no 在不同 page_no 下为不同行；正常增删改进入 records 与摘要，供风险、surface 和业务导航消费。需按键对齐的两侧缺列、NULL、空字符串或重复键时按表 DEGRADED，不去重或回退 DDL 键；单侧和双侧空表保留既有元数据路径。合法存储中的无效比较键不阻止表浏览，非法 DDL 存储主键仍由 projection 拒绝。
+
+本次 ruleset `v5` 的规范规则文档和逐表 comparison-rule-view digest 反映新角色与键；`standard-reference/v2` 增加 native 键值验证，进入 TableTaskInputV1 的 standard_algorithm 身份，持久与运行内缓存经同一 task input 核对。未改变 DTO/checkpoint、规则文档形状或 digest preimage，也不提升 storage projection version；旧键语义缓存不得恢复到新结果。

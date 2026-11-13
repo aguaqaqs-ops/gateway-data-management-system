@@ -25,7 +25,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 
 COMPARISON_DIRECTION = "BEFORE_TO_CURRENT"
-STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v1"
+STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v2"
 
 
 def _compare_task_metadata(task: Any) -> ComparisonTableFact:

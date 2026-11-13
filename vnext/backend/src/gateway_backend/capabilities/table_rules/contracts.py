@@ -21,10 +21,18 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 TABLE_RULESET_VERSION = 1
 RULESET_ID = "backend-vnext/table-ruleset"
-RULESET_VERSION = "v4"
+RULESET_VERSION = "v5"
 TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
 STORAGE_PROJECTION_VERSION = "3"
 FALLBACK_SELECTOR_VALUE = "*"
+# These exact configuration tables keep their DDL storage identity while
+# comparison aligns options by page and sequence. No suffix-wide policy.
+CONFIGURATION_DIFF_TABLE_NAMES: tuple[str, ...] = (
+    "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg",
+    "iec61850c_cfg", "jdxx_cfg", "sc_cfg", "scada_cfg",
+    "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
+)
+CONFIGURATION_COMPARE_KEY_COLUMNS = ("page_no", "no")
 ORDERED_POSITION_COLUMN = "no"
 ORDERED_IDENTITY_COLUMN = "gid"
 _PAIRED_QUOTES = frozenset({"'", '"', "`"})
@@ -743,9 +751,17 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
     if (
         record.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
         and record.precedence_class is not SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK
+        and not (
+            record.precedence_class is SelectorPrecedenceClass.STANDARD_EXACT
+            and record.selector.kind is TableRuleSelectorKind.EXACT
+            and record.selector.value in CONFIGURATION_DIFF_TABLE_NAMES
+            and record.compare_key_mode is TableCompareKeyMode.EXPLICIT_KEY
+            and record.compare_key_columns == CONFIGURATION_COMPARE_KEY_COLUMNS
+            and record.artifact_scope is TableArtifactScope.ALL_CHANGES
+        )
     ):
         raise ValueError(
-            "DDL_PRIMARY_KEY_OR_KEYLESS is restricted to snapshot-only, browse-only, and raw-PK fallback rules"
+            "DDL_PRIMARY_KEY_OR_KEYLESS is restricted to snapshot-only, browse-only, raw-PK fallback, and exact configuration rules"
         )
     if record.ordered_policy is not OrderedPolicy.NONE:
         raise ValueError("STANDARD_DIFF forbids ordered policy")

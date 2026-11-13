@@ -4,9 +4,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -24,9 +24,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -44,9 +44,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -64,9 +64,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -84,9 +84,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -104,9 +104,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -124,9 +124,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -144,9 +144,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "NONE",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -164,9 +164,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -184,9 +184,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -204,29 +204,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "cnt_manage_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -244,9 +224,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -264,9 +244,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -284,9 +264,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -304,109 +284,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec101_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec104_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec104gw_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec61850c_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "jdxx_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -424,9 +304,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -444,9 +324,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -464,9 +344,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -484,9 +364,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -504,9 +384,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -524,9 +404,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -544,9 +424,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -564,9 +444,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -584,9 +464,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -604,9 +484,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -624,69 +504,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "sc_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "scada_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "sg_manage_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -704,9 +524,9 @@
     {
       "artifact_scope": null,
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -722,73 +542,13 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "vqc_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "wave_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "wf_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -810,11 +570,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -836,11 +596,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -862,11 +622,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -888,11 +648,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -914,11 +674,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -940,11 +700,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -966,11 +726,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -992,11 +752,11 @@
     {
       "artifact_scope": "ORDERED_SEMANTIC",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "GID_NO_V1",
@@ -1018,11 +778,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "app_name"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1039,12 +799,35 @@
     },
     {
       "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "cnt_manage_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "index"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [
         {
           "name": "no",
@@ -1069,11 +852,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "data_key"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1091,15 +874,15 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [
+        "formula_ast_json",
+        "point_name"
+      ],
       "compare_key_columns": [
         "source_table",
         "point_gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [
-        "formula_ast_json",
-        "point_name"
-      ],
       "dropped_columns": [
         {
           "name": "dev_addr",
@@ -1134,11 +917,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1156,11 +939,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1178,11 +961,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1200,11 +983,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1222,11 +1005,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1244,11 +1027,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1266,11 +1049,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1288,11 +1071,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1310,11 +1093,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1332,11 +1115,11 @@
     {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1354,11 +1137,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1376,11 +1159,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1398,11 +1181,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1420,11 +1203,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1442,11 +1225,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1464,11 +1247,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1486,11 +1269,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1508,11 +1291,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "tbname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1529,12 +1312,127 @@
     },
     {
       "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec101_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec104_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec104gw_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec61850c_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "jdxx_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "idx"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1552,12 +1450,12 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "board",
         "link_no"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [
         {
           "name": "no",
@@ -1582,12 +1480,12 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "board",
         "link_no"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1605,11 +1503,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "refname"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1627,11 +1525,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "no"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1648,12 +1546,58 @@
     },
     {
       "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "sc_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scada_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "ied_model"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [
         {
           "name": "no",
@@ -1676,11 +1620,103 @@
       "table_storage": "PROJECT"
     },
     {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "sg_manage_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "vqc_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "wave_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "wf_cfg"
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
       "artifact_scope": "UPDATE_ONLY",
       "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": "RAW_PRIMARY_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1698,12 +1734,12 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "page_no",
         "no"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1721,11 +1757,11 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "gid"
       ],
       "compare_key_mode": "EXPLICIT_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1743,9 +1779,9 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": "RAW_PRIMARY_KEY",
-      "compare_excluded_columns": [],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1762,7 +1798,7 @@
     }
   ],
   "ruleset_id": "backend-vnext/table-ruleset",
-  "ruleset_version": "v4",
+  "ruleset_version": "v5",
   "storage_projection_version": "3",
   "table_ruleset_version": 1
 }

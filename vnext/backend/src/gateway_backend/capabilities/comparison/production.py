@@ -1146,8 +1146,8 @@ def _compare_plan_native_once(
                 # Ordinary malformed table data retains the existing per-table
                 # degraded result. Native adapter panic/runtime failures escape.
                 coded = str(exc) if isinstance(exc, ValueError) else ""
-                if coded == "DUPLICATE_EFFECTIVE_KEY":
-                    diagnostic = f"DUPLICATE_EFFECTIVE_KEY:{task.table_name}"
+                if coded in {"DUPLICATE_EFFECTIVE_KEY", "NULL_EFFECTIVE_KEY", "EMPTY_EFFECTIVE_KEY"}:
+                    diagnostic = f"{coded}:{task.table_name}"
                 elif (isinstance(exc, StandardComparisonError)
                         and re.fullmatch(r"[A-Z][A-Z0-9_]*", coded)) or coded in _OLD_CODED_ERRORS:
                     diagnostic = coded

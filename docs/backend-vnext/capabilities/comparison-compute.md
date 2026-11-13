@@ -914,3 +914,6 @@ ORDERED_TABLE_COMPARE implementation
 risk engine input contract
 surface/workbench assembly
 ```
+
+
+2026-11-13 配置表修订：使用 [Comparison Contract](../contracts/comparison.md#配置表比较键2026-11-13) 和 ADR 0018 的精确规则。native 标准比较 `standard-reference/v2` 在需按键对齐时检查 NULL/空字符串，与重复比较键统一返回表级降级；浏览身份扫描不施加存储键约束。规则集为 `v5`，比较键与 DDL/无键存储职责独立；不增加另一套规则注册表。

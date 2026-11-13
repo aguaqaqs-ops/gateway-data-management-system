@@ -6,6 +6,8 @@ import re
 from functools import cache
 
 from gateway_backend.capabilities.table_rules.contracts import (
+    CONFIGURATION_COMPARE_KEY_COLUMNS,
+    CONFIGURATION_DIFF_TABLE_NAMES,
     FALLBACK_SELECTOR_VALUE,
     ORDERED_IDENTITY_COLUMN,
     ORDERED_POSITION_COLUMN,
@@ -52,23 +54,11 @@ DEFAULT_BROWSE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "rule_61850dev_praser_cfg",
     "rule_61850dev_praser_default_cfg",
     "rule_61850point_praser_cfg",
-    "cnt_manage_cfg",
     "dev104_cfg",
-    "iec101_cfg",
-    "iec104_cfg",
-    "iec104gw_cfg",
-    "iec61850c_cfg",
-    "jdxx_cfg",
     "nbridge_cfg",
     "nr103d_cfg",
     "nr103ht_cfg",
-    "sc_cfg",
-    "scada_cfg",
-    "sg_manage_cfg",
     "sntp_cfg",
-    "vqc_cfg",
-    "wave_cfg",
-    "wf_cfg",
 )
 FORWARDTBL_LIST_KEY_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("forwardtbl_lst_cs", ("tbname",)),
@@ -155,6 +145,7 @@ def migrated_table_rule_records() -> tuple[TableRuleRecord, ...]:
         *_browse_only_records(),
         *_ordered_records(),
         *_standard_exact_records(),
+        *_configuration_records(),
         _device_cfg_record(),
         *_protocol_records(),
         _raw_pk_fallback_record(),
@@ -263,6 +254,23 @@ def _standard_exact_records() -> tuple[TableRuleRecord, ...]:
         ),
         _explicit_standard_record("mms_rp_cdc_index", key_columns=("idx",)),
         _explicit_standard_record("out_time_cfg", key_columns=("board", "link_no")),
+    )
+
+
+def _configuration_records() -> tuple[TableRuleRecord, ...]:
+    return tuple(
+        TableRuleRecord(
+            selector=TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value=name),
+            precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
+            static_role=TableStaticRole.STANDARD_DIFF,
+            table_storage=TableStorageDisposition.PROJECT,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            ordered_policy=OrderedPolicy.NONE,
+            compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+            compare_key_columns=CONFIGURATION_COMPARE_KEY_COLUMNS,
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
+        )
+        for name in CONFIGURATION_DIFF_TABLE_NAMES
     )
 
 

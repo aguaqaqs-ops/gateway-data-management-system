@@ -114,9 +114,9 @@ function pairDiagnosticDetails(pair: PairPresentation): { codes: string[]; table
   return { codes: pairSurfaceDiagnosticCodes(surface), tableCount };
 }
 
-function tabCount(tab: { facts: { before_row_count?: number | null; current_row_count?: number | null } | null; table: { rowCounts: { before: number | null; current: number | null } } | null }, side: "before" | "current"): number | null {
-  const fact = side === "before" ? tab.facts?.before_row_count : tab.facts?.current_row_count;
-  return typeof fact === "number" ? fact : tab.table?.rowCounts[side] ?? null;
+function tabCount(tab: Pick<NavTab, "facts" | "table" | "rowFilter">, side: "before" | "current"): number | null {
+  if (tab.rowFilter !== null) return (side === "before" ? tab.facts?.before_row_count : tab.facts?.current_row_count) ?? null;
+  return tab.table?.rowCounts[side] ?? null;
 }
 
 function tabChangeKind(tab: { facts: { change_kind?: string | null } | null; table: { changeKind: string } | null }): string {
@@ -134,30 +134,6 @@ type NavTab = NavItem["tabs"][number];
 function tabOwnState(tab: NavTab): { kind: string | null; risk: RiskLevel | null } {
   if (tab.rowFilter !== null && tab.facts?.basis === "EXACT") return { kind: tab.facts.change_kind ?? null, risk: tab.facts.risk_level ?? null };
   return { kind: tab.table?.changeKind ?? null, risk: tab.table?.riskLevel ?? null };
-}
-
-const KEEP_EMPTY_TABLE_KINDS = new Set(["SCHEMA_CHANGED", "REPLACED"]);
-
-/**
- * A tab with known row counts and no rows on any existing side. Whether the
- * table was added, removed, degraded or carries table-level risk does not
- * matter: there are no rows to look at. Structure changes and dataset
- * replacements stay visible because they are news without rows.
- */
-function isEmptyTab(tab: NavTab): boolean {
-  const filtered = tab.rowFilter !== null && tab.facts !== null;
-  const before = filtered ? tab.facts?.before_row_count ?? null : tab.table?.rowCounts.before ?? null;
-  const current = filtered ? tab.facts?.current_row_count ?? null : tab.table?.rowCounts.current ?? null;
-  if (before === null && current === null) return false;
-  if ((before ?? 0) !== 0 || (current ?? 0) !== 0) return false;
-  return !KEEP_EMPTY_TABLE_KINDS.has(tab.table?.changeKind ?? "");
-}
-
-/** Badges for an item from the tabs it shows (empty tabs do not colour it). */
-function itemBadges(tabs: readonly NavTab[]): { changeKinds: string[]; riskLevels: RiskLevel[] } {
-  const changeKinds = [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.changeKind : tab.facts?.change_kind).filter((kind): kind is string => Boolean(kind)))];
-  const riskLevels = [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.riskLevel : tab.facts?.risk_level).filter((level): level is RiskLevel => Boolean(level)))];
-  return { changeKinds, riskLevels };
 }
 
 function itemBadgeKind(kinds: readonly string[]): string {
@@ -575,10 +551,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   // Showing empty tabs lasts for this page only, so it cannot silently stick.
   const [showEmptyTabs, setShowEmptyTabs] = useState(false);
   const shownTabs = useCallback((item: NavItem): NavTab[] => item.tabs.filter((tab) => {
-    if (!showEmptyTabs && isEmptyTab(tab)) return false;
+    if (!showEmptyTabs && tab.empty) return false;
     if (!browse.onlyInteresting) return true;
     const { kind, risk } = tabOwnState(tab);
-    return (kind !== null && kind !== "UNCHANGED") || risk !== null
+    return (kind !== null && kind !== "UNCHANGED") || risk !== null || tab.facts?.table_scope?.change === true || tab.facts?.table_scope?.risk_level != null
       || (navigationDiagnostics ?? []).some(({ target }) => target.item_key === item.itemKey && (!target.tab_key || target.tab_key === tab.tabKey));
   }), [browse.onlyInteresting, navigationDiagnostics, showEmptyTabs]);
   const visibleGroups = useMemo(() => groups.filter((group) => {
@@ -589,15 +565,16 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const navigationEntries = useMemo(() => groups.flatMap((group) => group.items.flatMap((item) => item.tabs.map((tab) => ({ group, item, tab })))), [groups]);
   const wholeTableName = browse.tabKey?.startsWith("__whole__:") ? browse.tabKey.slice("__whole__:".length) : null;
   const wholeTable = wholeTableName ? presentation?.view.tables.find((item) => item.tableName === wholeTableName) : null;
-  const selectedEntry = useMemo(() => navigationEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === browse.tabKey)
-    ?? navigationEntries.find(({ tab }) => tab.tabKey === browse.tabKey)
-    ?? navigationEntries.find(({ item, tab }) => shownTabs(item).includes(tab))
-    ?? navigationEntries[0]
-    ?? null, [browse.nodeKey, browse.tabKey, navigationEntries, shownTabs]);
-  const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => isEmptyTab(tab)).length, [navigationEntries]);
+  const selectableEntries = useMemo(() => navigationEntries.filter(({ tab }) => showEmptyTabs || !tab.empty), [navigationEntries, showEmptyTabs]);
+  const selectedEntry = useMemo(() => selectableEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === browse.tabKey)
+    ?? selectableEntries.find(({ tab }) => tab.tabKey === browse.tabKey)
+    ?? selectableEntries.find(({ item, tab }) => shownTabs(item).includes(tab))
+    ?? selectableEntries[0]
+    ?? null, [browse.nodeKey, browse.tabKey, selectableEntries, shownTabs]);
+  const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => tab.empty).length, [navigationEntries]);
   const toggleEmptyTabs = () => setShowEmptyTabs((value) => !value);
   const selectedTab = useMemo(() => wholeTable && wholeTableName
-    ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, rowFilter: null, facts: null, table: wholeTable }
+    ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, empty: false, rowFilter: null, facts: null, table: wholeTable }
     : selectedEntry?.tab ?? null, [selectedEntry, wholeTable, wholeTableName]);
   const selectedNodeKey = wholeTableName
     ? groups.flatMap((group) => group.items).find((item) => item.tabs.some((tab) => tab.tableName === wholeTableName))?.itemKey ?? browse.nodeKey ?? ""
@@ -705,7 +682,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const shown = shownTabs(selectedItem);
     return selectedItem.tabs.filter((tab) => shown.includes(tab) || (!wholeTable && tab.tabKey === selectedTab?.tabKey && tab.tableName === selectedTab.tableName));
   }, [selectedItem, selectedTab, shownTabs, wholeTable]);
-  const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter(isEmptyTab).length : 0;
+  const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter((tab) => tab.empty).length : 0;
   const stripVisible = Boolean(selectedItem && (stripTabs.length > 1 || wholeTable || itemEmptyTabCount > 0));
   useEffect(() => { document.querySelector(".overflow-tabs button.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [selectedNodeKey, browse.tabKey]);
 
@@ -861,9 +838,9 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
           const items = group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
           const groupDiagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey);
           if (items.length === 0 && groupDiagnostics.length === 0) return null;
-          return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small>{items.length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
+          return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small title="非空项">{group.nonemptyItemCount}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
           {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey && !diagnostic.target.item_key && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
-          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = itemBadges(showEmptyTabs ? item.tabs : item.tabs.filter((tab) => !isEmptyTab(tab))); const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
+          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = item; const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
             {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
           </div>; })}</section>; })}</div>
       </aside>

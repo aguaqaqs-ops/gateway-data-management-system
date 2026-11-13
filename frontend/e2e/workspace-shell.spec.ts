@@ -3021,3 +3021,55 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
   });
 }
+
+for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
+  test(`F backend empty markers keep ${mode} item summaries and counts stable when expanded`, async ({ page }) => {
+    const fixture = mode === "HISTORY" ? "history-three-nodes" : "table-addition";
+    const observed = await installFixtureRoutes(page, { reviewFixture: fixture });
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(browseUrl(mode, fixture, mode === "HISTORY" ? { pair: "left_to_middle" } : {}));
+    await waitForBrowse(page);
+    await page.getByRole("button", { name: "全部", exact: true }).click();
+    const expand = page.getByRole("button", { name: "展开导航" });
+    if (await expand.isVisible()) await expand.click();
+    const group = page.locator(".nav-group").filter({ has: page.locator(".nav-group__label", { hasText: "二次装置列表" }) });
+    const count = group.locator('.nav-group__heading small[title="非空项"]');
+    const expected = mode === "HISTORY" ? "2" : "1";
+    const key = mode === "HISTORY" ? "device:addr:4" : "device:addr:49";
+    const emptyItem = page.locator(`.nav-item[data-item-key="${key}"]`);
+    await expect(emptyItem).toHaveCount(0);
+    await expect(count).toHaveText(expected);
+    for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-default`, width);
+    await page.locator(".compare-more > summary").click();
+    await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+    await page.locator(".compare-more > summary").click();
+    await expect(emptyItem).toBeVisible();
+    await expect(emptyItem.locator(".nav-item__button")).toHaveAttribute("title", /未变化/);
+    await expect(emptyItem.locator(".risk-badge")).toHaveCount(0);
+    await expect(count).toHaveText(expected);
+    await emptyItem.locator(".nav-item__button").click();
+    await expect(page.locator(".table-info")).toBeVisible();
+    for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-expanded`, width);
+    await page.locator(".compare-more > summary").click();
+    await page.getByRole("checkbox", { name: /显示空页签/ }).uncheck();
+    await page.locator(".compare-more > summary").click();
+    await expect(emptyItem).toHaveCount(0);
+    await expect(count).toHaveText(expected);
+    if (mode === "REVIEW") expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+  });
+}
+
+test("F structure tabs stay visible and existing unknown tab counts stay unknown", async ({ page }) => {
+  await installFixtureRoutes(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto(browseUrl("PREVIEW", "schema-keyless"));
+  await waitForBrowse(page);
+  const structuralItem = page.locator('.nav-item[data-item-key="device:addr:49"] .nav-item__button');
+  await expect(structuralItem).toBeVisible();
+  await structuralItem.click();
+  for (const width of [1920, 1280]) await screenshot(page, "f-original-structure-nonempty", width);
+  await page.goto(browseUrl("PREVIEW", "missing-identity-column", { node: "device:addr:49", tab: "device_cfg" }));
+  await waitForBrowse(page);
+  await expect(page.locator(".table-info__counts", { hasText: "本页" })).toHaveText("本页 — → 0 行");
+  for (const width of [1920, 1280]) await screenshot(page, "f-existing-side-count-unknown", width);
+});

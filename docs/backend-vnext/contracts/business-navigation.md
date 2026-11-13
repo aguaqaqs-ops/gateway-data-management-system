@@ -119,3 +119,6 @@ v2 防止缺少 empty/summary 的旧文档被当作新规则结果，由后端 p
 
 
 F 的当前 producer/consumer golden 位于 `vnext/fixtures/golden/presentation/be-b/v2/`，17 场景的五类文件由同一真实 producer 两次独立生成且逐字节相同；manifest 保存来源提交、输入摘要和逐文件摘要。v1 只保留历史固定向量，当前 owning consumer 不再读取它。前端 fixture 替换由同一生成归档提供，前端接入前不把后端生成成功宣称前端已兼容。
+
+
+F 前端消费者（Owner 2026-11-13 直接授权）严格要求 v2 的 empty、summary 与组非空计数，缺失/错误类型/非中性全空摘要拒绝打开；不再按 Surface 行数或展示 change kind 推导空页签。默认隐藏及显式展开只影响可见项/页签，不改变服务端摘要或非空组计数；筛选未知计数显示“—”，不借整表行数。replacement 分侧解析后合并同名导航时仅按已发布标记做集合去重，仍保留每侧原文；后端绑定及审计不由前端重建。

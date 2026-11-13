@@ -15,7 +15,7 @@ export interface NavigationDiagnostic {
 }
 
 export interface NavigationDiagnosticsDocument {
-  contract_version: "backend-vnext/business-navigation/v1";
+  contract_version: "backend-vnext/business-navigation/v2";
   diagnostics: NavigationDiagnostic[];
 }
 

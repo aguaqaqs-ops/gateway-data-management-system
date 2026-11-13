@@ -836,9 +836,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const search = page.getByRole("textbox", { name: "搜索组、节点或页签" });
   await search.fill("复合信号");
   await expect(page.getByRole("button", { name: /复合信号虚装置/ })).toBeVisible();
-  await page.locator(".sidebar-toolbar button").click();
+  await page.getByRole("button", { name: "全部", exact: true }).click();
   await expect(page).not.toHaveURL(/changed=1/);
-  await page.locator(".sidebar-toolbar button").click();
+  await page.getByRole("button", { name: "仅看差异", exact: true }).click();
   await expect(page).toHaveURL(/changed=1/);
   await page.getByRole("button", { name: "下一个变更" }).click();
   await expect(page).toHaveURL(/change=1/);
@@ -866,15 +866,16 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   expect(requests.get("preview-full")).toBe(requestCountBeforeReload);
 
   await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill("");
-  await page.getByRole("button", { name: "显示全部" }).click();
-  await page.getByRole("button", { name: /更多/ }).click();
-  await expect(page.locator(".overflow-menu")).toBeVisible();
-  await screenshot(page, "tab-overflow", 1920);
-  await screenshot(page, "tab-overflow", 1280);
-  const overflowTab = page.locator(".overflow-menu button").first();
-  const overflowLabel = (await overflowTab.locator("span").first().innerText()).trim();
-  await overflowTab.click();
-  await expect(page.locator(".table-heading h2")).toHaveText(overflowLabel);
+  await page.getByRole("button", { name: "全部", exact: true }).click();
+  await page.locator('.nav-item[data-item-key="device:composite"] .nav-item__button').click();
+  const strip = page.getByRole("tablist", { name: "表格页签" });
+  await expect(strip).toBeVisible();
+  await screenshot(page, "tab-strip", 1920);
+  await screenshot(page, "tab-strip", 1280);
+  const lastTab = strip.getByRole("tab").last();
+  await lastTab.scrollIntoViewIfNeeded();
+  await lastTab.click();
+  await expect(lastTab).toHaveAttribute("aria-selected", "true");
   expect(new URL(page.url()).searchParams.get("tab")).not.toBeNull();
   await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "left_to_middle" }));
   await waitForBrowse(page);
@@ -893,7 +894,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "复合信号虚装置" }).click();
-  await expect(page.locator(".table-heading h2")).toHaveText("composite_signal_point");
+  await expect(page.locator(".table-info h2")).toHaveText("composite_signal_point");
   await waitForGridPaint(page, "table");
   await clickFormulaCell(page);
   const formula = page.getByRole("dialog", { name: "公式查看" });
@@ -914,7 +915,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("left_to_middle");
   expect(new URL(page.url()).searchParams.get("tab")).toBe("table");
-  await expect(page.locator(".table-heading h2")).toHaveText("composite_signal_point");
+  await expect(page.locator(".table-info h2")).toHaveText("composite_signal_point");
   await waitForGridPaint(page, "table");
   await clickFormulaCell(page);
   const historyFormula = page.getByRole("dialog", { name: "公式查看" });
@@ -1266,8 +1267,8 @@ test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1 条提示");
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(1);
   await expect(page.locator(".pair-diagnostic-strip")).toContainText("项目身份无法验证");
-  await expect(page.locator(".table-heading__diagnostics")).toHaveCount(0);
-  await expect(page.locator(".table-heading h2")).toHaveText("b1_n1_iec104_yc_list");
+  await expect(page.locator(".table-info .info-popover")).toHaveCount(0);
+  await expect(page.locator(".table-info h2")).toHaveText("b1_n1_iec104_yc_list");
   await screenshot(page, "s3-workbench-normal", 1920);
   await waitForGridPaint(page, "table");
   await screenshot(page, "s4-grid-normal-main", 1920);
@@ -1682,7 +1683,7 @@ test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) =>
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
   const historyGetsBefore = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length;
+    request.method === "GET" && request.path.endsWith("/result")).length;
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。")).toBeVisible();
   const expiredAlert = page.getByRole("alert").filter({ hasText: "该提交所基于的基线已更新" });
@@ -1695,7 +1696,7 @@ test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) =>
   // C5: the expired-approve 409 re-reads the review and the History together.
   // listHistory pages with ?limit=100 (and a cursor), so match the path prefix.
   await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length,
+    request.method === "GET" && request.path.endsWith("/result")).length,
     { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
   await screenshot(page, "fe3c-review-expired", 1920);
   await screenshot(page, "fe3c-review-expired", 1280);
@@ -1712,7 +1713,7 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
   const historyGetsBefore = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length;
+    request.method === "GET" && request.path.endsWith("/result")).length;
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交已归档或关闭，已重新读取")).toBeVisible();
   await expect(page.getByText("ARCHIVE_CLOSED")).toBeVisible();
@@ -1725,7 +1726,7 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   const reviewEvents = apiRequests.filter((request) => request.method === "POST" && request.path.endsWith("/review-events"));
   expect(reviewEvents).toHaveLength(1);
   await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.split("?")[0] === "/v1/history").length,
+    request.method === "GET" && request.path.endsWith("/result")).length,
     { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible();
   await expect(page.getByText("审核：已通过")).toBeVisible();
@@ -2423,7 +2424,7 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   };
   const openTab = async (tabKey: string) => {
     await expandNavigation();
-    await page.locator(`.nav-tab button[data-tab-key="${tabKey}"]`).first().click();
+    await page.locator(`.overflow-tabs button[data-tab-key="${tabKey}"]`).first().click();
     await page.waitForTimeout(400);
   };
 
@@ -2492,13 +2493,14 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openPreview("identity-changes");
     await openItem("device:addr:49");
     await openTab("device_cfg");
-    await expect(page.locator('.nav-item[data-item-key="device:addr:49"] .nav-tab__basis').first()).toHaveText("此页签按整表提示");
+    await page.getByRole("button", { name: /^提示 / }).click();
+    await expect(page.getByText("此页签的变化和风险按整表提示，不是本页签自己的。")).toBeVisible();
   });
   await capture("fe4b-table-scope", async () => {
     await openPreview("table-addition");
     await openItem("device:composite");
     await openTab("device_st");
-    const scopeMarker = page.locator(".table-heading .table-scope-marker");
+    const scopeMarker = page.locator(".table-info .table-scope-marker");
     await expect(scopeMarker).toHaveCount(1);
     await expect(scopeMarker).toContainText("整表发生变化");
     await expect(page.locator(".grid-frame .table-scope-marker")).toHaveCount(0);
@@ -2542,13 +2544,13 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
     await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
     await waitForBrowse(page);
-    await expect(page.locator(".compare-header .device-bar .device-context")).toBeVisible();
+    await expect(page.locator(".compare-header .breadcrumb__device")).toBeVisible();
     // fe-handoff R8: the device bar is a direct child of compare-header on its
     // own row directly above the top bar, never inside .compare-status. It is
     // not literally :first-child: a pre-existing sr-only h1 (FE2a) stays first
     // for accessibility; the layout contract is the row order below.
-    await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
-    await expect(page.locator(".compare-header > .device-bar + .compare-header__top")).toHaveCount(1);
+    await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(1);
+    await expect(page.locator(".compare-header > .compare-header__bar")).toHaveCount(1);
     await expect(page.locator(".compare-status .device-bar")).toHaveCount(0);
   });
   expect(failures, failures.join("\n")).toEqual([]);
@@ -2597,7 +2599,7 @@ test("比较页侧栏随顶栏吸顶：跳转会话、审核与设备栏三场�
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
-  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(1);
   await expectSidebarSticky(page, "A-preview-device");
   await page.evaluate(() => window.sessionStorage.clear());
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
@@ -2606,14 +2608,14 @@ test("比较页侧栏随顶栏吸顶：跳转会话、审核与设备栏三场�
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   await page.getByRole("dialog", { name: "确认审核通过" }).getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
-  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(0);
+  await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(0);
   await expectSidebarSticky(page, "B-review-disposition");
   await gotoWithHandoff(page, "/");
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
-  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(1);
   await expectSidebarSticky(page, "C-review-device-disposition");
 });
 
@@ -2664,21 +2666,21 @@ test("工作台跳转比较页面的完整加载仍保留会话与设备栏", as
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await expect(page.locator(".mode-tag")).toHaveText("上传");
-  const bar = page.locator(".compare-header .device-bar");
+  const bar = page.locator(".compare-header .breadcrumb__device");
   await expect(bar).toBeVisible();
-  await expect(bar.locator(".device-context")).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
-  await expect(bar.getByRole("link", { name: "返回目录" })).toHaveAttribute("href", HANDOFF_SESSION.return_url);
+  await expect(bar).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
+  await expect(page.getByRole("link", { name: "返回目录" })).toHaveCount(0);
   const breadcrumbBox = await page.locator(".compare-header .breadcrumb").boundingBox();
   expect(breadcrumbBox?.width ?? 0).toBeGreaterThan(0);
-  const deviceBox = await bar.locator(".device-context").boundingBox();
+  const deviceBox = await bar.boundingBox();
   expect(deviceBox?.width ?? 0).toBeGreaterThan(0);
   await screenshotHeader(page, "compare-preview-device", 1280);
   await screenshotHeader(page, "compare-preview-device", 1920);
   await page.goto(browseUrl("REVIEW", "history-three-nodes", { pair: "left_to_middle" }));
   await waitForBrowse(page);
-  expect(new URL(page.url()).searchParams.get("pair")).toBe("left_to_middle");
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("initial_to_modified");
   await expect(page.locator(".mode-tag")).toHaveText("审核");
-  await expect(page.locator(".compare-header .device-bar")).toBeVisible();
+  await expect(page.locator(".compare-header .breadcrumb__device")).toBeVisible();
   await screenshotHeader(page, "compare-review-device", 1280);
   await screenshotHeader(page, "compare-review-device", 1920);
 });
@@ -2816,7 +2818,8 @@ test("Preview cache reopens only after current metadata authorization and ignore
   expect(metadataReads()).toHaveLength(3);
   expect(requests.get("preview-full")).toBe(downloads);
   const fixture = await loadFixture("preview-full");
-  await expect(page.locator(".sidebar-footer")).toContainText(fixture.manifest.bundle_digest.slice(0, 19));
+  await page.locator(".compare-more > summary").click();
+  await expect(page.locator(".compare-more__bundle")).toContainText(fixture.manifest.bundle_digest);
 });
 
 for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [404, "RESOURCE_NOT_FOUND", true], [401, "AUTHENTICATION_REQUIRED", true]] as const) {
@@ -2858,8 +2861,12 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
   const fixture = await loadFixture("preview-full");
   for (const pair of fixture.manifest.pairs) {
     const tab = pair.pair_id === "baseline_to_initial" ? baseline : modified;
-    await expect(tab).toContainText(`变化表 ${pair.summary.changed_table_count}/${pair.summary.table_count}`);
-    await expect(tab).toContainText(`逐行 +${pair.summary.row_added_count} / ~${pair.summary.row_modified_count} / −${pair.summary.row_deleted_count}`);
+    await page.locator(".compare-more > summary").click();
+    const summary = page.locator(`[data-pair-summary="${pair.pair_id}"]`);
+    await expect(summary).toContainText(`变化表 ${pair.summary.changed_table_count}/${pair.summary.table_count}`);
+    await expect(summary).toContainText(`逐行 +${pair.summary.row_added_count} / ~${pair.summary.row_modified_count} / −${pair.summary.row_deleted_count}`);
+    await page.locator(".compare-more > summary").click();
+    await expect(tab).toBeVisible();
   }
   await screenshot(page, "d-review-full-default", 1920);
   await screenshot(page, "d-review-full-default", 1280);
@@ -2879,8 +2886,9 @@ test("D review MODIFIED_ONLY exposes its one fixed pair", async ({ page }) => {
   await page.goto(browseUrl("REVIEW", "preview-modified-only"));
   await waitForBrowse(page);
   const views = page.getByRole("tablist", { name: "比较视图" });
-  await expect(views.getByRole("tab")).toHaveCount(1);
-  await expect(views.getByRole("tab", { name: /^基线 → 修改/ })).toHaveAttribute("aria-selected", "true");
+  await expect(views).toHaveCount(0);
+  await expect(page.locator(".breadcrumb")).toContainText("基线 → 修改");
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("initial_to_modified");
   await screenshot(page, "d-review-modified-only", 1920);
   await screenshot(page, "d-review-modified-only", 1280);
   expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
@@ -2891,6 +2899,8 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     const options: { reviewResultError?: typeof code } = {};
     const observed = await installFixtureRoutes(page, options);
     await page.goto(browseUrl("REVIEW", "preview-full"));
+    await waitForBrowse(page);
+    await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
     await waitForBrowse(page);
     options.reviewResultError = code;
     await page.reload();

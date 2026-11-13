@@ -369,26 +369,21 @@ function findSidebarTab(
 async function openSidebarTab(page: Page, item: NavigationItemLike, tab: NavigationTabLike): Promise<void> {
   await expandNavigation(page);
   await expandAllGroups(page);
-  const tabs = page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-tab button`);
-  const index = Math.max(0, item.tabs.indexOf(tab));
-  if ((await tabs.count()) === 0) {
-    await page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-item__button`).click({ timeout: 120_000 });
-  } else {
-    await tabs.nth(index).click({ timeout: 120_000 });
-  }
+  await page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-item__button`).click({ timeout: 120_000 });
+  const tabButton = page.locator(`.overflow-tabs button[data-tab-key="${tab.tab_key ?? "table"}"]`);
+  if (await tabButton.count()) { await tabButton.scrollIntoViewIfNeeded(); await tabButton.click(); }
   await waitForDiffBrowsing(page);
   await settleFrames(page);
 }
 
 /** Overflow control is only rendered when the tab bar cannot show every tab. */
 async function assertTabsReachable(page: Page): Promise<boolean> {
-  const overflow = page.locator(".overflow-tabs__menu > button");
-  if (!(await overflow.isVisible().catch(() => false))) return false;
-  await overflow.click();
-  const entries = page.locator(".overflow-menu button");
-  const count = await entries.count();
-  expect(count, "页签溢出菜单至少一项").toBeGreaterThan(0);
-  await entries.nth(count - 1).click({ timeout: 120_000 });
+  const arrow = page.getByRole("button", { name: "向右查看页签" });
+  if (!(await arrow.isVisible().catch(() => false))) return false;
+  await arrow.click();
+  const last = page.locator('.overflow-tabs [role="tab"]').last();
+  await last.scrollIntoViewIfNeeded();
+  await last.click({ timeout: 120_000 });
   await waitForDiffBrowsing(page);
   return true;
 }

@@ -498,6 +498,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/submissions/{submission_id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Submission Result Route */
+        get: operations["get_submission_result_route_v1_submissions__submission_id__result_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/submissions/{submission_id}/result/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Submission Result Bundle Route */
+        get: operations["get_submission_result_bundle_route_v1_submissions__submission_id__result_bundle_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/submissions/{submission_id}/review": {
         parameters: {
             query?: never;
@@ -2339,6 +2373,38 @@ export interface components {
             upload_revision_id: string;
             /** Workspace Id */
             workspace_id: string;
+        };
+        /** SubmissionResultPairResponse */
+        SubmissionResultPairResponse: {
+            /** Comparison Digest */
+            comparison_digest: string;
+            /** Pair Id */
+            pair_id: string;
+            /** Risk Digest */
+            risk_digest: string | null;
+            /** Surface Digest */
+            surface_digest: string;
+        };
+        /** SubmissionResultResponse */
+        SubmissionResultResponse: {
+            /** Bundle Digest */
+            bundle_digest: string;
+            /**
+             * Default Pair Id
+             * @constant
+             */
+            default_pair_id: "initial_to_modified";
+            /**
+             * Input Completeness
+             * @enum {string}
+             */
+            input_completeness: "FULL" | "MODIFIED_ONLY";
+            /** Pairs */
+            pairs: components["schemas"]["SubmissionResultPairResponse"][];
+            /** Preview Result Id */
+            preview_result_id: string;
+            /** Submission Id */
+            submission_id: string;
         };
         /** SubmitAcceptedResponse */
         SubmitAcceptedResponse: {
@@ -4621,6 +4687,131 @@ export interface operations {
                 content?: never;
             };
             /** @description ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_submission_result_route_v1_submissions__submission_id__result_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionResultResponse"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SUBMISSION_RESULT_UNAVAILABLE, SUBMISSION_RESULT_INTEGRITY_FAILURE */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_submission_result_bundle_route_v1_submissions__submission_id__result_bundle_get: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path: {
+                submission_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Immutable submission-bound Preview bundle */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Length"?: number;
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-tar": unknown;
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SUBMISSION_RESULT_UNAVAILABLE, SUBMISSION_RESULT_INTEGRITY_FAILURE */
             503: {
                 headers: {
                     [name: string]: unknown;

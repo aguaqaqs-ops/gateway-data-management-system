@@ -70,7 +70,7 @@ async function expectNoHorizontalOverflow(page: Page) {
       statusChildren: [...(document.querySelector(".compare-status")?.children ?? [])].map(
         (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} disp=${getComputedStyle(element).display}`,
       ),
-      headerChildren: [...(document.querySelector(".compare-header__top")?.children ?? [])].map(
+      headerChildren: [...(document.querySelector(".compare-header__bar")?.children ?? [])].map(
         (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
       ),
     };
@@ -754,7 +754,7 @@ test("比较页侧栏随顶栏吸顶：已通过提交 Preview 设备栏与原�
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByText("该提交已通过审核，不能撤回")).toBeVisible();
-  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(1);
   await expectSidebarSticky(page, "D-preview-reasons-device");
 });
 

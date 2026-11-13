@@ -15,7 +15,8 @@ def main() -> None:
         tls = scope / 'tls'
         tls.mkdir(mode=0o755)
         subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-days', '3650',
-                        '-subj', '/CN=gw-dms-08.local', '-addext', 'subjectAltName=IP:192.168.233.209',
+                        '-subj', '/CN=gw-dms-08.local', '-addext',
+                        'subjectAltName=IP:192.168.233.209,IP:10.78.0.3,IP:10.79.0.3',
                         '-keyout', str(tls / 'key.pem'), '-out', str(tls / 'cert.pem')],
                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        check=True, timeout=60)

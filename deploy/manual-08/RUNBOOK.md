@@ -4,9 +4,9 @@
 
 ## 访问和操作
 
-- 单设备 A：`https://192.168.233.209:8443/manual/`。该页提供进入提交树和仅重置 A 的按钮。
-- 多设备 B：`https://192.168.233.209:9443/`。选择设备后交接到 `https://192.168.233.209:10443/` 的网关。
-- 无登录框；受控网段 `192.168.233.0/24` 内可直接使用。其他来源被入口拒绝，如需调整网段由运维核实后修改 Nginx 配置。两个证书是各自的自签证书，需要在浏览器信任；证书指纹由运维从各自 `tls/cert.pem` 核对。Nginx 可读取的静态内容位于 `/var/lib/gdds08-web`，其中没有会话或管理凭据。
+- 单设备 A：`https://<访问地址>:8443/manual/`。该页提供进入提交树和仅重置 A 的按钮。
+- 多设备 B：`https://<访问地址>:9443/`。选择设备后交接到同一访问地址的 10443 端口。
+- 可用地址包括内网 `192.168.233.209`、WireGuard 的 `10.78.0.3` 和 `10.79.0.3`。入口按用户要求监听全部网口且无需登录，能路由到这些入口的人都能使用测试数据及 A 重置；网络访问范围由部署网络控制。两个证书是各自的自签证书，需要在浏览器信任；证书包含以上三个 IP，指纹由运维从各自 `tls/cert.pem` 核对。其他地址须另行签发包含该地址的证书。Nginx 可读取的静态内容位于 `/var/lib/gdds08-web`，其中没有会话或管理凭据。
 - 每台设备使用现有 `test1` 测试身份，拥有八项公开权限，包括提交、审核、归档和组统计读取；在页面中操作相应动作即可，无需 DevTools。提交和审核不是不同 actor，多人操作同一设备共享工作区，应先协调。审核通过不会自动归档或推进基线；需要继续推进时按页面规则执行归档。
 - B 的地区、站点、设备均明确标注为测试数据。上传需要 HTTPS secure context。设备 API 使用目录自动交接的既有 bearer；内部 bearer 和 TLS 私钥保留在各环境私有目录，不给测试人员或写入日志。
 
@@ -15,7 +15,7 @@
 所有命令在 08 上执行。状态以 systemd、Compose、服务就绪和页面实际结果为准：
 
 ```sh
-systemctl status gdds08-reset-manager gdds08-a-stack gdds08-a-directory gdds08-b-stack gdds08-b-directory
+systemctl status gdds08-reset-manager gdds08-handoff-proxy gdds08-a-stack gdds08-a-directory gdds08-b-stack gdds08-b-directory
 python3 /home/dev/gdds-gw-dms-08-v2/source/deploy/manual-08/check_isolation.py
 ```
 
@@ -28,7 +28,7 @@ systemctl stop gdds08-b-directory gdds08-b-stack
 systemctl start gdds08-b-stack gdds08-b-directory
 ```
 
-`gdds08-a-stack` 的启动保护拒绝未完成或失败的重置。所有 Compose 命令必须使用相应栈 unit 中固定的 project、base 和 runtime override；不要手动挂接另一环境的目录、session、secret、卷或网络，不用全局 prune。自启依赖已启用的五个 unit 及 nginx。
+`gdds08-a-stack` 的启动保护拒绝未完成或失败的重置。所有 Compose 命令必须使用相应栈 unit 中固定的 project、base 和 runtime override；不要手动挂接另一环境的目录、session、secret、卷或网络，不用全局 prune。自启依赖各栈、目录、管理和交接代理 unit 及 nginx。映射节点原有 `wg-ct-209-mapping.service` 负责 8443/9443，新增 `gdds08-wg-gateway.service` 只为 B 增加 10443 的转发，不改动原规则。
 
 08 使用 Docker `systemd` cgroup 驱动。观察到在此节点启动已启用的 systemd 服务时，Docker 容器的实际 swap 限额可能被重置；因此组启动脚本在各角色就绪后把既有的零 swap 限额登记到对应 systemd scope，并复核实际值。不要省略这一步或仅相信 Docker inspect；失败时停止该组并检查实际 cgroup。宿主原 Docker 配置保存在本机部署证据目录，试用 cgroupfs 未通过且已回退。
 

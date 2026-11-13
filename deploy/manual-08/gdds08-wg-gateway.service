@@ -1,0 +1,12 @@
+[Unit]
+Description=08 B gateway WireGuard port mapping
+After=network-online.target wg-ct-209-mapping.service
+Wants=network-online.target wg-ct-209-mapping.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/gdds08-wg-gateway.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -44,9 +44,10 @@ class ResetManagerTest(unittest.TestCase):
         return result
 
     def test_fixed_target_origin_concurrency_and_retry(self):
-        valid = {'Origin': manager.ORIGIN, 'X-GDDS-Reset': 'confirm'}
+        valid = {'Host': '10.78.0.3:8443', 'Origin': 'https://10.78.0.3:8443', 'X-GDDS-Reset': 'confirm'}
         self.assertEqual(self.request('POST', '/reset?project=b', valid)[0], 403)
         self.assertEqual(self.request('POST', '/reset', {'Origin': 'https://invalid', 'X-GDDS-Reset': 'confirm'})[0], 403)
+        self.assertEqual(self.request('POST', '/reset', dict(valid, Origin='https://10.79.0.3:8443'))[0], 403)
         self.assertEqual(self.request('POST', '/reset', valid)[0], 202)
         self.assertEqual(self.request('POST', '/reset', valid)[0], 409)
         self.assertEqual(self.request('GET', '/status')[1]['state'], 'running')

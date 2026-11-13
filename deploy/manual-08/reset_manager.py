@@ -17,7 +17,6 @@ ROOT = Path('/home/dev/gdds-gw-dms-08-v2')
 STATUS = ROOT / 'management' / 'reset-status.json'
 LOCK = ROOT / 'management' / 'reset.lock'
 COMMAND = ROOT / 'ops' / 'reset-a'
-ORIGIN = 'https://192.168.233.209:8443'
 STAGES = {'stopping', 'rebuilding', 'provisioning', 'checking'}
 
 
@@ -112,7 +111,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'state': 'not_found'})
 
     def do_POST(self) -> None:
-        if (self.path != '/reset' or self.headers.get('Origin') != ORIGIN
+        hosts = self.headers.get_all('Host', [])
+        origins = self.headers.get_all('Origin', [])
+        if (self.path != '/reset' or len(hosts) != 1 or len(origins) != 1
+                or origins[0] != 'https://' + hosts[0]
                 or self.headers.get('X-GDDS-Reset') != 'confirm'
                 or self.headers.get('Content-Length') != '0'
                 or self.headers.get('Transfer-Encoding') is not None):

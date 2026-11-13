@@ -176,11 +176,15 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .sidebar-search { display: flex; min-width: 0; min-height: 30px; flex: 1; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 5px; background: #fff; color: var(--color-text-subtle); }
 .sidebar-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--color-text); font-size: 12px; }
 .sidebar-search:focus-within { border-color: var(--color-focus-ring); box-shadow: 0 0 0 2px rgb(31 95 191 / 12%); }
-.sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 4px 6px 12px; }
-.nav-group { margin-bottom: 8px; }
-.nav-group__heading { position: sticky; z-index: 1; top: 0; display: flex; width: 100%; min-height: 31px; align-items: center; gap: 6px; padding: 0 6px; border: 0; background: #fbfcfd; color: var(--color-text-subtle); text-align: left; cursor: pointer; font-size: 12px; font-weight: 650; }
+.sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 0 6px 12px; }
+/* Groups read as sections: a full-width band heading, a rule between groups, items indented. */
+.nav-group { margin-bottom: 4px; }
+.nav-group + .nav-group { border-top: 1px solid var(--color-border); }
+.nav-group__heading { position: sticky; z-index: 1; top: 0; display: flex; width: calc(100% + 12px); min-height: 34px; align-items: center; gap: 6px; margin: 0 -6px 3px; padding: 0 10px; border: 0; border-bottom: 1px solid var(--color-border); background: #eef2f6; color: var(--color-text); text-align: left; cursor: pointer; font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.nav-group__heading:hover { background: #e6ebf1; }
 .nav-group__heading span { flex: 1; }
-.nav-group__heading small { color: #75808d; font-size: 10px; font-weight: 400; }
+.nav-group__heading small { min-width: 22px; padding: 1px 6px; border: 1px solid var(--color-border); border-radius: 999px; background: #fff; color: var(--color-text-muted); font-size: 11px; font-weight: 500; text-align: center; letter-spacing: 0; }
+.nav-group > .nav-item { margin-left: 6px; }
 .nav-group__heading small.nav-group__diagnostic-count { color: #80682d; }
 .nav-group__heading .is-closed { transform: rotate(-90deg); }
 .nav-item { margin: 1px 0; border-radius: 5px; }

@@ -1152,12 +1152,21 @@ function ReplacementBrowser({ before, current, table, assessment, side, onSelect
 }
 
 function ReplacementSide({ title, rows, columns, active }: { title: string; rows: Record<string, unknown>[]; columns: NonNullable<SurfaceTable["columns"]>; active: boolean }) {
-  const gridColumns = useMemo<GridColumn[]>(() => columns.map((column) => ({ id: column.name, title: column.display_name || column.name, width: columnWidth(column.name, rows.slice(0, 200).map((row) => row[column.name])) })), [columns, rows]);
+  const theme = useMemo(() => createTableTheme(), []);
+  const gridColumns = useMemo<GridColumn[]>(() => {
+    const measureCell = createTextMeasure(theme.baseFontStyle);
+    const measureHeader = createTextMeasure(theme.headerFontStyle);
+    const sample = sampleRows(rows, 600);
+    return columns.map((column) => {
+      const title = column.display_name || column.name;
+      return { id: column.name, title, width: fitWidth(measureHeader(title), sample.map((row) => measureCell(normalizeDisplayScalar(row[column.name]))), "auto") };
+    });
+  }, [columns, rows, theme]);
   const getCellContent = useCallback(([column, row]: readonly [number, number]): GridCell => {
     const key = gridColumns[column]?.id; const item = rows[row]; if (!key || !item) return { kind: GridCellKind.Loading, allowOverlay: false };
     const value = normalizeDisplayScalar(item[key]); return { kind: GridCellKind.Text, data: value, displayData: value, allowOverlay: false };
   }, [gridColumns, rows]);
-  return <section className={active ? "replacement-side" : "replacement-side is-inactive"}><h3>{title} <small>{rows.length} 行</small></h3><div className="grid-frame"><DataEditor columns={gridColumns} rows={rows.length} getCellContent={getCellContent} rowMarkers={{ kind: "number", width: 44 }} headerHeight={38} rowHeight={36} theme={createTableTheme()} width="100%" height={420} verticalBorder={false} /></div></section>;
+  return <section className={active ? "replacement-side" : "replacement-side is-inactive"}><h3>{title} <small>{rows.length} 行</small></h3><div className="grid-frame"><DataEditor columns={gridColumns} rows={rows.length} getCellContent={getCellContent} rowMarkers={{ kind: "number", width: 44 }} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={420} verticalBorder={false} /></div></section>;
 }
 
 function FormulaCard({ formula, preview }: { formula: ReturnType<typeof deriveFormulaDisplays>[number]; preview: boolean }) {

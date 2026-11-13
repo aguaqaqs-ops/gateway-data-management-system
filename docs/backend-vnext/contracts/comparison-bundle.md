@@ -446,6 +446,11 @@ AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manife
 
 审核摘要与下载都先执行 submission 的当前权限和 exact scope，再核固定结果与完整后台闭包。当前规则变化不重算旧结果。本地缓存不得免除这次服务器授权及摘要身份核对；缺失与完整性错误明确返回，不以空结果或新 History 替代。JSON 元数据读取沿 bundle 的 16 MiB 上限，整表成员以流式 chunks 验证。
 
+审核页面直接读取 `/v1/submissions/{submission_id}/result` 与 `/result/bundle`，不创建或轮询 History。FULL 的 `baseline_to_initial` / `initial_to_modified` 与 Preview 同义，默认 `initial_to_modified`；MODIFIED_ONLY 仍使用单一 `initial_to_modified`（基线→修改）。URL 中有效 pair 选择可恢复，失效选择回到服务端默认。两组的表/行统计、风险和导航各自展示，不计算净变化。页面复用当前比较视图切换与本地浏览；每次打开、刷新以及审核动作后的上下文刷新，先重新授权并核对提交 ID、bundle digest 和完整有序 pair digest tuple，再使用已有本地 bundle。失败清空可浏览状态并提供重新读取，不以缓存掩盖权限、缺失或完整性错误。
+
+摘要不新增用于预告当前基线的字段。审批沿用原 Review version、基线 CAS 与 canonical eligibility；`BASELINE_VERSION_CONFLICT` 明确提示所基于的基线已更新、不能通过，并保留退回/本人撤回路径。结果本身仍保持原绑定。
+
+
 Operation.artifact_refs 继续只存有限 root refs（含接受时的 READY exact ref），不塞入完整输出清单。worker 在 finalize 前读取已接受 READY 的 root+outputs；finalize 请求必需携带这些 exact refs，事务内重新构造 READY canonical bytes，与接受时 root 的大小及 raw SHA 核对，并核完整 Attempt 保护后移交。由 READY 唯一确定的成员不成为第二权威来源；删、换、加成员或缺少保护均拒绝并回滚。Preview result/READY job contract 升为 v3 以拒绝缺少固定 pair 绑定的旧结果，assemble-state 为 v5；bundle 内容形状与 preimage 仍为 v4。
 
 `SubmitAttempt.preview_ready_closure_digest` 沿既有字段升级到 v2：`v2:` + raw SHA256(JCS(binding preimage))。preimage 的 `binding_contract_version` 为 `backend-vnext/preview-ready-binding/v2`；包括 Preview ID、workspace/upload/generation/repository、baseline node/commit/head version、ruleset/contract/provider versions、全部 Preview digests、canonical content/facts digest 与 canonical exact refs/digests、identity set 与完整 identity pairs、comparison_pairs（含各 snapshot/rules/comparison/risk/final surface 与审计 null/ID）、bundle/READY ID、producer operation ID。exact ref 表达为 `[artifact_id, media_type, size_bytes, raw_sha256]`；不纳入读取时派生 stale 或 workspace 指针。字段由 `application/preview_binding.py` 拥有。T1 writer、finalize/replay 和每次提交结果读取重算核对，防止同一 READY 下的 pair/规则/审计缺省绑定或 scope 被错换；这是原受理绑定摘要的目标 preimage，不增加另一权威结果或兼容路径。

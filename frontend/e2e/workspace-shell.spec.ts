@@ -590,7 +590,7 @@ async function installFixtureRoutes(page: Page, options: {
     requests.set(fixtureName, count);
     if (fixtureName === "preview-workbench-normal" && options.slowPreview) await options.slowPreview;
     if (options.fail) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route.endsWith("/bundle") && item.status === 503);
+      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle" && item.status === 503);
       if (!error) throw new Error("preview bundle SERVICE_NOT_READY fixture missing");
       await route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
       return;
@@ -779,7 +779,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }));
   await waitForBrowse(page);
 
-  await expect(page.locator(".view-tabs small")).toHaveText(["更新", "更新"]);
+  await expect(page.locator(".view-tabs [role=tab]")).toHaveCount(2);
+  await expect(page.locator(".view-tabs [role=tab]").first()).toHaveAttribute("title", /.+/);
   const firstPreviewView = page.locator(".view-tabs [role=tab]").first();
   await expect(firstPreviewView).toHaveAttribute("title", /2 张表有比较提示/);
   await expect(firstPreviewView).not.toHaveAttribute("title", /降级比较/);
@@ -1268,7 +1269,7 @@ test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1 条提示");
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(1);
   await expect(page.locator(".pair-diagnostic-strip")).toContainText("项目身份无法验证");
-  await expect(page.locator(".table-info .info-popover")).toHaveCount(0);
+  await expect(page.locator(".table-info").getByRole("button", { name: /^提示 / })).toHaveCount(0);
   await expect(page.locator(".table-info h2")).toHaveText("b1_n1_iec104_yc_list");
   await screenshot(page, "s3-workbench-normal", 1920);
   await waitForGridPaint(page, "table");
@@ -2421,12 +2422,20 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   };
   const openItem = async (itemKey: string) => {
     await expandNavigation();
-    await page.locator(`.nav-item[data-item-key="${itemKey}"] .nav-item__button`).first().click();
+    const item = page.locator(`.nav-item[data-item-key="${itemKey}"] .nav-item__button`).first();
+    if (!(await item.count())) {
+      await page.locator(".compare-more > summary").click();
+      await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+      await page.locator(".compare-more > summary").click();
+    }
+    await item.click({ timeout: 5000 });
     await page.waitForTimeout(400);
   };
   const openTab = async (tabKey: string) => {
     await expandNavigation();
-    await page.locator(`.overflow-tabs button[data-tab-key="${tabKey}"]`).first().click();
+    const tab = page.locator(`.overflow-tabs button[data-tab-key="${tabKey}"]`).first();
+    await tab.scrollIntoViewIfNeeded({ timeout: 5000 });
+    await tab.click({ timeout: 5000 });
     await page.waitForTimeout(400);
   };
 
@@ -2443,7 +2452,7 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   await capture("fe4b-single-tab-item", async () => {
     await openPreview("preview-full", { pair: "initial_to_modified" });
     await openItem("table:version_manager");
-    await expect(page.locator('.nav-item[data-item-key="table:version_manager"] .nav-item__tabs')).toHaveCount(0);
+    await expect(page.getByRole("tablist", { name: "表格页签" })).toHaveCount(0);
   });
   await capture("fe4b-sidebar-search", async () => {
     await openPreview("preview-full", { pair: "initial_to_modified" });
@@ -2908,7 +2917,10 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     await page.reload();
     await expect(page.locator(".compare-error")).toContainText(code);
     await expect(page.locator(".compare-workspace")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
+    await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
+    const title = code === "SUBMISSION_RESULT_UNAVAILABLE" ? "提交绑定的比较结果不可用"
+      : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE" ? "提交绑定的比较结果完整性校验失败" : "当前身份没有该操作的权限";
+    await expect(page.locator(".compare-error").getByRole("heading", { name: title, exact: true })).toBeVisible();
     options.reviewResultError = undefined;
     await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
     await waitForBrowse(page);

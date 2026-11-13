@@ -154,6 +154,19 @@ def validate_group_containers(config: Any, group: Any, containers: list[dict[str
             expected_mounts.update({"/run/gateway/session": (group.session_directory, False),
                 "/run/secrets/backend-internal-bearer": (group.internal_token_file, False)})
         mounts = {entry["Destination"]: entry for entry in item["Mounts"]}
+        # CT110's disposable manual deployment can run source against its
+        # preloaded dependencies. Only its fixed, per-group read-only paths
+        # are allowed; ordinary deployments retain the exact mount set.
+        manual_scope = {"gdds08-a": "a", "gdds08-b": "b"}.get(group.project)
+        if manual_scope is not None:
+            base = Path("/home/dev/gdds-gw-dms-08-v2") / manual_scope
+            if group.storage_config == str(base / "group/storage-layout.json"):
+                packages = (("repository_service", "/app/src"), ("repository_contracts", "/repository_contracts/src")) if role == "repository_service" else tuple(
+                    (package, "/app/" + package + "/src")
+                    for package in ("backend", "shared_kernel", "repository_client", "repository_contracts"))
+                for package, target in packages:
+                    if target in mounts:
+                        expected_mounts[target] = (str(base / "dev-source" / package / "src"), False)
         for target, (source, writable) in expected_mounts.items():
             actual_mount = mounts.get(target)
             if actual_mount is None or actual_mount["Type"] != "bind" or actual_mount["Source"] != source or actual_mount["RW"] != writable:

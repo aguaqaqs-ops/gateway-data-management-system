@@ -1,6 +1,6 @@
 # Preview 热点归因与业务表专用并行设计
 
-2026-11-13，设计稿，待独立技术审核。本文只完成源码分析和后续试验设计；未实现、未新增计时、未运行测试、未部署、未更改 N/M。方向来源见[业务表并行笔记](preview-business-parallelism-notes.md)。
+2026-11-13，已完成本轮分析／条件性设计审核，无阻塞 finding，见[独立技术审核报告](/home/dev/gdds-stage-exchange/gw08-preview-design-sol/DESIGN-REVIEW.md)。未来实施仍待明确授权。本文只完成源码分析和后续试验设计；未实现、未新增计时、未运行测试、未部署、未更改 N/M。方向来源见[业务表并行笔记](preview-business-parallelism-notes.md)。
 
 ## 1. 身份、证据与结论
 
@@ -8,7 +8,7 @@
 
 证据入口为仓库外 `/home/dev/gdds-stage-exchange/gw08-preview-baseline-sol/REPORT.md`，原件为同目录 `mo/`、`full/` 的 `result.json`、`executions.json`、`containers.log` 及 `postflight.json`。这是 05 的普通 t4、已绑定当前 Rust 扩展的诊断基线。08 原扩展 `__build_input__` 为空，05 已重建绑定；不能称为 08 实际延迟。资源固定为 worker 2 CPU / 32 GiB、reserve 8 GiB、N1/M24 GiB、单 active；05 宿主硬件与 08 不等价。
 
-**建议顺序：先以最小补充计时分开 materialize、checkpoint 恢复和 bundle 内部成本，再试验同次 bundle 执行内的读取/解码复用；业务表并行优先设计为 canonical IPC 或导出的单一阶段，只有对应热点被证实且资源档获准才实施。** comparison 本次占比较小，跨 pair 或整个 pipeline 并行不作为首个试验。不能预先承诺提速，也不能把重复调用数换算成重复耗时。
+**建议顺序：首轮只计时 bundle 两个相邻读／验调用点及父 bundle 窗口，再据贡献决定是否试验一处同阶段读取／解码复用；materialize、checkpoint 恢复等菜单按结果择一启用。业务表并行优先设计为 canonical IPC 或导出的单一阶段，只有对应热点被证实且资源档获准才实施。** comparison 本次占比较小，跨 pair 或整个 pipeline 并行不作为首个试验。不能预先承诺提速，也不能把重复调用数换算成重复耗时。
 
 本文使用四种证据标记：**实测**是上述单次样本；**源码**是固定源码可直接观察的路径；**推断**需计时或实现验证；**待核**尚无完整数据或证明。各行的“归属”表示被哪个父窗口包含，不表示可以与子计时相加。
 
@@ -155,6 +155,8 @@ owner持有简单的排序列表和最多K个在途slot。通道空闲时，从�
 当前 [OperationMemoryBudget/KernelExecutionContext](../../vnext/backend/src/gateway_backend/capabilities/table_access/kernel.py) 的dict/counter、ContextVar、ExitStack及lifetime没有提供线程安全子任务协议；[ComparisonTaskSession](../../vnext/backend/src/gateway_backend/capabilities/comparison/production.py#L141)同样可变。**不得直接copy_context后把同一context/budget/cache/reader/LeaseSession提交给多个Python线程，也不得给每个任务一份M。** GIL不能作为线程安全或CPU预算证明。
 
 推荐所有预算、cache查写、control refresh、manifest/diagnostics合并和保护事务均由单一Python owner执行；专用native任务只拿已获准、独立的owned Arrow batches/不可变descriptor、任务硬上界和只读stop信号，不访问Python预算或DB/cache。现有独立reader可由owner串行reopen/取批；跨线程传输前由native/Arrow owning契约证明所有权，不能直接共享一个游标或仍借用的stream。
+
+owner的put/staging/hash/JCS/校验等CPU工作与native任务共享同一份N额度；仅有pool=N、K≤N不能证明总计算不超N。所选阶段的实施协议须明确这些owner计算与native计算串行，或占用同一计算额度后才允许重叠，不新建池；owner的纯控制等待不按整核计算。
 
 **B目前是条件性native专用接口设计，尚不具备可直接实施的生命周期证明。** 若选中B，需要一处窄的operation-local原生任务桥：owner准入并提交至既有N pool；完成项经有界出口交回owner，owner落盘/移交输出/释放临时预约后补位。出口容量不超过K，返回输出的预算在提交时已预约；出口满则不再派发，不累积所有表结果bytes。它只服务所选capability/业务类型，没有通用任务接口/持久状态机；需在后续实施设计审核明确Arrow所有权、submit/completion/close及有界出口协议后才能开工。若现有adapter无法证明安全传输或无法及时交还输出，先用K=1或小批串行交回，不以扩大framework解决；完成补位的桥接/生命周期设计须在实施审核中具体核收。
 

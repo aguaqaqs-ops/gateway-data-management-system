@@ -1715,6 +1715,7 @@ def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
 
     left, right = BASELINE_HEAD.business_baseline_commit_id, "commit-single-side"
+    table_rows: tuple[tuple[object | None, ...], ...]
     if table_kind == "ordered":
         table = ordered_syx_catalog_table()
         table_rows = tuple((index, index, str(index)) for index in range(1, row_count + 1))
@@ -1729,6 +1730,8 @@ def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
     def compare(*args: Any, **kwargs: Any) -> Any:
         result = original(*args, **kwargs)
         observed.append(result.result.facts)
+        assert result.metrics is not None
+        assert result.metrics.input_reads == result.metrics.native_calls == 0
         return result
 
     monkeypatch.setattr(pair_pipeline, "compare_plan_native", compare)

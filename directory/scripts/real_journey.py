@@ -19,17 +19,16 @@ import socket
 import sqlite3
 import stat
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 # -I excludes the script directory; load only this committed sibling.
 import importlib.util
 _process_spec = importlib.util.spec_from_file_location('journey_process', Path(__file__).with_name('journey_process.py'))
 _process_module = importlib.util.module_from_spec(_process_spec)
 _process_spec.loader.exec_module(_process_module)
-from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE = 'mcr.microsoft.com/playwright:v1.64.1-noble'
@@ -130,6 +129,7 @@ class Journey:
         self.commands = _process_module.ScopedCommands(args.session)
         self.container = 'directory-journey-' + args.session
         self.tool_id = None
+        self.tool_creation_attempted = False
         self.started = False
         self.entry_started = False
         self.tokens = []
@@ -399,6 +399,7 @@ class Journey:
         control.mkdir()
         write(control / 'public-inputs.json', {k: {f: v[f] for f in ('repository', 'initial', 'commit')} for k, v in old.items()})
         self.reject_tool_collision()
+        self.tool_creation_attempted = True
         self.command('toolchain_start', ['docker', 'run', '-d', '--init', '--ipc=host', '--pull', 'never',
             '--name', self.container, '--cidfile', str(self.private / 'toolchain.cid'),
             '--label', 'gateway.directory.session=' + self.args.session, '--network', 'host',
@@ -529,7 +530,7 @@ mkdir -p /tmp/source /tmp/directory-cache /tmp/gateway-cache
                     cleanup_ok = False
         try:
             self.commands.close()
-            if self.private is not None and self.command('tool_residual', ['docker', 'ps', '-aq', '--filter', 'name=^/' + self.container + '$'], capture=True).strip():
+            if self.tool_creation_attempted and self.command('tool_residual', ['docker', 'ps', '-aq', '--filter', 'name=^/' + self.container + '$'], capture=True).strip():
                 cleanup_ok = False
         except Exception:
             cleanup_ok = False

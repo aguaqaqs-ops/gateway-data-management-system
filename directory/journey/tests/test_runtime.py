@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[2] / 'scripts'
 SPEC = importlib.util.spec_from_file_location('directory_journey', SCRIPTS / 'real_journey.py')
@@ -35,9 +36,23 @@ class RuntimeBoundaries(unittest.TestCase):
             journey = JOURNEY.Journey(args)
             foreign_id = docker('create', '--pull', 'never', '--name', journey.container, 'nginx:1.28.0')
             try:
-                with self.assertRaises(ValueError):
-                    journey.reject_tool_collision()
-                self.assertEqual(journey.finish(1), 1)
+                # Exercise the real finish branch after private creation and
+                # ownership acquisition, while the outer node lock stays held.
+                # This isolated marker prevents a test from releasing the node.
+                test_marker = root / 'owned-node-marker'
+                test_marker.mkdir()
+                (test_marker / session).write_text('purpose=focused-collision\n')
+                journey.private = root / 'private'
+                journey.private.mkdir(mode=0o700)
+                journey.owned = True
+                with patch.object(JOURNEY, 'BUSY', test_marker):
+                    with self.assertRaises(ValueError):
+                        journey.reject_tool_collision()
+                    self.assertEqual(journey.finish(1), 1)
+                self.assertFalse(test_marker.exists())
+                self.assertEqual(journey.result['original_exit'], 1)
+                self.assertEqual(journey.result['cleanup_status'], 'passed')
+                self.assertTrue(journey.result['stages']['J7']['occupancy_released'])
                 self.assertEqual(docker('inspect', '--format', '{{.Id}}', foreign_id), foreign_id)
             finally:
                 docker('rm', foreign_id)

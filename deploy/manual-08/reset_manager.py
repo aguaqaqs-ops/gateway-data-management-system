@@ -1,7 +1,8 @@
 """Loopback-only controller for the fixed 08 single-device reset.
 
-The HTTPS reverse proxy owns authentication. This service is deployment-only;
-it is not a gateway API and accepts neither command arguments nor paths.
+The HTTPS reverse proxy restricts access to the authorized LAN; the controller
+also checks the browser origin. It is not a gateway API and accepts neither
+command arguments nor paths.
 """
 
 import fcntl

@@ -144,7 +144,8 @@ business_project_id         = "prj-" + h
     "review_submission",
     "withdraw_own_submission",
     "archive_submission",
-    "read_project_history"
+    "read_project_history",
+    "statistics_read_group"
   ],
   "expires_at": "2027-05-10T08:30:00Z"
 }

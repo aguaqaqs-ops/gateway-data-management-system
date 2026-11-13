@@ -14,6 +14,7 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.application.submission.accept_transaction import AcceptSubmitPreflight, accept_submit_transaction
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submission.errors import NoCanonicalChange
@@ -26,7 +27,7 @@ from gateway_backend.domain.configuration_facts import (
 )
 from gateway_backend.domain.workspace.models import (
     BaselineHead, IdentityContext, InputCompleteness, PreviewArtifactRef,
-    PreviewCanonicalBindings, PreviewIdentityPair, PreviewResult, PreviewResultDigests,
+    PreviewCanonicalBindings, PreviewComparisonPair, PreviewIdentityPair, PreviewResult, PreviewResultDigests,
     ProjectIdentityApplicability, ProjectIdentityMode, ProjectIdentityStatus, ResolvedScope,
     SourceArtifactBinding, SourceArtifactRole, UploadRevision, Workspace, WorkspaceState,
 )
@@ -60,16 +61,36 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
         "pairs": [["initial_to_modified", "NOT_APPLICABLE", "NOT_APPLICABLE", None]]}))
     def preview_ref(ref: Any) -> PreviewArtifactRef:
         return PreviewArtifactRef(**{**artifact_ref_to_dict(ref), "raw_sha256": ref.raw_sha256})
-    preview = PreviewResult("fixture-preview", workspace.workspace_id, upload.upload_revision_id, 1,
-        repository_id, head.business_baseline_node_id, head.business_baseline_commit_id, 1,
-        migrated_table_ruleset_snapshot().ruleset_version, PREVIEW_JOB_CONTRACT_VERSION, {},
-        PreviewResultDigests(sql_source_digest, sql_source_digest, current.bound.snapshot.snapshot_digest.value,
-            surface.comparison_digest.value, surface.risk_evaluation_digest.value, surface.surface_digest.value, bundle_digest),
-        PreviewCanonicalBindings(before_digest, facts, preview_ref(current.canonical_table_set_closure_ref),
+    transport = read_bundle_transport_metadata(store.locate(manifest_ref))
+    ((pair_id, comparison_digest, final_surface_digest),) = transport.pair_digests
+    if pair_id != pair.pair_id or comparison_digest != surface.comparison_digest.value:
+        raise ValueError("comment-only fixture bundle changed comparison binding")
+    preview = PreviewResult(
+        preview_result_id="fixture-preview", workspace_id=workspace.workspace_id,
+        upload_revision_id=upload.upload_revision_id, generation=1, repository_id=repository_id,
+        business_baseline_node_id=head.business_baseline_node_id,
+        business_baseline_commit_id=head.business_baseline_commit_id, baseline_head_version=1,
+        ruleset_version=migrated_table_ruleset_snapshot().ruleset_version,
+        contract_version=PREVIEW_JOB_CONTRACT_VERSION, provider_versions={},
+        digests=PreviewResultDigests(sql_source_digest, sql_source_digest,
+            current.bound.snapshot.snapshot_digest.value, surface.comparison_digest.value,
+            surface.risk_evaluation_digest.value, surface.surface_digest.value, bundle_digest),
+        canonical=PreviewCanonicalBindings(before_digest, facts,
+            preview_ref(current.canonical_table_set_closure_ref),
             current.canonical_table_set_closure_ref.raw_sha256,
             preview_ref(current.canonicalization_manifest_ref), current.canonicalization_manifest_digest,
             before_digest, current_digest, rules_digest),
-        identity_digest, (pair,), manifest_ref.artifact_id, closure_ref.artifact_id, facts.operation_id, now)
+        identity_assessment_set_digest=identity_digest, identity_pairs=(pair,),
+        comparison_pairs=(PreviewComparisonPair(
+            pair_id=pair_id, before_snapshot_digest=before.bound.snapshot.snapshot_digest.value,
+            current_snapshot_digest=current.bound.snapshot.snapshot_digest.value,
+            comparison_digest=comparison_digest, risk_digest=dict(transport.pair_risk_digests)[pair_id],
+            surface_digest=final_surface_digest, ruleset_digest=rules_digest.value,
+            structure_audit_artifact_id=None,
+        ),),
+        bundle_artifact_id=manifest_ref.artifact_id, ready_closure_artifact_id=closure_ref.artifact_id,
+        operation_id=facts.operation_id, created_at=now,
+    )
 
     class ReadPorts:
         def get_workspace(self, key: str) -> Workspace:

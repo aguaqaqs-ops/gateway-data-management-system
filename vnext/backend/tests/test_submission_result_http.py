@@ -115,7 +115,9 @@ def test_full_result_stays_bound_after_review_release_and_workspace_reuse(tmp_pa
 @pytest.mark.parametrize("fault,code", (("absent", "SUBMISSION_RESULT_UNAVAILABLE"),
     ("corrupt", "SUBMISSION_RESULT_INTEGRITY_FAILURE"),
     ("wrong-pair", "SUBMISSION_RESULT_INTEGRITY_FAILURE"),
-    ("wrong-preview", "SUBMISSION_RESULT_INTEGRITY_FAILURE")))
+    ("wrong-preview", "SUBMISSION_RESULT_INTEGRITY_FAILURE"),
+    ("wrong-rules", "SUBMISSION_RESULT_INTEGRITY_FAILURE"),
+    ("wrong-audit", "SUBMISSION_RESULT_INTEGRITY_FAILURE")))
 def test_result_missing_corrupt_and_mismatched_never_fall_back(
     tmp_path: Path, endpoint: str, fault: str, code: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -130,8 +132,13 @@ def test_result_missing_corrupt_and_mismatched_never_fall_back(
         preview = seed.preview_result
         if fault == "wrong-pair":
             preview = replace(preview, comparison_pairs=(preview.comparison_pairs[-1],))
-        else:
+        elif fault == "wrong-preview":
             preview = replace(preview, ready_closure_artifact_id=preview.bundle_artifact_id)
+        else:
+            pair = preview.comparison_pairs[-1]
+            field = "ruleset_digest" if fault == "wrong-rules" else "structure_audit_artifact_id"
+            value = "sha256:" + "0" * 64 if fault == "wrong-rules" else preview.bundle_artifact_id
+            preview = replace(preview, comparison_pairs=(*preview.comparison_pairs[:-1], pair.model_copy(update={field: value})))
         with ControlDbUnitOfWork(env.db_path) as uow:
             uow.connection.execute("UPDATE preview_result_records SET binding=? WHERE preview_result_id=?",
                 (preview_result_to_row(preview)[5], preview.preview_result_id))

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
+
 from tests.support.review_result_fixtures import review_artifact_refs
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -594,7 +596,7 @@ def _accept_command(
 
 def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
     return AcceptSubmitPreflight(
-        preview_ready_closure_digest="v1:" + seed.preview_result.ready_closure_artifact_id,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=seed.protected_refs,
         current_storage_projection_ruleset_digest=(
@@ -1135,7 +1137,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
         upload_revision=seed.upload_revision,
         baseline_head=BASELINE_HEAD,
         repository_expected_commit_id="commit-main",
-        preview_ready_closure_digest="v1:" + seed.preview_result.ready_closure_artifact_id,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
     )
     with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
         attempt = submit_attempt_with_facts(
@@ -1162,7 +1164,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
                 seed.preview_result.canonical.canonical_table_set_closure_digest.value
             ),
             preview_ready_closure_ref=seed.preview_result.ready_closure_artifact_id,
-            preview_ready_closure_digest="v1:" + seed.preview_result.ready_closure_artifact_id,
+            preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
             canonicalization_manifest_ref=(
                 seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id
             ),

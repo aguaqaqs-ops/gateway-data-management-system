@@ -22,6 +22,7 @@ from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
 from gateway_backend.application.submission.ports import SubmitFinalizeControlTransaction
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_backend.application.checkpoints import ReadyClosureDocument
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
@@ -326,6 +327,8 @@ def _assert_frozen_review_closure(
     refs_by_id = {ref.artifact_id: ref for ref in review_artifact_refs}
     if ready_ref is None or preview is None or refs_by_id.get(ready_ref.artifact_id) != ready_ref:
         raise FinalizeBindingMismatch("frozen Preview READY binding is missing")
+    if attempt.preview_ready_closure_digest != derive_preview_ready_closure_digest(preview):
+        raise FinalizeBindingMismatch("accepted Preview binding changed before finalize")
     outputs = tuple(ref for ref in review_artifact_refs if ref.artifact_id != ready_ref.artifact_id)
     raw = ReadyClosureDocument.build(outputs, preview.contract_version).to_canonical_bytes()
     if (len(refs_by_id) != len(review_artifact_refs) or ready_ref.size_bytes != len(raw)

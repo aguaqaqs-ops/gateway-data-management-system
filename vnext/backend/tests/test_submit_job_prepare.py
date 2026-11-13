@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import time
@@ -535,7 +537,7 @@ def _accept_prepared_with_seed(
     protected_refs = seed.protected_refs
     baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     preflight = AcceptSubmitPreflight(
-        preview_ready_closure_digest="v1:" + seed.preview_result.ready_closure_artifact_id,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=protected_refs,
         current_storage_projection_ruleset_digest=(
@@ -844,7 +846,7 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
             intent="current-preview",
         )
     preflight = AcceptSubmitPreflight(
-        preview_ready_closure_digest="v1:" + seed_for_reaccept.preview_result.ready_closure_artifact_id,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed_for_reaccept.preview_result),
         preview_operation_id=seed_for_reaccept.preview_operation_id,
         protected_artifact_refs=protected_refs,
         current_storage_projection_ruleset_digest=(

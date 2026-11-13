@@ -15,7 +15,7 @@ from tests.test_submit_transactions import seed_submit_ready_workspace, _seed_ef
 from tests.test_submit_finalize import _request, _assert_effect_pending
 
 pytestmark = pytest.mark.unit
-_CLOSURE_FAULTS = ("omitted-output", "wrong-ref", "extra-ref", "missing-pin")
+_CLOSURE_FAULTS = ("omitted-output", "wrong-ref", "extra-ref", "missing-pin", "changed-preview")
 
 
 @pytest.mark.parametrize("fault", _CLOSURE_FAULTS)
@@ -34,6 +34,13 @@ def test_finalize_rejects_changed_or_unprotected_review_closure_atomically(tmp_p
             replace(ref, size_bytes=ref.size_bytes + 1) if ref == output else ref for ref in refs))
     elif fault == "extra-ref":
         request = replace(request, review_artifact_refs=(*refs, seed.protected_refs[0]))
+    elif fault == "changed-preview":
+        from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+        pair = seed.preview_result.comparison_pairs[-1].model_copy(update={"ruleset_digest": "sha256:" + "0" * 64})
+        preview = replace(seed.preview_result, comparison_pairs=(*seed.preview_result.comparison_pairs[:-1], pair))
+        with ControlDbUnitOfWork(db) as uow:
+            uow.connection.execute("UPDATE preview_result_records SET binding=? WHERE preview_result_id=?",
+                (preview_result_to_row(preview)[5], preview.preview_result_id))
     else:
         with ControlDbUnitOfWork(db) as uow:
             uow.connection.execute("DELETE FROM artifact_protection_intents WHERE owner_kind='submit-attempt' AND owner_id=? AND artifact_id=?",

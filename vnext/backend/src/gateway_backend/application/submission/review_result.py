@@ -6,6 +6,7 @@ from typing import Protocol
 from dataclasses import dataclass
 
 from gateway_backend.application.checkpoints import ReadyClosureDocument
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept_transaction import deterministic_submit_operation_id
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.operations import BusinessReference
@@ -153,7 +154,7 @@ def read_submission_preview(
         if (attempt is None or attempt.preview_result_id != preview.preview_result_id
                 or attempt.submission_id != submission_id
                 or attempt.preview_ready_closure_ref != preview.ready_closure_artifact_id
-                or attempt.preview_ready_closure_digest != "v1:" + preview.ready_closure_artifact_id
+                or attempt.preview_ready_closure_digest != derive_preview_ready_closure_digest(preview)
                 or attempt.configuration_facts != preview.canonical.configuration_facts
                 or attempt.snapshot_digest != preview.digests.snapshot_digest):
             raise BundleIntegrityError("Submission accepted Preview binding mismatch")

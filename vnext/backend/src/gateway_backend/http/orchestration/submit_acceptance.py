@@ -9,6 +9,7 @@ from datetime import datetime
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     AcceptPreflightLoadedFacts,
@@ -50,17 +51,12 @@ from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.submit import SubmitAcceptedResponse, SubmitAttemptStateLiteral
-PREVIEW_READY_CLOSURE_DIGEST_PREFIX = "v1:"
 
 
 @dataclass(frozen=True, slots=True)
 class SubmitAcceptanceResult:
     response: SubmitAcceptedResponse
     replay: bool
-
-
-def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
-    return f"{PREVIEW_READY_CLOSURE_DIGEST_PREFIX}{preview.ready_closure_artifact_id}"
 
 
 def build_replay_preflight_from_attempt(attempt: SubmitAttempt) -> AcceptSubmitPreflight:

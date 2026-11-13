@@ -65,7 +65,9 @@ P3要先从已允许的成员类别切入，不能把“同hash”当跨reposito
 
 ## 5. 角色、记录与退出
 
-协调者维护范围、选择包、时间/运行预算和合入；单个Sol执行内聚实施及测试。Astra对新的语义/关键代码边界做针对性独审，finding由原作者修改、原审复核；不为每次命令准备或同一计时样本再建审核轮次。风险定级和阶段末必要审核/门禁遵循[AGENTS](../../AGENTS.md)及[比例化政策](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)，不能以定性实验冒充发布验收。
+采用 Owner 确认的六角色安排：一名协调者、A/B 两组各一名实施者和一名测试者、一名独立审核者。A 组负责 publication 优化与同节点性能对比，B 组负责下载、恢复、引用保护及 Submit 的受影响适配和正确性验证；实施者编写产品与测试代码，测试者在固定 clean 提交上执行并核收结果。Sol 承担实施与测试，Astra 承担独审；finding 由原作者修改、原审复核。不为每次命令准备或同一计时样本另建审核轮次。
+
+具体职责、文件归属、节点安排、逐包交接、对比矩阵与退出条件以[详细实施方案](preview-optimization-implementation-plan.md)为准。本轮角色安排是 Owner 对本专项的明确要求，覆盖仓库默认取消专职测试者的规则，不修改全仓通用流程。六角色按依赖启用，实际并发不得超过工具提供的槽位；当前工具仅有四槽位，尚未增加，也未启动实施。风险定级和阶段末必要审核/门禁遵循[AGENTS](../../AGENTS.md)及[比例化政策](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)，不能以定性实验冒充发布验收。
 
 临时插桩保持在隔离诊断候选，只保留解释所选问题的有限计数；获选优化形成清晰产品diff，删除已不需要的实验代码，不将临时instrumentation整包带入正式主线。旧成功/失败日志及各轮原件保持不动。每个小包只有一份简短结论：改变什么、同条件输入/版本、实际次数、操作数量和耗时变化、正确性验证、未知、保留或放弃；机器身份/exit/SHA由外置证据承接。
 

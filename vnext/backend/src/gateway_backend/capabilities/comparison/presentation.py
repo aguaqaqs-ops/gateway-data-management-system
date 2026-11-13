@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from collections import Counter
 
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts, ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
@@ -49,7 +50,15 @@ def visible_table_fact(table: ComparisonTableFact) -> ComparisonTableFact:
     if not structure_change_is_audit_only(table):
         # The old additive path may have UNCHANGED as its raw status. Without
         # evidence it cannot authorize suppressing a structural business change.
-        if (table.status is ComparisonTableStatus.UNCHANGED
+        compatible_type_evolution = False
+        if table.before_descriptor is not None and table.current_descriptor is not None:
+            from gateway_backend.capabilities.comparison.row_encoding import _enum_set_addition
+
+            before = {column.name: column for column in table.before_descriptor.columns}
+            compatible_type_evolution = any(_enum_set_addition(before[column.name], column)
+                for column in table.current_descriptor.columns if column.name in before)
+        if (table.status is ComparisonTableStatus.UNCHANGED and not table.content_changed
+                and not compatible_type_evolution
                 and (table.schema_changes.before_only_columns or table.schema_changes.current_only_columns)):
             return replace(table, status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED)
         return table
@@ -59,5 +68,12 @@ def visible_table_fact(table: ComparisonTableFact) -> ComparisonTableFact:
 
 def visible_comparison_facts(facts: ComparisonFacts) -> ComparisonFacts:
     tables = tuple(visible_table_fact(table) for table in facts.tables)
-    return replace(facts, tables=tables,
-        diagnostics=tuple(diagnostic for table in tables for diagnostic in table.diagnostics))
+    removed = Counter(diagnostic for table in facts.tables if structure_change_is_audit_only(table)
+        for diagnostic in table.diagnostics)
+    diagnostics = []
+    for diagnostic in facts.diagnostics:
+        if removed[diagnostic]:
+            removed[diagnostic] -= 1
+        else:
+            diagnostics.append(diagnostic)
+    return replace(facts, tables=tables, diagnostics=tuple(diagnostics))

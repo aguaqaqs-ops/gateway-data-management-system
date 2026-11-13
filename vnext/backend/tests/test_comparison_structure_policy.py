@@ -158,11 +158,11 @@ def test_hidden_pair_is_consistent_and_audit_is_only_in_backend_ready_closure() 
     assert not table.content_changed and table.schema_summary is None
     assert table.table_refs.current_table_ref is not None
     assert surface.summary.changed_table_count == 0
-    assert surface.refs.risk_report_ref is not None
-    risk = json.loads(store.locate(surface.refs.risk_report_ref))
-    assert "SCHEMA_CHANGED" not in json.dumps(risk)
+    assert surface.refs.risk_report_ref is None  # No schema or row risk was emitted.
     navigation = json.loads(store.locate(surface.projections[0].projection_ref))
-    assert '"has_change": true' not in json.dumps(navigation)
+    tabs = [tab for group in navigation["groups"] for item in group["items"] for tab in item["tabs"]]
+    assert any(tab["table_id"] == "t" for tab in tabs)
+    assert all(tab["facts"] is None or tab["facts"]["change_kind"] == "UNCHANGED" for tab in tabs)
     assert result.structure_audit_ref is not None
     assert result.structure_audit_ref not in result.surface_result.referenced_artifacts
     bundle = put_with_built_ref(store, b"bundle-placeholder",
@@ -224,3 +224,37 @@ def test_invalid_or_missing_comparison_keys_never_authorize_hiding(rows: str) ->
         table, = product.result.facts.tables
         assert table.status is ComparisonTableStatus.DEGRADED
         assert not structure_change_is_audit_only(table)
+
+
+def test_audit_bindings_reject_dropped_refs_incomplete_pairs_and_wrong_pair() -> None:
+    from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
+    planned = plan(canonical_bound(_BEFORE), canonical_bound("CREATE TABLE t(id INT PRIMARY KEY,v INT); INSERT INTO t VALUES(1,10);"))
+    with closing(compare_plan_native(planned)) as product:
+        assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+        facts = product.result.facts
+        store = InMemoryArtifactStore()
+        ref = publish_structure_audit(planned, facts, store)
+        assert ref is not None
+        binding = structure_audit_binding(planned.pair_id, facts.comparison_digest.value, ref)
+        verify_structure_audit_bindings(store, [binding], (ref,), [planned.pair_id])
+        for bindings, refs, pairs in (
+            ([binding], (), [planned.pair_id]),
+            ([], (ref,), [planned.pair_id]),
+            ([binding | {"pair_id": "wrong"}], (ref,), ["wrong"]),
+            ([binding | {"comparison_digest": "wrong"}], (ref,), [planned.pair_id]),
+        ):
+            with pytest.raises(ValueError):
+                verify_structure_audit_bindings(store, bindings, refs, pairs)
+
+
+def test_audit_is_verified_before_hidden_success_is_returned() -> None:
+    from gateway_backend.artifacts import ArtifactRef
+    class BrokenAuditStore(InMemoryArtifactStore):
+        def locate(self, ref: ArtifactRef) -> bytes:
+            raw = super().locate(ref)
+            return b"{}" if b"comparison-structure-audit" in raw else raw
+    planned = plan(canonical_bound(_BEFORE), canonical_bound("CREATE TABLE t(id INT PRIMARY KEY,v INT); INSERT INTO t VALUES(1,10);"))
+    with closing(compare_plan_native(planned)) as product:
+        assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
+        with pytest.raises(ValueError):
+            publish_structure_audit(planned, product.result.facts, BrokenAuditStore())

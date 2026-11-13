@@ -40,8 +40,30 @@ class ComparisonStructureAudit(BaseModel):
 def publish_structure_audit(
     plan: ComparisonPlan, facts: ComparisonFacts, store: ArtifactStorePort,
 ) -> ArtifactRef | None:
+    from gateway_backend.capabilities.table_access import current_kernel_context
+
+    hidden = tuple(table for table in facts.tables if structure_change_is_audit_only(table))
+    if not hidden:
+        return None
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("structure audit requires the operation kernel context")
+    upper = 1024 * 1024 + sum(65536 + len(table.schema_changes.selected_columns) * 4096 for table in hidden)
+    with context.memory.reserve(upper):
+        context.checkpoint()
+        return _publish_structure_audit(plan, facts, store)
+
+
+def _publish_structure_audit(
+    plan: ComparisonPlan, facts: ComparisonFacts, store: ArtifactStorePort,
+) -> ArtifactRef | None:
+    from gateway_backend.capabilities.table_access import current_kernel_context
+
+    context = current_kernel_context()
+    assert context is not None
     tables = []
     for table in facts.tables:
+        context.checkpoint()
         if not structure_change_is_audit_only(table):
             continue
         before, current = table.before_descriptor, table.current_descriptor
@@ -76,6 +98,7 @@ def publish_structure_audit(
         media_type="application/jcs")
     # This exact read checks stored bytes as well as strict document shape before
     # any successful hidden surface can be published, also on comparison reuse.
+    context.checkpoint()
     restored = ComparisonStructureAudit.model_validate_json(store.locate(ref))
     if restored != document:
         raise ValueError("hidden structure audit binding mismatch")

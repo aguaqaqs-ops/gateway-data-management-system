@@ -170,14 +170,14 @@ def publish_business_presentation(
     scanned_rows = locator_bytes = 0
     locator_seconds = 0.0
     replacement = facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT
-    from gateway_backend.capabilities.comparison.presentation import visible_table_fact, structure_change_is_audit_only
+    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
 
     for original_fact in facts.tables:
         fact = visible_table_fact(original_fact)
         context.checkpoint()
         name = fact.table_name
         task = tasks[name]
-        excluded = (identity_excluded_sides(task, fact, FILTER_IDENTITY_COLUMNS[name])
+        excluded = (identity_excluded_sides(task, original_fact, FILTER_IDENTITY_COLUMNS[name])
             if not replacement and name in FILTER_IDENTITY_COLUMNS else frozenset())
         if (entries.get(name) is not None and handles.get(name) is None
                 and any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
@@ -217,7 +217,7 @@ def publish_business_presentation(
                 ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
                 ComparisonTableStatus.DEGRADED, ComparisonTableStatus.REPLACED}
                 or fact.schema_changes.change_source is not None,
-            unchanged=structure_change_is_audit_only(original_fact) or same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
+            unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
     navigation_started = perf_counter()
     navigation = build_navigation(tuple(tables), replacement=replacement,
         check=context.checkpoint, reserve=context.memory.reserve, resources=context.resources)

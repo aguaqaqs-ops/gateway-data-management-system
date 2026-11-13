@@ -5,7 +5,7 @@
       "table_status": "UNCHANGED",
       "change_kind": "UNCHANGED",
       "display_strategy": "SUMMARY_ONLY",
-      "schema_evolution": "COLUMNS_ADDED",
+      "schema_evolution": null,
       "before_only_columns": [],
       "current_only_columns": [],
       "records_ref_present": false

@@ -1,0 +1,6 @@
+:root { font: 16px/1.6 system-ui, sans-serif; color: #172437; background: #f3f6fa; }
+main { max-width: 760px; margin: 6vh auto; padding: 2rem; background: white; border-radius: 12px; box-shadow: 0 4px 24px #15263b12; }
+.label { color: #31578d; font-weight: 700; } h1 { margin-top: 0; } section { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #d9e2ef; }
+button { padding: .65rem 1rem; border: 1px solid #234d82; border-radius: 6px; color: white; background: #234d82; font: inherit; cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; } button:focus-visible { outline: 3px solid #db9e32; outline-offset: 3px; }
+#reset { background: white; color: #9b2424; border-color: #9b2424; }

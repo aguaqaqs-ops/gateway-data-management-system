@@ -38,11 +38,10 @@ interface ReviewActionsProps {
   bundleReady: boolean;
   onFactsChanged: (facts: SafeReviewFacts) => void;
   /**
-   * C5: invoked after the facts refresh that follows a terminal action or a
-   * 409 conflict, so the page re-reads the review and its immutable comparison together
-   * instead of the review alone.
+   * Re-read current review and result authority together, including a manual
+   * conflict refresh. False means the result is unavailable and closes the dialog.
    */
-  onReviewSettled?: () => void;
+  onReviewSettled: () => Promise<boolean>;
   /**
    * C12 rule 1: the top-bar error notice lives below the header main row, not
    * inside the button row, so it cannot widen the row or move the buttons.
@@ -91,6 +90,8 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   const groupReason = blockedReason;
   const approveUsesGroup = Boolean(blockedReason) && approveReason === blockedReason;
   const groupReasonId = `${generatedId}-review-disabled-reason`;
+  const confirmDisabled = busy || (dialog === "approve" ? approveDisabled : otherDisabled)
+    || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
 
   function open(next: DialogKind) {
     setDialog(next);
@@ -103,7 +104,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   async function refreshFacts() {
     setBusy(true);
     try {
-      onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      if (!await onReviewSettled()) setDialog(null);
       setError(null);
       dialogKey.current = null;
     } catch (cause) {
@@ -127,7 +128,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   }
 
   async function confirm() {
-    if (!dialog) return;
+    if (!dialog || confirmDisabled) return;
     if (dialog === "reject" && !reason.trim()) return;
     if (dialog === "withdraw" && !understood) return;
     setBusy(true);
@@ -139,7 +140,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       const action = dialog === "approve" ? "APPROVE" : dialog === "reject" ? "REJECT" : "WITHDRAW";
       await applyReviewAction(gatewayApi, submissionId, facts.review_version, action, dialog === "reject" ? reason.trim() : undefined, key);
       onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
-      onReviewSettled?.();
+      void onReviewSettled();
       setExpiredApprove(false);
       setDialog(null);
     } catch (cause) {
@@ -154,7 +155,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
         setError({ title: failure.title, code: failure.code });
         try {
           onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
-          onReviewSettled?.();
+          void onReviewSettled();
         } catch {
           // Keep the failure notice when the refresh itself fails.
         }
@@ -166,7 +167,6 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     }
   }
 
-  const confirmDisabled = busy || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
 
   const errorNotice = dialog === null && error ? renderError() : null;
   const errorHost = errorNoticeHost?.current ?? null;

@@ -537,20 +537,33 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
 
-  // Review actions refresh current authority while keeping the accepted result fixed.
-  const reloadReviewContext = useCallback(async () => {
+  // Result authority is invalid while any review-context refresh is pending.
+  const reloadReviewContext = useCallback(async (): Promise<boolean> => {
     const current = runtime.snapshot.state;
-    if (current.mode !== "REVIEW" || !current.submissionId) return;
+    if (current.mode !== "REVIEW" || !current.submissionId) return false;
+    const cached = loadedRequest.current;
+    setBundle(null);
+    setError(null);
+    setLoading({ phase: "重新读取提交绑定的比较结果", received: 0, total: 0 });
     try {
       const [facts, result] = await Promise.all([
         gatewayApi.getReviewFacts(current.submissionId), gatewayApi.getSubmissionResult(current.submissionId),
       ]);
-      if (loadedRequest.current) assertSubmissionReviewBundle(current.submissionId, result, loadedRequest.current.bundle);
+      gatewayApi.assertSession?.();
+      if (runtime.snapshot.state.submissionId !== current.submissionId) return false;
+      if (!cached || cached.requestPath !== bundlePathForState(current)) {
+        throw new ApiError("提交绑定的比较结果尚未就绪", 503, "SUBMISSION_RESULT_UNAVAILABLE");
+      }
+      assertSubmissionReviewBundle(current.submissionId, result, cached.bundle);
       setReviewFacts(facts);
+      setBundle(cached.bundle);
+      return true;
     } catch (cause) {
+      if (runtime.snapshot.state.submissionId !== current.submissionId) return false;
       loadedRequest.current = null;
       setBundle(null); setPairs([]);
       setError(bundleErrorState(cause, cause instanceof Error ? cause.message : String(cause)));
+      return false;
     }
   }, [runtime]);
 
@@ -821,7 +834,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             onRetry={() => void refreshUploadMode()}
             onSubmit={() => { clearResumeNotice(); setSubmitOpen(true); }}
           />}
-          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} onReviewSettled={() => void reloadReviewContext()} errorNoticeHost={reviewNoticeRef} />}
+          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} onReviewSettled={reloadReviewContext} errorNoticeHost={reviewNoticeRef} />}
         </div>
         <details className="compare-more">
           <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>

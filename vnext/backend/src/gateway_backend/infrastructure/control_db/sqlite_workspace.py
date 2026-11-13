@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from pydantic import TypeAdapter
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from gateway_backend.domain.configuration_facts import ConfigurationFacts
+from gateway_backend.infrastructure.control_db.preview_documents import PreviewBindingDocument
 
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
@@ -20,14 +19,8 @@ from gateway_backend.domain.workspace.models import (
     InputCompleteness,
     PreviewArtifactRef,
     PreviewAcceptanceRecord,
-    PreviewCanonicalBindings,
-    PreviewIdentityPair,
     PreviewResult,
-    PreviewComparisonPair,
     PreviewResultDigests,
-    ProjectIdentityApplicability,
-    ProjectIdentityMode,
-    ProjectIdentityStatus,
     SourceArtifactBinding,
     SourceArtifactRole,
     UploadRevision,
@@ -454,104 +447,28 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
 
 
 def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
-    binding = json.loads(_blob_value(row, "binding").decode("utf-8"))
-    if type(binding) is not dict:
-        raise ValueError("preview binding must be an object")
-    digests_payload = binding.get("digests")
-    if type(digests_payload) is not dict:
-        raise ValueError("preview binding digests must be an object")
-    provider_versions = binding.get("provider_versions")
-    if type(provider_versions) is not dict:
-        raise ValueError("preview binding provider_versions must be an object")
-    canonical_payload = binding.get("canonical")
-    if type(canonical_payload) is not dict:
-        raise ValueError("preview binding canonical must be an object")
-    identity_pairs_payload = binding.get("identity_pairs")
-    if type(identity_pairs_payload) is not list:
-        raise ValueError("preview binding identity_pairs must be an array")
+    binding = PreviewBindingDocument.model_validate_json(_blob_value(row, "binding"))
     return PreviewResult(
         preview_result_id=_required_text(row, "preview_result_id"),
         workspace_id=_required_text(row, "workspace_id"),
         upload_revision_id=_required_text(row, "upload_revision_id"),
         generation=_required_int(row, "generation"),
         repository_id=_required_text(row, "repository_id"),
-        business_baseline_node_id=str(binding["business_baseline_node_id"]),
-        business_baseline_commit_id=str(binding["business_baseline_commit_id"]),
-        baseline_head_version=int(binding["baseline_head_version"]),
-        ruleset_version=str(binding["ruleset_version"]),
-        contract_version=str(binding["contract_version"]),
-        provider_versions={str(key): str(value) for key, value in provider_versions.items()},
-        digests=PreviewResultDigests(
-            source_digest=str(digests_payload["source_digest"]),
-            input_digest=str(digests_payload["input_digest"]),
-            snapshot_digest=str(digests_payload["snapshot_digest"]),
-            comparison_digest=str(digests_payload["comparison_digest"]),
-            risk_digest=str(digests_payload["risk_digest"]),
-            surface_digest=str(digests_payload["surface_digest"]),
-            bundle_digest=str(digests_payload["bundle_digest"]),
-        ),
-        canonical=PreviewCanonicalBindings(
-            initial_canonical_state_digest=DigestRef(str(canonical_payload["initial_canonical_state_digest"])),
-            configuration_facts=ConfigurationFacts.from_document(canonical_payload["configuration_facts"]),            canonical_table_set_closure_ref=_preview_artifact_ref_from_document(
-                canonical_payload.get("canonical_table_set_closure_ref")
-            ),
-            canonical_table_set_closure_digest=DigestRef(
-                str(canonical_payload["canonical_table_set_closure_digest"])
-            ),
-            canonicalization_manifest_ref=_preview_artifact_ref_from_document(
-                canonical_payload.get("canonicalization_manifest_ref")
-            ),
-            canonicalization_manifest_digest=DigestRef(
-                str(canonical_payload["canonicalization_manifest_digest"])
-            ),
-            baseline_canonical_state_digest=DigestRef(
-                str(canonical_payload["baseline_canonical_state_digest"])
-            ),
-            modified_canonical_state_digest=DigestRef(
-                str(canonical_payload["modified_canonical_state_digest"])
-            ),
-            storage_projection_ruleset_digest=DigestRef(
-                str(canonical_payload["storage_projection_ruleset_digest"])
-            ),
-        ),
-        identity_assessment_set_digest=DigestRef(
-            str(binding["identity_assessment_set_digest"])
-        ),
-        identity_pairs=tuple(
-            _preview_identity_pair_from_document(item) for item in identity_pairs_payload
-        ),
-        comparison_pairs=TypeAdapter(tuple[PreviewComparisonPair, ...]).validate_json(
-            canonicalize_json_value(binding["comparison_pairs"])),
-        bundle_artifact_id=str(binding["bundle_artifact_id"]),
-        ready_closure_artifact_id=str(binding["ready_closure_artifact_id"]),
+        business_baseline_node_id=binding.business_baseline_node_id,
+        business_baseline_commit_id=binding.business_baseline_commit_id,
+        baseline_head_version=binding.baseline_head_version,
+        ruleset_version=binding.ruleset_version,
+        contract_version=binding.contract_version,
+        provider_versions=binding.provider_versions,
+        digests=PreviewResultDigests(**binding.digests.model_dump()),
+        canonical=binding.canonical.to_model(),
+        identity_assessment_set_digest=DigestRef(binding.identity_assessment_set_digest),
+        identity_pairs=tuple(pair.to_model() for pair in binding.identity_pairs),
+        comparison_pairs=binding.comparison_pairs,
+        bundle_artifact_id=binding.bundle_artifact_id,
+        ready_closure_artifact_id=binding.ready_closure_artifact_id,
         operation_id=_required_text(row, "operation_id"),
         created_at=_epoch_us_to_datetime(_required_int(row, "created_at_us")),
-    )
-
-
-def _preview_identity_pair_from_document(payload: object) -> PreviewIdentityPair:
-    if type(payload) is not dict or set(payload) != {
-        "applicability",
-        "assessment_digest",
-        "assessment_ref",
-        "mode",
-        "pair_id",
-        "status",
-    }:
-        raise ValueError("preview identity pair fields are invalid")
-    raw_ref = payload["assessment_ref"]
-    raw_digest = payload["assessment_digest"]
-    if raw_digest is not None and type(raw_digest) is not str:
-        raise ValueError("preview identity assessment digest is invalid")
-    return PreviewIdentityPair(
-        pair_id=str(payload["pair_id"]),
-        applicability=ProjectIdentityApplicability(str(payload["applicability"])),
-        status=ProjectIdentityStatus(str(payload["status"])),
-        mode=ProjectIdentityMode(str(payload["mode"])),
-        assessment_ref=(
-            None if raw_ref is None else _preview_artifact_ref_from_document(raw_ref)
-        ),
-        assessment_digest=None if raw_digest is None else DigestRef(raw_digest),
     )
 
 
@@ -562,17 +479,6 @@ def _preview_artifact_ref_to_document(ref: PreviewArtifactRef) -> dict[str, obje
         "size_bytes": ref.size_bytes,
         "raw_sha256": ref.raw_sha256.value,
     }
-
-
-def _preview_artifact_ref_from_document(raw: object) -> PreviewArtifactRef:
-    if type(raw) is not dict:
-        raise ValueError("preview artifact ref must be an object")
-    return PreviewArtifactRef(
-        artifact_id=str(raw["artifact_id"]),
-        media_type=str(raw["media_type"]),
-        size_bytes=int(raw["size_bytes"]),
-        raw_sha256=DigestRef(str(raw["raw_sha256"])),
-    )
 
 
 def _encode_source_artifacts(

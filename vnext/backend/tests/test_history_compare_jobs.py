@@ -15,6 +15,7 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 import gateway_backend.application.history.compare_jobs as compare_jobs
 
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.contracts import (
     HistoryCompareDiagnosticCode,
@@ -1365,7 +1366,7 @@ def _replace_comparison_cache_with_bad_neutral_payload(cache: Any, store: Any, h
     payload["table_fact_jcs"] = "{}"
     raw = encode_cache_manifest(lease.entry.key, format=lease.entry.format,
         member_refs=lease.entry.member_refs, payload=payload)
-    manifest = ArtifactRef("a1:durable:2660848574a60e9b959e57fdc37250f4f60f6647323da2526f2dfb92e1fc4e74", "application/json", len(raw), raw_blob_digest(raw))
+    manifest = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-cache-manifest", raw_blob_digest(raw).value), "application/json", len(raw), raw_blob_digest(raw))
     entry = ComputationCacheEntry(lease.entry.key, lease.entry.format, manifest, lease.entry.member_refs)
     blobs = ((manifest, raw), *((ref, store.locate(ref)) for ref in entry.member_refs))
     lease.close()
@@ -1699,3 +1700,79 @@ def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
         (side, table): rows for (_pair, side, table), rows in warm_rows.items()}
     with ControlDbUnitOfWork(warm.db_path, read_only=True) as uow:
         assert uow.operations.get_operation(warm.operation_id).status is OperationStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize("table_kind", ("keyed", "keyless", "ordered"))
+@pytest.mark.parametrize("row_count", (0, 2))
+@pytest.mark.parametrize("added", (True, False), ids=("added", "deleted"))
+def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    table_kind: str, row_count: int, added: bool,
+) -> None:
+    from dataclasses import replace
+    from gateway_backend.application import pair_pipeline
+    from gateway_backend.application.history.compare_jobs import history_compare_composition_bundle
+    from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
+
+    left, right = BASELINE_HEAD.business_baseline_commit_id, "commit-single-side"
+    if table_kind == "ordered":
+        table = ordered_syx_catalog_table()
+        table_rows = tuple((index, index, str(index)) for index in range(1, row_count + 1))
+    else:
+        table = catalog_table("t", (int_id_column(),),
+            primary_key=("id",) if table_kind == "keyed" else (), row_count=row_count)
+        table_rows = tuple((index,) for index in range(1, row_count + 1))
+    name = table.table_name
+    observed: list[Any] = []
+    original = pair_pipeline.compare_plan_native
+
+    def compare(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        observed.append(result.result.facts)
+        return result
+
+    monkeypatch.setattr(pair_pipeline, "compare_plan_native", compare)
+    store = InMemoryArtifactStore()
+    previous: HistoryCompareJobHarness | None = None
+    snapshots = []
+    for run in ("cold", "warm"):
+        providers = {}
+        for commit, present in ((left, not added), (right, added)):
+            catalog = make_catalog((table,) if present else (),
+                repository_id=REPOSITORY_ID, ref=commit, commit=commit)
+            providers[commit] = FakeRepositoryTableAccessProvider(catalog=catalog,
+                rows={name: table_rows} if present else {}, current_commit=commit)
+        harness = build_history_compare_harness(tmp_path / run,
+            db_path=None if previous is None else previous.db_path, artifact_store=store,
+            node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ("bn-single-" + run, right)),
+            custom_providers=providers, idempotency_key="single-side-" + run)
+        def transaction() -> ControlDbUnitOfWork:
+            return ControlDbUnitOfWork(harness.db_path)
+        deps = replace(harness.deps, snapshot_export_cache=ControlDbSnapshotTableExportCache(transaction))
+        _, handlers, _, bound_deps = history_compare_composition_bundle(deps)
+        harness.deps, harness.handlers = bound_deps, dict(handlers)
+        harness.publication_uow_factory = bound_deps.control_transaction_factory
+        run_full_history_compare_job(harness)
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+            assert uow.operations.get_operation(harness.operation_id).status is OperationStatus.SUCCEEDED
+        facts = observed[-1]
+        assert facts is not None
+        fact, = facts.tables
+        assert fact.status is (ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE)
+        assert fact.row_count_before == (None if added else row_count)
+        assert fact.row_count_current == (row_count if added else None)
+        assert fact.row_added_count == fact.row_deleted_count == fact.row_modified_count == 0
+        assert fact.records == () and fact.diagnostics == ()
+        assert fact.ordered_extension is None and fact.blank_extension is None
+        assert facts.summary.added_table_count == int(added)
+        assert facts.summary.deleted_table_count == int(not added)
+        rows, entries = _history_snapshot_bundle_data(harness)
+        assert len(entries) == 1
+        assert set(rows) == {("left_to_right", "current" if added else "before", name)}
+        assert len(next(iter(rows.values()))) == row_count
+        snapshots.append(rows)
+        reader_names = tuple(item for provider in providers.values() for item in _reader_names(provider))
+        assert reader_names == ((name,) if run == "cold" else ())
+        previous = harness
+    assert observed[0] == observed[1]
+    assert snapshots[0] == snapshots[1]

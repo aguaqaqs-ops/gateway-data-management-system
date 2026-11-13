@@ -2126,6 +2126,7 @@ def _assemble_preview(
             bundle_manifest_ref=bundle_result.bundle.manifest_ref,
             bundle_artifacts=bundle_result.referenced_artifacts,
         )
+        final_bundle_pairs = {pair.pair_id: pair for pair in bundle_result.bundle.pairs}
         assemble_state: dict[str, object] = {
             "pair_ids": [item.pair_id for item in pair_results],
             "structure_audit_bindings": [structure_audit_binding(
@@ -2135,7 +2136,8 @@ def _assemble_preview(
                 before_snapshot_digest=spec[1].snapshot.snapshot_digest.value,
                 current_snapshot_digest=spec[2].snapshot.snapshot_digest.value,
                 comparison_digest=item.comparison_digest,
-                risk_digest=item.risk_digest, surface_digest=item.surface_digest,
+                risk_digest=item.risk_digest,
+                surface_digest=final_bundle_pairs[item.pair_id].surface_digest.value,
                 ruleset_digest=payload.comparison_ruleset_digest,
                 structure_audit_artifact_id=(None if item.structure_audit_ref is None
                     else item.structure_audit_ref.artifact_id),

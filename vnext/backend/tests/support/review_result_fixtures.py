@@ -44,7 +44,7 @@ def closed_review_preview(
         current_snapshot_digest=preview.digests.snapshot_digest,
         comparison_digest=surface.comparison_digest.value,
         risk_digest=(surface.risk_evaluation_digest or DigestRef("sha256:" + "0" * 64)).value,
-        surface_digest=surface.surface_digest.value,
+        surface_digest=next(pair.surface_digest.value for pair in bundle.bundle.pairs if pair.pair_id == pair_id),
         ruleset_digest=preview.canonical.storage_projection_ruleset_digest.value,
         structure_audit_artifact_id=None) for pair_id in ids)
     closure_refs = {ref.artifact_id: ref for ref in (*refs, *bundle.referenced_artifacts,

@@ -69,7 +69,8 @@ def load_preview_review_closure(
         raise BundleIntegrityError("Preview bundle digest binding mismatch")
     expected_pairs = tuple((pair.pair_id, pair.surface_digest, pair.comparison_digest)
         for pair in preview.comparison_pairs)
-    if metadata.pair_digests != expected_pairs:
+    expected_risks = tuple((pair.pair_id, pair.risk_digest) for pair in preview.comparison_pairs)
+    if metadata.pair_digests != expected_pairs or metadata.pair_risk_digests != expected_risks:
         raise BundleIntegrityError("Preview bundle pair binding mismatch")
     expected_refs = (metadata.closure_ref, *(entry.artifact_ref for entry in metadata.entries))
     if any(by_id.get(ref.artifact_id) != ref for ref in expected_refs):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response, status
 
@@ -100,7 +100,7 @@ def get_review_facts_route(
     )
 
 
-_RESULT_ERRORS = {
+_RESULT_ERRORS: dict[int | str, dict[str, Any]] = {
     401: {"description": "AUTHENTICATION_REQUIRED"},
     403: {"description": "SCOPE_FORBIDDEN"},
     404: {"description": "RESOURCE_NOT_FOUND"},

@@ -12,7 +12,7 @@ from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWo
 from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
 from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.artifacts.store import ArtifactUnavailableError
-from tests.support.http_workspace_harness import create_workspace_http_environment
+from tests.support.http_workspace_harness import create_workspace_http_environment, InMemoryBundleReader
 from tests.support.review_result_fixtures import closed_review_preview
 from tests.support.preview_fixtures import make_canonical_artifact_fixture
 from tests.support.workspace_fixtures import make_identity
@@ -22,7 +22,7 @@ from tests.test_submit_finalize import _request
 pytestmark = pytest.mark.unit
 
 _RESULT_ENDPOINTS = ("result", "result/bundle")
-_ACCESS_CASES = (
+_ACCESS_CASES: tuple[tuple[str, str, frozenset[str], str, str, int], ...] = (
     ("reviewer", "reviewer", frozenset({"review_submission"}), "device-1", "project-1", 200),
     ("own-withdraw", "actor-1", frozenset({"withdraw_own_submission"}), "device-1", "project-1", 200),
     ("other-withdraw", "other", frozenset({"withdraw_own_submission"}), "device-1", "project-1", 404),
@@ -51,6 +51,7 @@ def _environment(tmp_path: Path, *, identity: Any = None) -> tuple[Any, Any]:
         finalize_submit_transaction(request=_request(env.db_path, seed, attempt), unit_of_work=uow)
     # The fake tar reader is independent of exact metadata preflight in these
     # routing tests. Actual tar framing/integrity stays owned by bundle tests.
+    assert isinstance(env.bundle_reader, InMemoryBundleReader)
     env.bundle_reader.register(preview.bundle_artifact_id, "review.tar", b"review-bundle",
         bundle_digest=preview.digests.bundle_digest)
     return env, seed
@@ -94,8 +95,10 @@ def test_full_result_stays_bound_after_review_release_and_workspace_reuse(tmp_pa
             optimistic_version=workspace.optimistic_version + 1), expected_version=workspace.optimistic_version)
         held = uow.list_artifact_protection_for_owner(owner_kind="submission-review", owner_id="sub-1")
         assert {ref.artifact_id for ref in seed.protected_refs}.issubset(held)
+        submission = uow.submission.get_submission("sub-1")
+        assert submission is not None
         assert not uow.list_artifact_protection_for_owner(owner_kind="submit-attempt",
-            owner_id=uow.submission.get_submission("sub-1").submit_attempt_id)
+            owner_id=submission.submit_attempt_id)
         assert uow.connection.execute("SELECT count(*) FROM operation_records WHERE job_kind='history-compare'").fetchone()[0] == 0
     for _ in range(2):
         result = env.client.get(path, headers=env.auth_headers())

@@ -46,6 +46,7 @@ class BundleTransportMetadata:
     expected_closure_bytes: bytes
     entries: tuple[BundleClosureEntry, ...]
     pair_digests: tuple[tuple[str, str, str], ...]
+    pair_risk_digests: tuple[tuple[str, str | None], ...]
 
 
 def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
@@ -98,6 +99,7 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             raise ValueError("bundle must contain published pairs")
         pair_ids: set[str] = set()
         pair_digests: list[tuple[str, str, str]] = []
+        pair_risk_digests: list[tuple[str, str | None]] = []
         for pair in pairs:
             if type(pair) is not dict or type(pair.get("pair_id")) is not str:
                 raise ValueError("bundle pair is malformed")
@@ -109,6 +111,7 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             if len(surfaces) != 1:
                 raise ValueError("bundle pair surface is not closed")
             pair_digests.append((pair_id, pair["surface_digest"], pair["comparison_digest"]))
+            pair_risk_digests.append((pair_id, pair["risk_evaluation_digest"]))
         expected = canonicalize_json_value({
             "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
             "bundle_digest": digest.value,
@@ -124,7 +127,7 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             size_bytes=len(expected),
             raw_sha256=raw_blob_digest(expected),
         )
-        return BundleTransportMetadata(digest.value, ref, expected, entries, tuple(pair_digests))
+        return BundleTransportMetadata(digest.value, ref, expected, entries, tuple(pair_digests), tuple(pair_risk_digests))
     except (KeyError, TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise BundleIntegrityError("bundle metadata failed integrity verification") from exc
 

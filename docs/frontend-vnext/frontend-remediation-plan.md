@@ -31,6 +31,12 @@
 - **截图基线：** 07 上 B 的 mock 全量截图（B@07，实施会话的第一次运行）。04 的退出比较用 §20.5 的 04 mock 截图；B 与 H 的 `frontend/` 树不同时，先在 04 跑一次 B 作基线（调试，不作证据）。
 - **H 上的现状数字**（供结果评审对照，口径：`frontend/src` 不含生成类型与测试夹具）：99 个文件 17,285 行；超过 160 字符的行 630，超过 400 字符的 43，最长 2,048 字符（`ComparisonPage.tsx`）。组件体：`ComparisonPage` 579 行，`useState` 30、`useRef` 9、`useEffect` 9；`WorkbenchPage` 557 行，32、3、7；`ArchiveMainlineDialog` 516 行，30、3、1。`pair_id` 子串匹配 4 处（`viewLabel` 2、`viewTitle` 2）。OpenAPI 快照 39 条路径，其中 `/internal/` 6 条。
 
+### 2.1 开工核收与实施模式（Owner 2026-11-13）
+
+§2 三项前提已满足：FE4 合并后验证复核报告 `fe4b/reviews/fe4-post-merge-eb6530b36e-recheck.md` 通过；退出收尾提交 `ae4884c12e` 已入 main；计划最终修订 `8459d1b628` 已由 `98abf25c19` 合入。核收点 main 为 `74a0f326bfdaf402c8cb372246d761ab6461d6c0`，frontend tree 为 `b4806ba6a54736d79bc5e5fed1a1c6dc3692a8df`（与 H 相同），vnext tree 为 `6080ecec8258552bb6d275d6f1c6988c6ef588ab`。交换日志中的旧“等待收尾/合入”状态由本次追加记录更新，保留历史。实施时仍记录实际 B；新差异按 §2 核对，不照搬核收点当最终候选。
+
+前端实施只用一个 agent：完成编码、必要调试、handoff、收到审核意见后的修复及已批准取证，不派生协调者/实施者/测试者/验收核对团队，不套用后端模型与分包规则。§10 的整轮独立审核保持，由 Owner 另行安排新会话并转交材料和意见；实施者不自审、不自行启动审核 agent。模型由 Owner 选择。前端设计问题、取证放行、退出/合入仍按本计划由 Owner 决定或指定会话处理。收到本实施提示词即开展已批准步骤，不逐步申请普通编码/调试许可。
+
 ## 3. 分支、节点与缓存
 
 - **分支：** 实施在 `fe-vnext`（worktree `/home/dev/gdds-fe`，现为 `dddccd359c`，是 H 的祖先）。开始时确认 clean、无人使用，快进到 B。审核对象为 `B..候选提交`。
@@ -184,7 +190,7 @@
 
 ### 8.2 G2：OpenAPI 快照
 
-等 Owner 转交后端“`/internal/v1` 移出公开 schema”的提交 SHA，且该提交已在 main。转交的应是后端本轮公开 schema 不再变化的提交，不一定就是 G2 那一个提交，以 Owner 转交的为准（Owner 2026-11-13 已确认后端 G2 可以修改公开 OpenAPI：移出的只有 `/internal/v1` 路径与只被它们引用的 schema 组件）。把 main 合入 `fe-vnext` 后，按 S2b `116e831701`、`223e073cb4` 的做法从运行中的 backend 取 `/openapi.json`、保持 canonical 排序写回 `frontend/openapi.json`，用锁定的 `openapi-typescript` 重新生成类型，两者同一个提交，说明写明来源 main 提交与 `vnext/` 树。验证：真实 backend smoke 的 `openapi_compare=match`、快照中没有 `/internal/` 路径、mock 全量与类型检查通过。新增的统计端点出现在快照里，前端不调用。届时整轮已退出的，作为退出后的单独提交按同样验证进入 main；后端迟迟未完成的，记为遗留，不阻塞退出。
+等 Owner 转交后端“`/internal/v1` 移出公开 schema”的提交 SHA，且该提交已在 main。转交的应是后端本轮公开 schema 不再变化的提交，不一定就是 G2 那一个提交，以 Owner 转交的为准（Owner 2026-11-13 已确认后端 G2 可以修改公开 OpenAPI：移出的只有 `/internal/v1` 路径与只被它们引用的 schema 组件）。把 main 合入 `fe-vnext` 后，按 S2b `116e831701`、`223e073cb4` 的做法从运行中的 backend 取 `/openapi.json`、保持 canonical 排序写回 `frontend/openapi.json`，用锁定的 `openapi-typescript` 重新生成类型，两者同一个提交，说明写明来源 main 提交与 `vnext/` 树。验证：真实 backend smoke 的 `openapi_compare=match`、快照中没有 `/internal/` 路径、mock 全量与类型检查通过。不得默认接受新增统计端点或其他未交接差异。若 Sb 含 P1 公开 DTO 字段删除，须同时收到 Owner 逐字段批准与后端消费者清单，逐项核差异；影响前端消费者或需要改变行为即停该项交 Owner。届时整轮已退出的，作为退出后的单独提交按同样验证进入 main；后端迟迟未完成的，记为遗留，不阻塞退出。
 
 ### 8.3 F7 汇总口径的判断（输入 §8.3）
 
@@ -212,7 +218,7 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 | T3 | 真实 backend 入口复用日志目录时失败（FE4 合并后验证 handoff §4：`smoke` 与 `journeys` 共用 `--log-dir`，`mkdir groups-control` 报 `File exists`，在被测对象运行前退出；即审核报告 §6 的 E1） | 入口在取得占用之前检查 `--log-dir` 中是否已有上一次运行的固定名输出，有则逐个列出并以 2 退出，提示每次运行用单独的空目录。清单至少包括：`groups-control/`、`processing-groups.log`、`openapi-runtime.json`、`openapi-runtime.normalized.json`、`openapi-snapshot.normalized.json`、`openapi.diff`、`results.json`、`suite-summary.txt`、`input-scope-results.json`（入口按“文件存在才读”把它写进日志，残留的会被当成本次结果）；容器经 `/results` 挂载写出的其他固定名文件由实施会话补全，handoff 列出完整清单与查找方法。不改成 `mkdir -p`：残留的 `groups-ready.json` 会被等待循环立刻读到，拿到上一次运行的地址；共用目录还会覆盖上一次的 `results.json` 等结果。E1 建议的 `mkdir -p` 加“同目录先 smoke 后 journeys”回归不采用（Owner 2026-11-12、2026-11-13）。只改测试工具；kickoff §6 写明每次真实运行用单独的日志目录（本计划的同一提交） | 05 上向带旧 `groups-control/` 的目录运行一次，在取得占用之前以 2 退出并写明原因；T1 的 smoke 用新目录正常通过；04 证据每次真实运行用单独的日志目录 |
 | T4 | t1 稳定门使 1280 正式截图取景偏移（E2；审核报告 §3 O1）。`t1.spec.ts` 的 `waitForGridShotReady` 用 `grids.first().screenshot()` 连续截元素图，Playwright 截元素图前把网格滚入视口；1280×800 下网格底边约 853 像素，页面被滚动，随后的整页截图里吸顶顶栏画在滚动后的位置，顶部出现 33–53 像素空带，表格页签条被顶栏盖住。合并后验证的 13 张正式 1280 图中 9 张如此，1920 图与诊断图没有 | 稳定门不改变页面滚动位置：改用不滚动的区域截图比较（例如按网格在视口内的可见部分做 `page.screenshot({ clip })`），或在门前记录、门后恢复滚动位置并核对。`shot-gate` 行加记门前与门后的滚动位置，其余字段与判定含义不变。R9 用同一种判定方式（上一行）。只改测试工具，不改 t1 的旅程步骤、判据与 M1 | 05 上的两次 t1 运行（§9“t1”一段）都满足：① `shot-gate` 26 行全部 `rendered=ok`，`stable` 为数字，无 `timeout`、`unstable`、`error`，门前与门后滚动位置相同；② 按审核报告 `t1-frame-scan.txt` 的方法（`evidence/fe4-post-merge-review-eb6530b36e/scripts/t1-frame-scan.py`）测顶部均匀行数：有 pregate 诊断图的 11 张正式 1280 图与各自的 pregate 相同，没有 pregate 的 `device-tabs`、`forward-channel` 为 0；原受影响的 9 张目检表格页签条可见；③ t1 判据行（页签与定位计数、`anomalies`、`openapi_compare`、诊断码）与 §20.5 的 05 t1 相同 |
 | T5 | 凭据检索的模式与时点（E3；审核报告 §2.3）。入口每次运行生成四类 token（`run-real-backend-e2e.sh`，在 `eb6530b36e` 上核对）：① Repository Service 的 bearer `<前缀>-rs-<32 位十六进制>` 与 ② backend 的 internal bearer `<前缀>-internal-<32 位十六进制>`（575、576 行，每个 suite 都生成；前缀 journeys 是 `fe3b`，smoke 与 t1 是 `fe3a`），是一次运行里权限最高的两个凭据；③ smoke 的角色与输入 scope：`fe3a-<身份段>-<32 位十六进制>`（身份段如 `submitter`、`input-b-mod`，可含连字符）；④ journeys 与 t1 的“场景-角色”：`fe3b-<场景>-<角色>-<32 位十六进制>`（t1 走同一生成路径，628 行起，形如 `fe3b-t1-<角色>-…`）。①② 在前缀与十六进制串之间只有一段，按 ③④ 分别写模式会漏掉 journeys 运行里的这两个。合并后验证 handoff 用的 `fe3[ab]-[0-9a-f]{32}` 一个也匹配不到，“计数为 0”没有检出能力；检索又在 journeys 重跑之前执行，漏了重跑的日志目录。T1 只覆盖一次运行内部的 trace，T2 没写格式与时点，事后对日志与证据目录的检索两者都没有覆盖 | 新增只读脚本 `frontend/scripts/scan-credentials.py`：只用标准库，`python3 -I` 运行，不加依赖。参数是若干目录；递归读全部文件，zip（含 Playwright trace）逐成员解压；分别计数 `Bearer ` 后接 token 字符、`dir-token`、`gdds-handoff=`、入口 token，源码模板 `Bearer ${` 单列。入口 token 用一条模式覆盖上述四类，不按格式分别写：`fe3a-` 或 `fe3b-`，接一段或多段小写字母、数字和连字符，再接 `-` 与 32 位十六进制，其后不再跟十六进制字符，即 `fe3[ab]-[a-z0-9-]+?-[0-9a-f]{32}(?![0-9a-f])`（与审核会话的 `node-scan.py` 相同）。只输出计数与命中文件的路径，不输出匹配值；输出头记 hostname、起止 UTC 与各目录。每次先自检：在临时目录生成三种形状的随机假 token（smoke 的 `fe3a-<身份段>-…`、journeys 的 `fe3b-<场景>-<角色>-…`、服务级的 `fe3b-rs-…`），每种在明文文件与 zip 成员中各放一份，每份样本都被命中、各项计数都不为 0 才继续，否则以非零退出；自检结果写进输出。实际计数任一不为 0 时以非零退出。仓库中不放含 token 形状的样本文件。kickoff §6 的规则同步（本计划的同一提交）；实施与审核提示词改为调用它；T1 的入口检索可以复用它的匹配规则；T1 的入口按值替换时，两个服务级 token 也在替换与检索的范围内 | 自检在 05 上通过（含 `fe3b-rs-` 形样本的明文与 zip 成员）；第 7 步全部真实运行（含失败尝试）结束后对其日志与证据目录执行，计数为 0；§9 第 10 步全部运行（含重跑）结束后对每一次运行的日志与证据目录执行，计数为 0 |
-| T6 | `check-handoff-hex.py` 不核截断形式（E4；审核报告 §2.4）。`<十六进制>…<十六进制>` 只打印 `truncated (not verified)`（文件头说明也这样写）；合并后验证 handoff 的 30 种截断形式中 15 种与真实值不符（有的前缀就错，有的后缀取自值的中间），退出码仍为 0 | 每个截断形式的前缀与后缀必须唯一匹配一个已知完整值：`--sha-file`、`--evidence-file`、`--source-dir` 得到的 SHA256，或 `--git-objects` 下的 git 对象。匹配不到或匹配到多个时逐个列出行号与形式，以 1 退出。前缀或后缀不足 4 位的无法唯一核对，同样失败。文件头说明与汇总行同步改写。只改测试工具 | 一份样本 handoff（含正确截断各一处，以及前缀错、后缀取自值中间的错误截断各一处）：脚本以 1 退出并逐行指出两处错误；对本轮实施 handoff 运行通过。样本放交换目录 `evidence/`，不入库。回源与以往相同，在开发主机的交换目录上执行（只读后处理） |
+| T6 | `check-handoff-hex.py` 不核截断形式（E4；审核报告 §2.4）。`<十六进制>…<十六进制>` 只打印 `truncated (not verified)`（文件头说明也这样写）；合并后验证 handoff 的 30 种截断形式中 15 种与真实值不符（有的前缀就错，有的后缀取自值的中间），退出码仍为 0 | 每个截断形式的前缀与后缀必须唯一匹配一个已知完整值：`--sha-file`、`--evidence-file`、`--source-dir` 得到的 SHA256，或 `--git-objects` 下的 git 对象。匹配不到或匹配到多个时逐个列出行号与形式，以 1 退出。前缀或后缀不足 4 位的无法唯一核对，同样失败。文件头说明与汇总行同步改写。只改测试工具 | 一份样本 handoff（含正确截断各一处，以及前缀错、后缀取自值中间的错误截断各一处）：脚本以 1 退出并逐行指出两处错误；对本轮实施 handoff 运行通过。样本放交换目录 `evidence/`，不入库。修改脚本的样本功能验证在 05 的 clean 已提交 worktree 执行，测试样本与输出在树外；开发主机只对已有证据做只读回源，不运行样本测试 |
 
 **T1 的设计。** token 进入 trace 的途径不止请求头：`addInitScript` 与 `page.evaluate` 的参数、Node 侧 `APIRequestContext` 请求都会被记录（FE4b 的 trace 中 16 个 token，14 个在请求头、2 个在动作记录）。只关掉网络记录不够。建议由真实 backend 入口在 Playwright 结束后处理保留下来的 trace：入口自己生成全部 token（含两个服务级 token，§8.4 T5 的四类），逐个 zip 成员把每个 token 值与 `gdds-handoff=` 的载荷换成固定占位，再逐成员检索并把计数写进日志（`trace_redaction=ok|failed` 与各项计数）；处理失败或检索不为 0 时入口以非零退出并写明原因，不覆盖测试本身的结果。其余排障内容（动作、截图、DOM 快照、网络时序）保留。实施会话可以选别的做法，但必须满足同一完成标准：在 05 上用一个只为制造失败的临时提交（不入候选，SHA 记入 handoff）跑一次真实 backend smoke，保留的 trace 逐成员解压后，入口生成的 token（§8.4 T5 的模式）与“`Bearer ` 后接 token 字符”均为 0；源码模板 `Bearer ${` 单独计数，不算凭据（与 FE4b 证据核对的口径相同）。
 
@@ -227,7 +233,7 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 | 4 | H3，三个提交 | 每个提交后各跑一次；计数不变；截图同上 |
 | 5 | O1、O2、O4 | 同上；O1 的两个探针 |
 | 6 | R9、T4 的稳定门 | 07 连续两次 `--stable`；T4 的 t1 验证在第 7 步 |
-| 7 | T1、T3、T4、T5、T6 | 05：T1 临时失败提交的真实 smoke 与 trace 检索；T3 的拒绝检查；T4 的 t1 一次（调试，见下文“t1”）；以上全部结束后 T5 自检并检索这些运行的日志与证据目录。T6 的样本 handoff 在开发主机 |
+| 7 | T1、T3、T4、T5、T6 | 05：T1 临时失败提交的真实 smoke 与 trace 检索；T3 的拒绝检查；T4 的 t1 一次（调试，见下文“t1”）；以上全部结束后 T5 自检并检索这些运行的日志与证据目录。T6 的样本功能验证在 05 的 clean 已提交 worktree，样本与输出放树外 |
 | 8 | G1 | 同上 |
 | 9 | 候选 C、handoff、独立审核（§10）；有修复按审核结论定向复审 | — |
 | 10 | 04 证据：在 C 的 clean detached worktree 经 `run-evidence-wrapper.sh` 依次跑 mock 全量带截图、上传包校验、真实 `smoke`、`journeys` 完整集。参数与 §20.5 相同：`smoke` 不传 `--subphase`，`journeys` 用 `--subphase fe4b`；两个真实 suite 各用单独的 `--log-dir`（T3）。同时在 05 上对 C 跑 t1（参数与 §20.5 的 05 t1 相同，单独的 `--log-dir`；见下文“t1”）。全部运行（含重跑与运行前失败的尝试）结束后，用 `scan-credentials.py` 检索每一次运行的日志与证据目录 | 全部通过；mock 计数等于 §20.5 加本轮新增，`smoke`、`journeys` 用例数与 §20.5 相同；04 截图对 §20.5 的 04 截图只有相同与噪声；04 对 07 `--stable`；四个上传包与 §20.5 的 04 输出逐字节相同；OpenAPI 比对通过；t1 满足 §8.4 T4 的标准；凭据检索自检通过、计数为 0；handoff 回源（含截断形式，T6）通过 |
@@ -250,11 +256,25 @@ Business Navigation Contract“局部事实与表级事实”与 FE4 kickoff F7 
 - **记录：** 结果记入 `log.md`（M2 或 C、Sx、节点、hostname、起止 UTC、起止 HEAD、exit code、用例数、日志 SHA256、凭据检索结果），证据放交换目录 `evidence/`，并用一句话告知 Owner。
 - **失败：** 失败即停，不改断言、不放宽判据。把失败的用例和观察到的错误码、状态码交 Owner，由 Owner 判断转给哪一端。被测对象运行前的命令、环境与缓存问题仍按 AGENTS 的构建故障快速修复与 DC68 处理并记录每次尝试。
 
+### 跨端交接（Owner 2026-11-13 开工补充）
+
+前后端由不能直接通信的不同 agent 执行。只写本端阶段区并向 Owner 给出可直接转发的文字；不调用消息工具联系另一端、不写另一端 log/prompts、不把共享文件出现或 Git 分支前进当作对方已收到通知。接收方在本端 log 记录 Owner 原文、来源提交及处理结果，再由 Owner 回传。没有收到依赖输入时只暂停相关步骤，其余工作继续。
+
+| 交接 | 发出时点与必填内容 | 接收方动作与回执 |
+| --- | --- | --- |
+| BE-SCHEMA-NOTICE | 后端 G2 进入 main 时立即发：完整提交、main HEAD、vnext tree、允许的差异、公开 schema 尚可能变化与否、OpenAPI mismatch 窗口 | 前端记录；未取得最终 schema 前，继续固定 B 的独立整改和 mock，不盲目合入后端新树或绕过 OpenAPI 检查 |
+| BE-SCHEMA-FINAL | 后端确认 schema 不再变化时发 Sb、main HEAD、vnext tree、schema 原件路径/摘要和逐项差异；若有 P1 公开 DTO 删除，附 Owner 逐字段决定和消费者核对结论 | 前端核 Sb 在 main，按 G2 同步快照与类型；差异必须全部匹配交接清单。若影响实际前端消费者或需改行为，停相关项交 Owner，不能借生成类型更新隐式修改行为 |
+| BE-EXIT | 后端 exit 后发 Sx（tag 指向提交）、tag、main HEAD、vnext tree、总结/证据索引，明确 Sb 是否仍有效 | 前端核 Sx 祖先关系，安排 §9.1 的 04 完整 journeys；已有合格运行则回执引用，不重复运行 |
+| FE-SCHEMA-ACK / FE-JOURNEYS | 前端发快照提交、合入 main 的提交、消费的 Sb/Sx、运行候选/节点/原件、结果与未完成项；新 npm 缓存来源提交/归档摘要/节点路径单列 | Owner 转后端登记。S3 实施前必须核收包含 Sx 的完整 journeys 通过结果；失败或未知不算满足 |
+| FAILURE / REVISED | 任一端失败或改变已交接的 schema/候选，发旧/新 SHA、失效范围、失败用例、观察到的错误码/状态码和原件；不放凭据 | Owner 决定归属并转发；修复后原审核定向复审、重做受影响验证，再回执。旧回执保留但明确失效 |
+
+Sb 与 Sx 是两个不同用途的提交，不能互相代替。FE 04 证据及 BE 04 stage gate 共享节点，按现场有效占用排队，不抢占；只有实际冲突才经 Owner 协调。前端保持独立 worktree/分支，后端在 main 推进；前端准备合入时经 Owner 转交候选、写入范围和 main 接入时点，不让两个会话同时修改同一 worktree。
+
 ## 10. 独立审核
 
-整轮末尾一次，新会话，审核 `B..C`，重点 H3，其余各项一并看。
+整轮末尾一次，由 Owner 转交给独立的新会话，审核 `B..C`，重点 H3，其余各项一并看。单 agent 实施不取消独立审核，也不让实施者自行组建审核团队。
 
-- **角色（AGENTS“代码独审与验收核对”，main `8dafcf92b8`）：** 审核会话是新上下文，模型由 Owner 安排（AGENTS 默认代码独审为 `gpt-6-astra`）；报告写明审核范围、风险与模型家族。交付清单、原始证据完整性与截图对照可以按需交验收核对（默认 `gpt-6-luna`），前端不强制增设固定角色；不另安排时，由审核会话一并核对 §9 第 10 步的证据。
+- **角色：** Owner 安排独立审核会话，模型由 Owner 选择，不套用后端角色/模型分配；报告写明范围、风险与实际模型。该会话一并核对 §9 第 10 步的证据，不强制另设验收核对角色；审核结果和修复意见均经 Owner 转交实施者。
 
 - **H3：** 每个 hook 的职责与 §7.2 一致；`git diff --color-moved` 下非移动改动逐条有理由；§7.1 的各条规则与 §7.3 的 effect 顺序、重置序列、具名函数与捕获值逐项核对；在 07 上对每个组件挑一两处风险最高的接线做探针（例如撤掉某个重置或调换两个 hook 的调用顺序），看 mock e2e 是否失败；不失败的记为覆盖缺口，写进报告，不阻塞。
 - **H4、H1、H2：** 格式化提交可重放；三条规则与规则单测；移动是否整块；t4 筛查（§9）：两个打包文件在 `B..C` 中只有格式化提交的改动。

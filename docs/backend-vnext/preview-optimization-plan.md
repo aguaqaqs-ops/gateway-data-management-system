@@ -28,7 +28,7 @@ P1～P3发现的新线索 → 其他阶段候选清单；不自动开启额外�
 
 | 包 | 要回答的问题与产出 | 最小验证与退出条件 | 主动工作预算（规划上限） |
 | --- | --- | --- | --- |
-| P0 语义收敛 | 核 A 即时读回与 final 的职责是否可合并；核 C 合法原 ref 直接移交、旧 cache 复制条款、source/destination 边界。产出短差异表和明确允许复用类别 | Sol 提具体方案，Astra集中核关键约束一次；只有实际 finding 才原作者修订、原审复核。没有可靠语义闭合的候选先剔除，不为开工建新框架 | 30–45 分钟 |
+| P0 语义收敛 | 核 A 即时读回与 final 的职责是否可合并；核 C 合法原 ref 直接移交、旧 cache 复制条款、source/destination 边界。产出短差异表和明确允许复用类别 | Sol 提具体方案，Terra 核范围、关键约束及风险；默认结果齐备后 Astra 集中独审，实际 A/B 类边界按规则提前逐包独审。finding 由原作者修订、原审复核。没有可靠语义闭合的候选先剔除，不为开工建新框架 | 30–45 分钟 |
 | P1 一次可比基线与分类 | 在固定基线只补 generated put / immediate readback / metadata put / metadata readback；记录实际新建/合法existing、source=final、仅换ID、JSON改内容的计数/字节。判断小方案A与结构方案C各覆盖什么 | 一次普通t4 MO、空INITIAL。复用现有插桩探针与必要focused；不重新解析SQL，不用exists探针代替真正put路径结果，不提前暖目标或多读payload改变测量路径。五锁/Rust/镜像身份保持可追溯 | 30–45 分钟；运行准备另见总预算 |
 | P2 合并即时读回（条件项） | 若P1显示有值得删除的重复工作且P0确认final覆盖，则删逐件即时readback，保原final完整验、错误拒绝和READY顺序；不顺带改store、同步或publish闭包 | bundle既有正常/嵌套ref、错误put/损坏、destination失败、取消/M边界focused。候选MO一次，与P1同口径比父段和删除的读次数；收益不清且代码不更简单则不保留，不为证明小收益加跑 | 45–75 分钟；无价值可直接跳过 |
 | P3 逻辑bundle复用（重点） | 同store内合法未变成员保原ref，避免无意义重ID/复制；只写真正新成员及必要surface/manifest/closure。递归引用、shared/table_bindings、保护和跨root下载闭合；跨独立destination仍复制并验目标 | 同一业务目标实现，删除被替代路径，不保永久双算法。更新实际受影响Contract/golden；focused验证混合root、共享引用、必要rewrite和清理保护。候选MO一次，比较新写数量/字节、publication及端到端。若P2保留则比较增量，否则从原基线建候选，不拿不同父实现混算 | 90–150 分钟；若需新artifact生命周期框架则停止扩展并收口 |
@@ -65,9 +65,11 @@ P3要先从已允许的成员类别切入，不能把“同hash”当跨reposito
 
 ## 5. 角色、记录与退出
 
-采用 Owner 确认的六角色安排：一名协调者、A/B 两组各一名实施者和一名测试者、一名独立审核者。A 组负责 publication 优化与同节点性能对比，B 组负责下载、恢复、引用保护及 Submit 的受影响适配和正确性验证；实施者编写产品与测试代码，测试者在固定 clean 提交上执行并核收结果。Sol 承担实施与测试，Astra 承担独审；finding 由原作者修改、原审复核。不为每次命令准备或同一计时样本另建审核轮次。
+采用 Owner 最新确认的分配：`gpt-6.1-terra` high 协调，A/B 两名 `gpt-6.1-sol` high 实施者分别负责 publication 优化和消费者适配，以及各自的测试代码/运行脚本。既有门禁和最小脚本在两节点执行测试，不设置专职测试 agent。`gpt-6-luna` medium 仅按需核对证据清单；确定性结果已足够时不启用。失败归因、测试范围及重跑由 Terra 判断，不交脚本或 Luna 自行决定。
 
-具体职责、文件归属、节点安排、逐包交接、对比矩阵与退出条件以[详细实施方案](preview-optimization-implementation-plan.md)为准。本轮角色安排是 Owner 对本专项的明确要求，覆盖仓库默认取消专职测试者的规则，不修改全仓通用流程。六角色按依赖启用，实际并发不得超过工具提供的槽位；当前工具仅有四槽位，尚未增加，也未启动实施。风险定级和阶段末必要审核/门禁遵循[AGENTS](../../AGENTS.md)及[比例化政策](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)，不能以定性实验冒充发布验收。
+`gpt-6-astra` high 默认在最终代码、测量和必要验证结果齐备后，以新上下文集中分析与独审；实际 A/B 类边界仍按仓库规则提前逐包独审。finding 原作者修复、原审复核，不为日常命令或每个计时样本另建审核轮次。
+
+具体职责、文件归属、节点安排、交接与退出条件见[详细实施方案](preview-optimization-implementation-plan.md)。通常三个活跃 agent，核证与独审错峰增加至四个；两节点脚本不占 agent 槽位，不需要增加到六槽位。当前只是文档分配，未启动实施或切换当前会话模型。风险和必要门禁遵循 [AGENTS](../../AGENTS.md) 与[比例化政策](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)，定性实验不冒充发布验收。
 
 临时插桩保持在隔离诊断候选，只保留解释所选问题的有限计数；获选优化形成清晰产品diff，删除已不需要的实验代码，不将临时instrumentation整包带入正式主线。旧成功/失败日志及各轮原件保持不动。每个小包只有一份简短结论：改变什么、同条件输入/版本、实际次数、操作数量和耗时变化、正确性验证、未知、保留或放弃；机器身份/exit/SHA由外置证据承接。
 

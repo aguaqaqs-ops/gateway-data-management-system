@@ -48,7 +48,9 @@ def publish_structure_audit(
     context = current_kernel_context()
     if context is None:
         raise ValueError("structure audit requires the operation kernel context")
-    upper = 1024 * 1024 + sum(65536 + len(table.schema_changes.selected_columns) * 4096 for table in hidden)
+    upper = 1024 * 1024 + sum(65536 + sum((len(name) + 1) * 256 for name in (
+        *table.schema_changes.before_only_columns, *table.schema_changes.current_only_columns,
+        *table.schema_changes.selected_columns)) for table in hidden)
     with context.memory.reserve(upper):
         context.checkpoint()
         return _publish_structure_audit(plan, facts, store)

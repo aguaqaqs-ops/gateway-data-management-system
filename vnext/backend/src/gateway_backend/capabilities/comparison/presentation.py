@@ -16,6 +16,8 @@ def structure_change_is_audit_only(table: ComparisonTableFact) -> bool:
     changes = table.schema_changes
     if (table.before_descriptor is None or table.current_descriptor is None
             or table.row_count_before is None or table.row_count_before != table.row_count_current
+            or table.row_count_before != table.before_descriptor.row_count
+            or table.row_count_current != table.current_descriptor.row_count
             or table.status not in {ComparisonTableStatus.UNCHANGED,
                 ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED}
             or not (changes.before_only_columns or changes.current_only_columns)
@@ -30,7 +32,9 @@ def structure_change_is_audit_only(table: ComparisonTableFact) -> bool:
         if table.shared_value_equality != "BOUND_EMPTY_DESCRIPTORS":
             return False
     elif (table.shared_value_equality != "NATIVE_SHARED_VALUES"
-            or not changes.effective_compare_key_before or not changes.selected_columns):
+            or not changes.effective_compare_key_before or not changes.selected_columns
+            or len(set(changes.effective_compare_key_before)) != len(changes.effective_compare_key_before)
+            or not set(changes.effective_compare_key_before) <= set(changes.selected_columns)):
         return False
     ordered, blank = table.ordered_extension, table.blank_extension
     if ordered is not None and (ordered.status is not OrderedStatus.UNCHANGED

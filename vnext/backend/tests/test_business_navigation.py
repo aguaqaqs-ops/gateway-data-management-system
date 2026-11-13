@@ -18,6 +18,7 @@ from gateway_backend.capabilities.business_navigation.contracts import (
 )
 from gateway_backend.capabilities.business_navigation.producer import scalar_reason
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
+from gateway_backend.capabilities.surface_assembly.contracts import SurfaceChangeKind
 
 pytestmark = pytest.mark.unit
 
@@ -235,6 +236,11 @@ def test_composite_claims_one_whole_point_table_and_filters_other_points() -> No
 
 
 INVALID_NAVIGATION_MUTATIONS = (
+    lambda d: d["groups"][1]["items"][1]["tabs"][0].pop("empty"),
+    lambda d: d["groups"][1]["items"][1]["tabs"][0].update(empty=0),
+    lambda d: d["groups"][1]["items"][1]["summary"].update(nonempty_tab_count=99),
+    lambda d: d["groups"][1].update(nonempty_item_count=99),
+    lambda d: d["groups"][1]["items"][1]["tabs"][0].update(extra=True),
     lambda d: d.update(contract_version="old"),
     lambda d: d["groups"].pop(),
     lambda d: d["groups"][1]["items"][1]["tabs"][0].update(row_filter={"column": "dev_addr", "value": 49}),
@@ -541,3 +547,83 @@ def test_result_and_cached_wire_bytes_keep_original_operation_admission() -> Non
         first = result.to_bytes()
         assert result.to_bytes() is first
     assert active == []
+
+
+# One owner for zero-side, table-level and original-structure empty semantics.
+EMPTY_TABLE_CASES = (
+    (None, 0, False, False, True),
+    (0, None, False, False, True),
+    (0, 0, False, False, True),
+    (None, None, False, False, False),
+    (0, 1, False, False, False),
+    (1, 0, False, False, False),
+    (0, 0, True, False, False),
+    (0, 0, False, True, False),
+)
+
+
+@pytest.mark.parametrize("old,new,structure,replacement,empty", EMPTY_TABLE_CASES)
+def test_empty_marks_existing_zero_sides_without_deleting_audit_tabs(
+    old: int | None, new: int | None, structure: bool, replacement: bool, empty: bool,
+) -> None:
+    shared = replace(table("other", None if old is None else side(tuple({} for _ in range(old))),
+        None if new is None else side(tuple({} for _ in range(new))), table_change=True,
+        structure_changed=structure, change_kind=SurfaceChangeKind.DEGRADED, risk_level=RiskLevel.HIGH),
+        evidence=evidence(degraded=True, table_risk=RiskLevel.HIGH))
+    result = build(shared, replacement=replacement)
+    if replacement:
+        tab = tabs(result, "other", replacement_side="current")[0]
+        group = result.document["replacement_sides"]["current"][4]
+    else:
+        tab = tabs(result, "other")[0]
+        group = result.document["groups"][4]
+    assert tab["empty"] is empty
+    assert group["nonempty_item_count"] == int(not empty)
+    summary = group["items"][0]["summary"]
+    assert summary == {"change_kinds": [] if empty else ["DEGRADED"],
+                       "risk_level": None if empty else "HIGH", "nonempty_tab_count": int(not empty)}
+
+
+@pytest.mark.parametrize("fallback", (False, True))
+def test_filtered_zero_tab_ignores_other_device_changes_and_table_risks(fallback: bool) -> None:
+    devs = ({"dev_addr": 49, "gid": 7}, {"dev_addr": 50, "gid": 8})
+    source = side(({"dev_addr": 49},))
+    record = FilterRecord("row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 49}, RiskLevel.LOW)
+    shared = replace(table("device_st", source, source, table_change=True,
+        change_kind=SurfaceChangeKind.UPDATED, risk_level=RiskLevel.HIGH),
+        evidence=evidence(records=(record,), expected_record_counts=(0, 0, 1), locator_complete=True,
+                          degraded=fallback, table_risk=RiskLevel.HIGH))
+    result = build(device(devs, devs), shared)
+    marked = tabs(result, "device_st")
+    assert [t["empty"] for t in marked] == [False, True]
+    items = result.document["groups"][1]["items"]
+    populated = next(i for i in items if i["item_key"] == "device:addr:49")
+    all_empty = next(i for i in items if i["item_key"] == "device:addr:50")
+    assert populated["summary"]["risk_level"] == "HIGH"
+    assert all_empty["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0}
+    assert len(marked) == 2  # Audit and browsing keep the empty tab, even under fallback.
+
+
+@pytest.mark.parametrize("missing", ("before", "current"))
+def test_existing_side_with_unknown_filtered_count_is_not_assumed_zero(missing: str) -> None:
+    devs = ({"dev_addr": 49, "gid": 7},)
+    known, unknown = side(), side(columns={"other": "INT"})
+    shared = table("device_st", unknown if missing == "before" else known,
+                   unknown if missing == "current" else known)
+    result = build(device(devs, devs), shared)
+    tab = tabs(result, "device_st")[0]
+    assert tab["facts"][missing + "_row_count"] is None
+    assert not tab["empty"]
+    assert len(diagnostics(result, "DEVICE_TAB_COUNT_UNKNOWN")) == 1
+
+
+def test_empty_forward_channel_and_unassigned_shared_table_remain_reachable() -> None:
+    registry = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1}
+    result = build(table("net_cfg", None, side((registry,))),
+        table("b1_n2_iec104_syx_list", side(), side(), unchanged=True),
+        table("device_st", side(), side(), unchanged=True))
+    channel = result.document["groups"][0]
+    assert channel["nonempty_item_count"] == 0 and len(channel["items"]) == 1
+    assert channel["items"][0]["tabs"][0]["empty"]
+    assert tabs(result, "device_st")[0]["row_filter"] is None
+    assert tabs(result, "device_st")[0]["empty"]

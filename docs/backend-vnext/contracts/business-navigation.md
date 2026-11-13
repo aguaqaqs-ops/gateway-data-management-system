@@ -8,12 +8,13 @@ Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3�
 
 ```text
 BusinessNavigation:
-  contract_version: backend-vnext/business-navigation/v1
+  contract_version: backend-vnext/business-navigation/v2
   groups: [Group]
   replacement_sides: null | {before: [Group], current: [Group]}
-Group: {group_key, label, items: [Item]}
-Item: {item_key, item_kind, label, attributes, tabs: [Tab]}
-Tab: {tab_key, label, table_id, row_filter, facts}
+Group: {group_key, label, items: [Item], nonempty_item_count}
+Item: {item_key, item_kind, label, attributes, tabs: [Tab], summary}
+Tab: {tab_key, label, table_id, row_filter, facts, empty}
+summary: {change_kinds: [SurfaceChangeKind], risk_level: RiskLevel|null, nonempty_tab_count}
 ```
 
 每个成功 surface 恰好一个 projection：`projection_id=business_navigation`、`projection_kind=BUSINESS_NAVIGATION`、`projection_digest=SHA256(JCS bytes)`、`risk_summary_ref=null`；诊断通过独立 `diagnostics_ref` 引用，无诊断时为 null。缺失或重复导航是 Contract 违例，消费者拒绝该 pair 并进入既有无法打开结果路径。退役 B9、`fallbackNavigation`、`preview-no-navigation` 和缺 `display_order` 时猜列序的分支；没有生产或 fixture 隐藏导航开关。
@@ -25,7 +26,11 @@ Tab: {tab_key, label, table_id, row_filter, facts}
 APP_TABLE_CFG_MISSING / APP_TABLE_CFG_DUPLICATE / APP_TABLE_NOT_FOUND 的 app_name 是展示用 string|null；原 app_cfg.app_name 为整数时仅在该展示/诊断边界格式化为十进制文本，string 原样保留，NULL 或非展示标量使用既有 null；全局参数项的 app_name 标签采用同一规则。此格式化不改变比较键、row_filter、规范值或表数据，不因展示标签类型而使 pair 失败。
 
 
-每表整表 tab 最多一个，整表与筛选 tab 不并存；同表全部筛选 tab 只属一组。已认领但无可见 tab 的表不由前端自动补入 OTHER_TABLES。省略表须两侧已知零行、局部 EXACT 且无变化/风险、整表 UNCHANGED/BUSINESS_EQUIVALENT 且无风险。表级 schema/风险、空 sg_cfg 或共享表不能因空行集消失；无装置可承载时，在 SECONDARY_DEVICES 用 `item_key=table:<表名>`、`item_kind=TABLE`、`tab_key=table`、`row_filter=null`、`attributes={}` 提供唯一整表入口。
+每表整表 tab 最多一个，整表与筛选 tab 不并存；同表全部筛选 tab 只属一组。导航保留所有可认领页签，不按空行集删除。无装置可承载时，在 SECONDARY_DEVICES 用 `item_key=table:<表名>`、`item_kind=TABLE`、`tab_key=table`、`row_filter=null`、`attributes={}` 提供唯一整表入口。孤儿与诊断仍依实际谓词归属，不因空标记丢失。
+
+`empty` 是每个 tab 必填的严格 boolean。普通比较中，至少一个逻辑侧存在，且每个存在侧的本 tab 行数已知并为 0 时为空；不存在侧不计，存在但计数未知的侧不能以 0 代替。整表用已绑定 descriptor 行数，筛选页用自己的筛选计数；表新增/删除、降级、行/表风险不影响判定。原始结构变化（原始 SCHEMA_CHANGED/SCHEMA_ONLY_CHANGED、schema change source 或双存在侧业务 schema 差异）与 DATASET_REPLACEMENT 始终不空。原始结构证据在 Comparison C 的只审计展示投影前读取；保留页签不恢复被 C 隐藏的变化或 schema 风险。
+
+项 `summary` 只汇总 `empty=false` 的 tab，`change_kinds` 是按字典序排列的去重 SurfaceChangeKind，`risk_level` 是既有风险顺序的最高值。整表/replacement/TABLE_FALLBACK 使用与 Surface 相同的展示 kind 与 RiskReport 表风险；EXACT 筛选使用本 tab 局部 kind/行风险，另合并 typed table_scope 的表级 kind（change=true 时）与风险。不得从局部精确零行变化推断整表无风险。全空项或无 tab 项摘要固定为 `[]/null/0`；保留项和所有 tab，可在展开空页签后浏览原始表/风险/诊断。`nonempty_item_count` 仅统计含非空 tab 的项；展开不改摘要或计数，含空总项数可由 items.length 获取，不另建权威计数。Preview、History 与提交绑定审核共用同一 producer/document；前端只读取 empty，不重新推导。
 
 对发布筛选的每张共享表，各侧满足“已发布谓词覆盖行集合的并集大小 + 同侧孤儿行数 = 该侧总行数”。重复命中不累加为重复行。消费者只在有该侧快照且计数精确时核等式；缺快照侧由后端合同验证。诊断的查看整表是额外浏览入口，不另生成导航整表 tab。
 
@@ -95,12 +100,19 @@ B2 的 business_navigation unit/contract 共享参数表权威验证认领、集
 
 `build_navigation` 接受 `NavigationTable` 双侧、`NavigationEvidence` 和同 operation 的 `check`/`reserve`/`resources`；有界状态与序列化缓冲先向既有 M 预留，成功后将 reservation 保留至原 operation.resources 结束；失败立即释放，不建立新资源 owner。代表行的完整 canonical_order_key、值及容器在保留前计账，替换时释放旧计账；返回的 JCS bytes 在 admission 内生成并复用。流式行只保留 registry/装置代表与实际谓词身份计数，孤儿身份只聚合总数。无变化共享表从 current 单次扫描为两侧谓词分别计数，不打开 before 行流。`canonical_order_key` 必须由现有规范标量整行编码提供，producer 不另造 row identity。
 
-`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed、locator 及风险完整性证明不足时统一 fallback。NavigationTable.local_fallback_reason 是省略、局部 facts 与复用 guard 的共同判据，包含该表实际身份列的 record context 完整性；物理缺列单独禁止双侧复用。registry 身份值与目标本侧 declared type 类别/宽度不符时以 UNSUPPORTED_TYPE 整表呈现，不作数值/文本转换。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；共享 pair pipeline 的 RiskAttribution 从 evaluator attribution_observer 接实际 typed outcome（含 cache replay），在 annotation artifact 缺失/降级时保守标记完整性不足；不读混合 RiskReport 汇总反推 scope。
+`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed、locator 及风险完整性证明不足时统一 fallback。NavigationTable.local_fallback_reason 是局部 facts 与复用 guard 的共同判据，包含该表实际身份列的 record context 完整性；物理缺列单独禁止双侧复用。registry 身份值与目标本侧 declared type 类别/宽度不符时以 UNSUPPORTED_TYPE 整表呈现，不作数值/文本转换。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；共享 pair pipeline 的 RiskAttribution 从 evaluator attribution_observer 接实际 typed outcome（含 cache replay），在 annotation artifact 缺失/降级时保守标记完整性不足；不读混合 RiskReport 汇总反推 scope。
 
 B3 共享 application/business_presentation 接上述输入，实际发布恰一个 projection，导航/诊断/locator 进入已有 closure/ref/保护路径。定位算法和预算由 [Row Location](row-location.md) 拥有；完整交付与退出仍须 B4/B5 证据，不能以 helper 单测替代。
 
-复合虚装置不依赖 device 的 65532 行；该特殊项在存在的共享测点侧使用 dev_addr=65532，不凭空构造 device_cfg 的 gid。无装置承载的空共享表只有完整 EXACT/无变化/无风险证明才可省略；证明不足时保留唯一整表入口，整表 tab 不产生局部事实不可用诊断。
+复合虚装置不依赖 device 的 65532 行；该特殊项在存在的共享测点侧使用 dev_addr=65532，不凭空构造 device_cfg 的 gid。无装置承载的共享表保留唯一整表入口，已知空行集只加 empty 标记，整表 tab 不产生局部事实不可用诊断。
 
 ## 纯结构变化投影（2026-11-13）
 
-后台导航与风险、surface、摘要共用 Comparison v4 的统一展示判定。已证明的纯增删列不产生 table_change、变化标记或统计；表仍保留 current 浏览，不能把不同的 canonical 快照身份误宣称相同或构造缺失 before。其他真实行、有序、身份字段及诊断语义保留。导航文档版本与形状不变，projection digest 依实际产物重新生成。
+后台导航与风险、surface、摘要共用 Comparison v4 的统一展示判定。已证明的纯增删列不产生 table_change、变化标记或统计；表仍保留 current 浏览，不能把不同的 canonical 快照身份误宣称相同或构造缺失 before。其他真实行、有序、身份字段及诊断语义保留。v2 导航保留原始结构变化的非空标记；projection digest 依实际产物重新生成。
+
+
+## F 身份与严格解码（2026-11-13）
+
+v2 防止缺少 empty/summary 的旧文档被当作新规则结果，由后端 pydantic strict/extra=forbid 与前端 decoder 核对。导航 JCS raw SHA 进入现有 projection digest、Surface digest、bundle 物理闭包及 D Preview/READY 完整绑定，消费者继续核全部引用与摘要，不新增仅计算的身份轴。比较事实/缓存未变，不改 comparison digest 或强行禁用缓存；既有 Preview assemble-state v6、History assemble-state v3 防止恢复旧版导航的 assemble checkpoint，由各自 state decoder 校验。没有兼容路径或旧结果迁移。
+
+验证 owner 为 business_navigation 参数表（标记/保留/非空汇总/未知/孤儿）、pair pipeline 贯通（原始结构与 C 隐藏共存、Preview/History）、提交绑定结果贯通（不可变完整闭包）和前端 decoder/展开交互。golden 与真实 producer fixture 必须一并重建，生成过程本身不算测试通过。

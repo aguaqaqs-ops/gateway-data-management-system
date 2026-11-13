@@ -23,11 +23,12 @@ from gateway_backend.capabilities.comparison.contracts import (
     BoundSnapshotInput, ComparisonFacts, ComparisonMode, ComparisonPlan, ComparisonRecordsClosure,
     ComparisonTableStatus, RecordsArtifactFamily,
 )
-from gateway_backend.capabilities.risk_evaluation.contracts import RiskAnnotation, RiskLevel, RiskTargetType
+from gateway_backend.capabilities.risk_evaluation.contracts import RiskAnnotation, RiskLevel, RiskTargetType, RiskReport
 from gateway_backend.capabilities.row_location import (
     RowLocationResult, prepare_row_locations, publish_row_locations, identity_batches,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTable
+from gateway_backend.capabilities.surface_assembly import table_change_kind
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceArtifactIndexEntry, SurfaceProjectionRef
 from gateway_backend.capabilities.table_access import current_kernel_context
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
@@ -147,7 +148,7 @@ def publish_business_presentation(
     plan: ComparisonPlan, facts: ComparisonFacts, closure: ComparisonRecordsClosure | None,
     handles: dict[str, ComparisonRecordsHandle], table_artifacts: tuple[SurfaceArtifactIndexEntry, ...],
     attribution: RiskAttribution, store: ArtifactStorePort, *,
-    before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
+    risk_report: RiskReport, before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
     same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],
 ) -> tuple[tuple[SurfaceArtifactIndexEntry, ...], SurfaceProjectionRef, dict[str, int | float]]:
     context = current_kernel_context()
@@ -165,6 +166,7 @@ def publish_business_presentation(
     entries = {} if closure is None else {e.table_name: e for e in closure.records if e.family is RecordsArtifactFamily.STANDARD}
     table_risks = {t.table_name: maximum_risk(attribution.table_levels.get(t.table_name), attribution.global_level)
         for t in facts.tables}
+    risk_levels = {table.table_name: table.risk_level for table in risk_report.tables}
     tables = []
     locations: dict[str, RowLocationResult] = {}
     scanned_rows = locator_bytes = 0
@@ -217,6 +219,12 @@ def publish_business_presentation(
                 ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
                 ComparisonTableStatus.DEGRADED, ComparisonTableStatus.REPLACED}
                 or fact.schema_changes.change_source is not None,
+            structure_changed=(original_fact.before_descriptor is not None
+                and original_fact.current_descriptor is not None
+                and (original_fact.status in {ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED}
+                    or original_fact.schema_changes.change_source is not None
+                    or original_fact.before_descriptor.business_schema_digest != original_fact.current_descriptor.business_schema_digest)),
+            change_kind=table_change_kind(original_fact, replacement=replacement), risk_level=risk_levels.get(name),
             unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
     navigation_started = perf_counter()
     navigation = build_navigation(tuple(tables), replacement=replacement,

@@ -476,7 +476,7 @@ def _finish_comparison_risk_surface(
     )
     table_artifacts, navigation_projection, _presentation_metrics = publish_business_presentation(
         plan, comparison_facts, published.records_closure, native_comparison.handles,
-        table_artifacts, attribution, store, before_presentation=before_presentation,
+        table_artifacts, attribution, store, risk_report=risk.risk_report, before_presentation=before_presentation,
         current_presentation=current_presentation, same_complete=_same_complete_table_identity,
     )
     with reserve_surface(8 * 16 * 1024**2):

@@ -366,10 +366,7 @@ def _project_table(
     change_kind, strategy, processing, replay = _display_projection(
         table, table_refs, records, replacement, ordered_unsupported
     )
-    if table.content_changed and change_kind is SurfaceChangeKind.UNCHANGED:
-        change_kind = SurfaceChangeKind.UPDATED
-    if ordered_unsupported:
-        change_kind = SurfaceChangeKind.DEGRADED
+    change_kind = table_change_kind(table, replacement=replacement)
     display_name = table_display_name(table.table_name, before_presentation, current_presentation)
     before_descriptor = table.before_descriptor
     current_descriptor = table.current_descriptor
@@ -438,6 +435,18 @@ def _project_table(
         replacement_summary=replacement_summary,
         ordered_extension=ordered,
     )
+
+
+def table_change_kind(table: ComparisonTableFact, *, replacement: bool) -> SurfaceChangeKind:
+    """The same business kind for Surface and navigation summaries."""
+    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+
+    table = visible_table_fact(table)
+    kind = _display_projection(table, SurfaceTableRefs(), SurfaceRecordsRefs(),
+        replacement, _ordered_unsupported(table))[0]
+    if table.content_changed and kind is SurfaceChangeKind.UNCHANGED:
+        return SurfaceChangeKind.UPDATED
+    return kind
 
 
 def _display_projection(

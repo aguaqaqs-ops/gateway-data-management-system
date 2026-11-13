@@ -260,3 +260,33 @@ def test_audit_is_verified_before_hidden_success_is_returned() -> None:
         assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
         with pytest.raises(ValueError):
             publish_structure_audit(planned, product.result.facts, BrokenAuditStore())
+
+
+@pytest.mark.parametrize("changed", (False, True))
+def test_empty_original_schema_change_stays_browsable_without_restoring_hidden_risk(changed: bool) -> None:
+    import json
+    from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
+    from gateway_backend.capabilities.surface_assembly import SurfaceChangeKind
+    from gateway_backend.operations.worker import ExecutionControl
+    from tests.test_comparison_replacement import _artifact_bound
+    from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+
+    store = InMemoryArtifactStore()
+    before = "CREATE TABLE t(id INT PRIMARY KEY,old TEXT);"
+    current = "CREATE TABLE t(id INT PRIMARY KEY,new TEXT);" if changed else before
+    result = run_history_pair_pipeline(pair_id="empty-structure",
+        before=_artifact_bound(before, store), current=_artifact_bound(current, store),
+        rule_set=comparison_ruleset_for(standard_rule_record("t")), store=store,
+        control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert table.change_kind is SurfaceChangeKind.UNCHANGED
+    assert table.risk_refs.risk_level is None
+    document = json.loads(store.locate(surface.projections[0].projection_ref))
+    group = document["groups"][4]
+    tab, = group["items"][0]["tabs"]
+    assert tab["empty"] is (not changed)
+    assert group["nonempty_item_count"] == int(changed)
+    assert group["items"][0]["summary"]["risk_level"] is None
+    assert (result.structure_audit_ref is not None) is changed

@@ -1,7 +1,7 @@
 # P7 后端专项整顿执行计划
 
 日期：2026-11-12。阶段名：`p7-backend-remediation`；退出附注 tag：`p7-backend-remediation-exit`。
-状态：**设计稿，已按 2026-11-13 计划评审修订，待复核；未实施、未测试**。Owner 已确认方向，本次只准备正式文档和实施提示词。
+状态：**已按 2026-11-13 计划复审补齐，复审结论为改完即通过、无需再评；未实施、未测试**。Owner 已确认方向，本次只准备正式文档和实施提示词。
 来源：Owner 的 `remediation-input-backend.md`（下称“输入”）及 `project-review-2026-11.md`（下称“复盘”）；原件存于 `/home/dev/gdds-stage-exchange/p7-backend-remediation/design/`。正式决议见 [S0 §19](p7-s0-owner-decisions.md#19-后端专项整顿与后续阶段收窄2026-11-12)。
 
 ## 1. 入口、冻结与规模
@@ -65,7 +65,7 @@ J3 目标布局（不是新的执行框架）：
 | J2 | BE `test_operation_checkpoint_contracts.py`、`test_operation_job_recovery.py`、`test_submit_recovery.py`、`test_history_compare_jobs.py`；核 generation、取消、terminal、恢复与资源失败映射 |
 | J1 | BE `test_preview_job_payload.py`、`test_history_compare_jobs.py`、`test_operation_checkpoint_contracts.py`、`test_job_payload_decoding.py`；逐项比对 descriptor/storage facts 往返与坏文档、canonical 字节和 digest |
 | K1 | BE `test_operation_http.py`、`test_preview_read_http.py`、`test_submit_read_http.py`、`test_history_http.py`、`test_bundle_download_http.py`、`test_submit_http.py`、`test_operator_recovery_http.py`、`test_operator_recovery_mapping.py`、`test_http_auth_matrix.py`；逐项核状态/错误、授权拒绝顺序、隐藏对象及恢复 effect |
-| G1 | BE `test_bundle_contracts.py`、`test_bundle_assembly.py` 及 `vnext/backend/fixtures/golden/bundle/s1b/snapshot-table-bindings.json`、`test_history_compare_jobs.py`；Preview 三角色及 History ref 向量保持字节/digest 不变 |
+| G1 | BE `test_bundle_contracts.py`、`test_bundle_assembly.py` 及 `vnext/fixtures/golden/bundle/s1b/snapshot-table-bindings.json`、`test_history_compare_jobs.py`；Preview 三角色及 History ref 向量保持字节/digest 不变 |
 
 K1 实施前从现有 HTTP 测试及各路由 `responses` 声明整理“路由（method/path）、错误码、HTTP 状态码”对照表，在阶段区 `reference/k1-http-errors.md` 保存来源测试/声明与拒绝顺序；两种来源不一致处先核实际行为，不靠声明推定。移动后逐行核对，新增缺失的必要回归；对照表及结果交 K1 独审者作为审核依据。
 
@@ -107,6 +107,8 @@ L1/P3/B9 与总结格式直接遵守合入时现行 [AGENTS.md](../../../../../A
 
 ### 第 4 批：试点与核对
 
+P1 的删除提交排在 L2 试点候选及其比较、独审之后，单独提交；L2 的字节、digest 和 t1 比较不包含 P1 的改动。
+
 | 包 | 接点、产出 | 风险与验证 | 独立审核 |
 | --- | --- | --- | --- |
 | L2 | J1 两处 `documents.py` 合作一个文档试点；`capabilities/composite_signal/contracts.py` 及 JSON、Rust/Arrow/SQL 到该类型的实际适配入口作进程内试点 | A/B；用已锁 Pydantic strict/extra forbid 定义文档模型，输出仍走原 canonical encoder，不直接换 JSON 序列化器；保留 list/tuple、null/缺省、枚举/错误映射。内部只在查清未经检查的入口后删类型复检，跨字段校验保留、逐行不用 Pydantic。比较同输入 golden/digest、恢复和坏文档边界；真实 t1 前后分段观测见 §4 | 一次，覆盖两类试点 |
@@ -119,7 +121,7 @@ L2 一页报告逐条给结论：①字节/digest 不变且无特例补丁；②
 
 ## 3. 提交与独立审核
 
-计划已获 2026-11-13 独立评审意见，本修订交原计划评审会话复核；本设计者自查不充独审。实施沿当前三角色惯例：持续协调 Terra/high；按内聚工作包使用新的 Sol/high 实施上下文；独审用 Astra/xhigh 新上下文（复杂判断可 max）、不自审、不递归扩队、无专职测试/监视角色。这里只安排下一协调会话，不在文档会话启动角色或产品工作；不改 S2b 分工。阶段验收时按现行 AGENTS“代码独审与验收核对”集中启用一次 Luna 验收核对，核交付清单与原始证据完整性，逐项区分通过/失败/未知；不改代码/标准、不自行重跑测试、不常驻。语义、安全、一致性及证据矛盾交 Astra 或设计负责人；协调者分别核收代码独审、门禁和验收核对，复用阶段区记录。
+计划已获 2026-11-13 独立评审及复审意见，复审要求已补齐；按复审结论改完即通过，无需再评一轮，本设计者自查不充独审。实施沿当前三角色惯例：持续协调 Terra/high；按内聚工作包使用新的 Sol/high 实施上下文；独审用 Astra/xhigh 新上下文（复杂判断可 max）、不自审、不递归扩队、无专职测试/监视角色。这里只安排下一协调会话，不在文档会话启动角色或产品工作；不改 S2b 分工。阶段验收时按现行 AGENTS“代码独审与验收核对”集中启用一次 Luna 验收核对，核交付清单与原始证据完整性，逐项区分通过/失败/未知；不改代码/标准、不自行重跑测试、不常驻。语义、安全、一致性及证据矛盾交 Astra 或设计负责人；协调者分别核收代码独审、门禁和验收核对，复用阶段区记录。
 
 实施在 main；必要并行只开短期分支并及时合回。J6 格式化本身单独提交，门禁接线另提交；C2/C3 各有可独立审核的候选，J3/K1/L2 同理，其余相邻小修改可合并，不为每次日志更新提交。审核在只读 detached worktree，以“上一个已审边界..候选 SHA”界定，J3 补核 J1/J2；C2/C3 的相互调用也要在第二次审核核齐。阶段末新独审完整覆盖四批，普通修复由原审核增量。整轮独审另明确覆盖 K2 History/statistics 授权及 P1 持久文档/摘要输入删除。发现超出已批准例外范围的行为变化先交 Owner。
 
@@ -154,7 +156,9 @@ L2 的 t1 比较在第 3 批合格提交和试点候选之间，同节点、同�
 
 四批完成、重点与整轮独审核收、四门禁实生效、L2/P1/P2/D24/C4 有真实产出，P1 清单已交 Owner 且删除已在最终 V 之前落地、阶段验收核对完成后才退出。删旧路径不残留 fallback/死 import；Contract 和操作说明与最终代码一致。规则会话未接收前不宣称全局规则文件已更新。
 
-一页总结写人可读的完成/净删与移动量/偏差/未测限制/遗留/证据索引，并交 Owner：本轮公开 schema 不再变化的提交 SHA（前端刷新 `frontend/openapi.json` 并重新生成类型）；若 G2 后有 P1 获准公开字段删除，给出后一个 SHA 及获准差异，不能仅转交 G2 SHA；四门禁交接表及生效提交（规则会话）；试点四判据报告和 L5 决定；P1 清单已交 Owner 且获准删除在最终 V 前落地的结论与引用。G2 合入 main 时立即经 Owner 通知前端并说明窗口：直到前端快照提交合入 main，真实 backend 入口因 `frontend/openapi.json` 与运行时 `/openapi.json` 不一致以 exit 2 停止，浏览器用例不会运行；后续获准 schema 变化也经 Owner 更新转交 SHA。此通知不等阶段退出。不与前端 agent 直接通信，不把前端格式化作为后端退出前置。收尾只释放本会话已完成用途的资源，保留仍引用的证据与 carried 树，不 force 回收。
+一页总结写人可读的完成/净删与移动量/偏差/未测限制/遗留/证据索引，并将以下两个 SHA 分开列为由 Owner 转交前端的事项（两者可能不是同一提交）：① `p7-backend-remediation-exit` 指向的提交在 `main` 上的 SHA，用于前端 journeys；② 本轮公开 schema 不再变化的提交 SHA（前端刷新 `frontend/openapi.json` 并重新生成类型）；若 G2 后有 P1 获准公开字段删除，给出后一个 SHA 及获准差异，不能仅转交 G2 SHA；四门禁交接表及生效提交（规则会话）；试点四判据报告和 L5 决定；P1 清单已交 Owner 且获准删除在最终 V 前落地的结论与引用。G2 合入 main 时立即经 Owner 通知前端并说明窗口：直到前端快照提交合入 main，真实 backend 入口因 `frontend/openapi.json` 与运行时 `/openapi.json` 不一致以 exit 2 停止，浏览器用例不会运行；后续获准 schema 变化也经 Owner 更新转交 SHA。此通知不等阶段退出。不与前端 agent 直接通信，不把前端格式化作为后端退出前置。收尾只释放本会话已完成用途的资源，保留仍引用的证据与 carried 树，不 force 回收。
+
+Owner 2026-11-13 决定：前端 journeys 完整集至少有一次跑在包含上述后端整顿退出提交的后端上，由前端会话在 04 执行；后端不运行前端入口、不改 `frontend/`。前端的 04 退出证据已满足这一点则不另跑，否则在两端都合入 `main` 后补跑。这次旅程不阻塞打 `p7-backend-remediation-exit`，但 S3 实施开始之前必须有结果。失败时停止依赖推进，由 Owner 转来失败用例及观察到的错误码、状态码；属于后端整顿改动引起的，按“发现必须改行为即停”处理，修复后重新走相应独审和门禁。
 
 ## 7. 冲突记录与 Owner 决定（2026-11-13）
 

@@ -116,6 +116,9 @@ def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> 
         diagnostics.append("CURRENT_ONLY_COLUMNS")
     if schema.incompatible:
         diagnostics.append("INCOMPATIBLE_SELECTED_COLUMNS")
+    if (any(name not in schema.before_columns for name in schema.before_key)
+            or any(name not in schema.current_columns for name in schema.current_key)):
+        diagnostics.append("EFFECTIVE_KEY_MISSING")
     if schema.key_changed:
         diagnostics.append("EFFECTIVE_KEY_CHANGED")
     if schema.source_key_changed:

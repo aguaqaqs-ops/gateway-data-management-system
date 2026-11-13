@@ -137,7 +137,7 @@ comparison_options:
 
 Summary 判等只消除不需要行内容的工作，不等于所有任务零读取。
 
-Table 级判等须同时满足：两侧同一逻辑表、business schema digest与行数相同、非空raw content digest相同；两侧storage facts存在，StorageRuleView、source schema、非空canonical schema及非空projection version相同，facts的raw digest与各自descriptor及另一侧一致；允许key transition时effective key仍相等，policy表名与descriptor绑定正确。不得仅凭raw digest或零行数判定未变。
+Table 级判等须同时满足：两侧同一逻辑表、business schema digest与行数相同、非空raw content digest相同；两侧storage facts存在，StorageRuleView、source schema、非空canonical schema及非空projection version相同，facts的raw digest与各自descriptor及另一侧一致；允许key transition时effective key仍相等，policy表名与descriptor绑定正确。不得仅凭raw digest或零行数执行该 table early-exit。标准比较的双侧空表另走 descriptor 元数据路径：两侧已校验存在性、行数为零且 business schema digest 相等、有效比较键没有变化时，判为 UNCHANGED，不为不存在的行猜键；schema 不同或明确键变化继续保留原 schema/降级语义。
 
 - 普通 metadata-only 未变化任务可直接形成 `UNCHANGED` facts，不打开行reader。
 - 未变化 ordered 任务须按当前pair有效策略取得current侧ordered/occupancy摘要，完整填写两侧ordered/blank extension。健康同任务缓存可以恢复这些facts；未命中则读取current规范行做单侧摘要，不读before、不执行LIS或生成逐行records。

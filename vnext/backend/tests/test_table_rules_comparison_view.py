@@ -132,7 +132,7 @@ COMPARISON_KEY_FAULTS = (
     ("null-no", "(1,'1',NULL,'a')", "page_no", "NULL_EFFECTIVE_KEY:iec104_cfg"),
     ("empty-page", "(1,'','1','a')", "page_no", "EMPTY_EFFECTIVE_KEY:iec104_cfg"),
     ("empty-no", "(1,'1','','a')", "page_no", "EMPTY_EFFECTIVE_KEY:iec104_cfg"),
-    ("missing-column", "(1,'1','1','a')", "other", None),
+    ("missing-column", "(1,'1','1','a')", "other", "EFFECTIVE_KEY_MISSING"),
 )
 
 
@@ -150,7 +150,7 @@ def test_invalid_comparison_key_degrades_without_using_ddl_key(
     assert table.status is ComparisonTableStatus.DEGRADED
     assert [record.record_kind for record in table.records] == [ComparisonRecordKind.TABLE_DEGRADED]
     if diagnostic is not None:
-        assert table.diagnostics == (diagnostic,)
+        assert diagnostic in table.diagnostics
     assert table.row_modified_count == table.row_added_count == table.row_deleted_count == 0
 
 

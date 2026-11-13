@@ -17,7 +17,7 @@ export function Button({ variant = "secondary", icon, disabledReason, children, 
   // instead of dropping it, so each reason stays attached to its own button.
   const describedByIds = [describedBy, disabledReason ? reasonId : null].filter(Boolean).join(" ") || undefined;
   return (
-    <span className="button-wrap">
+    <span className="button-wrap" title={disabledReason}>
       <button id={id} className={`button button--${variant} ${className}`} disabled={isDisabled} aria-describedby={describedByIds} {...props}>
         {icon}<span>{children}</span>
       </button>

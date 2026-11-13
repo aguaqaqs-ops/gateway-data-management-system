@@ -1,7 +1,7 @@
 import { scopedStorage } from "../features/api/scoped-storage";
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Search, Table2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, MoreHorizontal, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi, boundBundleFetch } from "../features/api/application-api";
@@ -27,8 +27,8 @@ import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { ApiError } from "../features/api/authenticated-fetch";
 import { bundleErrorTitle } from "../features/bundle/local-bundle";
 import { getUrlOperationJobKind, useUploadModeState } from "../features/workbench/use-upload-mode";
-import { DeviceBar, SessionGate } from "../features/session/SessionComponents";
-import { isGatewaySessionBlocked, useGatewaySessionState } from "../features/session/handoff-session";
+import { SessionGate } from "../features/session/SessionComponents";
+import { formatHandoffDisplay, isGatewaySessionBlocked, useGatewaySessionState } from "../features/session/handoff-session";
 import { SubmitDialog } from "../features/workbench/SubmitDialog";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
 import { ReviewActions } from "../features/workbench/ReviewActions";
@@ -47,8 +47,11 @@ type PairSummary = { pair_id: string };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
-const SETTINGS_KEY = "gateway-comparison-sidebar-v1";
-const DEFAULT_SETTINGS: Settings = { sidebarWidth: 288, sidebarCollapsed: false, collapsedGroups: [] };
+const SETTINGS_KEY = "gateway-comparison-sidebar-v2";
+const SIDEBAR_MIN = 180;
+const SIDEBAR_MAX = 420;
+const DEFAULT_SETTINGS: Settings = { sidebarWidth: 220, sidebarCollapsed: false, collapsedGroups: [] };
+const clampSidebar = (width: number) => Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width));
 
 function reviewStatusLabel(status: string): string {
   const labels: Record<string, string> = {
@@ -60,8 +63,8 @@ function reviewStatusLabel(status: string): string {
 function readSettings(): Settings {
   try {
     const value = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<Settings> | null;
-    return { sidebarWidth: typeof value?.sidebarWidth === "number" ? Math.max(224, Math.min(420, value.sidebarWidth)) : DEFAULT_SETTINGS.sidebarWidth,
-      sidebarCollapsed: typeof value?.sidebarCollapsed === "boolean" ? value.sidebarCollapsed : window.innerWidth <= 1440,
+    return { sidebarWidth: typeof value?.sidebarWidth === "number" ? clampSidebar(value.sidebarWidth) : DEFAULT_SETTINGS.sidebarWidth,
+      sidebarCollapsed: typeof value?.sidebarCollapsed === "boolean" ? value.sidebarCollapsed : false,
       collapsedGroups: Array.isArray(value?.collapsedGroups) ? value.collapsedGroups.filter((item): item is string => typeof item === "string") : [] };
   } catch { return DEFAULT_SETTINGS; }
 }
@@ -603,7 +606,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
   const updateSidebarWidth = (clientX: number) => {
     const left = workspaceRef.current?.getBoundingClientRect().left ?? 0;
-    setSettings((state) => ({ ...state, sidebarWidth: Math.max(224, Math.min(420, clientX - left)) }));
+    setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(clientX - left) }));
   };
   const openFormula = useCallback(async () => {
     if (!bundle || !presentation) return;
@@ -649,11 +652,14 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
 
   const activePairIndex = activePair ? pairs.findIndex(({ pair }) => pair.pair_id === activePair.pair.pair_id) : 0;
   const viewPairs = browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs;
+  // The device path leads the breadcrumb (full path on hover); the view label is
+  // left out when the view switcher is visible in the same row.
+  const deviceDisplay = sessionState.kind === "handoff" ? sessionState.session.display : null;
   const breadcrumbItems = [
-    activePair ? viewLabel(activePair, activePairIndex, pairs.length, browse.mode) : null,
+    activePair && viewPairs.length <= 1 ? viewLabel(activePair, activePairIndex, pairs.length, browse.mode) : null,
     selectedEntry?.group.label ?? null,
     selectedEntry?.item.label ?? null,
-    selectedTab?.label ?? null,
+    selectedTab && selectedTab.label !== selectedEntry?.item.label ? selectedTab.label : null,
   ].filter((item): item is string => Boolean(item));
   const returnToWorkbench = () => {
     const params = new URLSearchParams({ page: "workspace" });
@@ -670,12 +676,13 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     {resumeNotice && <div role="alert" className="form-error"><span>{resumeNotice.title}</span>{resumeNotice.code && <span>{resumeNotice.codeLabel ?? "操作ID"}：<code>{resumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(resumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header ref={headerRef} className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
-      <DeviceBar state={sessionState} />
-      <div className="compare-header__top">
-        <button className="back-link" aria-label="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={15} /><span>返回工作台</span></button>
-        <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
-        <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
-        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{reviewFacts?.submission_disposition && <span className={`status-tag status-tag--${reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "info" : "neutral"}`} title={reviewFacts.submission_disposition.disposition === "CLOSED_NOT_ARCHIVED" ? (reviewFacts.submission_disposition.source_kind === "ARCHIVE" ? "归档时选中了其他提交" : `由 ${reviewFacts.submission_disposition.closure?.closed_by ?? "未知"} 关闭：${reviewFacts.submission_disposition.closure?.reason ?? ""}`) : undefined}>{reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "已归档" : "已关闭（未归档）"}</span>}{identityControl}
+      <div className="compare-header__bar">
+        <button className="icon-button compare-back" aria-label="返回工作台" title="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={17} /></button>
+        <nav className="breadcrumb" aria-label="位置">{deviceDisplay && <span className="breadcrumb__device" title={formatHandoffDisplay(deviceDisplay)}>{deviceDisplay.project_name}（{deviceDisplay.station_code}）</span>}{breadcrumbItems.map((item, index) => <span key={item + index}>{(index > 0 || deviceDisplay) && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
+        <span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span>
+        {viewPairs.length > 1 && <div className="view-tabs" role="tablist" aria-label="比较视图">{viewPairs.map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); const active = activePair?.pair.pair_id === pair.pair.pair_id; return <button role="tab" aria-selected={active} className={active ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), status.text, risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span>{risk && <RiskBadge level={risk} />}</button>; })}</div>}
+        <div className="scope-toggle" role="group" aria-label="表格范围"><button className={!onlyInteresting ? "is-active" : ""} aria-pressed={!onlyInteresting} onClick={() => runtime.execute({ name: "set-only-interesting", enabled: false })}>全部</button><button className={onlyInteresting ? "is-active" : ""} aria-pressed={onlyInteresting} onClick={() => runtime.execute({ name: "set-only-interesting", enabled: true })}>仅看差异</button></div>
+        <div className="compare-status"><ConnectionStatusIndicator compact hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{reviewFacts?.submission_disposition && <span className={`status-tag status-tag--${reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "info" : "neutral"}`} title={reviewFacts.submission_disposition.disposition === "CLOSED_NOT_ARCHIVED" ? (reviewFacts.submission_disposition.source_kind === "ARCHIVE" ? "归档时选中了其他提交" : `由 ${reviewFacts.submission_disposition.closure?.closed_by ?? "未知"} 关闭：${reviewFacts.submission_disposition.closure?.reason ?? ""}`) : undefined}>{reviewFacts.submission_disposition.disposition === "ARCHIVED_BASELINE" ? "已归档" : "已关闭（未归档）"}</span>}{identityControl}
           {browse.mode === "PREVIEW" && <PreviewHeaderActions
             withdrawEnabled={uploadGates.withdraw.enabled}
             withdrawReason={uploadGates.withdraw.reason}
@@ -689,20 +696,22 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
           />}
           {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} onReviewSettled={() => void reloadReviewContext()} errorNoticeHost={reviewNoticeRef} />}
         </div>
+        <details className="compare-more">
+          <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>
+          <div className="compare-more__menu">
+            {import.meta.env.DEV && <div className="display-mode"><span>显示模式（开发环境）</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}
+            {bundle && <div className="compare-more__bundle"><span>本地 bundle · 浏览期间不请求后端</span><code>{bundle.manifest.bundle_digest}</code></div>}
+          </div>
+        </details>
       </div>
       {browse.mode === "REVIEW" && reviewFacts?.submission_disposition && <ReviewDispositionLine facts={reviewFacts} />}
       {browse.mode === "REVIEW" && <div className="compare-header__notice" ref={reviewNoticeRef} />}
-      <div className="compare-header__bottom">
-        {viewPairs.length > 1 && <div className="view-tabs" role="tablist" aria-label="比较视图">{viewPairs.map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{status.text}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>}
-        <div className="header-tools"><div className="scope-toggle" role="group" aria-label="表格范围"><button className={!onlyInteresting ? "is-active" : ""} aria-pressed={!onlyInteresting} onClick={() => runtime.execute({ name: "set-only-interesting", enabled: false })}>全部</button><button className={onlyInteresting ? "is-active" : ""} aria-pressed={onlyInteresting} onClick={() => runtime.execute({ name: "set-only-interesting", enabled: true })}>仅看差异</button></div>{import.meta.env.DEV && <div className="display-mode"><span>开发环境</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}</div>
-      </div>
     </header>
     {activePair && pairDiagnosticDetails(activePair).codes.length > 0 && <div className="pair-diagnostic-strip" role="status">{pairDiagnosticDetails(activePair).codes.map((diagnostic) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <div key={diagnostic}><AlertTriangle size={14} /><span>{formatted.message}</span>{debugMode && <code>{formatted.raw}</code>}</div>; })}</div>}
     {!bundle && !error && <section className="compare-loading"><LoadingSkeleton label={loading.phase} /><div className="loading-progress"><span>{loading.phase}</span><span>{loading.total ? formatBytes(loading.received) + " / " + formatBytes(loading.total) : "正在准备"}</span></div></section>}
     {error && <section className="compare-error"><ErrorState code={error.code} details={error.details} title={error.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : bundleErrorTitle(error.code)} onRetry={() => void loadBundle()} /></section>}
     {bundle && presentation && <div ref={workspaceRef} className={"compare-workspace" + (collapsed ? " sidebar-is-collapsed" : "")} style={{ "--sidebar-width": settings.sidebarWidth + "px" } as CSSProperties}>
-      <aside className="navigation-sidebar" aria-label="比较导航"><div className="sidebar-heading"><div><span>比较内容</span><strong>{presentation.view.tables.length} 张表</strong></div><button className="icon-button" aria-label="收起导航" onClick={() => setSettings((state) => ({ ...state, sidebarCollapsed: true }))}><ChevronLeft size={18} /></button></div>
-        <div className="sidebar-search"><Search size={15} /><input ref={searchInputRef} aria-label="搜索组、节点或页签" value={search} onChange={(event) => runtime.execute({ name: "set-search", search: event.currentTarget.value })} placeholder="搜索组、节点或页签" /></div><div className="sidebar-toolbar"><span>{visibleGroups.length} 个分组</span><button onClick={() => runtime.execute({ name: "set-only-interesting", enabled: !onlyInteresting })}>{onlyInteresting ? "显示全部" : "只看变化 / 风险"}</button></div>
+      <aside className="navigation-sidebar" aria-label="比较导航"><div className="sidebar-heading"><div className="sidebar-search"><Search size={14} /><input ref={searchInputRef} aria-label="搜索组、节点或页签" value={search} onChange={(event) => runtime.execute({ name: "set-search", search: event.currentTarget.value })} placeholder={`搜索 · ${presentation.view.tables.length} 张表`} /></div><button className="icon-button" aria-label="收起导航" title="收起导航" onClick={() => setSettings((state) => ({ ...state, sidebarCollapsed: true }))}><ChevronLeft size={16} /></button></div>
         {globalNavigationDiagnostics.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
         <div className="sidebar-scroll">{visibleGroups.map((group) => {
           const groupMatches = group.label.toLocaleLowerCase().includes(browse.search.trim().toLocaleLowerCase());
@@ -717,9 +726,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
           {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = item.tabs.filter((tab) => (groupMatches || matchesItem(item, browse.search)) && (!browse.onlyInteresting || tab.table?.changeKind !== "UNCHANGED" || item.riskLevels.length > 0 || tab.facts?.change_kind && tab.facts.change_kind !== "UNCHANGED" || tab.facts?.risk_level || presentation.navigationDiagnostics.some((diagnostic) => diagnostic.target.item_key === item.itemKey && diagnostic.target.tab_key === tab.tabKey))); if (!itemTabs.length) return null; const active = item.itemKey === browse.nodeKey; const tabDiagnostics = (tabKey: string) => presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.tab_key === tabKey && diagnostic.target.item_key === item.itemKey).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />); const itemState = item.changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(item.changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(item.changeKinds) ? " · " + itemStatusTooltip(item.changeKinds) : ""}${item.riskLevels[0] ? " · " + riskLevelText(item.riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={item.changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{item.riskLevels[0] ? <RiskBadge level={item.riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
             {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
             {item.showTabs ? <div className="nav-item__tabs">{itemTabs.map((tab) => { const risk = tabRiskLevel(tab); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); return <div className="nav-tab" key={tab.tabKey}><button className={browse.nodeKey === item.itemKey && browse.tabKey === tab.tabKey ? "is-active" : ""} data-tab-key={tab.tabKey} title={tabTitle(tabChangeKind(tab), risk, beforeCount, currentCount)} onClick={() => chooseTab(tab.tableName, tab.tabKey, item.itemKey)}><span className={surfaceChangePresentation(tabChangeKind(tab)).deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={tabChangeKind(tab)} />}</button>{tab.facts?.basis === "TABLE_FALLBACK" && <small className="nav-tab__basis">此页签按整表提示</small>}{tabDiagnostics(tab.tabKey)}</div>; })}</div> : itemTabs.flatMap((tab) => tabDiagnostics(tab.tabKey))}</div>; })}</section>; })}</div>
-        <div className="sidebar-footer"><span>本地 bundle · 浏览期间不请求后端</span><small>{bundle.manifest.bundle_digest.slice(0, 19)}…</small></div>
       </aside>
-      {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-valuemin={224} aria-valuemax={420} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: Math.max(224, Math.min(420, state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16))) })); } }} />}
+      {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
         {navigationEntries.length > 0 && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{visibleTabs.map(({ item, tab }) => { const active = browse.nodeKey === item.itemKey && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); return <button role="tab" aria-selected={active} key={item.itemKey + "|" + tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, item.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount)}><span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}</div>{overflowTabs.length > 0 && <div className="overflow-tabs__menu"><button aria-expanded={overflow} onClick={() => setOverflow(!overflow)}>更多 {overflowTabs.length}<ChevronDown size={14} /></button>{overflow && <div className="overflow-menu">{overflowTabs.map(({ item, tab }) => { const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); return <button key={item.itemKey + "|" + tab.tabKey + "|" + tab.tableName} title={tabTitle(kind, risk, beforeCount, currentCount)} onClick={() => chooseTab(tab.tableName, tab.tabKey, item.itemKey)}><span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}</div>}</div>}</div>}
@@ -737,7 +745,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                 {selectedTab.tabKey.startsWith("__whole__:") && <span>整表视图</span>}{(() => { const scope = selectedTab.rowFilter !== null ? selectedTab.facts?.table_scope ?? table.tableScope : table.tableScope; return scope && <span className="table-scope-marker" title={scope.risk_level ? riskLevelText(scope.risk_level) : "整表范围"}>{scope.change ? "整表发生变化" : "整表未变化"}{scope.risk_level ? " · 整表风险" : ""}</span>; })()}
               </div>
               {(surfaceTable.diagnostics?.diagnostics_summary?.length ?? 0) > 0 && <div className="table-heading__diagnostics">{(surfaceTable.diagnostics?.diagnostics_summary ?? []).map((diagnostic, index) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <span key={diagnostic + index}><AlertTriangle size={13} />{formatted.message}{debugMode && <code>{formatted.raw}</code>}</span>; })}</div>}
-              {riskReasonDetails.length > 0 && <div className="table-risk-reasons"><strong>风险原因</strong>{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div>}
+              {riskReasonDetails.length > 0 && <details className="table-risk-reasons-toggle"><summary>风险原因（{riskReasonDetails.length}）</summary><div className="table-risk-reasons">{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div></details>}
             </div>
             {debugMode && <DebugInfoBar table={surfaceTable} reasonDetails={riskReasonDetails} />}
             {table.changeKind === "SCHEMA_CHANGED" && <div className="table-state-note">{formatSchemaSummary(surfaceTable.schema_summary)}</div>}
@@ -862,15 +870,18 @@ function CopyDebugValue({ label, value }: { label: string; value: string }) {
 function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: () => void }) {
   const gridRef = useRef<DataEditorRef>(null);
   const frameRef = useRef<HTMLDivElement>(null);
-  const [frameWidth, setFrameWidth] = useState(0);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+  const frameWidth = frameSize.width;
   const [paintedToken, setPaintedToken] = useState<object | null>(null);
   const [hoveredCell, setHoveredCell] = useState<readonly [number, number] | null>(null);
   useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
-    const observer = new ResizeObserver((entries) => setFrameWidth(entries[0]?.contentRect.width ?? frame.clientWidth));
+    // The grid fills the frame, which takes the remaining height of the page.
+    const measure = () => setFrameSize((previous) => previous.width === frame.clientWidth && previous.height === frame.clientHeight ? previous : { width: frame.clientWidth, height: frame.clientHeight });
+    const observer = new ResizeObserver(measure);
     observer.observe(frame);
-    setFrameWidth(frame.clientWidth);
+    measure();
     return () => observer.disconnect();
   }, []);
   const orderedColumns = useMemo(() => [...(table.columns ?? [])].sort((left, right) => left.display_order - right.display_order), [table.columns]);
@@ -981,7 +992,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
-  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={38} rowHeight={38} theme={theme} width="100%" height={Math.max(300, Math.min(600, rows.length * 38 + 40))} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
+  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={32} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
     {showHoverDetail && hoverRow && <div className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}

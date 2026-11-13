@@ -140,8 +140,9 @@ def test_scope_response_rejects_mismatches(bad: str) -> None:
     response = {"environment_id": "env", "group_id": "group", "gateway_device_external_key": "dev-1", "business_project_id": "prj-1", "repository_id": "repo"}
     key = {"wrong_environment": "environment_id", "wrong_group": "group_id", "wrong_project": "business_project_id", "wrong_repository": "repository_id", "unknown_field": "unexpected"}[bad]
     response[key] = "wrong"
-    with pytest.raises(provision.Incomplete):
+    with pytest.raises(provision.Incomplete) as caught:
         provision._scope(response, "env", "group", "dev-1", "prj-1", "repo")
+    assert caught.value.status is None  # Scope validation does not retain the HTTP status.
 
 
 @pytest.mark.parametrize("in_entry", [False, True])

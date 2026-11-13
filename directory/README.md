@@ -53,4 +53,4 @@ gdds-directory provision --renew-sessions
 
 真实阶段 2 使用独立的 `directory/scripts/run-real-journey.sh`，配置、固定输入、凭据与证据规则见 [窄旅程说明](journey/README.md)。它不替代组件入口或网关门禁，必须在 05 的 clean 候选和本人独立单组环境运行。
 
-开通确认或续期探针失败时，安全日志和失败摘要另记固定 `role`（registration/public_scope/old_token）、固定 `reason`、数字 `http_status`（无响应为 null），以及仅从入口404专用拒绝头识别的 `entry_route_not_loaded` 布尔。这些字段用于定位当前确认缺口，由阶段审核/运维核对；不记录 URL、认证头、响应体或异常原文，也不表示已证明内部失败原因。首次未确认仍立即停止并保留 pending，不自动重试。
+开通确认或续期探针失败时，安全日志和失败摘要另记固定 `role`（registration/public_scope/old_token）、固定 `reason`、数字 `http_status`（无响应或该分支未保留状态时为 null），以及仅从入口404专用拒绝头识别的 `entry_route_not_loaded` 布尔。这些字段用于定位当前确认缺口，由阶段审核/运维核对；不记录 URL、认证头、响应体或异常原文，也不表示已证明内部失败原因。首次未确认仍立即停止并保留 pending，不自动重试。

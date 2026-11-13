@@ -237,12 +237,12 @@ def _scope(value: dict[str, Any] | None, env: str, group: str, device: str, proj
     if registration:
         fields |= {"initial_node_id", "initial_commit_id"}
     if value is None or set(value) != fields or any(not isinstance(value[x], str) or not value[x] for x in fields):
-        raise Incomplete("scope response invalid", reason="scope_fields", status=200)
+        raise Incomplete("scope response invalid", reason="scope_fields")
     if (value["environment_id"], value["group_id"], value["gateway_device_external_key"], value["business_project_id"]) != (env, group, device, project):
-        raise Incomplete("scope response differs", reason="scope_identity", status=200)
+        raise Incomplete("scope response differs", reason="scope_identity")
     result = str(value["repository_id"])
     if repository is not None and result != repository:
-        raise Incomplete("repository response differs", reason="repository_identity", status=200)
+        raise Incomplete("repository response differs", reason="repository_identity")
     return result
 
 

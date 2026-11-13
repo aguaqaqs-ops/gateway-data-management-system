@@ -163,7 +163,7 @@ class _Builder:
         self.used = 0
         self.scanned = 0
         self.diagnostics: list[dict[str, Any]] = []
-        self.names = {t.table_name: t for t in tables}
+        self.tables_by_id = {t.table_id: t for t in tables}
 
     def charge(self, value: object) -> None:
         self.check()
@@ -220,7 +220,7 @@ class _Builder:
                     if tab["empty"]:
                         continue
                     nonempty += 1
-                    table = self.names[tab["table_id"]]
+                    table = self.tables_by_id[tab["table_id"]]
                     facts = tab["facts"]
                     if facts is None or facts["basis"] == "TABLE_FALLBACK":
                         kinds.add(table.change_kind.value)

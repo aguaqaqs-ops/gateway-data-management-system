@@ -618,7 +618,7 @@ def test_existing_side_with_unknown_filtered_count_is_not_assumed_zero(missing: 
 
 
 def test_empty_forward_channel_and_unassigned_shared_table_remain_reachable() -> None:
-    registry = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1}
+    registry: dict[str, Scalar] = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1}
     result = build(table("net_cfg", None, side((registry,))),
         table("b1_n2_iec104_syx_list", side(), side(), unchanged=True),
         table("device_st", side(), side(), unchanged=True))

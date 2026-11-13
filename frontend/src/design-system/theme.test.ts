@@ -33,8 +33,10 @@ describe("shared table and semantic themes", () => {
     const readToken: CssTokenReader = (name) => tokens[name] ?? "";
     const tableTheme = createTableTheme(readToken);
     expect(tableTheme.fontFamily).toContain("IBM Plex Sans");
-    expect(tableTheme.baseFontStyle).toContain("14px");
-    expect(tableTheme.headerFontStyle).toContain("13px");
+    // Glide appends fontFamily itself; a family inside the style breaks the canvas font.
+    expect(tableTheme.baseFontStyle).toBe("14px");
+    expect(tableTheme.headerFontStyle).toBe("600 13px");
+    expect(tableTheme.markerFontStyle).toBe("12px");
     expect(tableTheme.accentColor).toBe(tokens["--color-accent"]);
     expect(tableTheme.borderColor).toBe(tokens["--color-row-separator"]);
     expect(tableTheme.drilldownBorder).toBe(tokens["--color-border"]);

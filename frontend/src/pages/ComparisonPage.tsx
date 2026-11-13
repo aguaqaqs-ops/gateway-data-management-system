@@ -1090,8 +1090,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const metaColumnCount = debug ? 5 : 2;
   const frozenColumnCount = metaColumnCount + pinnedColumnCount;
   const theme = useMemo(() => createTableTheme(), []);
-  const measureCell = useMemo(() => createTextMeasure(theme.baseFontStyle), [theme.baseFontStyle]);
-  const measureHeader = useMemo(() => createTextMeasure(theme.headerFontStyle), [theme.headerFontStyle]);
+  const measureCell = useMemo(() => createTextMeasure(`${theme.baseFontStyle} ${theme.fontFamily}`), [theme.baseFontStyle, theme.fontFamily]);
+  const measureHeader = useMemo(() => createTextMeasure(`${theme.headerFontStyle} ${theme.fontFamily}`), [theme.headerFontStyle, theme.fontFamily]);
   // Text the grid shows for a sizable column (row labels for 变更, values otherwise).
   const columnText = useCallback((row: BrowseRow, columnId: string): string => columnId === "__diff" ? rowLabel(row) : row.kind === "collapsed" ? "" : normalizeDisplayScalar(row.values[columnId]), []);
   const fitColumn = useCallback((columnId: string, title: string, sourceRows: readonly BrowseRow[], mode: "auto" | "fit") =>
@@ -1136,7 +1136,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const formulaColumnOffset = formulaColumnIndex < 0 ? undefined : columns.slice(0, formulaColumnIndex).reduce((width, column) => width + column.width, 0);
   const formulaColumnWidth = formulaColumnIndex < 0 ? undefined : columns[formulaColumnIndex]?.width;
   // The row position is a ruler, not data: smaller, lighter, on the header tone.
-  const numberTheme = useMemo<Partial<Theme>>(() => ({ textDark: "#8B95A1", bgCell: theme.bgHeader, baseFontStyle: `12px ${theme.fontFamily}` }), [theme.bgHeader, theme.fontFamily]);
+  const numberTheme = useMemo<Partial<Theme>>(() => ({ textDark: "#8B95A1", bgCell: theme.bgHeader, baseFontStyle: "12px" }), [theme.bgHeader]);
   const pairRows = useMemo(() => { const result = new Map<string, number[]>(); rows.forEach((row, index) => { if (row.pairKey) result.set(row.pairKey, [...(result.get(row.pairKey) ?? []), index]); }); return result; }, [rows]);
   useEffect(() => {
     if (!highlightedIdentity) return;
@@ -1247,8 +1247,8 @@ function ReplacementBrowser({ before, current, table, assessment, side, onSelect
 function ReplacementSide({ title, rows, columns, active }: { title: string; rows: Record<string, unknown>[]; columns: NonNullable<SurfaceTable["columns"]>; active: boolean }) {
   const theme = useMemo(() => createTableTheme(), []);
   const gridColumns = useMemo<GridColumn[]>(() => {
-    const measureCell = createTextMeasure(theme.baseFontStyle);
-    const measureHeader = createTextMeasure(theme.headerFontStyle);
+    const measureCell = createTextMeasure(`${theme.baseFontStyle} ${theme.fontFamily}`);
+    const measureHeader = createTextMeasure(`${theme.headerFontStyle} ${theme.fontFamily}`);
     const sample = sampleRows(rows, 600);
     return columns.map((column) => {
       const title = column.display_name || column.name;

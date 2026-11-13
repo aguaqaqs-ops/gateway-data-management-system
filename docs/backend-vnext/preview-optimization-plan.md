@@ -20,8 +20,9 @@
 
 ```text
 正确性修复 A–D 完成并通过必要验收
-  → P0 核收交接、冻结 B0，收敛修复后的语义与候选范围
-  → P1 一次修复后 MO 新基线，补清成本/复制类别并重新确认热点
+  → P0 单个 Terra high 子 agent 核收交接、冻结 B0，核范围与关键约束
+  → P1 同一 Terra 采集一次修复后 MO 新基线并汇总热点，不另设独审
+  → 选中实际优化后才启用 Sol 实施者
   → P2 即时读回合并的最小候选（仅值得时）
   → P3 不变成员直接引用（重点；需要时以基线而非P2为父）
   → P4 修复后 FULL 基线与最终候选对照，消费者小范围核对，收尾
@@ -33,11 +34,11 @@ P1～P3发现的新线索 → 其他阶段候选清单；不自动开启额外�
 
 | 包 | 要回答的问题与产出 | 最小验证与退出条件 | 主动工作预算（规划上限） |
 | --- | --- | --- | --- |
-| P0 交接与语义收敛 | 核收正确性修复提交与必要验收、冻结 B0；按新 Contract 核 A 即时读回与 final 的职责是否可合并；核 C 合法原 ref 直接移交、旧 cache 复制条款、source/destination 边界。产出短差异表和明确允许复用类别 | Sol 提具体方案，Terra 核范围、关键约束及风险；默认结果齐备后 Astra 集中独审，实际 A/B 类边界按规则提前逐包独审。finding 由原作者修订、原审复核。没有可靠语义闭合的候选先剔除，不为开工建新框架 | 30–45 分钟 |
-| P1 修复后新基线与热点复核 | 在 B0/B1 复用顶层/父段指标，只补 generated put / immediate readback / metadata put / metadata readback；记录实际新建/合法existing、source=final、仅换ID、JSON改内容的计数/字节。判断新热点及小方案A与结构方案C各覆盖什么 | 一次普通t4 MO、空INITIAL。复用现有插桩探针与必要focused；不重新解析SQL，不用exists探针代替真正put路径结果，不提前暖目标或多读payload改变测量路径。五锁/Rust/镜像身份保持可追溯 | 30–45 分钟；运行准备另见总预算 |
-| P2 合并即时读回（条件项） | 若P1显示有值得删除的重复工作且P0确认final覆盖，则删逐件即时readback，保原final完整验、错误拒绝和READY顺序；不顺带改store、同步或publish闭包 | bundle既有正常/嵌套ref、错误put/损坏、destination失败、取消/M边界focused。候选MO一次，与P1同口径比父段和删除的读次数；收益不清且代码不更简单则不保留，不为证明小收益加跑 | 45–75 分钟；无价值可直接跳过 |
+| P0 交接与范围核对 | 单个 Terra high 子 agent 核收修复最终提交与已有验收，冻结 B0；盘点新规则/审计/保护与测量范围 | 直接引用已有验收，不重新审核修复；测量前提齐备。优化语义先作初步判断，选中优化后由 Sol 细化 | 30–45 分钟 |
+| P1 修复后新基线与热点复核 | 同一 Terra 复用脚本，必要时补局部计时/计数；采集 B0/B1 的 MO，核对新语义结果、记录原件并汇总热点 | 普通 t4、空 INITIAL 一次；不单独安排 Astra/Luna 或 Sol，不重复读 payload、预探 exists 或解析 SQL。观测改动只做相称的必要检查，不为基线重跑全量验收；改变行为则按实际风险处理 | 30–45 分钟；运行准备另见总预算 |
+| P2 合并即时读回（条件项） | 若P1显示有值得删除的重复工作，且实施前确认final覆盖，则删逐件即时readback，保原final完整验、错误拒绝和READY顺序；不顺带改store、同步或publish闭包 | bundle既有正常/嵌套ref、错误put/损坏、destination失败、取消/M边界focused。候选MO一次，与P1同口径比父段和删除的读次数；收益不清且代码不更简单则不保留，不为证明小收益加跑 | 45–75 分钟；无价值可直接跳过 |
 | P3 逻辑bundle复用（重点） | 同store内合法未变成员保原ref，避免无意义重ID/复制；只写真正新成员及必要surface/manifest/closure。递归引用、shared/table_bindings、保护和跨root下载闭合；跨独立destination仍复制并验目标 | 同一业务目标实现，删除被替代路径，不保永久双算法。更新实际受影响Contract/golden；focused验证混合root、共享引用、必要rewrite和清理保护。候选MO一次，比较新写数量/字节、publication及端到端。若P2保留则比较增量，否则从原基线建候选，不拿不同父实现混算 | 90–150 分钟；若需新artifact生命周期框架则停止扩展并收口 |
-| P4 最终消费者与收尾 | 选择一个候选；确认普通FULL两pair、下载/OPFS及Submit引用保护仍成立，写清收益和遗留项 | 修复后基线 B0/B1 与最终候选各一次普通t4 FULL，均空INITIAL、同节点同配置；已有本轮合格同条件样本可直接复用。复用focused/Contract验证恢复/Submit保护；必要时利用本次候选数据做一次下载/浏览或Submit烟测，不重跑整旅程。实际改动触发的必要门禁按仓库规则集中运行，不称诊断等于发布验收 | 45–75 分钟，门禁时间单列 |
+| P4 最终消费者与收尾 | 选择一个候选；确认普通FULL两pair、下载/OPFS及Submit引用保护仍成立，写清收益和遗留项 | Terra 采集尚缺的修复后 B0/B1 FULL 基线，再交接同节点由实施 A 测最终候选；各一次普通t4 FULL，均空INITIAL、同节点同配置；已有本轮合格同条件样本可直接复用。复用focused/Contract验证恢复/Submit保护；必要时利用本次候选数据做一次下载/浏览或Submit烟测，不重跑整旅程。实际改动触发的必要门禁按仓库规则集中运行，不称诊断等于发布验收 | 45–75 分钟，门禁时间单列 |
 
 新基线采集是本工作必需部分；正确性验收中已有同版本、同输入/节点/资源/应用状态及完整计时身份的样本才可核实复用。P1不是无限profiling前置：只做这组能改变方案选择的计数与互斥计时。若修复后源码与合格新基线原件已足以选C，P1的细计时可与最小A/C前后对照共用，不另起一份只为“补完整”的真实运行。P2也不是P3的必经门槛；优先解决实际冗余最大的工作。
 
@@ -70,11 +71,13 @@ P3要先从已允许的成员类别切入，不能把“同hash”当跨reposito
 
 ## 5. 角色、记录与退出
 
-采用 Owner 最新确认的分配：`gpt-6.1-terra` high 协调，A/B 两名 `gpt-6.1-sol` high 实施者分别负责 publication 优化和消费者适配，以及各自的测试代码/运行脚本。既有门禁和最小脚本在两节点执行测试，不设置专职测试 agent。`gpt-6-luna` medium 仅按需核对证据清单；确定性结果已足够时不启用。失败归因、测试范围及重跑由 Terra 判断，不交脚本或 Luna 自行决定。
+基线 P0/P1 由一个 `gpt-6.1-terra` high 子 agent 独立完成交接核对、必要局部观测、测量和报告，不启动 Sol、Luna 或 Astra，也不安排单独审核。FULL 基线若延后至 P4，仍由 Terra 完成并交接同节点给候选执行者；基本身份、资源、结果和失败留证检查保留。可直接使用的委派说明见[详细方案 §1.3](preview-optimization-implementation-plan.md#13-基线阶段单个-terra-high-子-agent-完成)。
+
+进入实际优化后，采用 Owner 最新确认的分配：`gpt-6.1-terra` high 协调，A/B 两名 `gpt-6.1-sol` high 实施者分别负责 publication 优化和消费者适配，以及各自的测试代码/运行脚本。既有门禁和最小脚本在两节点执行测试，不设置专职测试 agent。`gpt-6-luna` medium 仅按需核对证据清单；确定性结果已足够时不启用。失败归因、测试范围及重跑由 Terra 判断，不交脚本或 Luna 自行决定。
 
 `gpt-6-astra` high 默认在最终代码、测量和必要验证结果齐备后，以新上下文集中分析与独审；实际 A/B 类边界仍按仓库规则提前逐包独审。finding 原作者修复、原审复核，不为日常命令或每个计时样本另建审核轮次。
 
-具体职责、文件归属、节点安排、交接与退出条件见[详细实施方案](preview-optimization-implementation-plan.md)。通常三个活跃 agent，核证与独审错峰增加至四个；两节点脚本不占 agent 槽位，不需要增加到六槽位。当前只是文档分配，未启动实施或切换当前会话模型。风险和必要门禁遵循 [AGENTS](../../AGENTS.md) 与[比例化政策](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)，定性实验不冒充发布验收。
+具体职责、文件归属、节点安排、交接与退出条件见[详细实施方案](preview-optimization-implementation-plan.md)。基线仅一个 Terra 子 agent；优化阶段通常三个活跃 agent，核证与独审错峰增加至四个；两节点脚本不占 agent 槽位，不需要增加到六槽位。当前只是文档分配，未启动实施或切换当前会话模型。风险和必要门禁遵循 [AGENTS](../../AGENTS.md) 与[比例化政策](refactoring/formal/policies/proportional-assurance-and-risk-based-verification-policy.md)，定性实验不冒充发布验收。
 
 临时插桩保持在隔离诊断候选，只保留解释所选问题的有限计数；获选优化形成清晰产品diff，删除已不需要的实验代码，不将临时instrumentation整包带入正式主线。旧成功/失败日志及各轮原件保持不动。每个小包只有一份简短结论：改变什么、同条件输入/版本、实际次数、操作数量和耗时变化、正确性验证、未知、保留或放弃；机器身份/exit/SHA由外置证据承接。
 

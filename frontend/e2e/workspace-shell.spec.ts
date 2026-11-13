@@ -78,6 +78,8 @@ async function installFixtureRoutes(page: Page, options: {
   reviewForbidden?: boolean;
   reviewFixture?: string;
   reviewResultError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
+  reviewResultHold?: Promise<void>;
+  reviewVersion?: number;
   reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "BASELINE_VERSION_CONFLICT" | "ARCHIVE_CLOSED";
   reviewTimeoutFirst?: boolean;
   archiveForbidden?: boolean;
@@ -194,7 +196,7 @@ async function installFixtureRoutes(page: Page, options: {
     ...TEST_REVIEW_FACTS,
     submission_id: submissionId,
     status: closedServed ? "APPROVED" : reviewStatus,
-    review_version: closedServed ? 6 : reviewStatus === "PENDING" ? 5 : 6,
+    review_version: options.reviewVersion ?? (closedServed ? 6 : reviewStatus === "PENDING" ? 5 : 6),
     submission_disposition: closedServed ? {
       submission_id: submissionId,
       disposition: "CLOSED_NOT_ARCHIVED",
@@ -607,6 +609,7 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    if (options.reviewResultHold) await options.reviewResultHold;
     if (options.reviewResultError) {
       const body = { code: options.reviewResultError, message: "提交绑定的比较结果读取失败" };
       const status = options.reviewResultError === "SCOPE_FORBIDDEN" ? 403 : 503;
@@ -2970,3 +2973,51 @@ test("D review formula retains the accepted Preview rendering and clicked point"
   await screenshot(page, "d-review-formula", 1280);
   expect(observed.apiRequests.slice(reviewStart).some((request) => request.path.startsWith("/v1/history"))).toBe(false);
 });
+
+
+for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE"] as const) {
+  test(`D P2 conflict refresh invalidates cached approval when result becomes ${code}`, async ({ page }) => {
+    const options: { reviewConflict?: "REVIEW_VERSION_CONFLICT"; reviewResultError?: typeof code;
+      reviewResultHold?: Promise<void>; reviewVersion?: number } = { reviewConflict: "REVIEW_VERSION_CONFLICT" };
+    const observed = await installFixtureRoutes(page, options);
+    await page.goto(browseUrl("REVIEW", "preview-full"));
+    await waitForBrowse(page);
+    await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+    await waitForBrowse(page);
+    expect(observed.requests.get("preview-full")).toBe(1);
+    await page.getByRole("button", { name: "审核通过", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "确认审核通过" });
+    await dialog.getByRole("button", { name: "确认通过" }).click();
+    await expect(dialog.getByText("REVIEW_VERSION_CONFLICT")).toBeVisible();
+    const before = observed.apiRequests.filter((request) => request.path.endsWith("/result")).length;
+    const hold = deferred();
+    options.reviewVersion = 6;
+    options.reviewResultError = code;
+    options.reviewResultHold = hold.promise;
+    await dialog.getByRole("button", { name: "刷新审核信息" }).click();
+    try {
+      await expect(dialog.getByRole("button", { name: "确认通过" })).toBeDisabled({ timeout: 1500 });
+      await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThan(before);
+      await expect(page.locator(".compare-workspace")).toHaveCount(0);
+    } finally { hold.resolve(); }
+    await expect(page.locator(".compare-error")).toContainText(code);
+    await expect(dialog).toHaveCount(0);
+    await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
+    expect(observed.apiRequests.filter((request) => request.path.endsWith("/review-events"))).toHaveLength(1);
+    await screenshot(page, `d-p2-conflict-${code.toLowerCase()}`, 1920);
+    await screenshot(page, `d-p2-conflict-${code.toLowerCase()}`, 1280);
+    options.reviewResultError = undefined;
+    options.reviewResultHold = undefined;
+    options.reviewConflict = undefined;
+    await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
+    await waitForBrowse(page);
+    await page.getByRole("button", { name: "审核通过", exact: true }).click();
+    await page.getByRole("dialog", { name: "确认审核通过" }).getByRole("button", { name: "确认通过" }).click();
+    await expect(page.getByText("审核：已通过")).toBeVisible();
+    const posts = observed.apiRequests.filter((request) => request.path.endsWith("/review-events"));
+    expect(posts).toHaveLength(2);
+    expect(JSON.parse(posts[1]!.body).expected_review_version).toBe(6);
+    expect(posts[1]!.idempotencyKey).not.toBe(posts[0]!.idempotencyKey);
+    expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+  });
+}

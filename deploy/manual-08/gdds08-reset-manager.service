@@ -1,0 +1,15 @@
+[Unit]
+Description=08 single-device manual reset controller
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -B /home/dev/gdds-gw-dms-08-v2/source/deploy/manual-08/reset_manager.py
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

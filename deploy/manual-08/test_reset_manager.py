@@ -71,6 +71,10 @@ class ResetManagerTest(unittest.TestCase):
         manager.save({'state': 'running', 'stage': 'provisioning'})
         self.assertEqual(manager.status(), {'state': 'failed', 'stage': 'interrupted'})
 
+    def test_unreadable_status_fails_closed(self):
+        manager.STATUS.write_text('{')
+        self.assertEqual(manager.status(), {'state': 'failed', 'stage': 'status-unreadable'})
+
 
 if __name__ == '__main__':
     unittest.main()

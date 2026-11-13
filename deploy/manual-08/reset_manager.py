@@ -35,9 +35,11 @@ def read_status() -> dict[str, str]:
         value = json.loads(STATUS.read_text(encoding='utf-8'))
         if value.get('state') in {'idle', 'running', 'success', 'failed'}:
             return {'state': value['state'], 'stage': value.get('stage', '')}
+    except FileNotFoundError:
+        return {'state': 'idle', 'stage': ''}
     except (OSError, ValueError, AttributeError):
         pass
-    return {'state': 'idle', 'stage': ''}
+    return {'state': 'failed', 'stage': 'status-unreadable'}
 
 
 def acquire() -> int | None:
@@ -66,6 +68,7 @@ def status() -> dict[str, str]:
 
 
 def run(fd: int) -> None:
+    last_stage = 'stopping'
     try:
         # The fixed executable inherits the lock: an interrupted controller
         # cannot admit another reset while the original child is still alive.
@@ -76,11 +79,13 @@ def run(fd: int) -> None:
             for line in child.stdout:
                 stage = line.strip()
                 if stage in STAGES:
+                    last_stage = stage
                     save({'state': 'running', 'stage': stage})
             result = child.wait()
-        save({'state': 'success' if result == 0 else 'failed', 'stage': ''})
+        save({'state': 'success' if result == 0 else 'failed',
+              'stage': '' if result == 0 else last_stage})
     except (OSError, ValueError):
-        save({'state': 'failed', 'stage': ''})
+        save({'state': 'failed', 'stage': last_stage})
     finally:
         os.close(fd)
 

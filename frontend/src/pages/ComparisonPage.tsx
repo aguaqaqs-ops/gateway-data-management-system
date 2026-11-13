@@ -13,7 +13,7 @@ import { alignFormulaLines, renderFormulaLines } from "../features/view-model/fo
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
 import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
-import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
+import { formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
 import { SurfaceChangeBadge, TableFailureNotice, surfaceChangePresentation, tableStatusText } from "../features/view-model/table-state";
@@ -689,6 +689,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     return selectedItem.tabs.filter((tab) => shown.includes(tab) || (!wholeTable && tab.tabKey === selectedTab?.tabKey && tab.tableName === selectedTab.tableName));
   }, [selectedItem, selectedTab, shownTabs, wholeTable]);
   const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter(isEmptyTab).length : 0;
+  const stripVisible = Boolean(selectedItem && (stripTabs.length > 1 || wholeTable || itemEmptyTabCount > 0));
   useEffect(() => { document.querySelector(".overflow-tabs button.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [selectedNodeKey, browse.tabKey]);
 
   const widthTable = surfaceTable?.table_name ?? null;
@@ -850,28 +851,49 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度（双击适应名称）" title="拖动调整宽度，双击适应名称" onDoubleClick={fitSidebarWidth} aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
-        {selectedItem && (stripTabs.length > 1 || wholeTable || itemEmptyTabCount > 0) && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</div>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="空页签：两侧都没有行的表" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
+        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</div>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="空页签：两侧都没有行的表" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
           {selectedTab && table && surfaceTable ? <>
-            <div className="table-heading">
-              <div className="table-heading__meta">
-                <div className="table-heading__title"><h2>{selectedTab.label || table.label}</h2>{table.riskLevel && <span title={`${tableStatusText(table)} · ${riskLevelText(table.riskLevel)}`}><RiskBadge level={table.riskLevel} /></span>}</div>
+            {(() => {
+              // One info line: what changed and how many rows; reasons and notes open as popovers.
+              const tabNotes = selectedItem ? presentation.navigationDiagnostics.filter(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === selectedTab.tabKey) : [];
+              const tableNotes = presentation.navigationDiagnostics.filter((item) => !item.target.group_key && !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName);
+              const surfaceNotes = surfaceTable.diagnostics?.diagnostics_summary ?? [];
+              const fallback = selectedTab.facts?.basis === "TABLE_FALLBACK";
+              const schemaChanged = table.changeKind === "SCHEMA_CHANGED";
+              const noteCount = surfaceNotes.length + tabNotes.length + tableNotes.length + (fallback ? 1 : 0) + (schemaChanged ? 1 : 0);
+              const filtered = selectedTab.rowFilter !== null;
+              const wholeTableChange = table.changeKind === "ADDED" || table.changeKind === "DELETED";
+              const scope = filtered ? selectedTab.facts?.table_scope ?? table.tableScope : table.tableScope;
+              const change = surfaceChangePresentation(table.changeKind);
+              const viewKey = selectedNodeKey + "|" + selectedTab.tabKey + "|" + selectedTab.tableName;
+              return <div className="table-info">
+                <h2 className={stripVisible ? "sr-only" : "table-info__title"}>{selectedTab.label || table.label}</h2>
                 <SurfaceChangeBadge kind={table.changeKind} />
-                <span title={`${surfaceChangePresentation(table.changeKind).text}${surfaceChangePresentation(table.changeKind).tooltip ? ` · ${surfaceChangePresentation(table.changeKind).tooltip}` : ""}${table.riskLevel ? ` · ${riskLevelText(table.riskLevel)}` : ""}`}>{tableStatusText(table)}</span>
-                {table.changeKind === "DEGRADED" && <span className="degraded-reason">{firstDegradedDiagnostic(surfaceTable.diagnostics?.diagnostics_summary ?? [])}</span>}
-                <span className="table-heading__counts">{table.rowCounts.before ?? "—"} → {table.rowCounts.current ?? "—"} 行</span>
-                <span className="table-heading__row-changes">+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}</span>
-                {rowRiskCounts.map(({ level, count }) => <span className="table-heading__risk-count" key={level}><RiskBadge level={level} /><span>{count}</span></span>)}
-                {table.annotationCount > 0 && <span>{table.annotationCount} 条风险标注</span>}
-                {selectedTab.facts?.basis === "TABLE_FALLBACK" && <span className="degraded-reason">此页签按整表提示</span>}
-                {selectedTab.tabKey.startsWith("__whole__:") && <span>整表视图</span>}{(() => { const scope = selectedTab.rowFilter !== null ? selectedTab.facts?.table_scope ?? table.tableScope : table.tableScope; return scope && <span className="table-scope-marker" title={scope.risk_level ? riskLevelText(scope.risk_level) : "整表范围"}>{scope.change ? "整表发生变化" : "整表未变化"}{scope.risk_level ? " · 整表风险" : ""}</span>; })()}
-              </div>
-              {(surfaceTable.diagnostics?.diagnostics_summary?.length ?? 0) > 0 && <div className="table-heading__diagnostics">{(surfaceTable.diagnostics?.diagnostics_summary ?? []).map((diagnostic, index) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <span key={diagnostic + index}><AlertTriangle size={13} />{formatted.message}{debugMode && <code>{formatted.raw}</code>}</span>; })}</div>}
-              {riskReasonDetails.length > 0 && <details className="table-risk-reasons-toggle"><summary>风险原因（{riskReasonDetails.length}）</summary><div className="table-risk-reasons">{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div></details>}
-            </div>
-            {selectedItem && presentation.navigationDiagnostics.filter(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === selectedTab.tabKey).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
+                {table.riskLevel && <span title={riskLevelText(table.riskLevel)}><RiskBadge level={table.riskLevel} /></span>}
+                <span className={table.changeKind === "DEGRADED" ? "table-info__warn" : "table-info__muted"} title={[change.text, change.tooltip].filter(Boolean).join(" · ")}>{tableStatusText(table)}</span>
+                {filtered && <span className="table-info__counts">本页 {tabCount(selectedTab, "before") ?? "—"} → {tabCount(selectedTab, "current") ?? "—"} 行</span>}
+                <span className={filtered ? "table-info__muted table-info__counts" : "table-info__counts"}>{filtered ? "整表 " : ""}{table.rowCounts.before ?? "—"} → {table.rowCounts.current ?? "—"} 行</span>
+                {!wholeTableChange && <span className="table-info__muted table-info__counts" title="新增 / 删除 / 修改的行">+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}</span>}
+                {rowRiskCounts.map(({ level, count }) => <span className="table-info__risk-count" key={level}><RiskBadge level={level} /><span>{count}</span></span>)}
+                {table.annotationCount > 0 && <span className="table-info__muted">{table.annotationCount} 条风险标注</span>}
+                {selectedTab.tabKey.startsWith("__whole__:") && <span className="table-info__muted">整表视图</span>}
+                {scope && <span className="table-scope-marker" title={scope.risk_level ? riskLevelText(scope.risk_level) : "整表范围"}>{scope.change ? "整表发生变化" : "整表未变化"}{scope.risk_level ? " · 整表风险" : ""}</span>}
+                <span className="table-info__spacer" />
+                {riskReasonDetails.length > 0 && <InfoPopover key={viewKey + "|risk"} tone="risk" label={`风险原因 ${riskReasonDetails.length}`}>
+                  <div className="info-popover__list">{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div>
+                </InfoPopover>}
+                {noteCount > 0 && <InfoPopover key={viewKey + "|notes"} tone="warn" label={`提示 ${noteCount}`}>
+                  <div className="info-popover__list">
+                    {surfaceNotes.map((diagnostic, index) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <span key={diagnostic + index}>{formatted.message}{debugMode && <code>{formatted.raw}</code>}</span>; })}
+                    {fallback && <span>此页签的变化和风险按整表提示，不是本页签自己的。</span>}
+                    {schemaChanged && <span>{formatSchemaSummary(surfaceTable.schema_summary)}</span>}
+                    {tableNotes.map((item, index) => <span key={item.code + index}>{formatNavigationDiagnostic(item, presentation.surface.tables)}{debugMode && <code>{item.code}</code>}</span>)}
+                  </div>
+                  {tabNotes.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
+                </InfoPopover>}
+              </div>;
+            })()}
             {debugMode && <DebugInfoBar table={surfaceTable} reasonDetails={riskReasonDetails} />}
-            {table.changeKind === "SCHEMA_CHANGED" && <div className="table-state-note">{formatSchemaSummary(surfaceTable.schema_summary)}</div>}
-            {presentation.navigationDiagnostics.filter((item) => !item.target.group_key && !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName).map((item, index) => <div className="diagnostic-note" key={item.code + index}><AlertTriangle size={15} /><span>{formatNavigationDiagnostic(item, presentation.surface.tables)}</span>{debugMode && <code>{item.code}</code>}</div>)}
             {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
               {tableLoading ? <LoadingSkeleton label="正在读取本地表格" /> : <div className={`table-grid-area${locations.length || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null) ? " has-distribution" : ""}`}>
                 <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={() => void openFormula()} />
@@ -896,6 +918,24 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     </Dialog>
     {formulaOpen && <div className="formula-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormulaOpen(false); }}><aside className="formula-drawer" role="dialog" aria-modal="true" aria-labelledby="formula-title"><header><div><span className="section-kicker">复合信号公式</span><h2 id="formula-title">公式查看</h2></div><button className="icon-button" aria-label="关闭公式" onClick={() => setFormulaOpen(false)}><X size={18} /></button></header><div className="formula-drawer__body">{formulas.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}</div></aside></div>}
   </main>;
+}
+
+/** A small button in the table info line that opens its details over the grid. */
+function InfoPopover({ label, tone, children }: { label: string; tone: "risk" | "warn"; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: MouseEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  return <div ref={rootRef} className={`info-popover info-popover--${tone}`}>
+    <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}><AlertTriangle size={13} aria-hidden="true" />{label}<ChevronDown size={13} aria-hidden="true" /></button>
+    {open && <div className="info-popover__panel" role="dialog" aria-label={label}>{children}</div>}
+  </div>;
 }
 
 function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, withdrawRetryLabel, submitEnabled, submitReason, onWithdraw, onRetry, onSubmit }: {

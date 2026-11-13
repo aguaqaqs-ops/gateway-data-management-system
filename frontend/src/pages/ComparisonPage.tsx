@@ -46,11 +46,11 @@ function bundleErrorState(cause: unknown, details: string): { code: string; deta
 type PairSummary = { pair_id: string };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
-type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
+type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[]; showEmptyTabs: boolean };
 const SETTINGS_KEY = "gateway-comparison-sidebar-v2";
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 420;
-const DEFAULT_SETTINGS: Settings = { sidebarWidth: 220, sidebarCollapsed: false, collapsedGroups: [] };
+const DEFAULT_SETTINGS: Settings = { sidebarWidth: 220, sidebarCollapsed: false, collapsedGroups: [], showEmptyTabs: false };
 const clampSidebar = (width: number) => Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width));
 
 function reviewStatusLabel(status: string): string {
@@ -65,7 +65,8 @@ function readSettings(): Settings {
     const value = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<Settings> | null;
     return { sidebarWidth: typeof value?.sidebarWidth === "number" ? clampSidebar(value.sidebarWidth) : DEFAULT_SETTINGS.sidebarWidth,
       sidebarCollapsed: typeof value?.sidebarCollapsed === "boolean" ? value.sidebarCollapsed : false,
-      collapsedGroups: Array.isArray(value?.collapsedGroups) ? value.collapsedGroups.filter((item): item is string => typeof item === "string") : [] };
+      collapsedGroups: Array.isArray(value?.collapsedGroups) ? value.collapsedGroups.filter((item): item is string => typeof item === "string") : [],
+      showEmptyTabs: value?.showEmptyTabs === true };
   } catch { return DEFAULT_SETTINGS; }
 }
 
@@ -119,6 +120,24 @@ type NavTab = NavItem["tabs"][number];
 function tabOwnState(tab: NavTab): { kind: string | null; risk: RiskLevel | null } {
   if (tab.rowFilter !== null && tab.facts?.basis === "EXACT") return { kind: tab.facts.change_kind ?? null, risk: tab.facts.risk_level ?? null };
   return { kind: tab.table?.changeKind ?? null, risk: tab.table?.riskLevel ?? null };
+}
+
+const EMPTY_TAB_KINDS = new Set(["UNCHANGED", "ADDED", "DELETED", "BUSINESS_EQUIVALENT"]);
+
+/**
+ * A tab with no rows on any existing side, whose only news (if any) is the
+ * table appearing or disappearing. Structure changes, degraded tables and
+ * fallback filter tabs (unknown counts) are never treated as empty.
+ */
+function isEmptyTab(tab: NavTab): boolean {
+  const exact = tab.rowFilter !== null && tab.facts?.basis === "EXACT";
+  if (tab.rowFilter !== null && !exact) return false;
+  const before = exact ? tab.facts?.before_row_count ?? null : tab.table?.rowCounts.before ?? null;
+  const current = exact ? tab.facts?.current_row_count ?? null : tab.table?.rowCounts.current ?? null;
+  if (before === null && current === null) return false;
+  if ((before ?? 0) !== 0 || (current ?? 0) !== 0) return false;
+  const kind = exact ? tab.facts?.change_kind ?? null : tab.table?.changeKind ?? null;
+  return kind !== null && EMPTY_TAB_KINDS.has(kind);
 }
 
 function itemBadgeKind(kinds: readonly string[]): string {
@@ -486,12 +505,14 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const groups = useMemo(() => presentation?.view.groups ?? [], [presentation]);
   const navigationDiagnostics = presentation?.navigationDiagnostics;
   // Tabs an item shows in the tab strip; the sidebar lists an item only when it has some.
+  const showEmptyTabs = settings.showEmptyTabs;
   const shownTabs = useCallback((item: NavItem): NavTab[] => item.tabs.filter((tab) => {
+    if (!showEmptyTabs && isEmptyTab(tab)) return false;
     if (!browse.onlyInteresting) return true;
     const { kind, risk } = tabOwnState(tab);
     return (kind !== null && kind !== "UNCHANGED") || risk !== null
       || (navigationDiagnostics ?? []).some(({ target }) => target.item_key === item.itemKey && (!target.tab_key || target.tab_key === tab.tabKey));
-  }), [browse.onlyInteresting, navigationDiagnostics]);
+  }), [browse.onlyInteresting, navigationDiagnostics, showEmptyTabs]);
   const visibleGroups = useMemo(() => groups.filter((group) => {
     if (!matchesGroup(group, browse.search)) return false;
     return group.items.some((item) => shownTabs(item).length > 0)
@@ -502,8 +523,11 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const wholeTable = wholeTableName ? presentation?.view.tables.find((item) => item.tableName === wholeTableName) : null;
   const selectedEntry = useMemo(() => navigationEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === browse.tabKey)
     ?? navigationEntries.find(({ tab }) => tab.tabKey === browse.tabKey)
+    ?? navigationEntries.find(({ item, tab }) => shownTabs(item).includes(tab))
     ?? navigationEntries[0]
-    ?? null, [browse.nodeKey, browse.tabKey, navigationEntries]);
+    ?? null, [browse.nodeKey, browse.tabKey, navigationEntries, shownTabs]);
+  const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => isEmptyTab(tab)).length, [navigationEntries]);
+  const toggleEmptyTabs = () => setSettings((state) => ({ ...state, showEmptyTabs: !state.showEmptyTabs }));
   const selectedTab = useMemo(() => wholeTable && wholeTableName
     ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, rowFilter: null, facts: null, table: wholeTable }
     : selectedEntry?.tab ?? null, [selectedEntry, wholeTable, wholeTableName]);
@@ -613,6 +637,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const shown = shownTabs(selectedItem);
     return selectedItem.tabs.filter((tab) => shown.includes(tab) || (!wholeTable && tab.tabKey === selectedTab?.tabKey && tab.tableName === selectedTab.tableName));
   }, [selectedItem, selectedTab, shownTabs, wholeTable]);
+  const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter(isEmptyTab).length : 0;
   useEffect(() => { document.querySelector(".overflow-tabs button.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [selectedNodeKey, browse.tabKey]);
 
   const chooseTab = (tableName: string, tabKey: string, itemKey = tableName) => {
@@ -722,6 +747,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         <details className="compare-more">
           <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>
           <div className="compare-more__menu">
+            <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（两侧都没有行，共 {emptyTabCount} 个）</label>
             {import.meta.env.DEV && <div className="display-mode"><span>显示模式（开发环境）</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}
             {bundle && <div className="compare-more__bundle"><span>本地 bundle · 浏览期间不请求后端</span><code>{bundle.manifest.bundle_digest}</code></div>}
           </div>
@@ -750,7 +776,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
-        {selectedItem && (stripTabs.length > 1 || wholeTable) && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</div></div>}
+        {selectedItem && (stripTabs.length > 1 || wholeTable || itemEmptyTabCount > 0) && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><div className="overflow-tabs__visible">{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</div>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="空页签：两侧都没有行的表" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
           {selectedTab && table && surfaceTable ? <>
             <div className="table-heading">
               <div className="table-heading__meta">

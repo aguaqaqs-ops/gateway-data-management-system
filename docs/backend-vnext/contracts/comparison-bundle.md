@@ -442,6 +442,8 @@ S1a ref校验补充：所有四字段backend `ArtifactRef` 使用统一严格a1 
 
 Submission 复用其不可变 PreviewResult 的 bundle；新增审核读取不改变 bundle v4 preimage，不把后台结构审计加入下载包。PreviewResult 的 comparison_pairs 冻结每组 snapshot/comparison/risk/surface/ruleset digest 和可空审计 ID；AcceptSubmit 和每次审核读取将其与 READY 的 exact refs、manifest pair digest、bundle closure 及严格审计文档核对。Preview assemble-state 由 v4 升至 v5，持久 Preview 绑定直接采用新字段，不兼容旧记录。
 
-AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manifest/final closure 与全部成员、后台审计），并把 exact refs 记录为原 Submit Operation 输入。finalize 原事务先转为 submission-review/submission_id 所有，再释放 Attempt/checkpoint。该保护随 Submission 保留，不随退回、撤回、归档关闭或工作区复用释放；没有提交消费者的失败 Attempt 仍仅按原临时生命周期收尾。
+AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manifest/final closure 与全部成员、后台审计），并把 READY root exact ref 记录为原 Submit Operation 输入。finalize 原事务先转为 submission-review/submission_id 所有，再释放 Attempt/checkpoint。该保护随 Submission 保留，不随退回、撤回、归档关闭或工作区复用释放；没有提交消费者的失败 Attempt 仍仅按原临时生命周期收尾。
 
 审核摘要与下载都先执行 submission 的当前权限和 exact scope，再核固定结果与完整后台闭包。当前规则变化不重算旧结果。本地缓存不得免除这次服务器授权及摘要身份核对；缺失与完整性错误明确返回，不以空结果或新 History 替代。JSON 元数据读取沿 bundle 的 16 MiB 上限，整表成员以流式 chunks 验证。
+
+Operation.artifact_refs 继续只存有限 root refs（含接受时的 READY exact ref），不塞入完整输出清单。worker 在 finalize 前读取已接受 READY 的 root+outputs；finalize 请求必需携带这些 exact refs，事务内重新构造 READY canonical bytes，与接受时 root 的大小及 raw SHA 核对，并核完整 Attempt 保护后移交。由 READY 唯一确定的成员不成为第二权威来源；删、换、加成员或缺少保护均拒绝并回滚。Preview result/READY job contract 升为 v3 以拒绝缺少固定 pair 绑定的旧结果，assemble-state 为 v5；bundle 内容形状与 preimage 仍为 v4。

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.review_result_fixtures import review_artifact_refs
+
 import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -77,6 +79,7 @@ def _request(db_path: Path, seed: SubmitSeed, attempt: SubmitAttempt) -> Finaliz
         target_ref=SubmitTargetRef.MAIN,
     )
     return FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
         submit_attempt_id=attempt.submit_attempt_id,
         facts=facts,
         submission_id="sub-1",

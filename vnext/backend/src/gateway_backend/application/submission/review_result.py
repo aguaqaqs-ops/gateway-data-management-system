@@ -113,7 +113,8 @@ def assert_submission_preview_binding(submission: Submission, preview: PreviewRe
 @dataclass(frozen=True, slots=True)
 class SubmissionPreviewRead:
     preview: PreviewResult
-    artifact_refs: tuple[ArtifactRef, ...]
+    ready_ref: ArtifactRef
+    protected_artifact_ids: frozenset[str]
 
 
 def read_submission_preview(
@@ -148,6 +149,7 @@ def read_submission_preview(
         refs = unit_of_work.operations.get_operation(attempt.operation_id).artifact_refs
         held = unit_of_work.list_artifact_protection_for_owner(
             owner_kind="submission-review", owner_id=submission_id)
-        if not {ref.artifact_id for ref in refs}.issubset(held):
+        ready_ref = next((ref for ref in refs if ref.artifact_id == preview.ready_closure_artifact_id), None)
+        if ready_ref is None or ready_ref.artifact_id not in held:
             raise BundleIntegrityError("Submission review protection is incomplete")
-        return SubmissionPreviewRead(preview, refs)
+        return SubmissionPreviewRead(preview, ready_ref, held)

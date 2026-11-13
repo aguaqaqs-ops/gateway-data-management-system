@@ -20,7 +20,8 @@ from gateway_backend.application.submission.errors import (
 from gateway_backend.application.submission.finalize import finalize_submit
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
 from gateway_backend.application.submission.ports import SubmitFinalizeControlTransaction
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_backend.application.checkpoints import ReadyClosureDocument
 
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
@@ -42,6 +43,7 @@ class FinalizeSubmitTransactionRequest:
     expected_attempt_version: int
     expected_await_step_version: int
     expected_operation_version: int
+    review_artifact_refs: tuple[ArtifactRef, ...]
     worker_id: str | None = None
     lease_token: str | None = None
     defer_operation_terminal: bool = False
@@ -103,11 +105,7 @@ def finalize_submit_transaction(
         try:
             assert_submission_preview_binding(result.submission, preview)
         except ValueError as exc:
-            raise FinalizeBindingMismatch("frozen Preview binding mismatch") from exc
-        operation_inputs = unit_of_work.operations.get_operation(attempt.operation_id).artifact_refs
-        if not {preview.ready_closure_artifact_id, preview.bundle_artifact_id}.issubset(
-                {ref.artifact_id for ref in operation_inputs}):
-            raise FinalizeBindingMismatch("frozen operation inputs do not cover Preview review closure")
+            raise FinalizeBindingMismatch("frozen Preview scope or content binding mismatch") from exc
         if (
             preview.workspace_id != attempt.workspace_id
             or preview.repository_id != attempt.repository_id
@@ -155,7 +153,8 @@ def finalize_submit_transaction(
         baseline_head_version=attempt.baseline_head_version,
     )
 
-    _transfer_finalize_protection(unit_of_work, attempt=finalized_attempt)
+    _transfer_finalize_protection(unit_of_work, attempt=finalized_attempt,
+        review_artifact_refs=request.review_artifact_refs)
     from gateway_backend.application.submission.artifact_release import (
         release_submit_checkpoint_protection,
     )
@@ -251,7 +250,7 @@ def _assert_finalized_closure(
     review_refs = unit_of_work.list_artifact_protection_for_owner(
         owner_kind="submission-review", owner_id=submission.submission_id)
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
-    if not {ref.artifact_id for ref in operation.artifact_refs}.issubset(review_refs):
+    if attempt.preview_ready_closure_ref not in review_refs:
         raise FinalizeRecoveryRequired("submission review protection is incomplete")
     if operation.status is not OperationStatus.SUCCEEDED:
         raise FinalizeRecoveryRequired("operation is not SUCCEEDED")
@@ -265,17 +264,27 @@ def _transfer_finalize_protection(
     unit_of_work: SubmitFinalizeControlTransaction,
     *,
     attempt: SubmitAttempt,
+    review_artifact_refs: tuple[ArtifactRef, ...],
 ) -> None:
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
-    # Accept stored the exact complete Preview closure in immutable operation
-    # inputs. Prepare checkpoints have separate pins and never expand this set.
-    refs = operation.artifact_refs
+    ready_ref = next((ref for ref in operation.artifact_refs
+        if ref.artifact_id == attempt.preview_ready_closure_ref), None)
+    preview = unit_of_work.workspace.get_preview_result(attempt.preview_result_id,
+        workspace_id=attempt.workspace_id, repository_id=attempt.repository_id)
+    refs_by_id = {ref.artifact_id: ref for ref in review_artifact_refs}
+    if ready_ref is None or preview is None or refs_by_id.get(ready_ref.artifact_id) != ready_ref:
+        raise FinalizeBindingMismatch("frozen Preview READY binding is missing")
+    outputs = tuple(ref for ref in review_artifact_refs if ref.artifact_id != ready_ref.artifact_id)
+    raw = ReadyClosureDocument.build(outputs, preview.contract_version).to_canonical_bytes()
+    if (len(refs_by_id) != len(review_artifact_refs) or ready_ref.size_bytes != len(raw)
+            or ready_ref.raw_sha256 != raw_blob_digest(raw)
+            or preview.bundle_artifact_id not in refs_by_id):
+        raise FinalizeBindingMismatch("finalize review refs differ from frozen READY closure")
     held = unit_of_work.list_artifact_protection_for_owner(
         owner_kind="submit-attempt", owner_id=attempt.submit_attempt_id)
-    if (not refs or attempt.preview_ready_closure_ref not in {ref.artifact_id for ref in refs}
-            or not {ref.artifact_id for ref in refs}.issubset(held)):
+    if not set(refs_by_id).issubset(held):
         raise FinalizeBindingMismatch("frozen Preview closure protection is incomplete")
-    unit_of_work.set_artifact_protection(refs, owner_kind="submission-review",
+    unit_of_work.set_artifact_protection(review_artifact_refs, owner_kind="submission-review",
         owner_id=attempt.submission_id or "", intent="submission-review")
     unit_of_work.clear_artifact_protection(
         owner_kind="submit-attempt",

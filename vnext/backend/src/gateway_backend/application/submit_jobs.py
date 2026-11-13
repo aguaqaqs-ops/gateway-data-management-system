@@ -1028,11 +1028,16 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     )
                 )
                 return ExecutorAcknowledgment.PUBLISHED
+            ready_ref = next(ref for ref in operation.artifact_refs
+                if ref.artifact_id == attempt.preview_ready_closure_ref)
+            review_artifact_refs = (ready_ref,
+                *load_ready_closure(deps.artifact_store, ready_ref).artifact_refs())
             lease_session.publish_operation(
                 _make_finalize_success_builder(
                     submit_attempt_id=payload.submit_attempt_id,
                     facts=facts,
                     submission_id_factory=deps.submission_id_factory,
+                    review_artifact_refs=review_artifact_refs,
                 )
             )
             return ExecutorAcknowledgment.PUBLISHED
@@ -2585,6 +2590,7 @@ def _make_stable_abort_builder(
                 expected_await_step_version=step.optimistic_version,
                 expected_operation_version=operation.optimistic_version,
                 defer_operation_terminal=True,
+                review_artifact_refs=review_artifact_refs,
             ),
             unit_of_work=transaction,
         )
@@ -2619,6 +2625,7 @@ def _make_finalize_success_builder(
     submit_attempt_id: str,
     facts: MatchingFinalizeFacts,
     submission_id_factory: Callable[[], str],
+    review_artifact_refs: tuple[ArtifactRef, ...],
 ) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]]:
     def builder(
         operation: OperationRecord,
@@ -2643,6 +2650,7 @@ def _make_finalize_success_builder(
                 worker_id=step.worker_id,
                 lease_token=step.lease_token,
                 defer_operation_terminal=True,
+                review_artifact_refs=review_artifact_refs,
             ),
             unit_of_work=transaction,
         )

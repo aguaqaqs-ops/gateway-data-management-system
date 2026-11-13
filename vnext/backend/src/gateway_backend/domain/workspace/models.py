@@ -384,7 +384,7 @@ class PreviewComparisonPair(BaseModel):
     before_snapshot_digest: str
     current_snapshot_digest: str
     comparison_digest: str
-    risk_digest: str
+    risk_digest: str | None
     surface_digest: str
     ruleset_digest: str
     structure_audit_artifact_id: str | None

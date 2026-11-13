@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Protocol
+from gateway_backend.domain.workspace.models import UploadRevision
 
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.bundle_assembly import (
@@ -43,7 +45,7 @@ def closed_review_preview(
         before_snapshot_digest=preview.digests.snapshot_digest,
         current_snapshot_digest=preview.digests.snapshot_digest,
         comparison_digest=surface.comparison_digest.value,
-        risk_digest=(surface.risk_evaluation_digest or DigestRef("sha256:" + "0" * 64)).value,
+        risk_digest=None if surface.risk_evaluation_digest is None else surface.risk_evaluation_digest.value,
         surface_digest=next(pair.surface_digest.value for pair in bundle.bundle.pairs if pair.pair_id == pair_id),
         ruleset_digest=preview.canonical.storage_projection_ruleset_digest.value,
         structure_audit_artifact_id=None) for pair_id in ids)
@@ -63,4 +65,18 @@ def closed_review_preview(
         digests=replace(preview.digests, bundle_digest=bundle.bundle.bundle_digest.value,
             comparison_digest=comparison_pairs[-1].comparison_digest,
             surface_digest=comparison_pairs[-1].surface_digest,
-            risk_digest=comparison_pairs[-1].risk_digest)), tuple(closure_refs.values()), payloads
+            risk_digest=comparison_pairs[-1].risk_digest or preview.digests.risk_digest)), tuple(closure_refs.values()), payloads
+
+
+class ReviewFixtureSeed(Protocol):
+    @property
+    def preview_result(self) -> PreviewResult: ...
+    @property
+    def protected_refs(self) -> tuple[ArtifactRef, ...]: ...
+    @property
+    def upload_revision(self) -> UploadRevision: ...
+
+
+def review_artifact_refs(seed: ReviewFixtureSeed) -> tuple[ArtifactRef, ...]:
+    source_ids = {binding.artifact_id for binding in seed.upload_revision.source_artifacts.values()}
+    return tuple(ref for ref in seed.protected_refs if ref.artifact_id not in source_ids)

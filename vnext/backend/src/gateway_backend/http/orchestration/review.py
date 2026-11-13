@@ -114,8 +114,7 @@ def read_submission_result_operation(
             unit_of_work_factory=deps.review_unit_of_work_factory)
         refs = load_preview_review_closure(read.preview,
             lookup=deps.artifact_ref_lookup, store=deps.artifact_store)
-        frozen = {ref.artifact_id: ref for ref in read.artifact_refs}
-        if any(frozen.get(ref.artifact_id) != ref for ref in refs):
+        if refs[0] != read.ready_ref or not {ref.artifact_id for ref in refs}.issubset(read.protected_artifact_ids):
             raise ValueError("Submission exact review closure differs from accepted inputs")
         return read.preview
     except ArtifactUnavailableError:

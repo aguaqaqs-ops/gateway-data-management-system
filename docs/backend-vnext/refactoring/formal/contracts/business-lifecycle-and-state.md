@@ -409,7 +409,7 @@ Startup seed only fills missing records and checks exact existing mapping/reposi
 
 Submission.preview_result_id 指向原不可变 PreviewResult；审核不创建 History 比较。Preview 固定保存每个 pair 的 snapshot、comparison、risk、surface、ruleset 身份及可空 structure audit 引用。FULL 固定两组 baseline_to_initial、initial_to_modified，默认后者；MODIFIED_ONLY 只有 initial_to_modified，原始侧复用基线。各 pair 独立统计，不累加为净变化。
 
-AcceptSubmit 验证完整 READY、bundle manifest/digest、final bundle closure、pair 身份和后台审计绑定，冻结完整 exact refs 于 Submit Operation 输入，在原事务内取得 Attempt 保护。finalize 在同一事务先建立 submission-review/submission_id 保护，随后释放 Attempt/checkpoint 临时保护。终止且未形成 Submission 的 Attempt 不取得此保护。REJECT、WITHDRAW、StartArchive、CLOSE_NOT_ARCHIVED 与工作区复用只释放原工作区资源，提交所有的审核 bundle、READY 与审计随提交保留。缺失固定 Preview 或冻结闭包不允许 finalize。
+AcceptSubmit 验证完整 READY、bundle manifest/digest、final bundle closure、pair 身份和后台审计绑定，冻结 READY root exact ref 于 Submit Operation 输入，在原事务内取得 Attempt 保护。finalize 在同一事务先建立 submission-review/submission_id 保护，随后释放 Attempt/checkpoint 临时保护。终止且未形成 Submission 的 Attempt 不取得此保护。REJECT、WITHDRAW、StartArchive、CLOSE_NOT_ARCHIVED 与工作区复用只释放原工作区资源，提交所有的审核 bundle、READY 与审计随提交保留。缺失固定 Preview 或冻结闭包不允许 finalize。
 
 GET /v1/submissions/{submission_id}/result 和 /result/bundle 复用当前 Review 权限、fresh provisioned mapping 和 exact device/project/repository/提交校验；withdraw_own_submission 只读本人提交。他人、跨 scope、未知目标遵循现有隐藏规则，无权限仍为 403。工作区 current pointer、active occupancy 和当前规则不作为读取前提。每次读取均鉴权并检查接受时的闭包；缺失返回 SUBMISSION_RESULT_UNAVAILABLE，绑定或内容损坏返回 SUBMISSION_RESULT_INTEGRITY_FAILURE（均为 503），不创建 History 代替。
 

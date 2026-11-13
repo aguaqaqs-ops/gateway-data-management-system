@@ -139,7 +139,7 @@ class SubmissionResultPairResponse(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     pair_id: str
     comparison_digest: str
-    risk_digest: str
+    risk_digest: str | None
     surface_digest: str
 
 

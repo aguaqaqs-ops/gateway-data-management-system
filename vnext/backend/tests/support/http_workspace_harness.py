@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.review_result_fixtures import review_artifact_refs
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from tests.support.configuration_facts import preview_result_with_facts
@@ -1009,6 +1011,7 @@ def seed_pending_review_submission(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(submit_seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=_finalize_facts(submit_seed),
                 submission_id=submission_id,

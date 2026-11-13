@@ -244,7 +244,7 @@ from gateway_backend.operations.worker import (
 _LOG = logging.getLogger(__name__)
 
 PREVIEW_JOB_KIND = "backend-vnext/preview"
-PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v2"
+PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v3"
 PREVIEW_STEP_MATERIALIZE = "materialize_inputs"
 PREVIEW_STEP_ASSEMBLE = "assemble_preview"
 PREVIEW_STEP_PUBLISH = "publish_preview"

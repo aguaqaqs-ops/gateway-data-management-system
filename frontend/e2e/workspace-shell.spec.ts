@@ -786,7 +786,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.locator(".mode-tag")).toHaveText("上传");
   await expect(page.getByRole("navigation", { name: "位置" })).toContainText("原始组态视图");
   await expect(page.locator(".mode-tabs")).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByRole("tab", { name: /原始组态视图/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: /本次组态视图/ })).toBeVisible();
   await page.getByRole("tab", { name: /本次组态视图/ }).click();
@@ -820,14 +820,16 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
   await page.locator('.nav-item[data-item-key="device:table"] .nav-item__button').click();
   await waitForGridPaint(page, "table");
-  await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "false");
   await screenshot(page, "s4-grid-debug", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "收起导航" }).click();
   await screenshot(page, "s4-grid-debug", 1280);
+  await page.locator(".compare-more > summary").click();
   await page.getByRole("radio", { name: "User" }).click();
-  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "true");
+  await page.locator(".compare-more > summary").click();
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "true");
   await screenshot(page, "s3-workbench-upload", 1280);
   await screenshotHeader(page, "s3-header-upload", 1280);
   await screenshot(page, "s4-grid-main", 1280);
@@ -842,7 +844,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page).toHaveURL(/changed=1/);
   await page.getByRole("button", { name: "下一个变更" }).click();
   await expect(page).toHaveURL(/change=1/);
+  await page.locator(".compare-more > summary").click();
   await page.getByRole("radio", { name: "Debug" }).click();
+  await page.locator(".compare-more > summary").click();
   await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("复合信号");
   const stateBeforeReload = new URL(page.url());
   expect(stateBeforeReload.searchParams.get("view")).toBeNull();
@@ -857,8 +861,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
   if (!(await reloadedSearch.isVisible())) await page.getByRole("button", { name: "展开导航" }).click();
   await expect(reloadedSearch).toHaveValue("复合信号");
-  await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "false");
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
   expect(new URL(page.url()).searchParams.get("change")).toBe("1");
   // Authorize the digest again under the current session, then reuse OPFS.
@@ -1067,7 +1071,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   expect(new URL(page.url()).searchParams.get("workbenchNode")).toBe("workspace:workspace-fe2b");
 });
 
-test("待审提交从工作台进入只读审核模式并比较其基线到提交", async ({ page }) => {
+test("待审提交从工作台打开提交绑定的不可变比较", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
@@ -1078,11 +1082,8 @@ test("待审提交从工作台进入只读审核模式并比较其基线到提�
   await waitForBrowse(page);
 
   expect(apiRequests.some((request) => request.method === "GET" && request.path === "/v1/submissions/fe2a-history-ref-2/review")).toBe(true);
-  const historyCompare = apiRequests.find((request) => request.method === "POST" && request.path === "/v1/history-compares");
-  expect(JSON.parse(historyCompare?.body ?? "{}")).toEqual({ nodes: [
-    { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
-    { ref_kind: "submission", ref_id: "fe2a-history-ref-2" },
-  ] });
+  expect(apiRequests.some((request) => request.method === "GET" && request.path === "/v1/submissions/fe2a-history-ref-2/result")).toBe(true);
+  expect(apiRequests.some((request) => request.method === "POST" && request.path === "/v1/history-compares")).toBe(false);
   expect(new URL(page.url()).searchParams.get("submissionId")).toBe("fe2a-history-ref-2");
 });
 
@@ -1282,8 +1283,10 @@ test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有
   await expect(page.getByRole("tooltip")).toContainText("字段变更");
   await screenshot(page, "s4-grid-normal-hover", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.locator(".compare-more > summary").click();
   await page.getByRole("radio", { name: "Debug" }).click();
-  await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
+  await page.locator(".compare-more > summary").click();
+  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute("aria-checked", "true");
   await screenshot(page, "s4-grid-normal-debug", 1920);
   await screenshot(page, "s4-grid-normal-debug", 1280);
 });
@@ -1693,8 +1696,7 @@ test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) =>
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeEnabled();
-  // C5: the expired-approve 409 re-reads the review and the History together.
-  // listHistory pages with ?limit=100 (and a cursor), so match the path prefix.
+  // D: refresh authority and the fixed result after a baseline CAS failure.
   await expect.poll(() => apiRequests.filter((request) =>
     request.method === "GET" && request.path.endsWith("/result")).length,
     { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
@@ -1721,7 +1723,7 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   await expect(closedAlert).toBeVisible();
   expect(await closedAlert.evaluate((element) => element.closest(".compare-header__notice") !== null)).toBe(true);
   expect(await closedAlert.evaluate((element) => element.closest(".review-actions") === null)).toBe(true);
-  // C5: the 409 re-reads the review and the History together; the re-read
+  // D: the 409 re-reads the review and its immutable result; the re-read
   // facts carry the manual-close disposition shown per §6.4.
   const reviewEvents = apiRequests.filter((request) => request.method === "POST" && request.path.endsWith("/review-events"));
   expect(reviewEvents).toHaveLength(1);

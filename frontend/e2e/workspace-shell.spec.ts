@@ -2436,6 +2436,11 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   const openTab = async (tabKey: string) => {
     await expandNavigation();
     const tab = page.locator(`.overflow-tabs button[data-tab-key="${tabKey}"]`).first();
+    if (!(await tab.count()) && new URL(page.url()).searchParams.get("tab") !== tabKey) {
+      await page.locator(".compare-more > summary").click();
+      await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+      await page.locator(".compare-more > summary").click();
+    }
     if (!(await tab.count())) {
       expect(new URL(page.url()).searchParams.get("tab")).toBe(tabKey);
       return;

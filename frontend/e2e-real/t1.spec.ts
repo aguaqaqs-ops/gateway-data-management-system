@@ -369,9 +369,19 @@ function findSidebarTab(
 async function openSidebarTab(page: Page, item: NavigationItemLike, tab: NavigationTabLike): Promise<void> {
   await expandNavigation(page);
   await expandAllGroups(page);
-  await page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-item__button`).click({ timeout: 120_000 });
-  const tabButton = page.locator(`.overflow-tabs button[data-tab-key="${tab.tab_key ?? "table"}"]`);
+  const itemButton = page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-item__button`);
+  const revealEmpty = async () => {
+    await page.locator(".compare-more > summary").click();
+    await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+    await page.locator(".compare-more > summary").click();
+  };
+  if (!(await itemButton.count())) await revealEmpty();
+  await itemButton.click({ timeout: 120_000 });
+  const key = tab.tab_key ?? "table";
+  const tabButton = page.locator(`.overflow-tabs button[data-tab-key="${key}"]`);
+  if (!(await tabButton.count()) && new URL(page.url()).searchParams.get("tab") !== key) await revealEmpty();
   if (await tabButton.count()) { await tabButton.scrollIntoViewIfNeeded(); await tabButton.click(); }
+  expect(new URL(page.url()).searchParams.get("tab"), "selected item's tab is reachable").toBe(key);
   await waitForDiffBrowsing(page);
   await settleFrames(page);
 }

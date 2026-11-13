@@ -11,5 +11,10 @@ export default class SafeReporter implements Reporter {
       status: result.status, passed: this.passed && result.status === 'passed',
     }) + '\n');
   }
-  printsToStdio() { return false; }
+  // Own the stdio channel: false makes Playwright 1.64.1 inject a terminal
+  // reporter, which renders errors and URLs. Deliberately discard all chunks.
+  printsToStdio() { return true; }
+  onStdOut() {}
+  onStdErr() {}
+  onError() {}
 }

@@ -36,3 +36,5 @@ P1 风险修订：入口在任何创建前拒绝同名容器（包括停止态�
 每张真实截图在 fragment 清除后还检查 DOM/属性/URL 不含当前凭据、目录 token、session 文档或 handoff 标记，只保存布尔结果。原件文本中的完整编码 handoff 标记也被拒绝；PNG 无秘密由截图前页面断言证明，收尾字节扫描不承担像素识别。B 的工作区由实际 UI 建立/加载响应核 scope 和空指针，再用公共只读 History 核固定 INITIAL，明确排除 A 的工作区/Preview/提交 ID。
 
 证据核对要求五个镜像角色、完整 config+DiffID、源提交 tree/locks、来源 manifest/原缓存、两份固定回执、原上传及静态构建文件、完整容器三字段和有界同次事件链。空对象、缺字段、跨 run、任何中间失败及截断/坏 CRC PNG 都拒绝。focused 检查位于 `tests/test_evidence.py`（完整最小原件与拒绝反例）和 `tests/test_runtime.py`（停止容器/既有项目保留、真实管理 helper 的超时/中断）；只在持有整机占用的05执行，不能把其模拟原件当真实旅程。
+
+失败 reporter 的 `printsToStdio()` 必须返回 true，表示该 reporter 独占输出通道；固定 Playwright 1.64.1 对 false 自动添加会展开错误正文的 terminal reporter。专用 `reporter-probe.config.ts`/`reporter-probe.spec.ts` 以未签发的合成 token、session 文档及完整编码 handoff 故意发出 stdout/stderr、触发 assertion 和 afterAll 失败；节点检查须确认测试确实执行、原始 exit 1、status failed，而捕获输出和固定事实文件没有合成秘密。此预期失败是 reporter 的拒绝验证，不是成功业务旅程，不能并入 J0–J7。

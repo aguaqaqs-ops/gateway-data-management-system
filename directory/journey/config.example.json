@@ -1,0 +1,18 @@
+{
+  "python": "/home/dev/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/bin/python3.14",
+  "private_dir": "/home/dev/gdds-test-tmp/dir-stage2-private",
+  "groups_file": "/home/dev/gdds-test-tmp/dir-stage2-runtime/public/groups.json",
+  "directory_file": "/home/dev/gdds-test-tmp/dir-stage2-runtime/public/device-directory.json",
+  "entry_directory": "/home/dev/gdds-test-tmp/dir-stage2-runtime/entry",
+  "entry_project": "dir-stage2-entry",
+  "group_id": "group-a",
+  "runtime_override": "/home/dev/gdds-test-tmp/dir-stage2-runtime/group-a/compose-runtime.json",
+  "seed_file": "/home/dev/gdds-test-tmp/dir-stage2-runtime/group-a/seed.json",
+  "directory_npm_cache": "/home/dev/gdds-directory-cache/npm-cache",
+  "directory_npm_archive": "/home/dev/gdds-directory-cache/npm-cache.tar.gz",
+  "directory_npm_manifest": "/home/dev/gdds-directory-cache/npm-manifest.json",
+  "gateway_npm_cache": "/home/dev/gdds-fe-cache/frontend/npm-cache",
+  "gateway_npm_archive": "/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz",
+  "gateway_npm_manifest": "/home/dev/gdds-fe-cache/frontend/directory-journey-manifest.json",
+  "image_identities": "/home/dev/gdds-test-tmp/dir-stage2-runtime/image-identities.json"
+}

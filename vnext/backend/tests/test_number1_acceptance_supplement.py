@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import os
+import socket
 import tarfile
 from typing import Any
 
@@ -194,7 +195,7 @@ def test_replay_calls_all_existing_result_assertions_and_preserves_sources(
     source: n.Source, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(n, "load_source", lambda *_args: source)
-    monkeypatch.setattr(n.socket, "gethostname", lambda: "gw-dms-test-05")
+    monkeypatch.setattr(socket, "gethostname", lambda: "gw-dms-test-05")
     monkeypatch.setattr(n, "input_records", lambda *_args: source.proof.inputs)
     monkeypatch.setattr(a, "_git", lambda *_args: "b" * 40)
     calls = []

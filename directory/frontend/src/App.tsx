@@ -190,20 +190,21 @@ export default function App() {
     : <span title={UNPROVISIONED}><button className="unavailable" disabled aria-label={`未开通：${project.name}，${UNPROVISIONED}`}>未开通</button></span>;
 
   const table = <div className="table-wrap">
-    <table className={showRegion ? "search-results" : undefined}>
+    <table>
       <thead><tr>
-        <th aria-sort="ascending">项目名<span className="sort-mark" aria-hidden="true">↑</span></th>
-        {showRegion && <th>地区</th>}
-        <th>站号</th><th>设备标识</th><th><span className="sr-only">操作</span></th>
+        <th className="col-name" aria-sort="ascending">项目名<span className="sort-mark" aria-hidden="true">↑</span></th>
+        <th className="col-action"><span className="sr-only">操作</span></th>
+        {showRegion && <th className="col-region">地区</th>}
+        <th className="col-station">站号</th><th>设备标识</th>
       </tr></thead>
       <tbody>{rows.map((project, index) => <tr key={project.device_key} ref={(node) => { rowRefs.current[index] = node; }} tabIndex={-1}
         aria-selected={selected === index} className={selected === index ? "focused" : ""} onClick={() => setSelected(index)}>
         <td><span className="name"><Highlighted text={project.name} query={view.q}/></span>
           {(duplicates.get(project.name) || 0) > 1 && <span className="dup" title={`全目录有 ${duplicates.get(project.name)} 个同名项目，按站号区分`}>同名</span>}</td>
+        <td className="action">{enterButton(project)}</td>
         {showRegion && <td className="muted" title={`${project.region1} / ${project.region2}`}>{project.region1} / {project.region2}</td>}
         <td className="mono"><Highlighted text={project.station_code} query={view.q} prefix/></td>
         <td className="mono key">{project.device_key}</td>
-        <td>{enterButton(project)}</td>
       </tr>)}</tbody>
     </table>
     {rows.length === 0 && <div className="empty">没有匹配的项目</div>}
@@ -229,7 +230,9 @@ export default function App() {
 
   return <div className="page">
     <header className="top">
-      <div className="brand"><span className="brand-mark">网</span>网关设备目录</div><span className="tag">试运行</span><span className="vsep"/>
+      <div className="brand"><span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/>
+        <path d="M12 8v4M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/></svg></span>网关设备目录</div><span className="tag">试运行</span><span className="vsep"/>
       <label className="search"><span aria-hidden="true">⌕</span>
         <input ref={searchRef} aria-label="搜索项目" placeholder="搜索项目名、站号或拼音首字母，如 cnbdz" value={view.q} onChange={(event) => update({ q: event.target.value, page: 1 })}/>
         {view.q && <span className="muted">{formatCount(totalMatches)} 个结果</span>}<span className="kbd">/</span>

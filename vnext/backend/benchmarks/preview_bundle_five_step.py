@@ -97,11 +97,13 @@ def run(*, base_url: str, repo_url: str, repository_id: str, initial_commit: str
                     idempotency_key=f"{session}-full-preview", stage="FULL 1 to 2", operation_timeout_seconds=timeout,
                     collect_timing=True, token=journey.REPEAT_SUBMITTER_TOKEN)
                 client.count = full_client.count
+                stage = output / "F"
+                _capture(full_client, full_workspace, preview, manifest, stage)
                 identity = journey._assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")
                 summary = journey._assert_preview_summaries(manifest, unchanged=False, input_completeness="FULL")
                 if summary["changed_table_count"] == 0:
                     raise journey.JourneyFailure("FULL initial-to-modified has no business changes")
-                _capture(full_client, full_workspace, preview, manifest, output / "F", identity, summary)
+                _write(stage / "assertions.json", {"identity": identity, "summary": summary})
             workspace = journey._workspace(client)
             upload = journey._upload_revision(client, workspace=workspace, package=package,
                 idempotency_key=f"{session}-m{index}-upload")
@@ -109,13 +111,14 @@ def run(*, base_url: str, repo_url: str, repository_id: str, initial_commit: str
                 baseline_node_id=baseline_node, baseline_head_version=baseline_version,
                 idempotency_key=f"{session}-m{index}-preview", stage=f"M{index}",
                 operation_timeout_seconds=timeout, collect_timing=True)
+            stage = output / f"M{index}"
+            _capture(client, workspace, preview, manifest, stage)
             identity = journey._assert_identity_pair(preview,
                 expected_status="NOT_APPLICABLE" if index == 1 else "SAME_PROJECT", expected_mode="DETAILED")
             summary = journey._assert_preview_summaries(manifest, unchanged=False)
             if summary["changed_table_count"] == 0:
                 raise journey.JourneyFailure(f"M{index} has no business changes; stop before Submit")
-            stage = output / f"M{index}"
-            _capture(client, workspace, preview, manifest, stage, identity, summary)
+            _write(stage / "assertions.json", {"identity": identity, "summary": summary})
             submission = journey._submit(client, workspace=workspace, upload=upload, preview=preview,
                 baseline_node_id=baseline_node, baseline_head_version=baseline_version,
                 idempotency_key=f"{session}-m{index}-submit", stage=f"M{index} Submit",
@@ -136,15 +139,15 @@ def run(*, base_url: str, repo_url: str, repository_id: str, initial_commit: str
 
 
 def _capture(client: httpx.Client, workspace: dict[str, Any], preview: dict[str, Any],
-             manifest: dict[str, Any], output: Path, identity: dict[str, Any], summary: dict[str, Any]) -> None:
+             manifest: dict[str, Any], output: Path) -> None:
     output.mkdir()
+    _write(output / "preview.json", preview)
+    _write(output / "manifest.json", manifest)
     result_id = preview["result"]["preview_result_id"]
     downloaded, _ = _download(client, f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result_id}/bundle", output, "preview")
     if downloaded != manifest:
         raise journey.JourneyFailure("downloaded bundle differs from the verified Preview")
-    _write(output / "preview.json", preview)
-    _write(output / "manifest.json", manifest)
-    _write(output / "assertions.json", {"identity": identity, "summary": summary})
+
 
 
 def main(argv: Sequence[str] | None = None) -> None:

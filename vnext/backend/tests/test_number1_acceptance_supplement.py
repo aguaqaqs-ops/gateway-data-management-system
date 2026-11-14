@@ -389,11 +389,13 @@ def test_terminal_does_not_clean_an_existing_secret_directory(
     secret = output / "secrets"
     secret.mkdir(parents=True)
     (secret / "foreign").write_text("keep")
+    replay = tmp_path / "replay"
+    replay.mkdir()
     monkeypatch.setattr(socket, "gethostname", lambda: "gw-dms-test-05")
     monkeypatch.setattr(n, "load_source", lambda *_args: source)
     monkeypatch.setattr(n, "require_replay", lambda *_args: None)
     with pytest.raises(FileExistsError):
         n.run_terminal(Path(source.proof.input_root), output, "existing-secret", a._RunState(),
             source_run=Path(source.proof.source_run), source_root=Path(source.proof.source_root),
-            source_head=source.proof.source_head, replay_run=tmp_path)
+            source_head=source.proof.source_head, replay_run=replay)
     assert (secret / "foreign").read_text() == "keep"

@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from gateway_backend.application.checkpoints import load_ready_closure
+from gateway_backend.application.checkpoints import load_checkpoint_envelope, load_ready_closure
+from gateway_backend.artifacts import artifact_ref_from_dict
+from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.application.preview_jobs import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
@@ -69,7 +71,7 @@ def test_publish_succeeds_and_updates_workspace_pointer(tmp_path: Path) -> None:
             )
 
 
-def test_publish_supersedes_when_generation_drifts(tmp_path: Path) -> None:
+def test_publish_supersedes_on_generation_drift_and_preserves_shared_current_refs(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path)
     operation_id = "op-publish-superseded"
     harness.seed_workspace()
@@ -79,6 +81,17 @@ def test_publish_supersedes_when_generation_drifts(tmp_path: Path) -> None:
         bumped = dataclasses.replace(workspace, generation=workspace.generation + 1, optimistic_version=workspace.optimistic_version + 1)
         unit_of_work.workspace.save_workspace(bumped, expected_version=workspace.optimistic_version)
     _run_through_assemble(harness, operation_id)
+    with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
+        assembled = unit_of_work.operations.get_step(f"{operation_id}-step-2")
+        assert assembled.checkpoint_ref is not None
+        state = load_checkpoint_envelope(harness.artifact_store, assembled.checkpoint_ref).job_state
+        ready_ref_payload = state["ready_closure_ref"]
+        assert isinstance(ready_ref_payload, dict)
+        ready = load_ready_closure(harness.artifact_store, artifact_ref_from_dict(ready_ref_payload))
+        retained_ref = next(ref for ref in ready.artifact_refs()
+            if parse_artifact_id(ref.artifact_id) is ArtifactLocation.COMPARISON)
+        unit_of_work.set_artifact_protection((retained_ref,), owner_kind="current-preview",
+            owner_id=harness.upload_revision.workspace_id, intent="current-preview")
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(harness, PREVIEW_PUBLISH_HANDLER, session, control, operation, step)
 
@@ -92,6 +105,9 @@ def test_publish_supersedes_when_generation_drifts(tmp_path: Path) -> None:
     assert workspace.current_preview_result_id is None
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM preview_result_records").fetchone()[0] == 0
+        assert unit_of_work.list_artifact_protection_for_owner(owner_kind="current-preview",
+            owner_id=harness.upload_revision.workspace_id) == frozenset({retained_ref.artifact_id})
+        assert unit_of_work.protection.is_protected(retained_ref.artifact_id)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         if assemble_step.checkpoint_ref is not None:
             assert not unit_of_work.protection.is_protected(

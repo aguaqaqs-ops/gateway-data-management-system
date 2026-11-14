@@ -35,6 +35,7 @@ from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, Unsi
 
 from benchmarks import real_dump_journey as journey
 from benchmarks.bundle_tar import download_bundle_tar
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
 from gateway_backend.capabilities.business_navigation import validate_navigation
@@ -768,6 +769,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_created = True
         _write(output / "start.json", owner)
         _write(output / "execution-isolation.json", isolation)
+        # This CLI also consumes records locally, outside the worker process.
+        # All authorized scopes use the fixed N1 composition.
+        initialize_compute_kernel(1)
         if args.scope == "t4-history":
             from benchmarks.comparison_correctness_history_supplement import run_supplement
             _check(args.source_run is not None and args.source_root is not None

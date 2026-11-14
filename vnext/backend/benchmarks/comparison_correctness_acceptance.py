@@ -722,7 +722,7 @@ def _run(scope: Literal["t4", "number1"], root: Path, output: Path, session: str
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scope", choices=("t4", "number1", "t4-history"), required=True)
+    parser.add_argument("--scope", choices=("t4", "number1", "t4-history", "number1-replay", "number1-terminal"), required=True)
     parser.add_argument("--input-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-head", required=True)
@@ -730,6 +730,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--source-run", type=Path)
     parser.add_argument("--source-root", type=Path)
     parser.add_argument("--source-head")
+    parser.add_argument("--replay-run", type=Path)
     args = parser.parse_args(argv)
     def interrupted(_number: int, _frame: object) -> None:
         raise KeyboardInterrupt("acceptance interrupted")
@@ -775,12 +776,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         # This CLI also consumes records locally, outside the worker process.
         # All authorized scopes use the fixed N1 composition.
         initialize_compute_kernel(1)
+        _check(args.replay_run is None or args.scope == "number1-terminal", "replay binding is only valid for terminal supplement")
         if args.scope == "t4-history":
             from benchmarks.comparison_correctness_history_supplement import run_supplement
             _check(args.source_run is not None and args.source_root is not None
                    and args.source_head is not None, "supplement requires explicit source run/root/HEAD")
             run_supplement(root, output, args.session, state, source_run=args.source_run,
                            source_root=args.source_root, source_head=args.source_head)
+        elif args.scope in ("number1-replay", "number1-terminal"):
+            from benchmarks.comparison_correctness_number1_supplement import run_replay, run_terminal
+            _check(args.source_run is not None and args.source_root is not None and args.source_head is not None,
+                   "number1 supplement requires explicit source run/root/HEAD")
+            if args.scope == "number1-replay":
+                run_replay(root, output, args.source_run, args.source_root, args.source_head)
+            else:
+                _check(args.replay_run is not None, "terminal supplement requires a successful replay")
+                run_terminal(root, output, args.session, state, source_run=args.source_run,
+                             source_root=args.source_root, source_head=args.source_head, replay_run=args.replay_run)
         else:
             _check(args.source_run is None and args.source_root is None and args.source_head is None,
                    "source reuse is only authorized for the bounded History supplement")

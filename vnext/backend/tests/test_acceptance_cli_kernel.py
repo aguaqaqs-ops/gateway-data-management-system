@@ -24,6 +24,7 @@ from pathlib import Path
 from unittest.mock import patch
 from benchmarks import comparison_correctness_acceptance as entry
 from benchmarks import comparison_correctness_history_supplement as supplement
+from benchmarks import comparison_correctness_number1_supplement as number1
 from gateway_backend.artifacts import InMemoryArtifactStore,artifact_ref_from_dict
 from gateway_backend.capabilities.comparison.artifacts import open_records_closure
 
@@ -69,9 +70,11 @@ def git(*args):
     return ''
 arguments=['--scope',scope,'--input-root',str(root/'input'),'--output',str(root/'output'),
            '--expected-head','a'*40,'--session','fresh-cli-kernel']
-if scope=='t4-history':
+if scope in ('t4-history','number1-replay','number1-terminal'):
     arguments+=['--source-run',str(root/'source-run'),'--source-root',str(root/'source-root'),
                 '--source-head','b'*40]
+if scope=='number1-terminal':
+    arguments+=['--replay-run',str(root/'replay')]
 with ExitStack() as patches:
     patches.enter_context(patch.dict(os.environ,{
         'UV_OFFLINE':'1','CARGO_NET_OFFLINE':'true','GATEWAY_DOCKER_BUILD_NETWORK':'none',
@@ -80,7 +83,8 @@ with ExitStack() as patches:
     for owner,name,value in ((entry,'initialize_compute_kernel',initialize_once),
             (entry,'_git',git),(entry,'_assert_execution_isolation',lambda:{}),
             (entry,'_idle',lambda:None),(entry,'Path',local_path),(entry,'_run',consume),
-            (supplement,'run_supplement',consume)):
+            (supplement,'run_supplement',consume),(number1,'run_replay',consume),
+            (number1,'run_terminal',consume)):
         patches.enter_context(patch.object(owner,name,value))
     assert entry.main(arguments)==0
 assert calls==[1] and not (root/'busy').exists()
@@ -89,7 +93,7 @@ print(json.dumps({'scope':scope,'initialized':calls,'records':1,'fresh_process':
 '''
 
 
-@pytest.mark.parametrize("scope", ("t4", "t4-history", "number1"))
+@pytest.mark.parametrize("scope", ("t4", "t4-history", "number1", "number1-replay", "number1-terminal"))
 def test_fresh_cli_initializes_fixed_kernel_before_consuming_records(tmp_path: Path, scope: str) -> None:
     store = InMemoryArtifactStore()
     schema = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8));"

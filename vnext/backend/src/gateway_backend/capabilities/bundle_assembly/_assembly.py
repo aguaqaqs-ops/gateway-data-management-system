@@ -5,7 +5,6 @@ from __future__ import annotations
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 
 import json
-import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from time import monotonic
@@ -66,9 +65,6 @@ from gateway_backend.capabilities.surface_assembly.contracts import (
     ComparisonSurface,
     SurfaceAssemblyStatus,
 )
-
-
-_observation_logger = logging.getLogger("gateway.preview_p1_observation")
 
 
 class BundleAssemblyError(ValueError):
@@ -140,9 +136,7 @@ def assemble_bundle(
                     f"PAIR_{pair_input.pair_id}_MISSING_CLOSURE_REFS:{len(missing)}"
                 )
 
-        observation_started = monotonic()
         planned_by_source = _plan_artifacts(bindings, source_store, checkpoint)
-        observation_plan = monotonic() - observation_started
         replacement_map = {item.source_ref: item.final_ref for item in planned_by_source.values()}
         published_pairs = _rewrite_pairs(
             active_pairs,
@@ -232,16 +226,9 @@ def assemble_bundle(
             for item in generated
             if target_store is not source_store or not item.reuse_source
         ]
-        observation_put = 0.0
-        observation_readback = 0.0
-        observation_publication_started = monotonic()
         for raw_bytes, ref in final_artifacts:
-            observation_started = monotonic()
             target_store.put(raw_bytes, ref)
-            observation_put += monotonic() - observation_started
-            observation_started = monotonic()
             _verify_store_bytes(target_store, ref, raw_bytes)
-            observation_readback += monotonic() - observation_started
         closure_ref = put_with_built_ref(
             target_store,
             closure_raw,
@@ -256,7 +243,6 @@ def assemble_bundle(
         )
         _verify_store_bytes(target_store, closure_ref, closure_raw)
         _verify_store_bytes(target_store, manifest_ref, manifest_raw)
-        observation_publication = monotonic() - observation_publication_started
         checkpoint()
 
         summary = BundleSummary(
@@ -280,24 +266,7 @@ def assemble_bundle(
             artifact_closure_ref=closure_ref,
             diagnostics=diagnostics,
         )
-        observation_started = monotonic()
         validate_bundle(bundle, target_store)
-        observation_validate = monotonic() - observation_started
-        _observation_logger.info(
-            "preview_p1 plan_seconds=%s publication_seconds=%s put_seconds=%s "
-            "readback_seconds=%s validate_seconds=%s planned=%s unchanged_refs=%s "
-            "changed_refs=%s published=%s published_bytes=%s same_store=%s "
-            "reused=%s reused_bytes=%s",
-            observation_plan, observation_publication, observation_put,
-            observation_readback, observation_validate, len(planned_by_source),
-            sum(item.source_ref == item.final_ref for item in planned_by_source.values()),
-            sum(item.source_ref != item.final_ref for item in planned_by_source.values()),
-            len(final_artifacts), sum(len(raw) for raw, _ in final_artifacts),
-            target_store is source_store,
-            sum(item.reuse_source for item in generated) if target_store is source_store else 0,
-            sum(len(item.raw_bytes) for item in generated if item.reuse_source)
-            if target_store is source_store else 0,
-        )
         return BundleAssemblyResult(
             status=status,
             bundle=bundle,

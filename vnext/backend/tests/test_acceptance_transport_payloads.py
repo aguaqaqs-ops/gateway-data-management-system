@@ -67,9 +67,9 @@ def _bundle(tmp_path: Path, *, shared: bool) -> tuple[Path, dict[str, Any]]:
     request = _request(tuple(pairs), profile=BundleProfile.MULTI_PAIR if shared else BundleProfile.SINGLE_PAIR,
                        inputs=tuple(BundleInput(i, role, role) for i, role in enumerate(
                            ("left", "middle", "right") if shared else ("left", "right"))))
-    result = assemble_bundle(request, source_store=store)
-    assert result.status is BundleAssemblyStatus.READY and result.bundle is not None
-    manifest_raw = store.locate(result.bundle.manifest_ref)
+    bundle_result = assemble_bundle(request, source_store=store)
+    assert bundle_result.status is BundleAssemblyStatus.READY and bundle_result.bundle is not None
+    manifest_raw = store.locate(bundle_result.bundle.manifest_ref)
     metadata = read_bundle_transport_metadata(manifest_raw)
     path = tmp_path / "bundle.tar"
     with tarfile.open(path, "w") as archive:

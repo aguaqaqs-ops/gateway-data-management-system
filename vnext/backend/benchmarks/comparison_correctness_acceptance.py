@@ -188,7 +188,6 @@ from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 from gateway_backend.application.submission.review_result import load_preview_review_closure
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
-from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
 with sqlite3.connect('file:/var/lib/gateway/be-metadata/control.sqlite3?mode=ro', uri=True) as conn:
     conn.row_factory = sqlite3.Row
     row = conn.execute('SELECT * FROM preview_result_records WHERE preview_result_id=?',

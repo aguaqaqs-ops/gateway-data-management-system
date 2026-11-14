@@ -2880,9 +2880,11 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await waitForBrowse(page);
   const views = page.getByRole("tablist", { name: "比较视图" });
-  const modified = views.getByRole("tab", { name: /^原始 → 修改/ });
-  const baseline = views.getByRole("tab", { name: /^基线 → 原始/ });
+  const modified = views.getByRole("tab", { name: /^本次组态视图/ });
+  const baseline = views.getByRole("tab", { name: /^原始组态视图/ });
   await expect(modified).toHaveAttribute("aria-selected", "true");
+  await expect(modified).toHaveAttribute("title", /原始组态备份 → 本次归档组态/);
+  await expect(baseline).toHaveAttribute("title", /已归档数据 → 原始组态备份/);
   const fixture = await loadFixture("preview-full");
   for (const pair of fixture.manifest.pairs) {
     const tab = pair.pair_id === "baseline_to_initial" ? baseline : modified;
@@ -2905,6 +2907,8 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
   await screenshot(page, "d-review-full-baseline", 1280);
   await page.reload();
   await waitForBrowse(page);
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
+  await expect(baseline).toHaveAttribute("aria-selected", "true");
   expect(observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThanOrEqual(2);
   expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
   expect(observed.requests.get("preview-full")).toBe(1);

@@ -85,7 +85,7 @@ function readColumnWidths(): ColumnWidths {
 }
 
 function viewLabel(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return total === 1 ? "基线 → 修改" : pair.pair.pair_id === "baseline_to_initial" ? "基线 → 原始" : "原始 → 修改";
+  if (mode === "REVIEW" && total === 1) return "基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   const id = pair.pair.pair_id.toLowerCase();
@@ -95,7 +95,7 @@ function viewLabel(pair: PairPresentation, index: number, total: number, mode: B
 }
 
 function viewTitle(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return "提交绑定比较：" + viewLabel(pair, index, total, mode);
+  if (mode === "REVIEW" && total === 1) return "提交绑定比较：基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   if (pair.pair.pair_id.toLowerCase().includes("baseline_to_initial")) return "已归档数据 → 原始组态备份";

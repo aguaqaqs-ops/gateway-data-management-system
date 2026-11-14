@@ -1,7 +1,7 @@
 import { ApiError } from "./authenticated-fetch";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayApi } from "./client";
-import { applyReviewAction, buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runSubmissionReviewJourney, runSubmitJourney } from "./journeys";
+import { applyReviewAction, buildArchiveSelectedRef, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, assertSubmissionReviewBundle, runSubmitJourney } from "./journeys";
 import { MemoryBundleStore } from "../bundle/local-bundle";
 import { installedFixtureBundle, installedGoldenBundle, responseForTar } from "../../test/helpers";
 import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED, testSubmissionResult } from "../dev/mock-data";
@@ -89,56 +89,6 @@ describe("simulated user journey data flows", () => {
     const result = await runSubmitJourney(api, { workspaceId: "ws-1", previewResultId: "preview-1", uploadRevisionId: "upload-1", generation: 4, expectedWorkspaceVersion: 11, baselineNodeId: "baseline-1", baselineHeadVersion: 12, poll: { intervalMs: 0, wait: async () => undefined } });
     expect(api.acceptSubmit).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 11, expected_baseline_head_version: 12 }));
     expect(result.submission.submission_id).toBe("submission-1");
-  });
-
-  it("reads the fixed Preview result on every open and reuses only verified local bytes", async () => {
-    const fixture = await installedFixtureBundle("preview-full");
-    const getSubmissionBundle = vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest));
-    const api = { getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
-      getSubmissionResult: vi.fn().mockResolvedValue(testSubmissionResult(fixture.manifest)), getSubmissionBundle,
-      listHistory: vi.fn(), startHistoryCompare: vi.fn(), getHistoryCompare: vi.fn(), getHistoryBundle: vi.fn(),
-    } as unknown as GatewayApi;
-    const store = new MemoryBundleStore();
-    const first = await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
-    const second = await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
-    expect(api.getSubmissionResult).toHaveBeenCalledTimes(2);
-    expect(getSubmissionBundle).toHaveBeenCalledTimes(1);
-    expect(first.bundle.manifest.bundle_digest).toBe(second.bundle.manifest.bundle_digest);
-    expect(second.result.default_pair_id).toBe("initial_to_modified");
-    expect(api.listHistory).not.toHaveBeenCalled();
-    expect(api.startHistoryCompare).not.toHaveBeenCalled();
-    expect(api.getHistoryCompare).not.toHaveBeenCalled();
-    expect(api.getHistoryBundle).not.toHaveBeenCalled();
-  });
-
-  it.each(["SCOPE_FORBIDDEN", "SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE"])("does not mask %s with an installed bundle or History fallback", async (code) => {
-    const fixture = await installedFixtureBundle("preview-full");
-    const getSubmissionResult = vi.fn().mockResolvedValueOnce(testSubmissionResult(fixture.manifest))
-      .mockRejectedValueOnce(new ApiError(code, code === "SCOPE_FORBIDDEN" ? 403 : 503, code));
-    const api = { getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS), getSubmissionResult,
-      getSubmissionBundle: vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest)),
-      startHistoryCompare: vi.fn(), listHistory: vi.fn(),
-    } as unknown as GatewayApi;
-    const store = new MemoryBundleStore();
-    await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
-    await expect(runSubmissionReviewJourney(api, store, "fe2a-history-ref-2")).rejects.toMatchObject({ code });
-    expect(api.getSubmissionBundle).toHaveBeenCalledTimes(1);
-    expect(api.startHistoryCompare).not.toHaveBeenCalled();
-    expect(api.listHistory).not.toHaveBeenCalled();
-  });
-
-  it("checks cached pair identities against the authorized summary on each read", async () => {
-    const fixture = await installedFixtureBundle("preview-full");
-    const result = testSubmissionResult(fixture.manifest);
-    const api = { getReviewFacts: vi.fn().mockResolvedValue(TEST_REVIEW_FACTS),
-      getSubmissionResult: vi.fn().mockResolvedValueOnce(result).mockResolvedValueOnce({ ...result,
-        pairs: result.pairs.map((pair) => ({ ...pair, comparison_digest: "sha256:" + "0".repeat(64) })) }),
-      getSubmissionBundle: vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest)),
-    } as unknown as GatewayApi;
-    const store = new MemoryBundleStore();
-    await runSubmissionReviewJourney(api, store, "fe2a-history-ref-2");
-    await expect(runSubmissionReviewJourney(api, store, "fe2a-history-ref-2")).rejects.toMatchObject({ code: "SUBMISSION_RESULT_INTEGRITY_FAILURE" });
-    expect(api.getSubmissionBundle).toHaveBeenCalledTimes(1);
   });
 
   it("uses the current review version for approve/reject and requires a rejection reason", async () => {
@@ -273,5 +223,35 @@ describe("simulated user journey data flows", () => {
     expect(startCalls[0]?.[1]).toBe(startCalls[1]?.[1]);
     expect(startCalls[1]?.[0].confirmation_refs).toEqual([{ subject_digest: "sha256:selection-subject", sequence: 6 }]);
     expect(api.getArchiveResult).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+type SubmissionResult = ReturnType<typeof testSubmissionResult>;
+const REVIEW_IDENTITY_FAULTS: Array<{ name: string; change: (result: SubmissionResult) => SubmissionResult }> = [
+  { name: "submission identity", change: (result) => ({ ...result, submission_id: "other-submission" }) },
+  { name: "bundle digest", change: (result) => ({ ...result, bundle_digest: "sha256:" + "0".repeat(64) }) },
+  { name: "pair order", change: (result) => ({ ...result, pairs: [...result.pairs].reverse() }) },
+  ...(["pair_id", "comparison_digest", "surface_digest", "risk_digest"] as const).map((field) => ({
+    name: field,
+    change: (result: SubmissionResult): SubmissionResult => ({ ...result, pairs: result.pairs.map((pair, index) =>
+      index === 0 ? { ...pair, [field]: field === "pair_id" ? "other-pair" : "sha256:" + "0".repeat(64) } : pair) }),
+  })),
+];
+
+describe("submission review bundle identity used by the page", () => {
+  it.each(["preview-full", "preview-modified-only"])("accepts the matching %s result", async (name) => {
+    const fixture = await installedFixtureBundle(name);
+    expect(() => assertSubmissionReviewBundle("fe2a-history-ref-2", testSubmissionResult(fixture.manifest), fixture.bundle)).not.toThrow();
+  });
+
+  it.each(REVIEW_IDENTITY_FAULTS)("rejects mismatched $name", async ({ change }) => {
+    const fixture = await installedFixtureBundle("preview-full");
+    const result = change(testSubmissionResult(fixture.manifest));
+    let failure: unknown;
+    try { assertSubmissionReviewBundle("fe2a-history-ref-2", result, fixture.bundle); }
+    catch (cause) { failure = cause; }
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({ status: 503, code: "SUBMISSION_RESULT_INTEGRITY_FAILURE" });
   });
 });

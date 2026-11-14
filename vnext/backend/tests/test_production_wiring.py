@@ -767,7 +767,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             "options": {},
         },
     )
-    assert response.status_code == 202
+    assert response.status_code == 202, response.text
     body = response.json()
     assert body["state"] == "PREPARED"
     assert body["submit_attempt_id"].startswith("sa-")

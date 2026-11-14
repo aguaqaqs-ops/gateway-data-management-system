@@ -71,7 +71,9 @@ def test_actual_presentation_refs_recover_from_disk_transfer_or_release_protecti
     entries = [e for e in manifest["closure_entries"] if e["kind"] in {"PROJECTION", "ROW_LOCATOR"}]
     assert {e["kind"] for e in entries} == {"PROJECTION", "ROW_LOCATOR"}
     bundle_refs = {artifact_ref_from_dict(e["artifact_ref"]) for e in entries}
-    assert all(parse_artifact_id(ref.artifact_id) is ArtifactLocation.EXPORT for ref in bundle_refs)
+    # Unchanged presentation members retain their complete comparison refs;
+    # recovery and protection must follow these shared identities.
+    assert bundle_refs == operation_refs
     refs = operation_refs | bundle_refs
     assert refs <= set(ready.artifact_refs())
     after_ttl = datetime.now(UTC) + timedelta(days=2)

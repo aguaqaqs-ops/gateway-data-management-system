@@ -3161,3 +3161,47 @@ test("F filtered navigation counts reflect search and table-scope differences", 
   await expect(count).toHaveText("1");
   for (const width of [1920, 1280]) await screenshot(page, "f-search-nonempty-count", width);
 });
+
+const EMPTY_TAB_SEARCH_CASES = [
+  { label: "item search", query: "复合信号", expectedNode: "device:composite", expectedTab: "table", visibleKeys: ["device:composite"] },
+  { label: "group search", query: "二次装置列表", expectedNode: "device:table", expectedTab: "table", visibleKeys: ["device:table", "device:composite"] },
+  { label: "no search results", query: "不存在的导航项", expectedNode: "device:addr:4", expectedTab: "device_st", visibleKeys: [] },
+] as const;
+
+for (const scenario of EMPTY_TAB_SEARCH_CASES) {
+  for (const onlyInteresting of [false, true]) {
+    test(`F hiding empty tab respects ${scenario.label} with ${onlyInteresting ? "differences" : "all"}`, async ({ page }) => {
+      await installFixtureRoutes(page);
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle" }));
+      await waitForBrowse(page);
+      await page.locator(".compare-more > summary").click();
+      await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+      await page.locator(".compare-more > summary").click();
+      await page.locator('.nav-item[data-item-key="device:addr:4"] .nav-item__button').click();
+      await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill(scenario.query);
+      if (onlyInteresting) await page.getByRole("button", { name: "仅看差异", exact: true }).click();
+      await expect.poll(() => new URL(page.url()).searchParams.get("node")).toBe("device:addr:4");
+      await page.locator(".overflow-tabs__empty-toggle").click();
+      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 })
+        .toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
+      await expect(page.locator(".nav-item")).toHaveCount(scenario.visibleKeys.length);
+      for (const key of scenario.visibleKeys) await expect(page.locator(`.nav-item[data-item-key="${key}"]`)).toBeVisible();
+      if (scenario.visibleKeys.length > 0) {
+        await expect(page.locator(`.nav-item[data-item-key="${scenario.expectedNode}"]`)).toHaveClass(/is-active/);
+      } else {
+        // With no matching nonempty destination, keep the selected empty tab accessible.
+        await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveAttribute("data-tab-key", "device_st");
+        await expect(page.locator(".overflow-tabs__empty-toggle")).toHaveAttribute("aria-pressed", "false");
+      }
+      await page.reload();
+      await waitForBrowse(page);
+      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }))
+        .toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
+      if (scenario.label !== "group search") {
+        const name = scenario.label === "item search" ? "item" : "no-results";
+        for (const width of [1920, 1280]) await screenshot(page, `f-hide-empty-${name}-${onlyInteresting ? "differences" : "all"}`, width);
+      }
+    });
+  }
+}

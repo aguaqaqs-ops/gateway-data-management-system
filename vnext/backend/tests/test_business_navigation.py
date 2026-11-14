@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from gateway_backend.capabilities.business_navigation import (
-    FilterRecord, NavigationEvidence, NavigationRow, NavigationSide, NavigationTable,
+    FilterRecord, NavigationChangeKind, NavigationEvidence, NavigationRow, NavigationSide, NavigationTable,
     build_navigation, validate_navigation,
 )
 from gateway_backend.capabilities.business_navigation.contracts import (
@@ -239,6 +239,7 @@ INVALID_NAVIGATION_MUTATIONS = (
     lambda d: d["groups"][1]["items"][1]["tabs"][0].pop("empty"),
     lambda d: d["groups"][1]["items"][1]["tabs"][0].update(empty=0),
     lambda d: d["groups"][1]["items"][1]["summary"].update(nonempty_tab_count=99),
+    lambda d: d["groups"][1]["items"][1]["summary"].update(change_kinds=["UNKNOWN_SURFACE_KIND"]),
     lambda d: d["groups"][1].update(nonempty_item_count=99),
     lambda d: d["groups"][1]["items"][1]["tabs"][0].update(extra=True),
     lambda d: d.update(contract_version="old"),
@@ -569,7 +570,7 @@ def test_empty_marks_existing_zero_sides_without_deleting_audit_tabs(
 ) -> None:
     shared = replace(table("other", None if old is None else side(tuple({} for _ in range(old))),
         None if new is None else side(tuple({} for _ in range(new))), table_change=True,
-        structure_changed=structure, change_kind=kind, risk_level=RiskLevel.HIGH),
+        structure_changed=structure, change_kind=NavigationChangeKind(kind.value), risk_level=RiskLevel.HIGH),
         evidence=evidence(degraded=True, table_risk=RiskLevel.HIGH))
     result = build(shared, replacement=replacement)
     if replacement:
@@ -591,7 +592,7 @@ def test_filtered_zero_tab_ignores_other_device_changes_and_table_risks(fallback
     source = side(({"dev_addr": 49},))
     record = FilterRecord("row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 49}, RiskLevel.LOW)
     shared = replace(table("device_st", source, source, table_change=True,
-        change_kind=SurfaceChangeKind.UPDATED, risk_level=RiskLevel.HIGH),
+        change_kind=NavigationChangeKind.UPDATED, risk_level=RiskLevel.HIGH),
         evidence=evidence(records=(record,), expected_record_counts=(0, 0, 1), locator_complete=True,
                           degraded=fallback, table_risk=RiskLevel.HIGH))
     result = build(device(devs, devs), shared)
@@ -628,3 +629,16 @@ def test_empty_forward_channel_and_unassigned_shared_table_remain_reachable() ->
     assert channel["items"][0]["tabs"][0]["empty"]
     assert tabs(result, "device_st")[0]["row_filter"] is None
     assert tabs(result, "device_st")[0]["empty"]
+
+
+def test_navigation_change_vocabulary_matches_its_surface_owner() -> None:
+    assert {kind.value for kind in NavigationChangeKind} == {kind.value for kind in SurfaceChangeKind}
+
+
+@pytest.mark.parametrize("kind", tuple(SurfaceChangeKind))
+def test_nonempty_navigation_summary_preserves_every_surface_change_kind(kind: SurfaceChangeKind) -> None:
+    source = side(({},))
+    result = build(table("other", source, source, change_kind=NavigationChangeKind(kind.value)))
+    summary = result.document["groups"][4]["items"][0]["summary"]
+    assert summary == {"change_kinds": [kind.value], "risk_level": None, "nonempty_tab_count": 1}
+    validate_navigation(result.document, replacement=False)

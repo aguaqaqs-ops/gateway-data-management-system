@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, TypeAlias, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -19,9 +20,23 @@ from gateway_backend.capabilities.comparison.contracts import (
     standard_identity_is_keyless,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
-from gateway_backend.capabilities.surface_assembly.contracts import SurfaceChangeKind
 
 CONTRACT_VERSION = "backend-vnext/business-navigation/v2"
+
+
+class NavigationChangeKind(StrEnum):
+    """Navigation boundary vocabulary; the Surface Contract owns these wire values."""
+    UNCHANGED = "UNCHANGED"
+    BUSINESS_EQUIVALENT = "BUSINESS_EQUIVALENT"
+    ADDED = "ADDED"
+    DELETED = "DELETED"
+    UPDATED = "UPDATED"
+    SCHEMA_CHANGED = "SCHEMA_CHANGED"
+    DEGRADED = "DEGRADED"
+    FAILED = "FAILED"
+    REPLACED = "REPLACED"
+
+
 GROUPS = (
     ("FORWARD_CHANNELS", "转发通道"), ("SECONDARY_DEVICES", "二次装置列表"),
     ("COMMUNICATION_PROTOCOLS", "通讯规约列表"), ("GLOBAL_PARAMETERS", "全局参数"),
@@ -130,7 +145,7 @@ class NavigationTable:
     unchanged: bool = False
     # Raw structural facts survive C's audit-only projection; they forbid emptiness.
     structure_changed: bool = False
-    change_kind: SurfaceChangeKind = SurfaceChangeKind.UNCHANGED
+    change_kind: NavigationChangeKind = NavigationChangeKind.UNCHANGED
     risk_level: RiskLevel | None = None
     # Actual owner-resolved pair eligibility. Missing physical columns are distinct
     # from an existing column excluded from comparison.
@@ -339,7 +354,7 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
             nonempty = sum(not t["empty"] for t in item["tabs"])
             if (summary["nonempty_tab_count"] != nonempty
                     or summary["change_kinds"] != sorted(set(summary["change_kinds"]))
-                    or any(k not in {v.value for v in SurfaceChangeKind} for k in summary["change_kinds"])
+                    or any(k not in {v.value for v in NavigationChangeKind} for k in summary["change_kinds"])
                     or summary["risk_level"] not in {v.value for v in RiskLevel} | {None}
                     or (not nonempty and (summary["change_kinds"] or summary["risk_level"] is not None))):
                 raise ValueError("invalid nonempty item summary")

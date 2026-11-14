@@ -317,8 +317,8 @@ def test_new_table_risk_distinguishes_empty_baseline_from_incremental_addition(
 ) -> None:
     existing = "CREATE TABLE existing(id INT PRIMARY KEY);"
     before = complete_canonical_bound(canonical_bound("" if empty_baseline else existing))
-    current = complete_canonical_bound(canonical_bound(existing +
-        "CREATE TABLE added(id INT PRIMARY KEY); INSERT INTO added VALUES(1);"))
+    current = complete_canonical_bound(canonical_bound(
+        "CREATE TABLE added(id INT PRIMARY KEY); INSERT INTO added VALUES(1);" + existing))
     store = InMemoryArtifactStore()
     run = run_preview_pair_pipeline if flow == "preview" else run_history_pair_pipeline
     result = run(pair_id="baseline_to_modified", before=before, current=current,

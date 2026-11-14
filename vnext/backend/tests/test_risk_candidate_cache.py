@@ -11,6 +11,7 @@ import pytest
 from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, InMemoryArtifactStore
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordsClosure, ComparisonTableFact, ComparisonTableStatus, OrderedRecord,
     RecordsArtifactFamily, RecordsClosureEntry,
@@ -331,7 +332,7 @@ class _RecordsAccess:
 def _closure_for(source: RiskEvaluationInput, *, wrong_digest: bool = False) -> ComparisonRecordsClosure:
     facts = source.comparison_facts
     digest = raw_blob_digest(b"s3-d-closure")
-    ref = ArtifactRef("a1:durable:b3e19e66a50a137e55ff1dfa19ae51ed1bdfbbbb0e17598ceb04ad2173b61449", "application/octet-stream", 0, digest)
+    ref = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-risk", "test_risk_candidate_cache.py"), "application/octet-stream", 0, digest)
     return ComparisonRecordsClosure(
         comparison_digest=(raw_blob_digest(b"wrong-pair") if wrong_digest
                            else facts.comparison_digest),

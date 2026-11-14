@@ -27,6 +27,7 @@ from gateway_backend.capabilities.surface_assembly.contracts import SurfaceRecor
 from tests.support.comparison_s3_e_live import native_product, publish_product
 from tests.support.surface_navigation import NAVIGATION_BYTES, seed_navigation
 from tests.test_bundle_assembly import _request, _surface_result
+from tests.test_surface_assembly import _content_binding
 
 pytestmark = pytest.mark.unit
 SELECTOR_FAULTS = ("missing", "ambiguous", "ref-id", "ref-media", "ref-size", "ref-digest", "kind", "pair", "side", "table")
@@ -64,6 +65,8 @@ def _bundle(tmp_path: Path, *, shared: bool) -> tuple[Path, dict[str, Any]]:
         assert result.surface is not None
         table = result.surface.tables[0]
         table = replace(table, table_refs=replace(table.table_refs, current_table_ref=snapshot),
+                        table_content_bindings=replace(table.table_content_bindings,
+                            current=_content_binding("three-row-snapshot")),
                         records_refs=replace(table.records_refs, records_ref=records,
                             records_manifest_ref=records_manifest, records_format=SurfaceRecordsFormat.PARQUET))
         surface = replace(result.surface, tables=(table,))

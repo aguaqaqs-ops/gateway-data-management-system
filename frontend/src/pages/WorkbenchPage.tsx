@@ -1,6 +1,6 @@
 import { scopedStorage } from "../features/api/scoped-storage";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Folder, GitBranch, GitCommitHorizontal, Info, Layers, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Folder, GitBranch, GitCommitHorizontal, Info, Layers, RefreshCw, Search, Trash2, X } from "lucide-react";
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi } from "../features/api/application-api";
 import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent, type IdempotentIntent } from "../features/api/idempotency";
@@ -106,6 +106,9 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareConnectionLost, setCompareConnectionLost] = useState(false);
   const [refreshCompare, setRefreshCompare] = useState(0);
+  const [historyDrawerCollapsed, setHistoryDrawerCollapsed] = useState(false);
+  // Bumped after the URL changes in place, so the URL-derived operation ID is read again.
+  const [, setUrlRevision] = useState(0);
   const [compareElapsed, setCompareElapsed] = useState(0);
   const [bundleStatus, setBundleStatus] = useState<"idle" | "downloading" | "ready" | "failed">("idle");
   const [downloadRevision, setDownloadRevision] = useState(0);
@@ -485,6 +488,16 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
   const occupancyReason = uploadMode.gates.upload.enabled ? null : uploadMode.gates.upload.reason ?? null;
 
   const showHistoryDrawer = Boolean(historyCompareOperationId);
+  // Closing only forgets the operation in this page; the backend has no cancel
+  // for History compare, so it is offered once the compare has finished.
+  const closeHistoryDrawer = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("operationId");
+    url.searchParams.delete("operationKind");
+    window.history.replaceState(null, "", url);
+    setHistoryDrawerCollapsed(false);
+    setUrlRevision((value) => value + 1);
+  };
   const showOperationStatus = operationId !== null && (operationKind === null || operationKind === "operation");
 
   if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
@@ -559,11 +572,12 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
             <div className="history-result-drawer__buttons">{compareConnectionLost && <button className="button button--secondary" onClick={() => setRefreshCompare((value) => value + 1)}><RefreshCw size={14} />重试查询</button>}
               {bundleStatus === "failed" && <button className="button button--secondary" onClick={() => { setCompareError(null); setDownloadRevision((value) => value + 1); }}><RefreshCw size={14} />重试下载</button>}
               {bundleStatus === "ready" && <button className="button button--primary" onClick={() => window.location.assign(pageUrl("compare", { mode: "HISTORY", operationId: historyCompareOperationId, operationKind: "history-compare", workbenchNode: selectedKey }, compareRefs))}>打开差异工作台</button>}
-              <button className="icon-button" aria-label="收起历史比较结果" onClick={() => { const url = new URL(window.location.href); url.searchParams.delete("operationId"); url.searchParams.delete("operationKind"); window.history.replaceState(null, "", url); window.location.reload(); }}><ChevronDown size={17} /></button>
+              <button className="icon-button" aria-label={historyDrawerCollapsed ? "展开历史比较结果" : "收起历史比较结果"} aria-expanded={!historyDrawerCollapsed} title={historyDrawerCollapsed ? "展开" : "收起"} onClick={() => setHistoryDrawerCollapsed((value) => !value)}>{historyDrawerCollapsed ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>
+              {!comparisonLocked && <button className="icon-button" aria-label="关闭历史比较结果" title="关闭" onClick={closeHistoryDrawer}><X size={17} /></button>}
             </div>
           </div>
-          {compareError && <p role="alert" className="history-result-drawer__error">{compareError}</p>}
-          {compareState?.status === "SUCCEEDED" && <div className="history-result-drawer__body">
+          {!historyDrawerCollapsed && compareError && <p role="alert" className="history-result-drawer__error">{compareError}</p>}
+          {!historyDrawerCollapsed && compareState?.status === "SUCCEEDED" && <div className="history-result-drawer__body">
             <div className="history-result-drawer__nodes">{compareRefs.map((node, index) => <article key={refKey(node)}><span>{index + 1}</span><div><strong>{rows.find((row) => row.key === refKey(node))?.label ?? node.ref_id}</strong><small>{node.ref_kind === "baseline_node" ? "基线" : "提交"}</small></div><Check size={15} /></article>)}</div>
             <div className="history-result-drawer__pairs">{compareState.result?.pairs.map((pair, index) => {
               const summary = pairSummaries[pair.pair_id];

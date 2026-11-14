@@ -164,7 +164,7 @@ def test_clone_ownership_failure_does_not_weaken_permissions_or_change_source(
     before = supplement.tree_manifest(source)
     def denied(*args: Any, **kwargs: Any) -> None:
         raise PermissionError("ownership preservation is not permitted")
-    monkeypatch.setattr(supplement.os, "chown", denied)
+    monkeypatch.setattr(os, "chown", denied)
     with pytest.raises(PermissionError, match="ownership preservation"):
         supplement.clone_roots(source, clone)
     assert supplement.tree_manifest(source) == before

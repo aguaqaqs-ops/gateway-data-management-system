@@ -190,7 +190,7 @@ def update_fixture_override(env: dict[str, str], targets_path: Path, probe_path:
     for mounted in (targets_path, probe_path):
         a._check(mounted.parent == directory and mounted.is_file() and not mounted.is_symlink(),
                  "supplement mount is outside the current fixture")
-    descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+    descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         opened = os.fstat(descriptor)
         a._check(stat.S_ISREG(opened.st_mode) and opened.st_uid == os.geteuid() and opened.st_nlink == 1,

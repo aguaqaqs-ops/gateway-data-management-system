@@ -27,7 +27,11 @@ from tests.support.http_shutdown_harness import (
     wait_for_http_server_startup_failure,
 )
 from tests.support.http_workspace_harness import TEST_BEARER
-from tests.support.runtime_settings import TEST_DEVICE_KEY, TEST_REPOSITORY_TOKEN
+from tests.support.runtime_settings import (
+    TEST_DEVICE_KEY,
+    TEST_INTERNAL_BEARER_TOKEN,
+    TEST_REPOSITORY_TOKEN,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -129,7 +133,7 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
                 process.wait(timeout=5)
 
 
-def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path: Path) -> None:
+def test_maintenance_drain_rejects_compare_and_sigterm_completes_inflight_reads(tmp_path: Path) -> None:
     seed = seed_production_history_compare_ready(tmp_path)
     operation_id = seed["operation_id"]
     node_a = seed["node_a"]
@@ -194,40 +198,32 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
                 thread.start()
 
             inflight_barrier.wait_entered(3, timeout_seconds=5.0)
-            os.kill(process.pid, signal.SIGTERM)
-            drain_deadline = time.monotonic() + 5.0
-            ready_status = None
-            rejected_status = None
-            rejected_body: dict[str, object] | None = None
-            while time.monotonic() < drain_deadline and process.poll() is None:
-                try:
-                    ready = httpx.get(f"{base_url}/readyz", timeout=0.3)
-                    ready_status = ready.status_code
-                except httpx.HTTPError:
-                    pass
-                try:
-                    rejected = httpx.post(
-                        f"{base_url}/v1/history-compares",
-                        headers={
-                            **auth_headers,
-                            "Idempotency-Key": "compare-sigterm-drain",
-                        },
-                        json={
-                            "nodes": [
-                                {"ref_kind": "baseline_node", "ref_id": node_a},
-                                {"ref_kind": "baseline_node", "ref_id": node_b},
-                            ]
-                        },
-                        timeout=0.3,
-                    )
-                    rejected_status = rejected.status_code
-                    rejected_body = rejected.json()
-                except httpx.HTTPError:
-                    pass
-                if ready_status == 503 and rejected_status == 409:
-                    break
-                time.sleep(0.02)
 
+            # Explicit drain closes admission while the HTTP listener remains open.
+            # SIGTERM instead closes the listener; it only guarantees in-flight reads.
+            drained = httpx.post(
+                f"{base_url}/internal/v1/maintenance/drain",
+                headers={"Authorization": f"Bearer {TEST_INTERNAL_BEARER_TOKEN}"},
+                timeout=5.0,
+            )
+            assert drained.status_code == 200
+            assert drained.json() == {"accepting_new_work": False, "in_flight": 0}
+            assert httpx.get(f"{base_url}/readyz", timeout=5.0).status_code == 503
+            rejected = httpx.post(
+                f"{base_url}/v1/history-compares",
+                headers={**auth_headers, "Idempotency-Key": "compare-maintenance-drain"},
+                json={
+                    "nodes": [
+                        {"ref_kind": "baseline_node", "ref_id": node_a},
+                        {"ref_kind": "baseline_node", "ref_id": node_b},
+                    ]
+                },
+                timeout=5.0,
+            )
+            assert rejected.status_code == 409
+            assert rejected.json()["code"] == "ADMISSION_CONFLICT"
+
+            os.kill(process.pid, signal.SIGTERM)
             inflight_barrier.wait_drain_started(base_url, process, margin_seconds=1.0)
             inflight_barrier.release()
 
@@ -235,10 +231,6 @@ def test_uvicorn_sigterm_rejects_new_history_compare_while_reads_remain(tmp_path
                 thread.join(timeout=5.0)
                 assert not thread.is_alive()
 
-            assert ready_status == 503
-            assert rejected_status == 409
-            assert rejected_body is not None
-            assert rejected_body["code"] == "ADMISSION_CONFLICT"
             assert operation_result.get("status") == 200
             assert history_result.get("status") == 200
             assert bundle_result.get("status") == 404

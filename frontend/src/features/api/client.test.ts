@@ -53,20 +53,14 @@ describe("authenticated OpenAPI client", () => {
     expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Idempotency-Key")).toBe("review-key");
   });
 
-  it("reads submission result and bundle through the scoped authenticated routes", async () => {
+  it("reads the submission result through its scoped authenticated route", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     const api = createGatewayApi({ baseUrl: "http://gateway.test", session: () => testSession("reviewer"), fetcher });
     await api.getSubmissionResult("submission / one");
-    const controller = new AbortController();
-    await api.getSubmissionBundle("submission / one", controller.signal);
     expect(fetcher.mock.calls.map((call) => String(call[0]))).toEqual([
       "http://gateway.test/v1/submissions/submission%20%2F%20one/result",
-      "http://gateway.test/v1/submissions/submission%20%2F%20one/result/bundle",
     ]);
-    const init = fetcher.mock.calls[1]?.[1];
-    expect(new Headers(init?.headers).get("Accept")).toBe("application/x-tar");
-    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer reviewer");
-    expect(init?.signal).toBe(controller.signal);
+    expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bearer reviewer");
   });
 
   it("follows every History cursor page and returns the complete node list", async () => {

@@ -446,7 +446,7 @@ AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manife
 
 审核摘要与下载都先执行 submission 的当前权限和 exact scope，再核固定结果与完整后台闭包。当前规则变化不重算旧结果。本地缓存不得免除这次服务器授权及摘要身份核对；缺失与完整性错误明确返回，不以空结果或新 History 替代。JSON 元数据读取沿 bundle 的 16 MiB 上限，整表成员以流式 chunks 验证。
 
-审核页面直接读取 `/v1/submissions/{submission_id}/result` 与 `/result/bundle`，不创建或轮询 History。FULL 的 `baseline_to_initial` / `initial_to_modified` 与 Preview 同义，默认 `initial_to_modified`；MODIFIED_ONLY 仍使用单一 `initial_to_modified`（基线→修改）。URL 中有效 pair 选择可恢复，失效选择回到服务端默认。两组的表/行统计、风险和导航各自展示，不计算净变化。页面复用当前比较视图切换与本地浏览；每次打开、刷新（含冲突确认框中的“刷新审核信息”）以及审核动作后的上下文刷新，先重新授权并核对提交 ID、bundle digest 和完整有序 pair digest tuple，再使用已有本地 bundle。失败清空可浏览状态并提供重新读取，不以缓存掩盖权限、缺失或完整性错误。
+审核页面直接读取 `/v1/submissions/{submission_id}/result` 与 `/result/bundle`，不创建或轮询 History。FULL 的 `baseline_to_initial` / `initial_to_modified` 与 Preview 同义，组名与提示共用 Preview 的“原始组态视图”/“本次组态视图”及两侧来源说明，默认 `initial_to_modified`；MODIFIED_ONLY 仍使用单一 `initial_to_modified`（基线→修改）。URL 中有效 pair 选择可恢复，失效选择回到服务端默认。两组的表/行统计、风险和导航各自展示，不计算净变化。页面复用当前比较视图切换与本地浏览；每次打开、刷新（含冲突确认框中的“刷新审核信息”）以及审核动作后的上下文刷新，先重新授权并核对提交 ID、bundle digest 和完整有序 pair digest tuple，再使用已有本地 bundle。失败清空可浏览状态并提供重新读取，不以缓存掩盖权限、缺失或完整性错误。仅服务器明确返回 `SUBMISSION_RESULT_UNAVAILABLE` 或 `SUBMISSION_RESULT_INTEGRITY_FAILURE` 时，允许退回与本人撤回（权限、PENDING 状态及处置限制照旧），审核通过禁用；其他失败仅可重试。
 
 摘要不新增用于预告当前基线的字段。审批沿用原 Review version、基线 CAS 与 canonical eligibility；`BASELINE_VERSION_CONFLICT` 明确提示所基于的基线已更新、不能通过，并保留退回/本人撤回路径。结果本身仍保持原绑定。
 

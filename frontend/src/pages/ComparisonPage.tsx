@@ -42,6 +42,12 @@ function bundleErrorState(cause: unknown, details: string): { code: string; deta
   return { code: bundleLoadErrorCode(cause), details };
 }
 
+function serverResultReleaseCode(cause: unknown): string | undefined {
+  return cause instanceof ApiError && cause.status === 503
+    && (cause.code === "SUBMISSION_RESULT_UNAVAILABLE" || cause.code === "SUBMISSION_RESULT_INTEGRITY_FAILURE")
+    ? cause.code : undefined;
+}
+
 type PairSummary = { pair_id: string; summary?: Record<string, string> };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
@@ -85,7 +91,7 @@ function readColumnWidths(): ColumnWidths {
 }
 
 function viewLabel(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return total === 1 ? "基线 → 修改" : pair.pair.pair_id === "baseline_to_initial" ? "基线 → 原始" : "原始 → 修改";
+  if (mode === "REVIEW" && total === 1) return "基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   const id = pair.pair.pair_id.toLowerCase();
@@ -95,7 +101,7 @@ function viewLabel(pair: PairPresentation, index: number, total: number, mode: B
 }
 
 function viewTitle(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return "提交绑定比较：" + viewLabel(pair, index, total, mode);
+  if (mode === "REVIEW" && total === 1) return "提交绑定比较：基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   if (pair.pair.pair_id.toLowerCase().includes("baseline_to_initial")) return "已归档数据 → 原始组态备份";
@@ -255,6 +261,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [error, setError] = useState<{ code: string; details: string } | null>(null);
   const [historyCompareStatus, setHistoryCompareStatus] = useState<components["schemas"]["HistoryCompareResultResponse"]["status"] | null>(null);
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
+  const [reviewResultErrorCode, setReviewResultErrorCode] = useState<string>();
   const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
   // Upload-mode occupancy (withdraw/submit/upload gates) is shared with the
@@ -429,6 +436,31 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(readColumnWidths);
   useEffect(() => { try { window.localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths)); } catch { /* widths remain in memory */ } }, [columnWidths]);
 
+  // Facts remain authoritative even when the separately authorized result is unreadable.
+  // Only failures from server summary/download requests can enable reject/withdraw;
+  // local bundle identity and download failures never supply this permission.
+  const readReviewContext = useCallback(async (submissionId: string) => {
+    const [review, result] = await Promise.allSettled([
+      gatewayApi.getReviewFacts(submissionId).then((facts) => {
+        gatewayApi.assertSession?.();
+        if (runtime.snapshot.state.submissionId === submissionId) setReviewFacts(facts);
+        return facts;
+      }, (cause: unknown) => {
+        if (runtime.snapshot.state.submissionId === submissionId) setReviewFacts(null);
+        throw cause;
+      }),
+      gatewayApi.getSubmissionResult(submissionId),
+    ]);
+    gatewayApi.assertSession?.();
+    if (review.status === "rejected") throw review.reason;
+    if (result.status === "rejected") {
+      const cause: unknown = result.reason;
+      if (runtime.snapshot.state.submissionId === submissionId) setReviewResultErrorCode(serverResultReleaseCode(cause));
+      throw cause;
+    }
+    return result.value;
+  }, [gatewayApi, runtime]);
+
   const loadBundle = useCallback(async () => {
     if (sessionState.kind !== "handoff" && sessionState.kind !== "preset") return;
     const current = runtime.snapshot.state;
@@ -439,7 +471,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const requestKey = requestPath;
     if (loadingKey.current === requestKey) return;
     loadingKey.current = requestKey;
-    setError(null); setHistoryCompareStatus(null);
+    setError(null); setReviewResultErrorCode(undefined); setHistoryCompareStatus(null);
+    if (current.mode === "REVIEW") setBundle(null);
     if (loadedRequest.current?.requestPath !== requestPath) { setBundle(null); setPairs([]); }
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
@@ -449,17 +482,15 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         expectedBundleDigest = (await gatewayApi.getPreviewResult(current.workspaceId, current.previewResultId)).bundle_digest;
       }
       if (current.mode === "REVIEW" && current.submissionId) {
-        const [facts, result] = await Promise.all([
-          gatewayApi.getReviewFacts(current.submissionId), gatewayApi.getSubmissionResult(current.submissionId),
-        ]);
+        const result = await readReviewContext(current.submissionId);
         gatewayApi.assertSession?.();
         if (result.submission_id !== current.submissionId) throw new ApiError("提交结果身份不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
-        setReviewFacts(facts);
         submissionResult = result;
         expectedBundleDigest = result.bundle_digest;
         if (loadedRequest.current?.requestPath === requestPath
           && loadedRequest.current.bundleDigest === expectedBundleDigest) {
           assertSubmissionReviewBundle(current.submissionId, result, loadedRequest.current.bundle);
+          setBundle(loadedRequest.current.bundle);
           setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
           return;
         }
@@ -479,7 +510,15 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       }
       setBundle(null); setPairs([]);
       const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest,
-        fetchBundle: () => fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }),
+        fetchBundle: async () => {
+          try { return await fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }); }
+          catch (cause) {
+            if (current.mode === "REVIEW" && runtime.snapshot.state.submissionId === current.submissionId) {
+              setReviewResultErrorCode(serverResultReleaseCode(cause));
+            }
+            throw cause;
+          }
+        },
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
       gatewayApi.assertSession?.();
       loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest, bundle: loaded };
@@ -504,7 +543,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     } finally {
       if (loadingKey.current === requestKey) loadingKey.current = null;
     }
-  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind]);
+  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind, readReviewContext]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
 
   // Result authority is invalid while any review-context refresh is pending.
@@ -514,18 +553,16 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const cached = loadedRequest.current;
     setBundle(null);
     setError(null);
+    setReviewResultErrorCode(undefined);
     setLoading({ phase: "重新读取提交绑定的比较结果", received: 0, total: 0 });
     try {
-      const [facts, result] = await Promise.all([
-        gatewayApi.getReviewFacts(current.submissionId), gatewayApi.getSubmissionResult(current.submissionId),
-      ]);
+      const result = await readReviewContext(current.submissionId);
       gatewayApi.assertSession?.();
       if (runtime.snapshot.state.submissionId !== current.submissionId) return false;
       if (!cached || cached.requestPath !== bundlePathForState(current)) {
-        throw new ApiError("提交绑定的比较结果尚未就绪", 503, "SUBMISSION_RESULT_UNAVAILABLE");
+        throw new Error("提交绑定的比较结果尚未就绪，请重试下载");
       }
       assertSubmissionReviewBundle(current.submissionId, result, cached.bundle);
-      setReviewFacts(facts);
       setBundle(cached.bundle);
       return true;
     } catch (cause) {
@@ -535,7 +572,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       setError(bundleErrorState(cause, cause instanceof Error ? cause.message : String(cause)));
       return false;
     }
-  }, [runtime]);
+  }, [runtime, readReviewContext]);
 
   const activePair = pairs.find(({ pair }) => pair.pair_id === browse.pairId) ?? pairs[0];
   const presentation = activePair?.presentation ?? null;
@@ -821,7 +858,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             onRetry={() => void refreshUploadMode()}
             onSubmit={() => { clearResumeNotice(); setSubmitOpen(true); }}
           />}
-          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} onReviewSettled={reloadReviewContext} errorNoticeHost={reviewNoticeRef} />}
+          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} resultErrorCode={reviewResultErrorCode} onFactsChanged={setReviewFacts} onReviewSettled={reloadReviewContext} errorNoticeHost={reviewNoticeRef} />}
         </div>
         <details className="compare-more">
           <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>

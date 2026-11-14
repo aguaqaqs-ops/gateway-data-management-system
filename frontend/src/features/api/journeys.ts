@@ -326,12 +326,6 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
   return { accepted, operation, attempt, submission };
 }
 
-export interface SubmissionReviewJourneyResult {
-  reviewFacts: Awaited<ReturnType<GatewayApi["getReviewFacts"]>>;
-  result: Schemas["SubmissionResultResponse"];
-  bundle: InstalledBundle;
-}
-
 export interface HistoryComparisonJourneyResult {
   accepted: Schemas["HistoryCompareAcceptResponse"];
   result: Schemas["HistoryCompareResultResponse"];
@@ -354,22 +348,6 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
   });
   api.assertSession?.();
   return { accepted, result, bundle };
-}
-
-/** Every read authorizes the fixed Submission result before consulting local storage. */
-export async function runSubmissionReviewJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string): Promise<SubmissionReviewJourneyResult> {
-  api = bindGatewayApi(api);
-  const [reviewFacts, result] = await Promise.all([
-    api.getReviewFacts(submissionId), api.getSubmissionResult(submissionId),
-  ]);
-  if (result.submission_id !== submissionId) throw new ApiError("提交结果身份不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
-  const bundle = await ensureJourneyBundle(api, {
-    store, expectedBundleDigest: result.bundle_digest,
-    fetchBundle: () => api.getSubmissionBundle(submissionId),
-  });
-  assertSubmissionReviewBundle(submissionId, result, bundle);
-  api.assertSession?.();
-  return { reviewFacts, result, bundle };
 }
 
 export function assertSubmissionReviewBundle(submissionId: string, result: Schemas["SubmissionResultResponse"], bundle: InstalledBundle): void {

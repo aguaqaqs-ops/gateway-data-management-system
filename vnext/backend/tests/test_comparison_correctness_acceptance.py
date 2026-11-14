@@ -119,7 +119,8 @@ def test_acceptance_probe_reads_local_ready_audit_and_requires_complete_protecti
 
     unchanged = "CREATE TABLE probe_structure(id INT PRIMARY KEY,value INT); INSERT INTO probe_structure VALUES(1,10);"
     extended = "CREATE TABLE probe_structure(id INT PRIMARY KEY,value INT,extra INT); INSERT INTO probe_structure VALUES(1,10,99);"
-    monkeypatch.setattr(preview_harness, "BASELINE_SQL", preview_harness.BASELINE_SQL + unchanged)
+    # Keep the repository provider's existing baseline rows; this new table is
+    # materialized from the uploaded initial/modified SQL by the real pipeline.
     monkeypatch.setattr(preview_harness, "INITIAL_SQL", preview_harness.INITIAL_SQL + unchanged)
     monkeypatch.setattr(preview_harness, "MODIFIED_SQL", preview_harness.MODIFIED_SQL + extended)
     harness = preview_harness.build_preview_harness(tmp_path / "preview")

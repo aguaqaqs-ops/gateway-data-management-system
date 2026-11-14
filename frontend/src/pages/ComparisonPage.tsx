@@ -550,6 +550,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     return navigationTabHasDifferences(tab)
       || (navigationDiagnostics ?? []).some(({ target }) => target.item_key === item.itemKey && (!target.tab_key || target.tab_key === tab.tabKey));
   }), [browse.onlyInteresting, navigationDiagnostics, showEmptyTabs]);
+  const shownItems = useCallback((group: DerivedNavigationGroup): NavItem[] => {
+    const groupMatches = group.label.toLocaleLowerCase().includes(browse.search.trim().toLocaleLowerCase());
+    return group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
+  }, [browse.search, shownTabs]);
   const visibleGroups = useMemo(() => groups.filter((group) => {
     if (!matchesGroup(group, browse.search)) return false;
     return group.items.some((item) => shownTabs(item).length > 0)
@@ -569,9 +573,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => tab.empty).length, [navigationEntries]);
   const toggleEmptyTabs = () => {
     if (showEmptyTabs && selectedEntry?.tab.empty && !wholeTable) {
-      const next = navigationEntries.find(({ group, item, tab }) => !tab.empty && shownTabs(item).includes(tab)
-        && (matchesGroup(group, browse.search) || matchesItem(item, browse.search)))
-        ?? navigationEntries.find(({ tab }) => !tab.empty);
+      const next = visibleGroups.flatMap((group) => shownItems(group).flatMap((item) =>
+        shownTabs(item).map((tab) => ({ item, tab })))).find(({ tab }) => !tab.empty);
       if (next) {
         runtime.execute({ name: "select-node", nodeKey: next.item.itemKey });
         runtime.execute({ name: "select-tab", tabKey: next.tab.tabKey });
@@ -840,8 +843,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       <aside className="navigation-sidebar" aria-label="比较导航"><div className="sidebar-heading"><div className="sidebar-search"><Search size={14} /><input ref={searchInputRef} aria-label="搜索组、节点或页签" value={search} onChange={(event) => runtime.execute({ name: "set-search", search: event.currentTarget.value })} placeholder={`搜索 · ${presentation.view.tables.length} 张表`} /></div><button className="icon-button" aria-label="收起导航" title="收起导航" onClick={() => setSettings((state) => ({ ...state, sidebarCollapsed: true }))}><ChevronLeft size={16} /></button></div>
         {globalNavigationDiagnostics.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
         <div className="sidebar-scroll">{visibleGroups.map((group) => {
-          const groupMatches = group.label.toLocaleLowerCase().includes(browse.search.trim().toLocaleLowerCase());
-          const items = group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
+          const items = shownItems(group);
           const groupDiagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey);
           if (items.length === 0 && groupDiagnostics.length === 0) return null;
           return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small title="非空项">{items.filter((item) => item.nonemptyTabCount > 0).length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>

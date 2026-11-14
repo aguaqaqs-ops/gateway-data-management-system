@@ -21,7 +21,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 TABLE_RULESET_VERSION = 1
 RULESET_ID = "backend-vnext/table-ruleset"
-RULESET_VERSION = "v5"
+RULESET_VERSION = "v6"
 TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
 STORAGE_PROJECTION_VERSION = "3"
 FALLBACK_SELECTOR_VALUE = "*"
@@ -33,6 +33,27 @@ CONFIGURATION_DIFF_TABLE_NAMES: tuple[str, ...] = (
     "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
 )
 CONFIGURATION_COMPARE_KEY_COLUMNS = ("page_no", "no")
+# Generated sequence columns are retained for storage but excluded from
+# business comparison. These exact tables have no ordering semantics.
+BUSINESS_SEQUENCE_KEYS: dict[str, tuple[str, ...]] = {
+    "device_cfg": ("gid", "page_no", "option_name"),
+    "board_cfg": ("board",),
+    "prot_list": ("prot_no",),
+    "dev_list": ("model",),
+    "device_model_cfg": ("model_name", "page_no", "option_name"),
+    "dev_grp": ("dev_addr", "grp"),
+    "model_grp": ("model_name", "grp"),
+    "primary_equipment_object_cfg": ("equipment_type", "property_name"),
+    "prot_right": ("commit_id", "right_tab"),
+    "rule_61850point_praser_cfg": ("val_gdd",),
+    "rule_61850dev_praser_cfg": (),
+    "rule_61850dev_praser_default_cfg": (),
+}
+BUSINESS_SEQUENCE_COLUMNS = {
+    name: ("id" if name in {"prot_list", "dev_list", "rule_61850dev_praser_cfg", "rule_61850dev_praser_default_cfg"}
+           else "rule_id" if name == "rule_61850point_praser_cfg" else "no")
+    for name in BUSINESS_SEQUENCE_KEYS
+}
 ORDERED_POSITION_COLUMN = "no"
 ORDERED_IDENTITY_COLUMN = "gid"
 _PAIRED_QUOTES = frozenset({"'", '"', "`"})
@@ -87,6 +108,7 @@ class TableCompareKeyMode(StrEnum):
     RAW_PRIMARY_KEY = "RAW_PRIMARY_KEY"
     EXPLICIT_KEY = "EXPLICIT_KEY"
     ORDERED_STABLE_KEY = "ORDERED_STABLE_KEY"
+    FULL_ROW_MULTISET = "FULL_ROW_MULTISET"
 
 
 class TableArtifactScope(StrEnum):
@@ -734,12 +756,12 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
     elif record.precedence_class is SelectorPrecedenceClass.STANDARD_DEVICE_CFG:
         if record.selector.kind is not TableRuleSelectorKind.EXACT:
             raise ValueError("device_cfg selector must be exact")
-        if record.compare_key_mode is not TableCompareKeyMode.RAW_PRIMARY_KEY:
-            raise ValueError("device_cfg requires RAW_PRIMARY_KEY")
+        if record.compare_key_mode is not TableCompareKeyMode.EXPLICIT_KEY or record.compare_key_columns != BUSINESS_SEQUENCE_KEYS["device_cfg"]:
+            raise ValueError("device_cfg requires its business comparison key")
         if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY:
             raise ValueError("device_cfg storage key is DDL primary key")
-        if record.artifact_scope is not TableArtifactScope.UPDATE_ONLY:
-            raise ValueError("device_cfg artifact_scope must be UPDATE_ONLY")
+        if record.artifact_scope is not TableArtifactScope.ALL_CHANGES:
+            raise ValueError("device_cfg artifact_scope must be ALL_CHANGES")
     elif record.selector.kind is TableRuleSelectorKind.REGEX:
         if record.precedence_class not in {
             SelectorPrecedenceClass.STANDARD_PROTOCOL_OPTION,
@@ -757,6 +779,13 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
             and record.selector.value in CONFIGURATION_DIFF_TABLE_NAMES
             and record.compare_key_mode is TableCompareKeyMode.EXPLICIT_KEY
             and record.compare_key_columns == CONFIGURATION_COMPARE_KEY_COLUMNS
+            and record.artifact_scope is TableArtifactScope.ALL_CHANGES
+        )
+        and not (
+            record.precedence_class is SelectorPrecedenceClass.STANDARD_EXACT
+            and record.selector.value in BUSINESS_SEQUENCE_KEYS
+            and record.compare_key_columns == BUSINESS_SEQUENCE_KEYS[record.selector.value]
+            and record.compare_key_mode is (TableCompareKeyMode.EXPLICIT_KEY if record.compare_key_columns else TableCompareKeyMode.FULL_ROW_MULTISET)
             and record.artifact_scope is TableArtifactScope.ALL_CHANGES
         )
     ):

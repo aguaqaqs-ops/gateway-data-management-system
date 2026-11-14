@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 import pyarrow as pa
@@ -22,6 +23,34 @@ from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_live import canonical_bound
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+
+
+def test_preview_uses_identical_current_device_when_baseline_reader_is_omitted() -> None:
+    ddl = ("CREATE TABLE device(gid BIGINT PRIMARY KEY,dev_addr INT,description TEXT);"
+           "CREATE TABLE device_cfg(id BIGINT PRIMARY KEY,gid BIGINT,note TEXT);")
+    devices = "INSERT INTO device VALUES (7,49,'device');"
+    before = complete_canonical_bound(canonical_bound(ddl + devices +
+        "INSERT INTO device_cfg VALUES(1,7,'old');"))
+    current = complete_canonical_bound(canonical_bound(ddl + devices +
+        "INSERT INTO device_cfg VALUES(1,7,'new');"))
+    assert before.table_set is not None
+    before = replace(before, table_set=replace(before.table_set,
+        tables=tuple(t for t in before.table_set.tables if t.descriptor.table_name != "device")))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(standard_rule_record("device"), standard_rule_record("device_cfg")),
+        assess_identity=False, repository_id="replacement-fixture")
+    assert result.surface_result.status is SurfaceAssemblyStatus.READY
+    surface = result.surface_result.surface
+    assert surface is not None
+    projection, = surface.projections
+    navigation = validate_navigation(json.loads(store.locate(projection.projection_ref)), replacement=False)
+    item = next(item for item in navigation["groups"][1]["items"] if item["item_key"] == "device:addr:49")
+    tab = next(tab for tab in item["tabs"] if tab["table_id"] == "device_cfg")
+    assert tab["row_filter"] == {"before": {"column": "gid", "values": [7]},
+                                 "current": {"column": "gid", "values": [7]}}
+    assert tab["facts"]["before_row_count"] == tab["facts"]["current_row_count"] == 1
 
 
 @pytest.mark.parametrize(("changed_cfg", "schema_added"), ((False, False), (True, False), (False, True)))

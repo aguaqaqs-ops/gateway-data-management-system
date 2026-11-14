@@ -126,7 +126,7 @@ class NotCacheable:
 def standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]:
     policy = task.policy
     assert policy is not None
-    return {
+    result: dict[str, object] = {
         "selected_columns": list(schema.selected),
         "effective_key_before": list(schema.before_key),
         "effective_key_current": list(schema.current_key),
@@ -138,6 +138,11 @@ def standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]
                  policy.allow_keyless_key_transition) else "keyed"),
         "schema_diagnostics": _schema_diagnostics(schema, policy),
     }
+    from gateway_backend.capabilities.table_rules.contracts import BUSINESS_SEQUENCE_COLUMNS, BUSINESS_SEQUENCE_KEYS
+    if (task.table_name in BUSINESS_SEQUENCE_KEYS and not BUSINESS_SEQUENCE_KEYS[task.table_name]
+            and policy.compare_excluded_columns == (BUSINESS_SEQUENCE_COLUMNS[task.table_name],)):
+        result["keyless_exclude_columns"] = True
+    return result
 
 
 def standard_identity_policy(task: TableComparisonTask) -> dict[str, object]:

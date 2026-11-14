@@ -27,6 +27,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     ComparisonRole,
     ComparisonRuleView,
     TableArtifactScope,
+    TableCompareKeyMode,
 )
 
 
@@ -107,12 +108,12 @@ def _comparison_policy(
     storage_facts_before: ComparisonStorageFacts | None,
     storage_facts_current: ComparisonStorageFacts | None,
 ) -> _ComparisonTablePolicy:
-    keyless_fallback = view.comparison_role is ComparisonRole.STANDARD and any(
+    keyless_fallback = view.compare_key_mode is TableCompareKeyMode.FULL_ROW_MULTISET or (view.comparison_role is ComparisonRole.STANDARD and any(
         facts is not None
         and facts.storage_rule_view.canonical_key_policy
         is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
         for facts in (storage_facts_before, storage_facts_current)
-    )
+    ))
     ordered_policy = None
     if view.comparison_role is ComparisonRole.ORDERED:
         ordered = view.ordered

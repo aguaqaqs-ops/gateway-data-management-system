@@ -236,10 +236,11 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
         primary_key_columns=("gid",),
         static_role=TableStaticRole.STANDARD_DIFF,
         selector="exact:device_cfg",
-        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-        compare_key_columns=("gid",),
+        compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+        compare_key_columns=("gid", "page_no", "option_name"),
         ignored_columns=frozenset(),
-        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+        artifact_scope=TableArtifactScope.ALL_CHANGES,
+        compare_excluded_columns=frozenset({"no"}),
     ),
     ParityCase(
         label="device_cfg:empty-pk",
@@ -247,10 +248,11 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
         primary_key_columns=(),
         static_role=TableStaticRole.STANDARD_DIFF,
         selector="exact:device_cfg",
-        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-        compare_key_columns=(),
+        compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+        compare_key_columns=("gid", "page_no", "option_name"),
         ignored_columns=frozenset(),
-        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+        artifact_scope=TableArtifactScope.ALL_CHANGES,
+        compare_excluded_columns=frozenset({"no"}),
     ),
     ParityCase(
         label="protocol-option:b1_n1_iec104_cfg",
@@ -329,9 +331,9 @@ NON_OVERLAP_CASES: tuple[tuple[str, str, TableStaticRole, str], ...] = (
         "exact:device_model_table",
     ),
     (
-        "device_model_cfg browse",
+        "device_model_cfg business comparison",
         "device_model_cfg",
-        TableStaticRole.BROWSE_ONLY,
+        TableStaticRole.STANDARD_DIFF,
         "exact:device_model_cfg",
     ),
     (
@@ -432,9 +434,9 @@ def test_legacy_parity_cases(migrated_snapshot: TableRulesetSnapshot, case: Pari
 
 @pytest.mark.parametrize("case", LEGACY_PARITY_CASES, ids=lambda case: case.label)
 def test_legacy_oracle_matches_parity_cases(case: ParityCase) -> None:
-    if case.table_name in DC56_BROWSE_ONLY_ADDITIONS:
+    if case.table_name in DC56_BROWSE_ONLY_ADDITIONS or case.table_name == "device_cfg":
         # DC56 intentionally changes these table roles; legacy is not the target contract.
-        assert case.static_role is TableStaticRole.BROWSE_ONLY
+        assert case.static_role in {TableStaticRole.BROWSE_ONLY, TableStaticRole.STANDARD_DIFF}
         return
     oracle = legacy_oracle_decision(case.table_name, primary_key_columns=case.primary_key_columns)
     assert oracle.static_role == case.static_role.value

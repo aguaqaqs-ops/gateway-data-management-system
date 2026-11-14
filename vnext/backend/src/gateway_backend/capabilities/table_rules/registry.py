@@ -6,6 +6,8 @@ import re
 from functools import cache
 
 from gateway_backend.capabilities.table_rules.contracts import (
+    BUSINESS_SEQUENCE_KEYS,
+    BUSINESS_SEQUENCE_COLUMNS,
     CONFIGURATION_COMPARE_KEY_COLUMNS,
     CONFIGURATION_DIFF_TABLE_NAMES,
     FALLBACK_SELECTOR_VALUE,
@@ -42,18 +44,7 @@ DEFAULT_SKIPPED_TABLE_NAMES: tuple[str, ...] = (
 DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS: tuple[str, ...] = (r"^forwardtable_.*$",)
 DEFAULT_BROWSE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "version_manager",
-    "device_model_cfg",
-    "board_cfg",
-    "dev_grp",
-    "dev_list",
-    "model_grp",
-    "primary_equipment_object_cfg",
-    "prot_list",
-    "prot_right",
     "project",
-    "rule_61850dev_praser_cfg",
-    "rule_61850dev_praser_default_cfg",
-    "rule_61850point_praser_cfg",
     "dev104_cfg",
     "nbridge_cfg",
     "nr103d_cfg",
@@ -146,6 +137,7 @@ def migrated_table_rule_records() -> tuple[TableRuleRecord, ...]:
         *_ordered_records(),
         *_standard_exact_records(),
         *_configuration_records(),
+        *_business_sequence_records(),
         _device_cfg_record(),
         *_protocol_records(),
         _raw_pk_fallback_record(),
@@ -321,8 +313,28 @@ def _device_cfg_record() -> TableRuleRecord:
         table_storage=TableStorageDisposition.PROJECT,
         canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
         ordered_policy=OrderedPolicy.NONE,
-        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+        compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+        compare_key_columns=BUSINESS_SEQUENCE_KEYS["device_cfg"],
+        compare_excluded_columns=("no",),
+        artifact_scope=TableArtifactScope.ALL_CHANGES,
+    )
+
+
+def _business_sequence_records() -> tuple[TableRuleRecord, ...]:
+    return tuple(
+        TableRuleRecord(
+            selector=TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value=name),
+            precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
+            static_role=TableStaticRole.STANDARD_DIFF,
+            table_storage=TableStorageDisposition.PROJECT,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            ordered_policy=OrderedPolicy.NONE,
+            compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY if columns else TableCompareKeyMode.FULL_ROW_MULTISET,
+            compare_key_columns=columns,
+            compare_excluded_columns=(BUSINESS_SEQUENCE_COLUMNS[name],),
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
+        )
+        for name, columns in BUSINESS_SEQUENCE_KEYS.items() if name != "device_cfg"
     )
 
 

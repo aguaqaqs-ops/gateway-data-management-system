@@ -159,6 +159,11 @@ def publish_business_presentation(
         raise ValueError("navigation canonical table sets are missing")
     before_tables = {t.descriptor.table_name: t for t in plan.before.table_set.tables}
     current_tables = {t.descriptor.table_name: t for t in plan.current.table_set.tables}
+    # An unchanged baseline reader may be omitted from Preview materialization.
+    # Reuse only when the complete snapshot and storage identity agrees.
+    for name, table in current_tables.items():
+        if name not in before_tables and same_complete(plan.before, plan.current, name):
+            before_tables[name] = table
     before_labels = {t.table_name: t for t in before_presentation.tables}
     current_labels = {t.table_name: t for t in current_presentation.tables}
     tasks = {t.table_name: t for t in plan.tasks}

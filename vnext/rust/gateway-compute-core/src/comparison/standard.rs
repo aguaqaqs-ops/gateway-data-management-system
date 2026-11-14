@@ -38,6 +38,8 @@ pub struct StandardOptions {
     pub emit_add_delete: bool,
     /// COLUMNS_ADDED compares the shared projection after compare exclusions.
     pub columns_added: bool,
+    /// Full-row business identity omits explicitly excluded generated columns.
+    pub keyless_exclude_columns: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,7 +253,7 @@ fn compare_standard_table_inner(
             &current_rows,
             &columns,
             &excluded,
-            options.columns_added,
+            options.columns_added || options.keyless_exclude_columns,
             options.emit_add_delete,
             context,
             &mut lease,
@@ -543,9 +545,11 @@ impl StandardIdentityScanner {
         }
         let columns = match options.mode {
             StandardMode::Keyed => before,
-            StandardMode::Keyless => {
-                keyless_identity_columns(&selected, &excluded, options.columns_added)
-            }
+            StandardMode::Keyless => keyless_identity_columns(
+                &selected,
+                &excluded,
+                options.columns_added || options.keyless_exclude_columns,
+            ),
         };
         Ok(Self {
             columns,
@@ -935,6 +939,7 @@ mod tests {
             mode,
             emit_add_delete: true,
             columns_added: false,
+            keyless_exclude_columns: false,
         }
     }
 
@@ -1149,6 +1154,29 @@ mod tests {
         let result = compare(&[before], &[current], &policy, &context())?;
         assert_eq!(result.row_modified_count, 0);
         assert!(result.records.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn keyless_multiset_ignores_excluded_values_and_keeps_duplicate_counts()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut policy = options(StandardMode::Keyless);
+        policy.compare_excluded_columns = vec!["name".to_string()];
+        policy.keyless_exclude_columns = true;
+        let same = compare(
+            &[batch(&[1, 1], &["old", "older"])?],
+            &[batch(&[1, 1], &["new", "newer"])?],
+            &policy,
+            &context(),
+        )?;
+        assert_eq!((same.row_added_count, same.row_deleted_count), (0, 0));
+        let added = compare(
+            &[batch(&[1], &["old"])?],
+            &[batch(&[1, 1], &["new", "newer"])?],
+            &policy,
+            &context(),
+        )?;
+        assert_eq!((added.row_added_count, added.row_deleted_count), (1, 0));
         Ok(())
     }
 

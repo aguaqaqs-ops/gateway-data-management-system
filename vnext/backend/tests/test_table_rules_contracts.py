@@ -110,7 +110,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
                 canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
             )
         )
-    assert RULESET_VERSION == "v5"
+    assert RULESET_VERSION == "v6"
 
 
 def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() -> None:
@@ -149,7 +149,7 @@ def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() 
     }
     assert len(added_browse_names) == 5
     assert added_browse_names <= set(DEFAULT_BROWSE_ONLY_TABLE_NAMES)
-    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 18
+    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 7
     assert all(
         by_selector[(TableRuleSelectorKind.EXACT, name)].precedence_class
         is SelectorPrecedenceClass.BROWSE_ONLY

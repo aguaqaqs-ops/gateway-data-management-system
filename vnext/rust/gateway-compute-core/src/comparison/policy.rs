@@ -39,6 +39,7 @@ pub fn parse_comparison_policy(
                 mode,
                 emit_add_delete: flag(&value, "emit_add_delete", true)?,
                 columns_added: flag(&value, "columns_added", false)?,
+                keyless_exclude_columns: flag(&value, "keyless_exclude_columns", false)?,
             }))
         }
         "ordered" => {

@@ -141,6 +141,10 @@ def _ignored_values_changed(
     current: SnapshotTableDescriptor,
     policy: _ComparisonTablePolicy,
 ) -> bool:
+    from gateway_backend.capabilities.table_rules.contracts import BUSINESS_SEQUENCE_COLUMNS
+
+    if policy.compare_excluded_columns == (BUSINESS_SEQUENCE_COLUMNS.get(policy.table_name),):
+        return False
     return (
         bool(policy.compare_excluded_columns)
         and before.raw_content_digest is not None

@@ -311,6 +311,9 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
         content_changed = (data["ignored_shared_content_changed"] if
             (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED or _pure_column_change(schema)) else
             _ignored_values_changed(before, current, policy))
+        from gateway_backend.capabilities.table_rules.contracts import BUSINESS_SEQUENCE_COLUMNS
+        if policy.compare_excluded_columns == (BUSINESS_SEQUENCE_COLUMNS.get(task.table_name),):
+            content_changed = False
     return ComparisonTableFact(
         table_name=task.table_name, status=status,
         before_descriptor=before, current_descriptor=current,

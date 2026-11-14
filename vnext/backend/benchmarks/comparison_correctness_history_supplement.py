@@ -333,5 +333,3 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
             a._finish_stack(env, output, state, sys.exception())
         finally:
             a._check(tree_manifest(source_root / "roots") == original, "source fixture changed during supplement")
-
-

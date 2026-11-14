@@ -10,6 +10,7 @@ import pytest
 from gateway_backend.application.checkpoints import load_checkpoint_envelope, load_ready_closure
 from gateway_backend.artifacts import artifact_ref_from_dict
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
+from gateway_backend.capabilities.bundle_assembly import read_bundle_transport_metadata
 from gateway_backend.application.preview_jobs import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
@@ -88,8 +89,12 @@ def test_publish_supersedes_on_generation_drift_and_preserves_shared_current_ref
         ready_ref_payload = state["ready_closure_ref"]
         assert isinstance(ready_ref_payload, dict)
         ready = load_ready_closure(harness.artifact_store, artifact_ref_from_dict(ready_ref_payload))
-        retained_ref = next(ref for ref in ready.artifact_refs()
-            if parse_artifact_id(ref.artifact_id) is ArtifactLocation.COMPARISON)
+        bundle_id = state["bundle_artifact_id"]
+        assert isinstance(bundle_id, str)
+        metadata = read_bundle_transport_metadata(harness.artifact_store.locate(harness.artifact_store.get_ref(bundle_id)))
+        retained_ref = next(entry.artifact_ref for entry in metadata.entries
+            if parse_artifact_id(entry.artifact_ref.artifact_id) is ArtifactLocation.COMPARISON)
+        assert retained_ref in ready.artifact_refs()
         unit_of_work.set_artifact_protection((retained_ref,), owner_kind="current-preview",
             owner_id=harness.upload_revision.workspace_id, intent="current-preview")
     session, control, operation, step = claim_next_step(harness)

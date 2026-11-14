@@ -6,12 +6,14 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import subprocess
+import socket
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from benchmarks import comparison_correctness_acceptance as acceptance
+from benchmarks.real_dump_journey import JourneyFailure
 from gateway_backend.capabilities.comparison import ComparisonPlan, ComparisonRequest, plan_comparison
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceCompare
@@ -50,7 +52,7 @@ def _local_docker(monkeypatch: pytest.MonkeyPatch, *, endpoint: str, daemon: str
     for key in ("GATEWAY_BACKEND_REPOSITORY_BASE_URL", "DOCKER_HOST", "DOCKER_CONTEXT",
                 "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(acceptance.socket, "gethostname", lambda: "node")
+    monkeypatch.setattr(socket, "gethostname", lambda: "node")
 
     def command(*args: str) -> subprocess.CompletedProcess[str]:
         if args == ("docker", "context", "show"):
@@ -76,7 +78,7 @@ def test_acceptance_rejects_external_repository_and_docker_connections(
         variable = {"repository": "GATEWAY_BACKEND_REPOSITORY_BASE_URL",
                     "host": "DOCKER_HOST", "context": "DOCKER_CONTEXT"}[fault]
         monkeypatch.setenv(variable, value)
-    with pytest.raises(acceptance.journey.JourneyFailure, match=message):
+    with pytest.raises(JourneyFailure, match=message):
         acceptance._assert_execution_isolation()
 
 
@@ -95,7 +97,7 @@ def test_acceptance_preserves_failed_probe_output_and_numeric_exit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(acceptance, "run_compose", _failed_compose)
-    with pytest.raises(acceptance.journey.JourneyFailure, match="probe failed"):
+    with pytest.raises(JourneyFailure, match="probe failed"):
         acceptance._probe({}, "preview", "submission", tmp_path, "probe-before")
     assert (tmp_path / "probe-before-stdout.log").read_text() == "original stdout\n"
     assert (tmp_path / "probe-before-stderr.log").read_text() == "original stderr\n"
@@ -113,7 +115,7 @@ def test_acceptance_log_failure_cleans_own_stack_and_cannot_replace_original_fai
     state = acceptance._RunState(cleanup_complete=False)
     primary = ValueError("original business failure") if primary_failure else None
     if primary is None:
-        with pytest.raises(acceptance.journey.JourneyFailure, match="log collection failed"):
+        with pytest.raises(JourneyFailure, match="log collection failed"):
             acceptance._finish_stack({}, tmp_path, state, primary)
     else:
         acceptance._finish_stack({}, tmp_path, state, primary)
@@ -129,7 +131,7 @@ def test_acceptance_checks_owning_surface_canonical_configuration_key_order() ->
     compare = SurfaceCompare(None, ("no", "page_no"), (), ("no", "page_no"))
     document = compare.to_document()
     acceptance._configuration_keys(document["compare_key_columns"])  # type: ignore[arg-type]
-    with pytest.raises(acceptance.journey.JourneyFailure, match="comparison key"):
+    with pytest.raises(JourneyFailure, match="comparison key"):
         acceptance._configuration_keys(["no"])
 
 
@@ -144,7 +146,7 @@ def test_acceptance_requires_the_exact_original_project_marker(tmp_path: Path, f
         marker.write_bytes(b"changed")
     else:
         (tmp_path / "additional.pmc").write_bytes(b"")
-    with pytest.raises(acceptance.journey.JourneyFailure, match="marker name/content"):
+    with pytest.raises(JourneyFailure, match="marker name/content"):
         acceptance._number1_marker(tmp_path)
 
 
@@ -163,11 +165,14 @@ def _source_and_native_rows(root: Path) -> tuple[acceptance._DeviceChange, list[
         before=canonical_bound(source_sql[0]), current=canonical_bound(source_sql[1]),
         rule_set=comparison_rule_set(migrated_table_ruleset_snapshot())))
     assert isinstance(plan, ComparisonPlan)
-    rows = []
-    with compare_plan_native(plan) as product:
+    rows: list[dict[str, Any]] = []
+    product = compare_plan_native(plan)
+    try:
         for handle in product.handles.values():
             with closing(handle.record_batches("STANDARD")) as reader:
                 rows.extend(row for batch in reader for row in batch.to_pylist())
+    finally:
+        product.close()
     return oracle, rows
 
 
@@ -182,5 +187,5 @@ def test_acceptance_matches_source_literal_to_native_record_identity_and_values(
         field = "before_values" if fault == "before" else "current_values"
         value = next(item["value"] for item in altered[0][field] if item["column_name"] == "description")
         value["text"] = "incorrect"
-    with pytest.raises(acceptance.journey.JourneyFailure, match="mismatch"):
+    with pytest.raises(JourneyFailure, match="mismatch"):
         acceptance._check_device_record(altered, oracle)

@@ -10,9 +10,11 @@ import pytest
 from gateway_shared_kernel import raw_blob_digest
 
 from benchmarks import comparison_correctness_history_supplement as supplement
+from benchmarks import comparison_correctness_acceptance as acceptance
 from benchmarks.real_dump_journey import JourneyFailure
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
 
@@ -29,7 +31,7 @@ def _targets() -> list[supplement.Target]:
                           "application/vnd.apache.parquet", len(raw), raw_blob_digest(raw))
         result.append(supplement.Target(table_name=name, repository_id="repository-test",
             row_layout_digest=raw_blob_digest(raw + b"layout").value, writer_version=1,
-            cache_ref=supplement.a._ArtifactReference.model_validate(artifact_ref_to_dict(ref)), row_count=1))
+            cache_ref=acceptance._ArtifactReference.model_validate(artifact_ref_to_dict(ref)), row_count=1))
     return result
 
 
@@ -40,7 +42,7 @@ def test_observer_forwards_actual_sqlite_miss_store_and_hit(tmp_path: Path, caps
     cache = supplement.observed_cache_type(targets)(lambda: ControlDbUnitOfWork(db))
 
     @supplement.observe_history
-    def demand(payload: object, deps: object, sides: dict[str, object]) -> dict[object, ArtifactRef]:
+    def demand(payload: object, deps: object, sides: dict[str, object]) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
         result = cache.lookup_many(tuple(target.key() for target in targets))
         for target in targets:
             if target.key() not in result:
@@ -147,12 +149,14 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
 ) -> None:
     from gateway_backend.application.history import compare_jobs
     from gateway_backend.artifacts import InMemoryArtifactStore
-    from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
     from gateway_shared_kernel import DigestRef
-    from tests.test_history_compare_jobs import (
-        BASELINE_HEAD, REPOSITORY_ID, FakeRepositoryTableAccessProvider, build_history_compare_harness,
-        catalog_table, int_id_column, make_catalog, ordered_syx_catalog_table,
-        run_full_history_compare_job, _history_snapshot_bundle_data,
+    from tests.test_history_compare_jobs import _history_snapshot_bundle_data
+    from tests.support.http_workspace_harness import BASELINE_HEAD
+    from tests.support.history_compare_job_harness import (
+        REPOSITORY_ID, build_history_compare_harness, ordered_syx_catalog_table, run_full_history_compare_job,
+    )
+    from tests.support.repository_ref_materialization import (
+        FakeRepositoryTableAccessProvider, catalog_table, int_id_column, make_catalog,
     )
     left, right = BASELINE_HEAD.business_baseline_commit_id, "commit-observed-current"
     table = ordered_syx_catalog_table() if ordered else catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1)
@@ -181,7 +185,7 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
                 row = uow.connection.execute("SELECT repository_id,row_layout_digest,parquet_writer_contract_version,artifact_id,media_type,size_bytes,raw_sha256 FROM snapshot_table_export_cache").fetchone()
                 assert row is not None
                 repository, layout, version, artifact, media, size, sha = row
-                ref = supplement.a._ArtifactReference(artifact_id=artifact, media_type=media, size_bytes=size, raw_sha256=sha)
+                ref = acceptance._ArtifactReference(artifact_id=artifact, media_type=media, size_bytes=size, raw_sha256=sha)
                 targets = [supplement.Target(table_name=table.table_name, repository_id=repository,
                     row_layout_digest=layout, writer_version=version, cache_ref=ref, row_count=1)]
                 key = SnapshotTableArtifactCacheKey(DigestRef(layout), repository, version)

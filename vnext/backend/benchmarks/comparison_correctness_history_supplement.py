@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from functools import wraps
 import hashlib
 import json
+import os
+import socket
 from pathlib import Path
 import re
 import shutil
@@ -27,15 +29,17 @@ from gateway_shared_kernel import DigestRef
 from pydantic import TypeAdapter
 
 from benchmarks import comparison_correctness_acceptance as a
+from benchmarks import real_dump_journey as journey
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
-from gateway_backend.capabilities.bundle_assembly import BundleArtifactKind, BundleTableSide
+from gateway_backend.capabilities.bundle_assembly import BundleArtifactKind, BundleTableSide, read_bundle_transport_metadata
 from gateway_backend.capabilities.snapshot_materialization.client_parquet import _LAYOUT, _REPOSITORY
 from gateway_backend.deployment_config import StorageLayoutConfig
 from gateway_backend.http.schemas.submit import SubmissionResponse
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
 from tests.support import compose_gate_harness as harness
+from tests.support.container_input_files import write_container_readable_text
 
 
 class Target(a._Document):
@@ -135,7 +139,7 @@ def observed_cache_type(targets: list[Target]) -> type[ControlDbSnapshotTableExp
     return ObservedCache
 
 
-def observe_history[P, R](function: Callable[P, R]) -> Callable[P, R]:
+def observe_history[**P, R](function: Callable[P, R]) -> Callable[P, R]:
     count = 0
 
     @wraps(function)
@@ -159,6 +163,8 @@ def observe_history[P, R](function: Callable[P, R]) -> Callable[P, R]:
 
 
 def validate_trace(raw: str, targets: list[Target], operations: list[str], commits: list[str]) -> list[dict[str, Any]]:
+    a._check(len(operations) == 2 and len(set(operations)) == 2, "two distinct History operations required")
+    by_name = {target.table_name: target for target in targets}
     events: list[Event] = []
     claimed: str | None = None
     for line in raw.splitlines():
@@ -169,11 +175,16 @@ def validate_trace(raw: str, targets: list[Target], operations: list[str], commi
         event = Event.model_validate_json(line.split(_PREFIX, 1)[1])
         a._check(event.phase in (1, 2) and event.repository_id == targets[0].repository_id
                  and event.commits == sorted(commits), "History trace scope mismatch")
+        if event.event in ("lookup", "store"):
+            a._check(event.table_name in by_name, "History trace names an unauthorized table")
+        else:
+            a._check(event.table_name is None and event.row_layout_digest is None
+                     and event.writer_version is None and event.ref is None, "History trace phase metadata is malformed")
         a._check(claimed == operations[event.phase - 1], "History trace does not belong to the requested operation")
         events.append(event)
     for phase in (1, 2):
         phase_events = [event for event in events if event.phase == phase]
-        a._check(phase_events and phase_events[0].event == "begin" and phase_events[-1].event == "end"
+        a._check(bool(phase_events) and phase_events[0].event == "begin" and phase_events[-1].event == "end"
                  and sum(event.event == "begin" for event in phase_events) == 1
                  and sum(event.event == "end" for event in phase_events) == 1, "History trace phase is incomplete")
         for target in targets:
@@ -184,7 +195,7 @@ def validate_trace(raw: str, targets: list[Target], operations: list[str], commi
             stores = [event for event in scoped if event.event == "store"]
             a._check(bool(lookups), "representative actual cache lookup was not observed")
             if phase == 1:
-                a._check(lookups[0].ref is None and stores, "representative cold miss/export was not observed")
+                a._check(lookups[0].ref is None and bool(stores), "representative cold miss/export was not observed")
             else:
                 a._check(not stores and all(event.ref == target.cache_ref for event in lookups),
                          "representative warm hit was not observed")
@@ -241,8 +252,8 @@ def _source(source: Path, source_root: Path, head: str) -> tuple[SourceStart, Re
              and start.purpose == "comparison correctness t4", "source run identity mismatch")
     a._check((source / "business-exception.log").read_text().rstrip().endswith("JourneyFailure: first History was not cold"),
              "source failure is outside the authorized reuse")
-    for path in ("vnext/backend/src", "vnext/rust"):
-        a._check(a._git("rev-parse", head + ":" + path) == a._git("rev-parse", "HEAD:" + path),
+    for product_path in ("vnext/backend/src", "vnext/rust"):
+        a._check(a._git("rev-parse", head + ":" + product_path) == a._git("rev-parse", "HEAD:" + product_path),
                  "source product tree differs from current candidate")
     owner = FixtureOwner.model_validate_json((source_root / ".gateway-runtime-fixture-owner.json").read_bytes())
     stat = source_root.stat()
@@ -271,7 +282,7 @@ def _connection(root: Path) -> Iterator[sqlite3.Connection]:
 
 def source_targets(source: Path, source_root: Path, repository: Repository) -> list[Target]:
     tar = source / "t4-cold.tar"
-    metadata = a.read_bundle_transport_metadata(a._member(tar, "manifest.json"))
+    metadata = read_bundle_transport_metadata(a._member(tar, "manifest.json"))
     manifest = json.loads(a._member(tar, "manifest.json"))
     surface = a._surfaces(tar, manifest)["left_to_right"]
     tables = {table.table_name: table for table in surface.tables}
@@ -308,7 +319,7 @@ def source_targets(source: Path, source_root: Path, repository: Repository) -> l
 def cache_action(targets: list[Target], *, discard: bool) -> list[dict[str, Any]]:
     from gateway_backend.bootstrap.storage_layout import local_store_from_config
     from gateway_backend.settings import BackendSettings
-    settings = BackendSettings()
+    settings = BackendSettings()  # type: ignore[call-arg]  # Required fields come from the container environment.
     store = local_store_from_config(settings.deployment_config)
     result = []
     for target in targets:
@@ -346,7 +357,7 @@ def _cache_command(env: dict[str, str], output: Path, name: str, *, discard: boo
 
 def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
                    *, source_run: Path, source_root: Path, source_head: str) -> None:
-    a._check(a.socket.gethostname() == "gw-dms-test-05", "supplement must stay on source node05")
+    a._check(socket.gethostname() == "gw-dms-test-05", "supplement must stay on source node05")
     a._inputs("t4", root, output)
     source_run, source_root = source_run.resolve(strict=True), source_root.resolve(strict=True)
     a._check(not output.is_relative_to(source_run) and not output.is_relative_to(source_root)
@@ -357,9 +368,9 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
     a._write(output / "source.json", {"source_head": source_head, "source_run": str(source_run),
         "source_root": str(source_root), "source_start": start.model_dump(), "repository": repository.model_dump(),
         "submission_id": submission.submission_id, "source_data": [item.model_dump() for item in original]})
-    env = a.journey._compose_environment(output / "secrets", f"correctness-{session}-history")
+    env = journey._compose_environment(output / "secrets", f"correctness-{session}-history")
     env["GATEWAY_BACKEND_REPOSITORY_BASE_URL"] = "http://repository-service:8000"
-    a._check(not a.os.environ.get("GATEWAY_COMPOSE_GATE_PREBUILT"), "prebuilt override is forbidden")
+    a._check(not os.environ.get("GATEWAY_COMPOSE_GATE_PREBUILT"), "prebuilt override is forbidden")
     for listing in (("ps", "-aq"), ("volume", "ls", "-q"), ("network", "ls", "-q")):
         existing = a._command("docker", *listing, "--filter", "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"])
         a._check(existing.returncode == 0 and not existing.stdout.strip(), "supplement project is not fresh")
@@ -368,7 +379,7 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
     mapping = {"mappings": [{"gateway_device_external_key": harness.DEVICE_KEY, "business_project_id": harness.PROJECT_ID,
         "repository_id": repository.repository_id, "business_baseline_node_id": harness.BASELINE_NODE_ID,
         "business_baseline_commit_id": repository.empty_initial_commit, "baseline_head_version": 0, "enabled": True}]}
-    harness.write_container_readable_text(Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"]), json.dumps(mapping))
+    write_container_readable_text(Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"]), json.dumps(mapping))
     state.cleanup_complete = False
     try:
         harness.acquire_compose_gate_lock()
@@ -450,7 +461,7 @@ def main() -> None:
     a._check(not args.discard, "worker cannot prepare cache state")
     from gateway_backend.application.history import compare_jobs
     from gateway_backend.bootstrap import operation_worker
-    operation_worker.ControlDbSnapshotTableExportCache = observed_cache_type(targets)
+    setattr(operation_worker, "ControlDbSnapshotTableExportCache", observed_cache_type(targets))
     compare_jobs._ensure_history_demands_once = observe_history(compare_jobs._ensure_history_demands_once)
     raise SystemExit(operation_worker.main())
 

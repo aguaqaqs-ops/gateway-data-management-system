@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -10,7 +11,7 @@ from benchmarks.preview_bundle_five_step import RecordingClient
 from benchmarks.real_dump_journey import JourneyFailure
 
 
-def test_attempt_is_recorded_before_an_ambiguous_transport_failure(tmp_path):
+def test_attempt_is_recorded_before_an_ambiguous_transport_failure(tmp_path: Path) -> None:
     def fail(request: httpx.Request) -> httpx.Response:
         assert json.loads((tmp_path / "attempt-1.json").read_text())["state"] == "acceptance_unknown"
         raise httpx.ReadTimeout("response lost", request=request)
@@ -21,8 +22,8 @@ def test_attempt_is_recorded_before_an_ambiguous_transport_failure(tmp_path):
     assert json.loads((tmp_path / "attempt-1.json").read_text())["state"] == "acceptance_unknown"
 
 
-def test_accepted_operation_is_recorded_and_limit_stops_before_http(tmp_path):
-    requests = []
+def test_accepted_operation_is_recorded_and_limit_stops_before_http(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
 
     def accept(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -37,3 +38,37 @@ def test_accepted_operation_is_recorded_and_limit_stops_before_http(tmp_path):
     assert record["state"] == "accepted"
     assert record["operation_id"] == "op-1"
     assert len(requests) == 1
+
+
+def test_preview_saves_same_operation_result_and_invalid_bundle_before_failure(tmp_path: Path) -> None:
+    from benchmarks.preview_bundle_five_step import _preview
+
+    ledger = tmp_path / "ledger"
+    ledger.mkdir()
+    stage = tmp_path / "M1"
+    stage.mkdir()
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/preview-operations"):
+            return httpx.Response(202, json={"operation_id": "op-1"})
+        if path == "/v1/operations/op-1":
+            return httpx.Response(200, json={"status": "SUCCEEDED"})
+        if path == "/v1/workspaces":
+            return httpx.Response(200, json={"workspace_id": "ws", "current_preview_result_id": "r1"})
+        if path.endswith("/bundle"):
+            return httpx.Response(200, content=b"bad", headers={"content-type": "application/x-tar"})
+        if path.endswith("/preview-results/r1"):
+            return httpx.Response(200, json={"operation_id": "op-1", "preview_result_id": "r1"})
+        raise AssertionError(path)
+
+    with RecordingClient(base_url="http://test", ledger=ledger, transport=httpx.MockTransport(respond)) as client:
+        with pytest.raises(JourneyFailure, match="length"):
+            _preview(client, workspace={"workspace_id": "ws"},
+                upload={"optimistic_version": 1, "upload_revision_id": "u", "generation": 1},
+                output=stage, baseline_node_id="b", baseline_head_version=0,
+                idempotency_key="key", stage="test", operation_timeout_seconds=5)
+    assert (stage / "preview.tar").read_bytes() == b"bad"
+    assert json.loads((stage / "result-response.json").read_text())["operation_id"] == "op-1"
+    assert json.loads((stage / "visibility.json").read_text())["operation_id"] == "op-1"
+    assert json.loads((ledger / "attempt-1.json").read_text())["operation_id"] == "op-1"

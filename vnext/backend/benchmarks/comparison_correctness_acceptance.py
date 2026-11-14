@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-import pyarrow.parquet as pq
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
 from benchmarks import real_dump_journey as journey
@@ -57,7 +57,7 @@ CONFIG_TABLES = (
     "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg", "iec61850c_cfg",
     "jdxx_cfg", "sc_cfg", "scada_cfg", "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
 )
-JSON = TypeAdapter(JsonValue)
+JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 
 class _Document(BaseModel):
@@ -533,6 +533,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                "source changed during acceptance")
         exit_code = 0
         return 0
+    except KeyboardInterrupt:
+        exit_code = 130
+        raise
     finally:
         # Failed assertions remain failed even when cleanup succeeds. If cleanup
         # cannot establish idle state, keep the occupancy for human diagnosis.

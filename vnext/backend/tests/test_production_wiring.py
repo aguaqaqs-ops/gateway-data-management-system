@@ -6,6 +6,7 @@ from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
 from tests.support.configuration_facts import preview_result_with_facts
+from tests.support.review_result_fixtures import closed_review_preview
 
 import io
 import time
@@ -38,6 +39,7 @@ from gateway_backend.bootstrap.composition import (
 )
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from tests.support.preview_fixtures import (
@@ -569,32 +571,28 @@ def _seed_protected_artifacts(store: LocalArtifactStore, refs: tuple[ArtifactRef
 
 _PAYLOAD_INITIAL = b"a"
 _PAYLOAD_MODIFIED = b"ab"
-_PAYLOAD_CLOSURE = b"c"
 _SHA_INITIAL = raw_blob_digest(_PAYLOAD_INITIAL).value
 _SHA_MODIFIED = raw_blob_digest(_PAYLOAD_MODIFIED).value
-_SHA_CLOSURE = raw_blob_digest(_PAYLOAD_CLOSURE).value
 _PREVIEW_CANONICAL_DIGEST = "sha256:" + "p" * 62 + "ca"
+_INITIAL_ARTIFACT_ID = build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "initial-1")
+_MODIFIED_ARTIFACT_ID = build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "modified-1")
+_BUNDLE_ARTIFACT_ID = build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "bundle-1")
+_READY_ARTIFACT_ID = build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ready-closure-1")
 
 
 def _production_submit_preview_refs() -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            artifact_id=_INITIAL_ARTIFACT_ID,
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_INITIAL),
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            artifact_id=_MODIFIED_ARTIFACT_ID,
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_MODIFIED),
             raw_sha256=DigestRef(_SHA_MODIFIED),
-        ),
-        ArtifactRef(
-            artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
-            media_type="application/json",
-            size_bytes=len(_PAYLOAD_CLOSURE),
-            raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
         *make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID).refs,
     )
@@ -639,17 +637,10 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     protected_refs = _production_submit_preview_refs()
     canonical_fixture = make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID)
     payloads = {
-        "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf": _PAYLOAD_INITIAL,
-        "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303": _PAYLOAD_MODIFIED,
-        "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1": _PAYLOAD_CLOSURE,
+        _INITIAL_ARTIFACT_ID: _PAYLOAD_INITIAL,
+        _MODIFIED_ARTIFACT_ID: _PAYLOAD_MODIFIED,
         **canonical_fixture.payloads,
     }
-    _seed_protected_artifacts(
-        LocalArtifactStore(artifact_layout_from_config(settings.deployment_config.storage),
-            staging_max_bytes=settings.deployment_config.resources.temporary.staging_max_bytes_per_object),
-        protected_refs,
-        payloads,
-    )
     scope_resolution = FixedScopeResolutionPort(
         repository_id=TEST_MAPPING_REPOSITORY_ID,
         baseline_head=baseline_head,
@@ -670,13 +661,13 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    artifact_id=_INITIAL_ARTIFACT_ID,
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_INITIAL),
                     raw_sha256=_SHA_INITIAL,
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    artifact_id=_MODIFIED_ARTIFACT_ID,
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_MODIFIED),
                     raw_sha256=_SHA_MODIFIED,
@@ -712,11 +703,13 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             canonical=make_preview_canonical_bindings(TEST_MAPPING_REPOSITORY_ID),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
-            bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
-            ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            bundle_artifact_id=_BUNDLE_ARTIFACT_ID,
+            ready_closure_artifact_id=_READY_ARTIFACT_ID,
             operation_id="op-preview-accept-1",
             created_at=fixed_now,
         )
+        preview, protected_refs, review_payloads = closed_review_preview(preview, protected_refs)
+        payloads.update(review_payloads)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(
@@ -744,6 +737,12 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             owner_id=preview.operation_id,
             intent="preview-operation",
         )
+    _seed_protected_artifacts(
+        LocalArtifactStore(artifact_layout_from_config(settings.deployment_config.storage),
+            staging_max_bytes=settings.deployment_config.resources.temporary.staging_max_bytes_per_object),
+        protected_refs,
+        payloads,
+    )
     workspace_http = replace(
         runtime.workspace_http,
         admission_gate=ClosableAdmissionGate(limit=8),

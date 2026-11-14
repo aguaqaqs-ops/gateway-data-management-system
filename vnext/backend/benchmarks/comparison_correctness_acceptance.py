@@ -21,14 +21,14 @@ import tarfile
 import tempfile
 import time
 import traceback
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 import httpx
-import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, UnsignedIntegerScalar, encode_row
@@ -36,9 +36,14 @@ from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, Unsi
 from benchmarks import real_dump_journey as journey
 from benchmarks.bundle_tar import download_bundle_tar
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
+from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
 from gateway_backend.capabilities.business_navigation import validate_navigation
-from gateway_backend.capabilities.bundle_assembly.contracts import BundleArtifactKind
-from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
+from gateway_backend.capabilities.bundle_assembly.contracts import (
+    BundleArtifactKind, BundleClosureEntry, BundleTableBinding, BundleTableSide,
+)
+from gateway_backend.capabilities.bundle_assembly.transport import (
+    BundleTransportMetadata, read_bundle_transport_metadata,
+)
 from gateway_backend.http.schemas.review import SubmissionResultResponse
 from tests.support.compose_gate_harness import (
     BACKEND_URL, BASELINE_NODE_ID, SESSION_TOKEN,
@@ -70,6 +75,16 @@ JSON: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 
 class _Document(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class _ArtifactReference(_Document):
+    artifact_id: str
+    media_type: str
+    size_bytes: int
+    raw_sha256: str
+
+    def to_ref(self) -> ArtifactRef:
+        return artifact_ref_from_dict(self.model_dump())
 
 
 class _Counts(_Document):
@@ -173,6 +188,7 @@ from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 from gateway_backend.application.submission.review_result import load_preview_review_closure
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
+from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
 with sqlite3.connect('file:/var/lib/gateway/be-metadata/control.sqlite3?mode=ro', uri=True) as conn:
     conn.row_factory = sqlite3.Row
     row = conn.execute('SELECT * FROM preview_result_records WHERE preview_result_id=?',
@@ -349,15 +365,67 @@ def _surfaces(tar: Path, manifest: dict[str, Any]) -> dict[str, _Surface]:
             for entry in manifest["closure"]["entries"] if entry["kind"] == "SURFACE"}
 
 
-def _browse_count(tar: Path, pair: str, table: str) -> int:
-    name = f"pairs/{pair}/tables/current/{table}.parquet"
+def _payload_entry(metadata: BundleTransportMetadata, ref: ArtifactRef,
+                   kind: BundleArtifactKind, pair: str, *, table: str | None = None,
+                   side: BundleTableSide | None = None) -> BundleClosureEntry:
+    # Match the complete published source ref. Identical snapshot bytes may
+    # legitimately have several source IDs; another ID is never a fallback.
+    entries = [entry for entry in metadata.entries
+               if entry.artifact_ref == ref and entry.kind is kind]
+    _check(len(entries) == 1, "payload ref is missing or ambiguous in bundle closure")
+    entry = entries[0]
+    if kind is BundleArtifactKind.SNAPSHOT_TABLE:
+        _check(table is not None and side is not None, "snapshot selector is incomplete")
+        assert table is not None and side is not None
+        _check(BundleTableBinding(pair_id=pair, side=side, table_name=table) in entry.table_bindings,
+               "snapshot pair/side/table binding mismatch")
+    else:
+        _check(entry.pair_id is None if entry.shared else entry.pair_id == pair,
+               "payload pair binding mismatch")
+        _check(entry.table_name == table, "payload table binding mismatch")
+    return entry
+
+
+@contextmanager
+def _payload_file(tar: Path, document: JsonValue, kind: BundleArtifactKind,
+                  pair: str, *, table: str | None = None,
+                  side: BundleTableSide | None = None) -> Iterator[BinaryIO]:
+    ref = _ArtifactReference.model_validate(document).to_ref()
+    if kind is not BundleArtifactKind.SNAPSHOT_TABLE:
+        _check(ref.size_bytes <= 16 * 1024**2, "payload exceeds its existing metadata/records budget")
+    metadata = read_bundle_transport_metadata(_member(tar, "manifest.json"))
+    entry = _payload_entry(metadata, ref, kind, pair, table=table, side=side)
     with tarfile.open(tar, "r:") as archive, tempfile.TemporaryFile() as scratch:
-        stream = archive.extractfile(name)
+        members = [member for member in archive if member.name == entry.logical_path]
+        _check(len(members) == 1 and members[0].isfile(), "payload member is missing or ambiguous")
+        member = members[0]
+        _check(member.size == ref.size_bytes, "payload member size mismatch")
+        stream = archive.extractfile(member)
         assert stream is not None
+        digest = hashlib.sha256()
+        size = 0
         while chunk := stream.read(64 * 1024):
+            size += len(chunk)
+            digest.update(chunk)
             scratch.write(chunk)
+        _check(size == ref.size_bytes and "sha256:" + digest.hexdigest() == ref.raw_sha256.value,
+               "payload member integrity mismatch")
         scratch.seek(0)
-        return int(pq.read_metadata(scratch).num_rows)
+        yield scratch
+
+
+def _browse_count(tar: Path, pair: str, table: _Table) -> int:
+    with _payload_file(tar, table.table_refs["current_table_ref"], BundleArtifactKind.SNAPSHOT_TABLE,
+                       pair, table=table.table_name, side=BundleTableSide.CURRENT) as payload:
+        return int(pq.read_metadata(payload).num_rows)
+
+
+def _navigation(tar: Path, pair: str, surface: _Surface) -> dict[str, Any]:
+    projections = [projection for projection in surface.projections
+                   if projection["projection_kind"] == "BUSINESS_NAVIGATION"]
+    _check(len(projections) == 1, "business navigation projection is missing or ambiguous")
+    with _payload_file(tar, projections[0]["projection_ref"], BundleArtifactKind.PROJECTION, pair) as payload:
+        return validate_navigation(JSON.validate_json(payload.read(), strict=True), replacement=False)
 
 
 def _download(client: httpx.Client, url: str, output: Path, name: str) -> tuple[dict[str, Any], Path]:
@@ -431,7 +499,7 @@ def _t4(client: httpx.Client, submission: dict[str, Any], env: dict[str, str],
             _check(table.ordered_extension is None, "single-side table has an ordered extension")
             _check(table.records_refs["records_ref"] is None
                    and table.records_refs["records_manifest_ref"] is None, "single-side row records emitted")
-            _check(_browse_count(tar, pair_id, name) == count,
+            _check(_browse_count(tar, pair_id, table) == count,
                    "single-side browse parquet count mismatch")
             representatives[name] = table.model_dump(mode="json")
         observed.append(representatives)
@@ -500,15 +568,12 @@ def _check_device_record(rows: list[dict[str, Any]], source: _DeviceChange) -> s
     return expected_identity.hex()
 
 
-def _source_records(tar: Path, root: Path, output: Path) -> None:
-    metadata = read_bundle_transport_metadata(_member(tar, "manifest.json"))
-    entries = [entry for entry in metadata.entries if entry.kind is BundleArtifactKind.RECORDS
-               and entry.pair_id == "initial_to_modified" and entry.table_name == "device"]
-    _check(len(entries) == 1, "device records artifact is not unique")
-    raw = _member(tar, entries[0].logical_path)
-    file = pq.ParquetFile(pa.BufferReader(raw))
-    _check(file.metadata.num_rows == 1, "device records must contain exactly one source change")
-    rows = file.read().to_pylist()
+def _source_records(tar: Path, root: Path, output: Path, table: _Table) -> None:
+    with _payload_file(tar, table.records_refs["records_ref"], BundleArtifactKind.RECORDS,
+                       "initial_to_modified", table=table.table_name) as payload:
+        file = pq.ParquetFile(payload)
+        _check(file.metadata.num_rows == 1, "device records must contain exactly one source change")
+        rows = file.read().to_pylist()
     identity = _check_device_record(rows, _source_device_change(root))
     _write(output / "source-record-check.json", {"table": "device", "record_kind": "ROW_MODIFIED",
         "source_column": "description", "row_identity_hex": identity,
@@ -545,10 +610,9 @@ def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path, r
            and composite.row_change_stats.row_count_before == 201
            and composite.row_change_stats.row_count_current == 201
            and composite.row_change_stats.row_modified_count == 0, "false composite point/formula updates")
-    _check(_browse_count(tar, "initial_to_modified", "composite_signal_point") == 201,
+    _check(_browse_count(tar, "initial_to_modified", composite) == 201,
            "composite browse is incomplete")
-    navigation = validate_navigation(JSON.validate_json(_member(tar,
-        "pairs/initial_to_modified/projections/business_navigation.json"), strict=True), replacement=False)
+    navigation = _navigation(tar, "initial_to_modified", surface)
     items = [item for group in navigation["groups"] for item in group["items"]]
     composite_items = [item for item in items if item["item_kind"] == "COMPOSITE_SIGNAL_DEVICE"]
     _check(len(composite_items) == 1 and any(tab["table_id"] == "composite_signal_point"
@@ -562,7 +626,7 @@ def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path, r
            {pair: value.summary for pair, value in surfaces.items()})
     _write(output / "number1-audits.json", {pair: value.model_dump(mode="json")
                                              for pair, value in probe.audits.items()})
-    _source_records(tar, root, output)
+    _source_records(tar, root, output, tables["device"])
 
 
 def _run(scope: Literal["t4", "number1"], root: Path, output: Path, session: str,

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import os
 import socket
+import subprocess
+import traceback
 from typing import Any
 
 import httpx
@@ -35,6 +37,8 @@ AFTER_FAULTS = ("http", "result", "protection", "operations")
 FILE_FAULTS = ("escape", "symlink", "digest", "extra", "duplicate")
 REPLAY_FAULTS = ("none", "failure", "head", "source", "files")
 ACTOR_FAULTS = ("none", "same-actor", "scope", "permission", "duplicate")
+PREPARATION_FAULTS = ("environment", "prebuilt", "containers", "volumes", "networks", "mapping", "actor", "evidence",
+                      "lock", "registered-fixture", "clone-before-ownership", "clone-after-ownership")
 
 
 @pytest.fixture
@@ -292,3 +296,104 @@ def test_terminal_prepare_only_clones_into_owned_fixture_with_original_numeric_p
         finally:
             harness._runtime_fixtures.pop(env["COMPOSE_PROJECT_NAME"], None)
     assert os.geteuid() == 0  # The real gateway identity vector must not be skipped.
+
+
+@pytest.mark.parametrize("fault", PREPARATION_FAULTS)
+def test_terminal_preparation_failure_cleans_only_own_secrets_and_keeps_original_error(
+    source: n.Source, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    output = tmp_path / "terminal"
+    output.mkdir()
+    replay = tmp_path / "replay"
+    replay.mkdir()
+    monkeypatch.setattr(socket, "gethostname", lambda: "gw-dms-test-05")
+    monkeypatch.setattr(n, "load_source", lambda *_args: source)
+    monkeypatch.setattr(n, "require_replay", lambda *_args: None)
+    monkeypatch.setattr(n, "input_records", lambda *_args: source.proof.inputs)
+    monkeypatch.setattr(harness, "COMPOSE_GATE_LOCK_PATH", tmp_path / "compose.lock")
+    original_environment = journey._compose_environment
+    project = "correctness-prepare-failure-terminal"
+    foreign = tmp_path / "foreign-resource"
+    foreign.write_text("existing project must survive")
+    teardowns: list[str] = []
+    def environment(secret: Path, name: str) -> dict[str, str]:
+        assert secret.is_dir()
+        if fault == "environment":
+            (secret / "partial").write_text("new test secret")
+            raise JourneyFailure("original environment failure")
+        env = original_environment(secret, name)
+        if fault == "prebuilt":
+            env["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
+        return env
+    def command(*args: str) -> subprocess.CompletedProcess[str]:
+        kind = {"ps": "containers", "volume": "volumes", "network": "networks"}.get(args[1])
+        return subprocess.CompletedProcess(args, 0, "foreign-id\n" if kind == fault else "", "")
+    def fail_mapping(*_args: object, **_kwargs: object) -> None:
+        raise JourneyFailure("original mapping failure")
+    def fail_actor(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        raise JourneyFailure("original actor failure")
+    original_write = a._write
+    def write(path: Path, value: object) -> None:
+        if fault == "evidence" and path.name == "actors.json":
+            raise JourneyFailure("original evidence failure")
+        original_write(path, value)
+    def clone(env: dict[str, str], *_args: object) -> Path:
+        if fault == "clone-after-ownership":
+            own = tmp_path / "own-fixture"
+            own.mkdir()
+            harness._runtime_fixtures[env["COMPOSE_PROJECT_NAME"]] = (own, "test-owned")
+        raise JourneyFailure("original clone preparation failure")
+    def finish(env: dict[str, str], path: Path, state: a._RunState, primary: BaseException | None) -> None:
+        assert fault == "clone-after-ownership", "must not teardown an unowned project"
+        teardowns.append(env["COMPOSE_PROJECT_NAME"])
+        assert primary is not None
+        (path / "business-exception.log").write_text("".join(traceback.format_exception(primary)))
+        harness._runtime_fixtures.pop(env["COMPOSE_PROJECT_NAME"])
+        state.cleanup_complete = True
+    def no_post(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("preparation failure must not enter the HTTP phase")
+    monkeypatch.setattr(journey, "_compose_environment", environment)
+    monkeypatch.setattr(a, "_command", command)
+    monkeypatch.setattr(a, "_write", write)
+    monkeypatch.setattr(a, "_finish_stack", finish)
+    monkeypatch.setattr(n, "prepare_clone", clone)
+    monkeypatch.setattr(n, "complete_review", no_post)
+    if fault == "mapping":
+        monkeypatch.setattr(n, "write_container_readable_text", fail_mapping)
+    if fault == "actor":
+        monkeypatch.setattr(n, "actor_bindings", fail_actor)
+    if fault == "lock":
+        def fail_lock() -> None:
+            raise JourneyFailure("original lock failure")
+        monkeypatch.setattr(harness, "acquire_compose_gate_lock", fail_lock)
+    if fault == "registered-fixture":
+        monkeypatch.setitem(harness._runtime_fixtures, project, (foreign, "foreign-owner"))
+    state = a._RunState()
+    with pytest.raises(JourneyFailure) as raised:
+        n.run_terminal(Path(source.proof.input_root), output, "prepare-failure", state,
+            source_run=Path(source.proof.source_run), source_root=Path(source.proof.source_root),
+            source_head=source.proof.source_head, replay_run=replay)
+    assert str(raised.value) in (output / "business-exception.log").read_text()
+    assert not (output / "secrets").exists() and state.cleanup_complete
+    assert harness._gate_lock_file is None
+    assert teardowns == ([project] if fault == "clone-after-ownership" else [])
+    assert foreign.read_text() == "existing project must survive"
+    if fault == "registered-fixture":
+        assert harness._runtime_fixtures[project] == (foreign, "foreign-owner")
+
+
+def test_terminal_does_not_clean_an_existing_secret_directory(
+    source: n.Source, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "output"
+    secret = output / "secrets"
+    secret.mkdir(parents=True)
+    (secret / "foreign").write_text("keep")
+    monkeypatch.setattr(socket, "gethostname", lambda: "gw-dms-test-05")
+    monkeypatch.setattr(n, "load_source", lambda *_args: source)
+    monkeypatch.setattr(n, "require_replay", lambda *_args: None)
+    with pytest.raises(FileExistsError):
+        n.run_terminal(Path(source.proof.input_root), output, "existing-secret", a._RunState(),
+            source_run=Path(source.proof.source_run), source_root=Path(source.proof.source_root),
+            source_head=source.proof.source_head, replay_run=tmp_path)
+    assert (secret / "foreign").read_text() == "keep"

@@ -5,8 +5,10 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+import shutil
 import socket
 import sys
+import traceback
 from typing import Any, Literal
 
 import httpx
@@ -389,23 +391,34 @@ def run_terminal(input_root: Path, output: Path, session: str, state: a._RunStat
     replay_run = replay_run.resolve(strict=True)
     require_replay(replay_run, source)
     a._write(output / "source.json", source.proof.model_dump(mode="json"))
-    env = journey._compose_environment(output / "secrets", "correctness-" + session + "-terminal")
-    env["GATEWAY_BACKEND_REPOSITORY_BASE_URL"] = "http://repository-service:8000"
-    a._check(not env.get("GATEWAY_COMPOSE_GATE_PREBUILT"), "prebuilt override is forbidden")
-    for listing in (("ps", "-aq"), ("volume", "ls", "-q"), ("network", "ls", "-q")):
-        listed = a._command("docker", *listing, "--filter", "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"])
-        a._check(listed.returncode == 0 and not listed.stdout.strip(), "terminal project is not fresh")
-    mapping = {"mappings": [{"gateway_device_external_key": source.proof.device_key,
-        "business_project_id": source.proof.project_id, "repository_id": source.proof.repository.repository_id,
-        "business_baseline_node_id": harness.BASELINE_NODE_ID,
-        "business_baseline_commit_id": source.proof.repository.empty_initial_commit, "baseline_head_version": 0, "enabled": True}]}
-    write_container_readable_text(Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"]), json.dumps(mapping))
-    actors = actor_bindings(env, source)
-    a._write(output / "actors.json", actors)
+    secrets = output / "secrets"
+    secrets.mkdir(mode=0o700)  # Exclusive ownership; never clean an existing directory.
     state.cleanup_complete = False
+    env: dict[str, str] | None = None
+    lock_owned = False
+    project_reserved = False
     try:
+        env = journey._compose_environment(secrets, "correctness-" + session + "-terminal")
+        env["GATEWAY_BACKEND_REPOSITORY_BASE_URL"] = "http://repository-service:8000"
+        a._check(not env.get("GATEWAY_COMPOSE_GATE_PREBUILT"), "prebuilt override is forbidden")
+        a._check(harness._gate_lock_file is None, "terminal Compose lock already belongs to caller")
         harness.acquire_compose_gate_lock()
+        lock_owned = True
+        project = env["COMPOSE_PROJECT_NAME"]
+        a._check(project not in harness._runtime_fixtures, "terminal fixture already belongs to caller")
+        for listing in (("ps", "-aq"), ("volume", "ls", "-q"), ("network", "ls", "-q")):
+            listed = a._command("docker", *listing, "--filter", "label=com.docker.compose.project=" + project)
+            a._check(listed.returncode == 0 and not listed.stdout.strip(), "terminal project is not fresh")
+        project_reserved = True
+        mapping = {"mappings": [{"gateway_device_external_key": source.proof.device_key,
+            "business_project_id": source.proof.project_id, "repository_id": source.proof.repository.repository_id,
+            "business_baseline_node_id": harness.BASELINE_NODE_ID,
+            "business_baseline_commit_id": source.proof.repository.empty_initial_commit, "baseline_head_version": 0, "enabled": True}]}
+        write_container_readable_text(Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"]), json.dumps(mapping))
+        actors = actor_bindings(env, source)
+        a._write(output / "actors.json", actors)
         prepare_clone(env, source, output, replay_run)
+        a._check(project in harness._runtime_fixtures, "terminal fixture ownership is missing")
         harness._assert_port_8000_available_for_gate(env["COMPOSE_PROJECT_NAME"])
         harness.build_compose_stack_images(env)
         up = a._logged_compose(env, output, "stack-up", "up", "-d", "--no-build", "repository-service", "backend", "worker")
@@ -419,7 +432,25 @@ def run_terminal(input_root: Path, output: Path, session: str, state: a._RunStat
                           headers=harness.compose_auth_headers(token=journey.ARCHIVER_TOKEN), timeout=120) as client:
             complete_review(client, source, env, output, session, reviewer_actor_id=actors["reviewer"]["actor_id"])
     finally:
+        primary = sys.exception()
+        fixture_owned = env is not None and project_reserved and env["COMPOSE_PROJECT_NAME"] in harness._runtime_fixtures
+        runtime_cleaned = not fixture_owned
         try:
-            a._finish_stack(env, output, state, sys.exception())
+            if fixture_owned:
+                assert env is not None
+                a._finish_stack(env, output, state, primary)
+                runtime_cleaned = state.cleanup_complete
+            elif primary is not None:
+                with (output / "business-exception.log").open("x", encoding="utf-8") as stream:
+                    stream.write("".join(traceback.format_exception(primary)))
         finally:
-            check_unchanged(source.proof)
+            state.cleanup_complete = False
+            try:
+                a._check(not secrets.is_symlink(), "terminal secrets directory was redirected")
+                if secrets.exists():
+                    shutil.rmtree(secrets)
+            finally:
+                if lock_owned and harness._gate_lock_file is not None:
+                    harness.release_compose_gate_lock()
+                check_unchanged(source.proof)
+            state.cleanup_complete = runtime_cleaned

@@ -423,7 +423,7 @@ ComparisonFacts + optional records access + RiskRulesetSnapshot
 
 | Rule | 输入 | 默认风险 |
 | --- | --- | --- |
-| `TABLE_ADDED` | `ADDED_TABLE`；证据 `row_count` 为新增表行数 | `MEDIUM_LOW` |
+| `TABLE_ADDED` | `ADDED_TABLE`；证据 `row_count` 为新增表行数 | `LOW` |
 | `TABLE_DELETED` | `DELETED_TABLE`；证据 `row_count` 为删除表行数 | `MEDIUM_HIGH` |
 | `SCHEMA_CHANGED` | schema changes | `MEDIUM_HIGH` |
 | `ROW_ADDED` | added rows | `MEDIUM_LOW` |
@@ -525,3 +525,19 @@ artifact refs继续不直接进入risk_evaluation_digest；不含ref的内容/ma
 ## 纯结构变化与后台审计（2026-11-13）
 
 Risk 消费 Comparison v4 的 `comparison.presentation` 统一投影；严格证明共有业务值未变的列增删不输出 schema 风险。其他行风险、诊断及 ordered 语义不删除；未知或只浏览默认零计数不能放行。Risk 文档形状/preimage 不变；comparison digest 已绑定 v4 证据与 standard-reference v3，既有 risk cache/candidate identity 核对该输入，不新增独立版本轴。
+
+
+## 人工联调业务规则修订（Owner 2026-11-14）
+
+普通新增整表的 TABLE_ADDED 默认等级为 LOW，非首次导入同样适用；其他行级增删改规则不变。
+整个改前快照的表集合为空时，导入不产生任何风险标记，比较变化和原始诊断照常发布。
+空基线由共享 pair pipeline 根据完整 before.summary.tables 判定，不以单表缺失或筛选后的 task 集合推断。
+该事实通过 RiskOptions.empty_baseline 传入；无风险表不补 UNKNOWN，各表仍发布完整的空风险归属供导航消费。
+
+risk-model/v4 与 rule version v4 标识本轮规则，规则校验器核对 model，ruleset/evaluation digest 与消费者绑定结果。
+empty_baseline 进入已有 options 文档、evaluation digest 和 candidate cache key，防止同一新增表任务在空基线和
+增量场景间误用判定。Preview assemble-state v7、History assemble-state v4 由现有 checkpoint decoder 核对，
+防止恢复旧风险/导航结果；没有双读或迁移。比较事实与比较缓存不变，继续复用中性比较结果。
+
+本修订属于 C 类可重算派生产物，不改提交、归档或审批事务。规则、空基线、缓存隔离和 Preview/History
+贯通由风险与业务投影 focused 测试覆盖；全量及最终容器门禁按 Owner 授权集中后验，不在本包重复执行。

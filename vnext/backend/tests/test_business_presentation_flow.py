@@ -9,7 +9,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 
 from gateway_shared_kernel import raw_blob_digest
-from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
+from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
 from gateway_backend.application.preview_jobs import surface_artifact_closure
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.bundle_assembly import (
@@ -308,3 +308,27 @@ def test_business_materialized_unclaimed_table_name_keeps_safe_channel_domain(
         assert {d["side"] for d in channels} == ({"BEFORE", "CURRENT"} if replacement else {None})
     else:
         assert channels == []
+
+
+@pytest.mark.parametrize("flow", ("preview", "history"))
+@pytest.mark.parametrize("empty_baseline", (False, True))
+def test_new_table_risk_distinguishes_empty_baseline_from_incremental_addition(
+    flow: str, empty_baseline: bool,
+) -> None:
+    existing = "CREATE TABLE existing(id INT PRIMARY KEY);"
+    before = complete_canonical_bound(canonical_bound("" if empty_baseline else existing))
+    current = complete_canonical_bound(canonical_bound(existing +
+        "CREATE TABLE added(id INT PRIMARY KEY); INSERT INTO added VALUES(1);"))
+    store = InMemoryArtifactStore()
+    run = run_preview_pair_pipeline if flow == "preview" else run_history_pair_pipeline
+    result = run(pair_id="baseline_to_modified", before=before, current=current,
+        store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(standard_rule_record("existing"), standard_rule_record("added")),
+        repository_id="replacement-fixture")
+    surface = result.surface_result.surface
+    assert surface is not None
+    added = next(t for t in surface.tables if t.table_id == "added")
+    assert added.change_kind.value == "ADDED"
+    assert added.risk_refs.risk_level == (None if empty_baseline else "LOW")
+    if empty_baseline:
+        assert all(t.risk_refs.risk_level is None for t in surface.tables)

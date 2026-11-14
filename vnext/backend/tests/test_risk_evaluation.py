@@ -185,7 +185,7 @@ def test_structural_risk_publishes_annotation_and_valid_closure() -> None:
     assert result.risk_evaluation is not None
     assert result.risk_report is not None
     assert result.risk_closure is not None
-    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_LOW
+    assert result.risk_report.tables[0].risk_level is RiskLevel.LOW
     assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.TABLE_ADDED,)
     assert len(result.annotation_artifacts) == 1
     _assert_s1b_risk_golden("whole_table_added", result, store)
@@ -624,3 +624,20 @@ def test_annotation_document_validator_rejects_malformed_record_fields() -> None
             annotation_count=1,
             content_digest=content_digest,
         )
+
+
+@pytest.mark.parametrize("table", (
+    ComparisonTableFact(table_name="new_table", status=ComparisonTableStatus.ADDED_TABLE, row_count_current=3),
+    ComparisonTableFact(table_name="composite_signal_point", status=ComparisonTableStatus.ADDED_TABLE, row_count_current=1),
+    ComparisonTableFact(table_name="unreadable", status=ComparisonTableStatus.DEGRADED,
+                        diagnostics=("COMPARISON_INTERNAL_ERROR",)),
+))
+def test_empty_baseline_publishes_no_risk_marks_and_complete_attribution(table: ComparisonTableFact) -> None:
+    observed: list[tuple[str, object, bool]] = []
+    result = _evaluate(table, options=RiskOptions(empty_baseline=True), store=InMemoryArtifactStore(),
+        context=RiskExecutionContext(attribution_observer=lambda name, annotations, complete:
+            observed.append((name, annotations, complete))))
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None and result.risk_report.tables == ()
+    assert result.annotation_artifacts == ()
+    assert observed == [(table.table_name, (), True)]

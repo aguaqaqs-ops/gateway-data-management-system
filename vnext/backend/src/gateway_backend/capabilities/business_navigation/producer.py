@@ -369,9 +369,16 @@ class _Builder:
                 target = row.values.get("table_cfg")
                 raw_name = row.values.get("app_name")
                 app_name = str(raw_name) if type(raw_name) is int else (raw_name if isinstance(raw_name, str) else None)
+                # Disabled modules may legitimately omit their optional parameter table.
+                # Keep any existing target browsable, but do not warn for its absence.
+                disabled = row.values.get("enable") == "0:NO"
                 if not isinstance(target, str) or not target.strip():
+                    if disabled:
+                        continue
                     self.diagnostic("APP_TABLE_CFG_MISSING", "GLOBAL_PARAMETERS", table=app, item="global:app_cfg", side=side, app_name=app_name)
-                elif target not in names:
+                elif target not in names or (names[target].before if side == "BEFORE" else names[target].current) is None:
+                    if disabled:
+                        continue
                     self.diagnostic("APP_TABLE_NOT_FOUND", "GLOBAL_PARAMETERS", table=app, item="global:app_cfg", side=side, app_name=app_name, table_cfg=target)
                 elif target in seen or target in claimed:
                     if target in seen:

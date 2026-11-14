@@ -642,3 +642,37 @@ def test_nonempty_navigation_summary_preserves_every_surface_change_kind(kind: S
     summary = result.document["groups"][4]["items"][0]["summary"]
     assert summary == {"change_kinds": [kind.value], "risk_level": None, "nonempty_tab_count": 1}
     validate_navigation(result.document, replacement=False)
+
+
+APP_PARAMETER_CASES = (
+    ("0:NO", "missing", False), ("0:NO", "", False), ("0:NO", None, False),
+    ("1:YES", "missing", True), ("1:YES", "", True), (None, "missing", True),
+)
+
+
+@pytest.mark.parametrize("logical_side", ("BEFORE", "CURRENT"))
+@pytest.mark.parametrize("enable,target,warns", APP_PARAMETER_CASES)
+def test_disabled_app_missing_parameter_table_is_expected(
+    logical_side: str, enable: Scalar, target: Scalar, warns: bool,
+) -> None:
+    source = side(({'app_name': 'JMS', 'table_cfg': target, 'enable': enable},))
+    app = table("app_cfg", source if logical_side == "BEFORE" else None,
+                source if logical_side == "CURRENT" else None)
+    result = build(app)
+    notes = diagnostics(result, "APP_TABLE_NOT_FOUND") + diagnostics(result, "APP_TABLE_CFG_MISSING")
+    assert bool(notes) is warns
+    if warns:
+        assert notes[0]["side"] == logical_side
+
+
+def test_disabled_app_existing_parameter_table_stays_browsable() -> None:
+    source = side(({'app_name': 'JMS', 'table_cfg': 'jms_cfg', 'enable': '0:NO'},))
+    result = build(table("app_cfg", None, source), table("jms_cfg", None, side()))
+    assert tabs(result, "jms_cfg")
+    assert result.diagnostics is None
+
+
+def test_enabled_app_requires_parameter_table_on_its_own_side() -> None:
+    source = side(({'app_name': 'JMS', 'table_cfg': 'jms_cfg', 'enable': '1:YES'},))
+    result = build(table("app_cfg", source, source), table("jms_cfg", side(), None))
+    assert [d["side"] for d in diagnostics(result, "APP_TABLE_NOT_FOUND")] == ["CURRENT"]

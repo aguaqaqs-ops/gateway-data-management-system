@@ -126,3 +126,14 @@ F 前端消费者（Owner 2026-11-13 直接授权）严格要求 v2 的 empty、
 F 前端复审修复（2026-11-14）：URL 按 node+tab 精确恢复，包括默认隐藏的空页签；无效 tab 先留在原项，无效 node 不借其他项的同名 tab。全空 pair 保留首个页签与展开入口。用户显式隐藏当前空页签时切换到可见非空项；没有非空项时保留可访问的空页签。组头展示当前搜索/“仅差异”过滤后列表中的非空项数，展开空页签不增加该数；服务端 nonempty_item_count 仍描述完整组，消费者不改写它。
 
 F 能力边界修复（2026-11-14）：`change_kind` 的唯一语义词汇仍由 [Surface Contract](comparison-surface.md) 定义。导航的 `NavigationChangeKind` 仅为自身 typed 输入与严格 summary 校验所需的局部契约表示，不引入独立状态或词汇来源；Application 将 Surface owner 的已归并值显式转换后传给导航。导航不得反向依赖 Surface Assembly，也不将有业务归属的类型移入 Shared Kernel。导航测试同时核对双方完整值集相等、逐个 Surface kind 的非空汇总 wire 值不变及未知值拒绝；新增/删除 Surface kind 时必须同步该边界表示，不能单独扩展导航词汇。本次不改文档版本、wire 值、摘要预像、cache 或 golden。
+
+
+## 未启用应用的可选参数表（Owner 2026-11-14）
+
+app_cfg 投影读取 app_name、table_cfg、enable。每个逻辑侧 enable 精确为 0:NO 的模块，
+table_cfg 为空或本侧目标表不存在均属正常配置，不发布 APP_TABLE_CFG_MISSING / APP_TABLE_NOT_FOUND。
+已存在的目标表仍可浏览；重复引用诊断保留。1:YES、NULL、缺列或未知值不推断为未启用，沿用原诊断。
+目标存在性按引用行所在侧判断，不能用另一侧同名表替代。诊断文档形状与版本不变；结果由现有 projection digest
+绑定，旧 assemble checkpoint 的拒绝策略见 Risk Contract 本轮修订。
+
+正常导航提示与比较降级/失败的视觉分类归前端呈现；本次后端先修正无效告警，不将真正比较错误降为正常提示。

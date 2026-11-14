@@ -390,6 +390,11 @@ def _evaluate_table_impl(
     annotation_limit: int,
     charges: ExitStack,
 ) -> _TableOutcome:
+    # Empty-baseline imports retain comparison diagnostics but carry no risk marks.
+    # Publish a complete empty outcome for each table so navigation stays exact.
+    if evaluation_input.risk_options.empty_baseline:
+        return _TableOutcome(item.table_fact.table_name, item.table_fact.status, ())
+
     table_started = context.clock()
     annotations: list[RiskAnnotation] = []
     cached_events: tuple[object, ...] | None = None

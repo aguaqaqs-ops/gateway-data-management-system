@@ -38,7 +38,7 @@ NAVIGATION_ROW_TABLES = frozenset({"net_cfg", "device", "app_cfg", *FILTER_IDENT
 _REGISTRY_COLUMNS = {
     "net_cfg": ("board", "link_no", "tab_num", "exe", "channel_desc", "protocol_name"),
     "device": ("dev_addr", "gid", "description"),
-    "app_cfg": ("app_name", "table_cfg"),
+    "app_cfg": ("app_name", "table_cfg", "enable"),
 }
 
 

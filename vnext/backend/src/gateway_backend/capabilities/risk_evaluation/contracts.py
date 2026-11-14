@@ -25,7 +25,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 
 RISK_CONTRACT_VERSION = "backend-vnext/risk/v2"
 RISK_RULESET_CONTRACT_VERSION = "backend-vnext/risk-ruleset/v1"
-RISK_MODEL_VERSION = "backend-vnext/risk-model/v3"
+RISK_MODEL_VERSION = "backend-vnext/risk-model/v4"
 RISK_ANNOTATION_CONTRACT_VERSION = "backend-vnext/risk-annotations/v1"
 RISK_ANNOTATION_MEDIA_TYPE = "application/vnd.gateway.risk-annotations+json"
 RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = (
@@ -38,7 +38,7 @@ RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
 RISK_RULESET_VERSION = "v3"
-RISK_RULE_VERSION = "v3"
+RISK_RULE_VERSION = "v4"
 
 
 RiskOptionValue: TypeAlias = str | int | bool | None
@@ -275,6 +275,7 @@ class RiskExecutionPolicy:
 
 @dataclass(frozen=True, slots=True)
 class RiskOptions:
+    empty_baseline: bool = False
     include_low_risk: bool = True
     include_unknown: bool = True
     annotation_detail_policy: AnnotationDetailPolicy = AnnotationDetailPolicy.TARGETS_ONLY
@@ -292,6 +293,7 @@ class RiskOptions:
             "annotation_detail_policy": self.annotation_detail_policy.value,
             "include_low_risk": self.include_low_risk,
             "include_unknown": self.include_unknown,
+            "empty_baseline": self.empty_baseline,
         }
 
 
@@ -1431,7 +1433,7 @@ V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
                 RiskReasonCode.PROJECT_IDENTITY_MISMATCH,
                 RiskLevel.HIGH,
             ),
-            _default_rule(RiskRuleId.TABLE_ADDED, RiskScope.TABLE, RiskReasonCode.TABLE_ADDED, RiskLevel.MEDIUM_LOW),
+            _default_rule(RiskRuleId.TABLE_ADDED, RiskScope.TABLE, RiskReasonCode.TABLE_ADDED, RiskLevel.LOW),
             _default_rule(RiskRuleId.TABLE_DELETED, RiskScope.TABLE, RiskReasonCode.TABLE_DELETED, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.SCHEMA_CHANGED, RiskScope.TABLE, RiskReasonCode.SCHEMA_CHANGED, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.ROW_ADDED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_ADDED, RiskLevel.MEDIUM_LOW),

@@ -129,7 +129,7 @@ def test_v1_rules_freeze_rule_ids_scopes_reasons_and_levels() -> None:
         sorted((RiskRuleId(item) for item in RiskRuleId), key=lambda item: item.value)
     )
     levels = {rule.rule_id: rule.severity_policy.default_level for rule in V1_RISK_RULE_SPECS}
-    assert levels[RiskRuleId.TABLE_ADDED] is RiskLevel.MEDIUM_LOW
+    assert levels[RiskRuleId.TABLE_ADDED] is RiskLevel.LOW
     assert levels[RiskRuleId.TABLE_DELETED] is RiskLevel.MEDIUM_HIGH
     assert levels[RiskRuleId.SCHEMA_CHANGED] is RiskLevel.MEDIUM_HIGH
     assert levels[RiskRuleId.ROW_ADDED] is RiskLevel.MEDIUM_LOW

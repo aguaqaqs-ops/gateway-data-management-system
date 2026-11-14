@@ -165,6 +165,7 @@ def test_risk_key_uses_neutral_task_rules_options_and_diagnostics() -> None:
     assert _candidate_key(source, "reverse-or-other-scope-task") != key
     changed_rule = replace(source.risk_ruleset.rules[0], severity_policy=RiskSeverityPolicy(default_level=RiskLevel.LOW))
     variants = (
+        replace(source, risk_options=replace(source.risk_options, empty_baseline=True)),
         replace(source, risk_options=replace(source.risk_options, include_low_risk=False)),
         replace(source, artifact_policy=RiskArtifactPolicy(options=(("detail", "different"),))),
         replace(source, comparison_facts=replace(source.comparison_facts, diagnostics=("pair-diagnostic",))),

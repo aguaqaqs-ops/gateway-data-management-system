@@ -11,9 +11,9 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.comparison.contracts import COMPARISON_CONTRACT_VERSION, ComparisonFacts, ComparisonPlan
-from gateway_backend.capabilities.comparison.cache_document import NeutralFactDocument
-from gateway_backend.capabilities.comparison.cache_codec import _neutral_fact
-from gateway_backend.capabilities.comparison.presentation import structure_change_is_audit_only
+from gateway_backend.capabilities.comparison import (
+    ComparisonTableFactDocument, describe_table_fact, structure_change_is_audit_only,
+)
 
 
 class HiddenStructureFact(BaseModel):
@@ -24,7 +24,7 @@ class HiddenStructureFact(BaseModel):
     before_business_schema_digest: str
     current_business_schema_digest: str
     table_fact_digest: str
-    raw_fact: NeutralFactDocument
+    raw_fact: ComparisonTableFactDocument
     equality_evidence: Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"]
     hidden_reason: Literal["ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL"]
 
@@ -98,7 +98,7 @@ def _publish_structure_audit(
             before_business_schema_digest=before.business_schema_digest.value,
             current_business_schema_digest=current.business_schema_digest.value,
             table_fact_digest=table.table_fact_digest.value,
-            raw_fact=NeutralFactDocument.model_validate_json(_neutral_fact(table)),
+            raw_fact=describe_table_fact(table),
             equality_evidence=table.shared_value_equality,
             hidden_reason="ONLY_COLUMNS_CHANGED_SHARED_VALUES_EQUAL",
         ))

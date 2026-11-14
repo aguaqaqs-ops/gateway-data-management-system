@@ -88,7 +88,7 @@ def assemble_surface(
 
     try:
         checkpoint()
-        from gateway_backend.capabilities.comparison.presentation import visible_comparison_facts
+        from gateway_backend.capabilities.comparison import visible_comparison_facts
 
         facts = visible_comparison_facts(request.comparison_facts)
         if facts.summary.status.value in {"FAILED", "CANCELLED"}:
@@ -355,7 +355,7 @@ def _project_table(
     before_presentation: TablePresentation | None = None,
     current_presentation: TablePresentation | None = None,
 ) -> SurfaceTable:
-    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+    from gateway_backend.capabilities.comparison import visible_table_fact
 
     table = visible_table_fact(table)
     table_refs = SurfaceTableRefs() if artifact_entry is None else artifact_entry.table_refs
@@ -439,7 +439,7 @@ def _project_table(
 
 def table_change_kind(table: ComparisonTableFact, *, replacement: bool) -> SurfaceChangeKind:
     """The same business kind for Surface and navigation summaries."""
-    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+    from gateway_backend.capabilities.comparison import visible_table_fact
 
     table = visible_table_fact(table)
     unsupported = _ordered_unsupported(table)

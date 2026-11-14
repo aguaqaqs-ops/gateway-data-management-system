@@ -188,3 +188,13 @@ from gateway_backend.capabilities.comparison.artifacts import write_arrow_parque
 
 __all__ += ["ComparisonRecordsHandle", "begin_records_operation", "standard_identity_scanner",
     "standard_identity_policy", "write_arrow_parquet"]
+
+from gateway_backend.capabilities.comparison.presentation import (
+    structure_change_is_audit_only, visible_comparison_facts, visible_table_fact,
+)
+from gateway_backend.capabilities.comparison.fact_document import (
+    ComparisonTableFactDocument, describe_table_fact,
+)
+
+__all__ += ["structure_change_is_audit_only", "visible_comparison_facts", "visible_table_fact",
+    "ComparisonTableFactDocument", "describe_table_fact"]

@@ -172,7 +172,7 @@ def publish_business_presentation(
     scanned_rows = locator_bytes = 0
     locator_seconds = 0.0
     replacement = facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT
-    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+    from gateway_backend.capabilities.comparison import visible_table_fact
 
     for original_fact in facts.tables:
         fact = visible_table_fact(original_fact)

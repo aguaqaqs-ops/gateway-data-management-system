@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack, closing
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
 
@@ -22,7 +22,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.task_input import (
-    TABLE_CACHE_FORMAT, TableTaskIdentity, semantic_value,
+    TABLE_CACHE_FORMAT, TableTaskIdentity,
 )
 from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext
 
@@ -124,19 +124,16 @@ def _encode_view(name: str, reader: pa.RecordBatchReader,
 
 
 def _neutral_fact(fact: ComparisonTableFact) -> bytes:
-    if (fact.records or (fact.ordered_extension is not None and fact.ordered_extension.records)
-            or (fact.blank_extension is not None and fact.blank_extension.records)):
-        raise ValueError("neutral table metadata cannot carry row records")
-    removed = {"table_name", "before_descriptor", "current_descriptor", "table_fact_digest"}
-    return canonicalize_json_value({f.name: semantic_value(getattr(fact, f.name))
-        for f in fields(fact) if f.name not in removed})
+    from gateway_backend.capabilities.comparison.fact_document import table_fact_document_bytes
+
+    return table_fact_document_bytes(fact)
 
 
 def restore_table_fact(raw: bytes, task: TableComparisonTask) -> ComparisonTableFact:
     """Rebind the completed neutral outcome to this task's actual descriptors."""
-    from gateway_backend.capabilities.comparison.cache_document import NeutralFactDocument
+    from gateway_backend.capabilities.comparison.fact_document import ComparisonTableFactDocument
 
-    data = NeutralFactDocument.model_validate_json(raw).model_dump()
+    data = ComparisonTableFactDocument.model_validate_json(raw).model_dump()
     data["schema_changes"] = ComparisonSchemaChanges(**data["schema_changes"])
     for name in ("ordered_extension", "blank_extension"):
         value = data[name]

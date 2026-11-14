@@ -6,6 +6,9 @@ import {
   deriveBundleView,
   deriveChangeLocations,
   deriveFormulaDisplays,
+  navigationTabHasDifferences,
+  type NavigationTableScope,
+  type RiskLevel,
   type BusinessNavigation,
   type ComparisonSurface,
   type RiskReport,
@@ -200,6 +203,56 @@ describe("bundle view derivation", () => {
     expect(result.tables.map((table) => table.riskLevel)).toEqual([null, null]);
     expect(result.tables[0]?.annotationCount).toBe(0);
   });
+});
+
+const SCOPE_VISIBILITY_CASES: Array<[string, string, RiskLevel | null, NavigationTableScope | null, boolean]> = [
+  ["local changes", "UPDATED", null, null, true],
+  ["local row risk", "UNCHANGED", "LOW", null, true],
+  ["table risk without local changes", "UNCHANGED", null, { change: false, risk_level: "HIGH" }, true],
+  ["table changes without row risk", "UNCHANGED", null, { change: true, risk_level: null }, true],
+  ["unchanged rows without table news", "UNCHANGED", null, null, false],
+];
+
+it.each(SCOPE_VISIBILITY_CASES)("difference filtering retains %s", (_name, kind, risk, scope, expected) => {
+  const doc = navigation();
+  doc.groups[0]!.items[0]!.tabs[0]!.facts = { ...exactFacts, change_kind: kind, risk_level: risk, table_scope: scope };
+  const tab = deriveBundleView({ surface: surface(), navigation: decodeBusinessNavigation(doc, surface()) }).groups[0]!.items[0]!.tabs[0]!;
+  expect(navigationTabHasDifferences(tab)).toBe(expected);
+});
+
+function sameKeyReplacement(): BusinessNavigation {
+  return { contract_version: "backend-vnext/business-navigation/v2", groups: [], replacement_sides: {
+    before: [{ group_key: "SECONDARY_DEVICES", label: "装置", nonempty_item_count: 1, items: [{
+      item_key: "same-device", item_kind: "DEVICE", label: "同一装置", summary: { change_kinds: ["ADDED"], risk_level: "LOW", nonempty_tab_count: 1 },
+      tabs: [{ empty: false, tab_key: "table", label: "表", table_id: "device", row_filter: null, facts: null }],
+    }] }],
+    current: [{ group_key: "SECONDARY_DEVICES", label: "装置", nonempty_item_count: 1, items: [{
+      item_key: "same-device", item_kind: "DEVICE", label: "同一装置", summary: { change_kinds: ["DELETED"], risk_level: "HIGH", nonempty_tab_count: 2 },
+      tabs: [{ empty: false, tab_key: "table", label: "表", table_id: "device", row_filter: null, facts: null },
+             { empty: false, tab_key: "extra", label: "扩展", table_id: "device_ext", row_filter: null, facts: null }],
+    }] }],
+  } };
+}
+
+it("merges published replacement summaries for the same item and deduplicates shared tables", () => {
+  const replacementSurface = { ...surface(), comparison_mode: "DATASET_REPLACEMENT" } as ComparisonSurface;
+  const view = deriveBundleView({ surface: replacementSurface, navigation: decodeBusinessNavigation(sameKeyReplacement(), replacementSurface) });
+  const group = view.groups[0]!;
+  expect(group.items).toHaveLength(1);
+  expect(group.nonemptyItemCount).toBe(1);
+  expect(group.items[0]!.tabs.map((tab) => tab.tableName)).toEqual(["device", "device_ext"]);
+  expect(group.items[0]!.nonemptyTabCount).toBe(2);
+  expect(group.items[0]!.changeKinds).toEqual(["ADDED", "DELETED"]);
+  expect(group.items[0]!.riskLevels).toEqual(["HIGH", "LOW"]);
+  expect(view.replacementSides!.before[0]!.items[0]!.tabs).toHaveLength(1);
+  expect(view.replacementSides!.current[0]!.items[0]!.tabs).toHaveLength(2);
+});
+
+it.each(["before", "current"] as const)("rejects empty replacement tab on %s side", (side) => {
+  const doc = sameKeyReplacement();
+  doc.replacement_sides![side][0]!.items[0]!.tabs[0]!.empty = true;
+  const replacementSurface = { ...surface(), comparison_mode: "DATASET_REPLACEMENT" } as ComparisonSurface;
+  expect(() => decodeBusinessNavigation(doc, replacementSurface)).toThrow(/empty/);
 });
 
 describe("record and formula derivation", () => {

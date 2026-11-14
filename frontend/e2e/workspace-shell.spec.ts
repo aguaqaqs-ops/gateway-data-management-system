@@ -3049,12 +3049,18 @@ for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
     await expect(count).toHaveText(expected);
     await emptyItem.locator(".nav-item__button").click();
     await expect(page.locator(".table-info")).toBeVisible();
+    if (mode !== "HISTORY") {
+      await expect(page.locator(".table-info").getByText("新增", { exact: true })).toHaveCount(1);
+      await expect(page.locator('.table-info .risk-badge[aria-label="中低风险"]')).toHaveCount(1);
+    }
     for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-expanded`, width);
     await page.locator(".compare-more > summary").click();
     await page.getByRole("checkbox", { name: /显示空页签/ }).uncheck();
     await page.locator(".compare-more > summary").click();
     await expect(emptyItem).toHaveCount(0);
     await expect(count).toHaveText(expected);
+    await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") })).toEqual({ node: "device:table", tab: "table" });
+    await expect(page.locator('.nav-item[data-item-key="device:table"]')).toHaveClass(/is-active/);
     if (mode === "REVIEW") expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
   });
 }
@@ -3129,4 +3135,29 @@ test("F all-empty pair exposes a discoverable selected tab and expansion control
   await expect(page.locator('.nav-item[data-item-key="device:composite"]')).toBeVisible();
   await expect(page.locator('.nav-group__heading small[title="非空项"]')).toHaveText("0");
   for (const width of [1920, 1280]) await screenshot(page, "f-all-empty-pair", width);
+});
+
+
+test("F filtered navigation counts reflect search and table-scope differences", async ({ page }) => {
+  await installFixtureRoutes(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto(browseUrl("PREVIEW", "schema-keyless"));
+  await waitForBrowse(page);
+  const group = page.locator(".nav-group").filter({ has: page.locator(".nav-group__label", { hasText: "二次装置列表" }) });
+  const count = group.locator('.nav-group__heading small[title="非空项"]');
+  await expect(count).toHaveText("3");
+  await page.getByRole("button", { name: "仅看差异", exact: true }).click();
+  await expect(count).toHaveText("2");
+  await expect(group.locator('.nav-item[data-item-key="device:table"]')).toHaveCount(0);
+  await expect(group.locator('.nav-item[data-item-key="device:addr:49"]')).toBeVisible();
+  await expect(group.locator('.nav-item[data-item-key="device:composite"]')).toBeVisible();
+  for (const width of [1920, 1280]) await screenshot(page, "f-filtered-scope-count", width);
+  await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill("复合信号");
+  await expect(group.locator(".nav-item")).toHaveCount(1);
+  await expect(count).toHaveText("1");
+  await page.locator(".compare-more > summary").click();
+  await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+  await page.locator(".compare-more > summary").click();
+  await expect(count).toHaveText("1");
+  for (const width of [1920, 1280]) await screenshot(page, "f-search-nonempty-count", width);
 });

@@ -332,6 +332,15 @@ export interface DerivedNavigationGroup {
   }>;
 }
 
+/** Exact filter facts describe local rows; typed table scope retains whole-table differences. */
+export function navigationTabHasDifferences(tab: DerivedNavigationGroup["items"][number]["tabs"][number]): boolean {
+  const exact = tab.rowFilter !== null && tab.facts?.basis === "EXACT";
+  const kind = exact ? tab.facts?.change_kind : tab.table?.changeKind;
+  const risk = exact ? tab.facts?.risk_level : tab.table?.riskLevel;
+  return (kind != null && kind !== "UNCHANGED") || risk != null
+    || tab.facts?.table_scope?.change === true || tab.facts?.table_scope?.risk_level != null;
+}
+
 export interface DerivedBundleView {
   groups: DerivedNavigationGroup[];
   tables: DerivedTable[];

@@ -7,7 +7,7 @@ import { useBoundGatewayApi, boundBundleFetch } from "../features/api/applicatio
 import { assertSubmissionReviewBundle, pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
-import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
+import { deriveChangeLocations, deriveFormulaDisplays, navigationTabHasDifferences, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
@@ -129,12 +129,6 @@ function tabRiskLevel(tab: { facts: { risk_level?: RiskLevel | null } | null; ta
 
 type NavItem = DerivedNavigationGroup["items"][number];
 type NavTab = NavItem["tabs"][number];
-
-/** A filter tab with exact facts speaks for its own rows; otherwise the whole table speaks. */
-function tabOwnState(tab: NavTab): { kind: string | null; risk: RiskLevel | null } {
-  if (tab.rowFilter !== null && tab.facts?.basis === "EXACT") return { kind: tab.facts.change_kind ?? null, risk: tab.facts.risk_level ?? null };
-  return { kind: tab.table?.changeKind ?? null, risk: tab.table?.riskLevel ?? null };
-}
 
 function itemBadgeKind(kinds: readonly string[]): string {
   return kinds.find((kind) => surfaceChangePresentation(kind).badgeText !== null) ?? "UNCHANGED";
@@ -553,8 +547,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const shownTabs = useCallback((item: NavItem): NavTab[] => item.tabs.filter((tab) => {
     if (!showEmptyTabs && tab.empty) return false;
     if (!browse.onlyInteresting) return true;
-    const { kind, risk } = tabOwnState(tab);
-    return (kind !== null && kind !== "UNCHANGED") || risk !== null || tab.facts?.table_scope?.change === true || tab.facts?.table_scope?.risk_level != null
+    return navigationTabHasDifferences(tab)
       || (navigationDiagnostics ?? []).some(({ target }) => target.item_key === item.itemKey && (!target.tab_key || target.tab_key === tab.tabKey));
   }), [browse.onlyInteresting, navigationDiagnostics, showEmptyTabs]);
   const visibleGroups = useMemo(() => groups.filter((group) => {
@@ -565,14 +558,27 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const navigationEntries = useMemo(() => groups.flatMap((group) => group.items.flatMap((item) => item.tabs.map((tab) => ({ group, item, tab })))), [groups]);
   const wholeTableName = browse.tabKey?.startsWith("__whole__:") ? browse.tabKey.slice("__whole__:".length) : null;
   const wholeTable = wholeTableName ? presentation?.view.tables.find((item) => item.tableName === wholeTableName) : null;
-  const selectableEntries = useMemo(() => navigationEntries.filter(({ tab }) => showEmptyTabs || !tab.empty), [navigationEntries, showEmptyTabs]);
-  const selectedEntry = useMemo(() => selectableEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === browse.tabKey)
-    ?? selectableEntries.find(({ tab }) => tab.tabKey === browse.tabKey)
-    ?? selectableEntries.find(({ item, tab }) => shownTabs(item).includes(tab))
-    ?? selectableEntries[0]
-    ?? null, [browse.nodeKey, browse.tabKey, selectableEntries, shownTabs]);
+  // A saved location identifies both the item and its tab, including hidden empty tabs.
+  const selectedEntry = useMemo(() => navigationEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === browse.tabKey)
+    ?? navigationEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && shownTabs(item).includes(tab))
+    ?? navigationEntries.find(({ item }) => item.itemKey === browse.nodeKey)
+    ?? navigationEntries.find(({ item, tab }) => shownTabs(item).includes(tab))
+    ?? navigationEntries.find(({ tab }) => !tab.empty)
+    ?? navigationEntries[0]
+    ?? null, [browse.nodeKey, browse.tabKey, navigationEntries, shownTabs]);
   const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => tab.empty).length, [navigationEntries]);
-  const toggleEmptyTabs = () => setShowEmptyTabs((value) => !value);
+  const toggleEmptyTabs = () => {
+    if (showEmptyTabs && selectedEntry?.tab.empty && !wholeTable) {
+      const next = navigationEntries.find(({ group, item, tab }) => !tab.empty && shownTabs(item).includes(tab)
+        && (matchesGroup(group, browse.search) || matchesItem(item, browse.search)))
+        ?? navigationEntries.find(({ tab }) => !tab.empty);
+      if (next) {
+        runtime.execute({ name: "select-node", nodeKey: next.item.itemKey });
+        runtime.execute({ name: "select-tab", tabKey: next.tab.tabKey });
+      }
+    }
+    setShowEmptyTabs((value) => !value);
+  };
   const selectedTab = useMemo(() => wholeTable && wholeTableName
     ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, empty: false, rowFilter: null, facts: null, table: wholeTable }
     : selectedEntry?.tab ?? null, [selectedEntry, wholeTable, wholeTableName]);
@@ -816,7 +822,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         <details className="compare-more">
           <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>
           <div className="compare-more__menu">
-            <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（两侧都没有行，共 {emptyTabCount} 个）</label>
+            <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（没有行，共 {emptyTabCount} 个）</label>
             {import.meta.env.DEV && <div className="display-mode"><span>显示模式（开发环境）</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}
             {widthTable && Object.keys(storedWidths).length > 0 && <button className="link-button compare-more__action" onClick={resetColumnWidths}>恢复本表默认列宽</button>}
             {browse.mode === "REVIEW" && pairs.map((pair, index) => <div key={pair.pair.pair_id} className="compare-more__bundle" data-pair-summary={pair.pair.pair_id}><strong>{viewLabel(pair, index, pairs.length, browse.mode)}</strong><span>变化表 {pair.pair.summary?.changed_table_count ?? "—"}/{pair.pair.summary?.table_count ?? "—"}</span><span>逐行 +{pair.pair.summary?.row_added_count ?? "—"} / ~{pair.pair.summary?.row_modified_count ?? "—"} / −{pair.pair.summary?.row_deleted_count ?? "—"}</span></div>)}
@@ -838,7 +844,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
           const items = group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
           const groupDiagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey);
           if (items.length === 0 && groupDiagnostics.length === 0) return null;
-          return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small title="非空项">{group.nonemptyItemCount}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
+          return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small title="非空项">{items.filter((item) => item.nonemptyTabCount > 0).length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
           {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey && !diagnostic.target.item_key && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
           {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = item; const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
             {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
@@ -847,7 +853,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度（双击适应名称）" title="拖动调整宽度，双击适应名称" onDoubleClick={fitSidebarWidth} aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
-        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><ScrollStrip>{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</ScrollStrip>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="空页签：两侧都没有行的表" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
+        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><ScrollStrip>{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</ScrollStrip>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="没有行的页签" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
           {selectedTab && table && surfaceTable ? <>
             {(() => {
               // One info line: what changed and how many rows; reasons and notes open as popovers.

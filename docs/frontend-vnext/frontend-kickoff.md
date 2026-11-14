@@ -132,7 +132,7 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
 - 审核浏览读取 `GET /v1/submissions/{id}/result` 与 `.../result/bundle` 所绑定的不可变 Preview，不创建或轮询 History；历史任意节点比较仍独立使用 History。
 - FULL 复用 `baseline_to_initial`（“原始组态视图”，提示“已归档数据 → 原始组态备份”）与 `initial_to_modified`（“本次组态视图”，提示“原始组态备份 → 本次归档组态”），组名/提示与 Preview 共用，默认后者；MODIFIED_ONLY 只有 `initial_to_modified`（基线→修改）。在现有单行头部视图切换，风险、导航和表/行计数各组独立，统计可在现有更多菜单查看，不合计净变化。
 - 每次打开/刷新（含冲突确认框中的“刷新审核信息”）先以当前会话读取服务端摘要并核对提交、bundle 与 pair 身份，再复用 OPFS。服务端结果缺失或损坏不能被已下载缓存掩盖；分别显示 `SUBMISSION_RESULT_UNAVAILABLE`、`SUBMISSION_RESULT_INTEGRITY_FAILURE` 并提供重新读取，不创建比较作为回退。
-- 仅服务器明确返回 `SUBMISSION_RESULT_UNAVAILABLE` 或 `SUBMISSION_RESULT_INTEGRITY_FAILURE` 时，允许退回与本人撤回（权限、PENDING 状态及处置限制照旧），审核通过禁用；其他失败仅可重试。
+- 仅服务器明确返回 `SUBMISSION_RESULT_UNAVAILABLE` 或 `SUBMISSION_RESULT_INTEGRITY_FAILURE` 时，允许退回与本人撤回（权限、PENDING 状态及处置限制照旧），审核通过禁用；其他失败仅可重试。核对期间保留已显示的比较视图，但禁用三项审核动作；核对失败仍清空视图，会话切换与重试仍重新读取服务器。
 - 审核动作仍作用于整个 Submission，保留最新权限、review version、基线 CAS 与 canonical 判断。摘要不加基线预告字段；审批被 `BASELINE_VERSION_CONFLICT` 拒绝时明确解释基线已更新，并保留退回/本人撤回。终态授权读取不要求工作区指针或占用仍有效。
 
 ### 4.5 分组与列展示占位（FD6）

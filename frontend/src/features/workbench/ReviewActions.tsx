@@ -87,12 +87,12 @@ export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCod
   const otherDisabled = Boolean(dispositionReason) || (!bundleReady && !unreadableResult) || facts.status !== "PENDING";
   const blockedReason = dispositionReason
     ?? (facts.status !== "PENDING" ? STATUS_REASON[facts.status] ?? "当前提交不可审核"
-      : !bundleReady && !unreadableResult ? "请等待提交绑定的比较结果下载完成" : undefined);
+      : !bundleReady && !unreadableResult ? "请等待提交绑定的比较结果核对完成" : undefined);
   const approveReason = dispositionReason ?? (facts.status !== "PENDING" ? blockedReason
     : unreadableResult ? "比较结果无法读取，不能通过"
     : expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason);
   const resultImpact = unreadableResult
-    ? `提交绑定的比较结果无法读取（错误码 ${resultErrorCode}），退回后提交人需重新上传` : null;
+    ? `提交绑定的比较结果无法读取（错误码 ${resultErrorCode}），${dialog === "withdraw" ? "撤回" : "退回"}后提交人需重新上传` : null;
   // Rule 3: withdraw/reject always share blockedReason; approve joins them when
   // its reason is identical. The shared reason is rendered once below the group.
   const groupReason = blockedReason;

@@ -3073,3 +3073,60 @@ test("F structure tabs stay visible and existing unknown tab counts stay unknown
   await expect(page.locator(".table-info__counts", { hasText: "本页" })).toHaveText("本页 — → 0 行");
   for (const width of [1920, 1280]) await screenshot(page, "f-existing-side-count-unknown", width);
 });
+
+
+for (const mode of ["PREVIEW", "REVIEW"] as const) {
+  for (const target of [
+    { node: "table:b1_n1_sg_cfg", tab: "table", label: "whole" },
+    { node: "device:addr:49", tab: "device_st", label: "filtered" },
+  ]) {
+    test(`F empty URL restores ${mode} ${target.label} across reload`, async ({ page }) => {
+      await installFixtureRoutes(page, { reviewFixture: "table-addition" });
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      await page.goto(browseUrl(mode, "table-addition"));
+      await waitForBrowse(page);
+      await page.locator(".compare-more > summary").click();
+      await page.getByRole("checkbox", { name: /显示空页签/ }).check();
+      await page.locator(".compare-more > summary").click();
+      await page.locator(`.nav-item[data-item-key="${target.node}"] .nav-item__button`).click();
+      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") })).toEqual({ node: target.node, tab: target.tab });
+      await page.reload();
+      await waitForBrowse(page);
+      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 }).toEqual({ node: target.node, tab: target.tab });
+      await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveAttribute("data-tab-key", target.tab);
+      await expect(page.locator(".table-info .risk-badge")).toHaveCount(1);
+      for (const width of [1920, 1280]) await screenshot(page, `f-url-${mode.toLowerCase()}-${target.label}-restored`, width);
+      // Explicitly expand then hide: the URL must move to a visible item.
+      const toggle = page.locator(".overflow-tabs__empty-toggle");
+      if (await toggle.getAttribute("aria-pressed") === "false") await toggle.click();
+      await toggle.click();
+      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") })).toEqual({ node: "device:table", tab: "table" });
+      await expect(page.locator('.nav-item[data-item-key="device:table"]')).toHaveClass(/is-active/);
+    });
+  }
+}
+
+for (const scenario of [
+  { label: "invalid tab stays in its valid item", fixture: "table-addition", node: "device:addr:49", tab: "table", expectedNode: "device:addr:49", expectedTab: "device_st" },
+  { label: "invalid item does not adopt another shared tab", fixture: "missing-identity-column", node: "missing-node", tab: "device_cfg", expectedNode: "device:table", expectedTab: "table" },
+]) {
+  test(`F navigation URL fallback ${scenario.label}`, async ({ page }) => {
+    await installFixtureRoutes(page);
+    await page.goto(browseUrl("PREVIEW", scenario.fixture, { node: scenario.node, tab: scenario.tab }));
+    await waitForBrowse(page);
+    await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 }).toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
+  });
+}
+
+test("F all-empty pair exposes a discoverable selected tab and expansion control", async ({ page }) => {
+  await installFixtureRoutes(page);
+  await page.goto(browseUrl("PREVIEW", "empty-tabs"));
+  await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
+  await expect(page.locator(".overflow-tabs__empty-toggle")).toBeVisible({ timeout: 5000 });
+  await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveCount(1);
+  await expect.poll(() => new URL(page.url()).searchParams.get("node")).toBe("device:composite");
+  await page.locator(".overflow-tabs__empty-toggle").click();
+  await expect(page.locator('.nav-item[data-item-key="device:composite"]')).toBeVisible();
+  await expect(page.locator('.nav-group__heading small[title="非空项"]')).toHaveText("0");
+  for (const width of [1920, 1280]) await screenshot(page, "f-all-empty-pair", width);
+});

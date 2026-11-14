@@ -207,7 +207,8 @@
     "backend/scenarios/formula-unchanged-device",
     "backend/scenarios/identity-unrecorded-exact",
     "backend/scenarios/excluded-identity",
-    "backend/scenarios/missing-identity-column"
+    "backend/scenarios/missing-identity-column",
+    "backend/scenarios/empty-tabs"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -870,6 +871,36 @@
           "DEVICE_TAB_COUNT_UNKNOWN"
         ]
       }
+    },
+    {
+      "id": "empty-tabs",
+      "output": "backend/scenarios/empty-tabs",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "empty.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "empty.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "all-empty-navigation-discovery"
+      ],
+      "assertions": {}
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",

@@ -310,9 +310,9 @@ bundle-root/
 - Repository-ref materialization 先用 canonical identity 的 `raw_content_digest`、目录 schema、ordered
   row metadata、repository scope 与 writer version 计算 key 并查询缓存。命中时校验并使用缓存行文件，
   不打开 Dolt 表 reader；未命中或缓存文件校验失败时才读取规范表、导出并回填。
-- Snapshot Parquet cache hit 恢复到 bundle 时必须复制为当前 bundle 的 bundle-relative
-  Parquet artifact ref，并进入统一 artifact closure；cache-local artifact ref 不得出现在
-  surface、preview index 或 bundle manifest 中。
+- Snapshot Parquet cache hit 恢复到 bundle 时必须登记为当前 bundle 的 bundle-relative
+  Parquet closure member。符合下述未变成员复用条件的正式 ArtifactRef 可保持原身份；
+  cache-local path 不得出现在 surface、preview index 或 bundle manifest 中。
 - 如果 history/formal comparison bundle 缺少 snapshot table refs，但存在 ordered records，前端可以
   以 `FORMAL_ORDERED_RECORDS` 直接读取 `ordered_extension.ordered_records_ref` 指向的 Parquet records。
   该 fallback 只展示 ordered 差异记录本身，不要求 `current_table_ref`。
@@ -364,13 +364,13 @@ Bundle v4 的 closure entry 至少包含 `logical_path`、final `artifact_ref`�
 和 pair/shared scope。`SNAPSHOT_TABLE` entry 使用按 `(pair_id, side, table_name)` 排序的非空
 `table_bindings`；同一内容文件可绑定到多个 pair/table。其他 kind 使用 `pair_id` / `table_name`
 表达单一 scope。Bundle assembler 会对 JSON closure 中嵌套的 ArtifactRef 做确定性 rewrite，
-拒绝未声明 ref、重复 entry、环依赖、非法 path 或 integrity mismatch。写入 manifest、closure
-和所有 referenced artifacts 并完成回读校验前，不返回 READY/DEGRADED public result。
+拒绝未声明 ref、重复 entry、环依赖、非法 path 或 integrity mismatch。新成员写入、manifest/closure
+发布及全部 final referenced artifacts（含复用成员）的完整回读校验完成前，不返回 READY/DEGRADED public result。
 
 规则：
 
 - Bundle 不得引用 cache-local path。
-- Cache hit 恢复到 bundle 时必须重写为 bundle-relative refs。
+- Cache hit 恢复到 bundle 时必须进入 bundle-relative closure；是否改变 ArtifactRef 按下述复用规则。
 - Closure 缺失时 bundle 不能对外 READY。
 - Bundle digest 可以包含 closure manifest digest；closure refs 本身可重写。
 - Core closure 不闭合 upload-specific 的 `preview_index.json`、`diff_summary.json`；它们由 preview bundle delivery 层根据当前 Preview delivery contract 生成。
@@ -424,6 +424,26 @@ Bundle 只闭合 surface 引用的已发布 ordered records、blank/interval 与
 状态：S1a 多 root 下载已实现并经 G 核收，不提升 bundle 合同版本；实际 literal 路径/字段集合比较、ID/raw integrity 传递变化及适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)。[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。
 
 新bundle manifest/closure、被实际rewrite的新交付成员归export。未改变身份且直接引用的成员保持原ref/location；bundle-relative logical_path是交付路径，不是磁盘类别。producer `_bundle_artifact_id` 与transport重算原closure ID必须共用相同export codec，含surface-source内部临时ref也需合法新格式。bundle_id不是ArtifactRef，不因同名前缀套codec。
+
+### 未变成员复用（Preview publication 优化）
+
+assembler 先校验 source exact ref、完整原始字节与 JSON canonical/引用闭合，再递归确定最终 ref。
+未改变字节的 durable/comparison/export 正式成员保持四字段 ArtifactRef 完全相等；canonical
+成员继续复制到 export，不将 canonical/scratch 对象直接作为 bundle 成员。JSON 子 ref 实际变化
+时重写其父内容并产生 export ref，递归到所需层级；无变化的 JSON 保持原字节/ref。
+新 surface、bundle manifest 和 closure 仍发布为 export。不改变 Bundle v4 的字段或摘要 preimage；
+ref rewrite 减少可能改变 JSON raw SHA、size 及其传递的 surface/bundle digest，更新相应 golden。
+
+相同内容 snapshot 仍合并为一个 shared logical_path，并保留全部 table_bindings。该组以非canonical
+优先、再按 artifact_id 字典序选择稳定代表，所有 alias 与父 JSON 指向代表的最终 ref；每个 source
+仍独立校验，不用声明的 hash 代替原始内容校验。此规则不合并不同内容或普通成员的不同合法路径。
+
+只有 `destination_store is source_store` 且上述规划已确认 final ref 直接复用既存正式成员时省略
+该成员的 put/即时读回；不查询 exists、不增加 storage fast path。独立 destination（即使是包装器）
+必须复制全部 final 成员，使用相同最终 ref 映射，并在该 destination 完成全部 final 校验。
+READY/DEGRADED 的完整读验、资源预算与取消边界保留。原 READY/publication 事务接收完整 final refs
+并按原保护与 Submit 移交规则管理复用成员；cache/source 的旧保护不是本 bundle 的保护替代物。
+不增加保留生命周期或第二权威来源。
 
 下载仍在headers前核授权绑定、完整metadata/成员及size/raw SHA，跨root持有有序borrow，不新建持久tar。原单root“FD合计≤2”在多root目标下改为至多4个root FD加当前1个artifact FD；不预开所有成员，无整包bytes/mmap。正常/未消费响应/断连/取消/异常都释放所有borrow。清理遇借用retryable；头后I/O失败中断，不补成功尾部。READY完整final refs仍在原publication/protection事务中闭合。
 

@@ -3,6 +3,7 @@
   "cases": {
     "identical_snapshot_rows_across_pairs": {
       "binding_count": 1,
+      "artifact_location": "durable",
       "entries": [
         {
           "kind": "SNAPSHOT_TABLE",

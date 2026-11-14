@@ -95,7 +95,7 @@ def test_closure_rejects_duplicate_source_ref_and_path() -> None:
 def test_snapshot_closure_keeps_all_table_side_bindings_for_shared_source() -> None:
     raw = b"parquet rows"
     ref = ArtifactRef(
-        "a1:durable:a4203a1264dbeec9639e2777098194bcbac258c82d99b2ef71bb928885f88cc5",
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "shared-snapshot"),
         "application/vnd.apache.parquet",
         len(raw),
         raw_blob_digest(raw),

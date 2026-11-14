@@ -16,9 +16,11 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
+import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,13 +28,17 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
+import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
+from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, UnsignedIntegerScalar, encode_row
 
 from benchmarks import real_dump_journey as journey
 from benchmarks.bundle_tar import download_bundle_tar
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
 from gateway_backend.capabilities.business_navigation import validate_navigation
+from gateway_backend.capabilities.bundle_assembly.contracts import BundleArtifactKind
+from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.http.schemas.review import SubmissionResultResponse
 from tests.support.compose_gate_harness import (
     BACKEND_URL, BASELINE_NODE_ID, SESSION_TOKEN,
@@ -53,6 +59,8 @@ NUMBER1_FILES = {
     "data2/comps/logic/logics.xml": "f448e824c862225f595fe8a16755ee9220f05298288c0d49d4b0c4ac4f959d60",
 }
 T4_PACKAGE_SHA = "95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675"
+NUMBER1_MARKER = "四川成都220kV车城变PCS9799C-20250528.pmc"
+EMPTY_MARKER_SHA = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 CONFIG_TABLES = (
     "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg", "iec61850c_cfg",
     "jdxx_cfg", "sc_cfg", "scada_cfg", "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
@@ -96,6 +104,19 @@ class _Table(_Document):
     ordered_extension: dict[str, JsonValue] | None
 
 
+class _View(_Document):
+    view_id: str
+    label: str | None
+    before_role: str
+    current_role: str
+    table_count: int
+    changed_table_count: int
+    degraded_table_count: int
+    failed_table_count: int
+    risk_level: str | None
+    diagnostics_summary: list[str]
+
+
 class _Surface(_Document):
     surface_contract_version: str
     surface_id: str
@@ -113,6 +134,7 @@ class _Surface(_Document):
     refs: dict[str, JsonValue]
     diagnostics: dict[str, JsonValue]
     reserved_extensions: list[JsonValue]
+    view: _View
 
 
 class _Probe(_Document):
@@ -130,6 +152,13 @@ class _HistoryDemands(_Document):
 @dataclass
 class _RunState:
     cleanup_complete: bool = True
+
+
+@dataclass(frozen=True)
+class _DeviceChange:
+    gid: int
+    before: str
+    current: str
 
 
 # This probe only reads the invocation's newly created control DB/store. It uses
@@ -193,12 +222,85 @@ def _command(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, capture_output=True, text=True, check=False, timeout=60)
 
 
+def _assert_execution_isolation() -> dict[str, str]:
+    endpoint = os.environ.get("GATEWAY_BACKEND_REPOSITORY_BASE_URL", "http://repository-service:8000")
+    _check(endpoint == "http://repository-service:8000", "external Repository endpoint is forbidden")
+    _check(not any(os.environ.get(name) for name in (
+        "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")),
+        "Docker connection overrides are forbidden")
+    context = _command("docker", "context", "show")
+    _check(context.returncode == 0, "Docker context is unavailable")
+    inspected = _command("docker", "context", "inspect", context.stdout.strip(),
+                         "--format", "{{.Endpoints.docker.Host}}")
+    daemon = inspected.stdout.strip()
+    _check(inspected.returncode == 0 and daemon in {
+        "unix:///var/run/docker.sock", "unix:///run/docker.sock"}, "Docker daemon must be local")
+    identity = _command("docker", "info", "--format", "{{.Name}}")
+    _check(identity.returncode == 0
+           and identity.stdout.strip().split(".")[0] == socket.gethostname().split(".")[0],
+           "Docker daemon hostname differs from the execution node")
+    return {"repository_url": endpoint, "docker_context": context.stdout.strip(),
+            "docker_endpoint": daemon, "docker_hostname": identity.stdout.strip()}
+
+
+def _logged_compose(env: dict[str, str], output: Path, name: str,
+                    *args: str, timeout: float = 600) -> subprocess.CompletedProcess[str]:
+    started = datetime.now(UTC).isoformat()
+    try:
+        result = run_compose(env, *args, timeout=timeout)
+    except BaseException as error:
+        # No process return code is available when subprocess itself raises.
+        # Preserve the original exception; never invent a numeric successful exit.
+        (output / f"{name}-exception.log").write_text(traceback.format_exc(), encoding="utf-8")
+        if isinstance(error, subprocess.TimeoutExpired):
+            for stream, value in (("stdout", error.stdout), ("stderr", error.stderr)):
+                text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+                (output / f"{name}-{stream}.log").write_text(text, encoding="utf-8")
+        _write(output / f"{name}-command.json", {"started_at": started,
+            "ended_at": datetime.now(UTC).isoformat(), "exit_code": None,
+            "exception_type": type(error).__name__})
+        raise
+    (output / f"{name}-stdout.log").write_text(result.stdout, encoding="utf-8")
+    (output / f"{name}-stderr.log").write_text(result.stderr, encoding="utf-8")
+    _write(output / f"{name}-command.json", {"started_at": started,
+        "ended_at": datetime.now(UTC).isoformat(), "exit_code": result.returncode})
+    return result
+
+
+def _finish_stack(env: dict[str, str], output: Path, state: _RunState,
+                  primary: BaseException | None) -> None:
+    if primary is not None:
+        (output / "business-exception.log").write_text(
+            "".join(traceback.format_exception(primary)), encoding="utf-8")
+    log_error: BaseException | None = None
+    try:
+        logs = _logged_compose(env, output, "compose", "logs", "--no-color", timeout=120)
+        _check(logs.returncode == 0, "required Compose log collection failed")
+    except BaseException as error:
+        log_error = error
+    finally:
+        cleanup_compose_project_artifacts(env)
+        shutil.rmtree(output / "secrets")
+        state.cleanup_complete = True
+    if log_error is not None:
+        if primary is None:
+            raise log_error
+        primary.add_note("Compose log collection also failed; original command evidence is retained")
+
+
 def _idle() -> None:
     running = _command("docker", "ps", "-q")
     _check(running.returncode == 0 and not running.stdout.strip(), "node has running containers")
     _check(_command("pgrep", "-x", "dolt").returncode == 1, "node has Dolt processes")
     with socket.socket() as probe:
         _check(probe.connect_ex(("127.0.0.1", 8000)) != 0, "port 8000 is occupied")
+
+
+def _number1_marker(side: Path) -> Path:
+    marker = side / NUMBER1_MARKER
+    _check(tuple(side.glob("*.pmc")) == (marker,) and _file_sha(marker) == EMPTY_MARKER_SHA,
+           "number1 original project marker name/content mismatch")
+    return marker
 
 
 def _inputs(scope: str, root: Path, output: Path) -> tuple[bytes, bytes | None]:
@@ -219,10 +321,7 @@ def _inputs(scope: str, root: Path, output: Path) -> tuple[bytes, bytes | None]:
             _check(digest == NUMBER1_FILES[f"{side}/{relative}"], "number1 source identity mismatch")
             members[relative] = raw
             records.append({"path": str(source), "bytes": len(raw), "sha256": digest})
-        markers = tuple((root / side).glob("*.pmc"))
-        _check(len(markers) == 1 and markers[0].read_bytes() == b"",
-               "number1 must retain its original empty project marker")
-        marker = markers[0]
+        marker = _number1_marker(root / side)
         members[marker.name] = b""
         records.append({"path": str(marker), "bytes": 0, "sha256": _file_sha(marker)})
         package = pack_tar_gz(members)
@@ -266,9 +365,10 @@ def _download(client: httpx.Client, url: str, output: Path, name: str) -> tuple[
     return manifest, tar
 
 
-def _probe(env: dict[str, str], preview_id: str, submission_id: str) -> _Probe:
-    result = run_compose(env, "exec", "-T", "backend", "python", "-c",
-                         _REVIEW_PROBE, preview_id, submission_id, timeout=600)
+def _probe(env: dict[str, str], preview_id: str, submission_id: str,
+           output: Path, name: str) -> _Probe:
+    result = _logged_compose(env, output, name, "exec", "-T", "backend", "python", "-c",
+                             _REVIEW_PROBE, preview_id, submission_id, timeout=600)
     _check(result.returncode == 0, "complete submission READY/audit/protection probe failed")
     return _Probe.model_validate_json(result.stdout)
 
@@ -334,7 +434,7 @@ def _t4(client: httpx.Client, submission: dict[str, Any], env: dict[str, str],
             representatives[name] = table.model_dump(mode="json")
         observed.append(representatives)
     _check(observed[0] == observed[1], "cold/warm representative semantics differ")
-    logs = run_compose(env, "logs", "--no-color", "worker")
+    logs = _logged_compose(env, output, "history-worker", "logs", "--no-color", "worker")
     _check(logs.returncode == 0, "worker logs unavailable")
     demands = [_HistoryDemands.model_validate_json(match) for match in
                re.findall(r"s5_history_demands (\{[^\n]+\})", logs.stdout)]
@@ -348,7 +448,73 @@ def _t4(client: httpx.Client, submission: dict[str, Any], env: dict[str, str],
     _write(output / "t4-representatives.json", observed)
 
 
-def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path) -> None:
+def _configuration_keys(keys: JsonValue) -> None:
+    # Rule key order is (page_no, no); SurfaceCompare publishes sorted unique names.
+    _check(keys == ["no", "page_no"], "configuration comparison key mismatch")
+
+
+def _source_device_change(root: Path) -> _DeviceChange:
+    """Recognize one frozen source literal, not another SQL/comparison engine.
+
+    These exact files were hash-checked by _inputs. Independently inspect their
+    first four device DDL columns and one unescaped INSERT tuple. No product
+    parser, projection, native comparator or old comparison report is the oracle.
+    """
+    values = []
+    for side, expected in (("data1", "公用测控装置2"), ("data2", "公用测控装置2--1")):
+        columns = []
+        descriptions = []
+        in_device_ddl = False
+        with (root / side / "sql/dbcfg.sql").open(encoding="utf-8") as source:
+            for line in source:
+                if line.startswith("CREATE TABLE `device` ("):
+                    in_device_ddl = True
+                elif in_device_ddl:
+                    if line.startswith(") ENGINE="):
+                        in_device_ddl = False
+                    elif match := re.match(r"  `([^`]+)`", line):
+                        columns.append(match.group(1))
+                elif line.startswith("INSERT INTO `device` VALUES "):
+                    descriptions.extend(re.findall(r"(?:VALUES |,)\(15542,17,17,'([^']*)',", line))
+        _check(columns[:4] == ["gid", "dev_addr", "map_addr", "description"]
+               and descriptions == [expected], "number1 source update oracle did not match")
+        values.append(expected)
+    return _DeviceChange(15542, values[0], values[1])
+
+
+def _check_device_record(rows: list[dict[str, Any]], source: _DeviceChange) -> str:
+    expected_identity = encode_row([RowField("gid",
+        DeclaredType(DeclaredTypeKind.UNSIGNED_INTEGER, bits=32),
+        UnsignedIntegerScalar(str(source.gid)))]).digest_ref.raw_digest
+    _check(len(rows) == 1, "device records do not contain the single source update")
+    row = rows[0]
+    _check(row["table_name"] == "device" and row["record_kind"] == "ROW_MODIFIED"
+           and row["row_identity"] == expected_identity
+           and row["changed_columns"] == ["description"], "source update record identity/fields mismatch")
+    for key, expected in (("before_values", source.before), ("current_values", source.current)):
+        values = {item["column_name"]: item["value"] for item in row[key]}
+        _check(values["description"]["kind"] == "string"
+               and values["description"]["text"] == expected, "source update record value mismatch")
+    return expected_identity.hex()
+
+
+def _source_records(tar: Path, root: Path, output: Path) -> None:
+    metadata = read_bundle_transport_metadata(_member(tar, "manifest.json"))
+    entries = [entry for entry in metadata.entries if entry.kind is BundleArtifactKind.RECORDS
+               and entry.pair_id == "initial_to_modified" and entry.table_name == "device"]
+    _check(len(entries) == 1, "device records artifact is not unique")
+    raw = _member(tar, entries[0].logical_path)
+    file = pq.ParquetFile(pa.BufferReader(raw))
+    _check(file.metadata.num_rows == 1, "device records must contain exactly one source change")
+    rows = file.read().to_pylist()
+    identity = _check_device_record(rows, _source_device_change(root))
+    _write(output / "source-record-check.json", {"table": "device", "record_kind": "ROW_MODIFIED",
+        "source_column": "description", "row_identity_hex": identity,
+        "before_and_current_values_match_source": True,
+        "source_paths": [str(root / side / "sql/dbcfg.sql") for side in ("data1", "data2")]})
+
+
+def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path, root: Path) -> None:
     surfaces = _surfaces(tar, manifest)
     _check(set(surfaces) == {"baseline_to_initial", "initial_to_modified"}, "FULL pair set mismatch")
     surface = surfaces["initial_to_modified"]
@@ -359,7 +525,7 @@ def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path) -
     hidden = {fact.table_name: fact for fact in audit.tables}
     for name in CONFIG_TABLES:
         table = tables[name]
-        _check(table.compare["compare_key_columns"] == ["page_no", "no"], "configuration comparison key mismatch")
+        _configuration_keys(table.compare["compare_key_columns"])
         _check(table.change_kind == "UNCHANGED" and not table.risk_refs["reason_codes"],
                "pure configuration structure change remains visible or risky")
         fact = hidden[name]
@@ -394,12 +560,14 @@ def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path) -
            {pair: value.summary for pair, value in surfaces.items()})
     _write(output / "number1-audits.json", {pair: value.model_dump(mode="json")
                                              for pair, value in probe.audits.items()})
+    _source_records(tar, root, output)
 
 
 def _run(scope: Literal["t4", "number1"], root: Path, output: Path, session: str,
          state: _RunState) -> None:
     package, initial = _inputs(scope, root, output)
     env = journey._compose_environment(output / "secrets", f"correctness-{session}-{scope}")
+    env["GATEWAY_BACKEND_REPOSITORY_BASE_URL"] = "http://repository-service:8000"
     _check(not os.environ.get("GATEWAY_COMPOSE_GATE_PREBUILT"), "prebuilt override is forbidden")
     for resource, listing in (("containers", ("ps", "-aq")),
                               ("volumes", ("volume", "ls", "-q")),
@@ -453,13 +621,13 @@ def _run(scope: Literal["t4", "number1"], root: Path, output: Path, session: str
                 manifest, _tar = _download(reviewer, f"/v1/submissions/{submission_id}/result/bundle",
                                           output, f"review-{index}")
                 _check(manifest == expected_manifest, "review bundle differs from immutable Preview")
-            probe = _probe(env, preview_id, submission_id)
+            probe = _probe(env, preview_id, submission_id, output, "probe-before")
             _write(output / "ready-before.json", probe.model_dump(mode="json"))
             _check(count_backend_operations(env) == operations, "review reads created a comparison operation")
             if scope == "t4":
                 _t4(client, submission, env, output)
             else:
-                _number1(expected_manifest, preview_tar, probe, output)
+                _number1(expected_manifest, preview_tar, probe, output, root)
                 rejected = journey._require_one_of(reviewer.post(
                     f"/v1/submissions/{submission_id}/review-events",
                     headers=compose_auth_headers(token=journey.ARCHIVER_TOKEN, idempotency_key=session + "-reject"),
@@ -470,18 +638,12 @@ def _run(scope: Literal["t4", "number1"], root: Path, output: Path, session: str
                 _check(_read_review(reviewer, submission_id) == first, "terminal result binding changed")
                 manifest, _tar = _download(reviewer, f"/v1/submissions/{submission_id}/result/bundle", output, "review-rejected")
                 _check(manifest == expected_manifest, "terminal review bundle changed")
-                after = _probe(env, preview_id, submission_id)
+                after = _probe(env, preview_id, submission_id, output, "probe-after-rejected")
                 _check(after == probe, "terminal state released or changed READY/audit protection")
                 _write(output / "ready-after-rejected.json", after.model_dump(mode="json"))
                 _check(count_backend_operations(env) == operations, "review/terminal reads created operations")
     finally:
-        try:
-            logs = run_compose(env, "logs", "--no-color", timeout=120)
-            (output / "compose.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
-        finally:
-            cleanup_compose_project_artifacts(env)
-            shutil.rmtree(output / "secrets")
-            state.cleanup_complete = True
+        _finish_stack(env, output, state, sys.exception())
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -511,6 +673,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy",
         "GATEWAY_RUNTIME_COMPOSE_OVERRIDE", "GATEWAY_BACKEND_IMAGE", "GATEWAY_WORKER_IMAGE")),
         "proxy or existing runtime/image overrides are forbidden")
+    isolation = _assert_execution_isolation()
     worktree = Path(_git("rev-parse", "--show-toplevel")).resolve()
     root, output = args.input_root.resolve(strict=True), args.output.resolve()
     _check(not output.is_relative_to(worktree) and not output.is_relative_to(root)
@@ -531,6 +694,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         output.mkdir(parents=True, exist_ok=False)
         output_created = True
         _write(output / "start.json", owner)
+        _write(output / "execution-isolation.json", isolation)
         _run(args.scope, root, output, args.session, state)
         _check(_git("rev-parse", "HEAD") == args.expected_head and not _git("status", "--porcelain"),
                "source changed during acceptance")

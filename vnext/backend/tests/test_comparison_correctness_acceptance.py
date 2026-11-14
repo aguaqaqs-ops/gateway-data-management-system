@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import socket
+import sys
 from typing import Any
 
 import pytest
@@ -102,6 +103,64 @@ def test_acceptance_preserves_failed_probe_output_and_numeric_exit(
     assert (tmp_path / "probe-before-stdout.log").read_text() == "original stdout\n"
     assert (tmp_path / "probe-before-stderr.log").read_text() == "original stderr\n"
     assert json.loads((tmp_path / "probe-before-command.json").read_bytes())["exit_code"] == 7
+
+
+@pytest.mark.parametrize("missing_ready_protection", (False, True))
+def test_acceptance_probe_reads_local_ready_audit_and_requires_complete_protection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    missing_ready_protection: bool,
+) -> None:
+    from gateway_backend.application.checkpoints import ReadyClosureDocument
+    from gateway_backend.bootstrap.storage_layout import local_store_from_config
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    import tests.support.preview_job_harness as preview_harness
+    from tests.support.runtime_settings import make_backend_settings
+    from tests.test_preview_job_assemble import _run_through_publish
+
+    unchanged = "CREATE TABLE probe_structure(id INT PRIMARY KEY,value INT); INSERT INTO probe_structure VALUES(1,10);"
+    extended = "CREATE TABLE probe_structure(id INT PRIMARY KEY,value INT,extra INT); INSERT INTO probe_structure VALUES(1,10,99);"
+    monkeypatch.setattr(preview_harness, "BASELINE_SQL", preview_harness.BASELINE_SQL + unchanged)
+    monkeypatch.setattr(preview_harness, "INITIAL_SQL", preview_harness.INITIAL_SQL + unchanged)
+    monkeypatch.setattr(preview_harness, "MODIFIED_SQL", preview_harness.MODIFIED_SQL + extended)
+    harness = preview_harness.build_preview_harness(tmp_path / "preview")
+    _run_through_publish(harness, "op-local-probe")
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        workspace = uow.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assert workspace is not None and workspace.current_preview_result_id is not None
+        preview = uow.workspace.get_preview_result(workspace.current_preview_result_id)
+    assert preview is not None
+    audit_pairs = {pair.pair_id for pair in preview.comparison_pairs if pair.structure_audit_artifact_id is not None}
+    assert audit_pairs, "the probe must exercise its backend-only audit lookup"
+
+    settings = make_backend_settings(tmp_path / "deployment")
+    store = local_store_from_config(settings.deployment_config)
+    for ref, raw in harness.artifact_store._artifacts.values():
+        store.put(raw, ref)
+    ready_ref = store.get_ref(preview.ready_closure_artifact_id)
+    ready = ReadyClosureDocument.from_canonical_bytes(store.locate(ready_ref))
+    refs = (ready_ref, *ready.artifact_refs())
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        uow.set_artifact_protection(refs[1:] if missing_ready_protection else refs,
+            owner_kind="submission-review", owner_id="sub-local-probe", intent="submission-review")
+
+    # Execute the exact container probe with real filesystem adapters. Only its
+    # deployment settings and fixed container DB path point to this test's data.
+    monkeypatch.setattr("gateway_backend.settings.BackendSettings", lambda: settings)
+    monkeypatch.setattr(sys, "argv", ["probe", preview.preview_result_id, "sub-local-probe"])
+    uri = "file:/var/lib/gateway/be-metadata/control.sqlite3?mode=ro"
+    assert acceptance._REVIEW_PROBE.count(uri) == 1
+    source = acceptance._REVIEW_PROBE.replace(repr(uri), repr(f"file:{harness.db_path}?mode=ro"))
+    capsys.readouterr()
+    if missing_ready_protection:
+        with pytest.raises(RuntimeError, match="submission protection is incomplete"):
+            exec(source, {})
+    else:
+        exec(source, {})
+        observed = acceptance._Probe.model_validate_json(capsys.readouterr().out)
+        assert observed.ready_artifact_ids == sorted(ref.artifact_id for ref in refs)
+        assert observed.protected_artifact_ids == observed.ready_artifact_ids
+        assert set(observed.audits) == audit_pairs
+        assert all(audit.tables[0].table_name == "probe_structure" for audit in observed.audits.values())
 
 
 @pytest.mark.parametrize("primary_failure", (False, True))

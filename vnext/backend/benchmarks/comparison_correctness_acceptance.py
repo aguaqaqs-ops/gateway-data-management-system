@@ -168,6 +168,7 @@ _REVIEW_PROBE = """
 import json, sqlite3, sys
 from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_from_row
 from gateway_backend.bootstrap.storage_layout import local_store_from_config
+from gateway_backend.bootstrap.composition import LocalArtifactRefLookup
 from gateway_backend.deployment_config import DeploymentConfig
 from gateway_backend.settings import BackendSettings
 from gateway_backend.application.submission.review_result import load_preview_review_closure
@@ -184,13 +185,14 @@ with sqlite3.connect('file:/var/lib/gateway/be-metadata/control.sqlite3?mode=ro'
 settings = BackendSettings()
 config = DeploymentConfig.load(settings.storage_layout_file, settings.resource_profile_file)
 store = local_store_from_config(config)
-refs = load_preview_review_closure(preview, lookup=store, store=store)
+lookup = LocalArtifactRefLookup(store)
+refs = load_preview_review_closure(preview, lookup=lookup, store=store)
 required = sorted(ref.artifact_id for ref in refs)
 if not set(required).issubset(held): raise RuntimeError('submission protection is incomplete')
 audits = {}
 for pair in preview.comparison_pairs:
     if pair.structure_audit_artifact_id is not None:
-        ref = store.lookup_ref(pair.structure_audit_artifact_id)
+        ref = lookup.lookup_ref(pair.structure_audit_artifact_id)
         if ref is None: raise RuntimeError('audit is unavailable')
         audits[pair.pair_id] = ComparisonStructureAudit.model_validate_json(
             store.locate(ref)).model_dump(mode='json')

@@ -36,7 +36,7 @@ from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, Unsi
 from benchmarks import real_dump_journey as journey
 from benchmarks.bundle_tar import download_bundle_tar
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
-from gateway_backend.application.comparison_audit import ComparisonStructureAudit
+from gateway_backend.application.comparison_audit import ComparisonStructureAudit, HiddenStructureFact
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
 from gateway_backend.capabilities.business_navigation import validate_navigation
 from gateway_backend.capabilities.bundle_assembly.contracts import (
@@ -523,9 +523,12 @@ def _t4(client: httpx.Client, submission: dict[str, Any], env: dict[str, str],
     _write(output / "t4-representatives.json", observed)
 
 
-def _configuration_keys(keys: JsonValue) -> None:
-    # Rule key order is (page_no, no); SurfaceCompare publishes sorted unique names.
-    _check(keys == ["no", "page_no"], "configuration comparison key mismatch")
+def _configuration_keys(fact: HiddenStructureFact) -> None:
+    # Canonical storage descriptors can be keyless; the original audit owns
+    # the effective comparison keys, including their rule order on both sides.
+    changes = fact.raw_fact.schema_changes
+    _check(changes.effective_compare_key_before == changes.effective_compare_key_current == ("page_no", "no")
+           and not changes.effective_compare_key_changed, "configuration comparison key mismatch")
 
 
 def _source_device_change(root: Path) -> _DeviceChange:
@@ -597,10 +600,10 @@ def _number1(manifest: dict[str, Any], tar: Path, probe: _Probe, output: Path, r
     hidden = {fact.table_name: fact for fact in audit.tables}
     for name in CONFIG_TABLES:
         table = tables[name]
-        _configuration_keys(table.compare["compare_key_columns"])
+        fact = hidden[name]
+        _configuration_keys(fact)
         _check(table.change_kind == "UNCHANGED" and not table.risk_refs["reason_codes"],
                "pure configuration structure change remains visible or risky")
-        fact = hidden[name]
         _check(set(fact.raw_fact.schema_changes.current_only_columns) == {"config_type", "tips"},
                "number1 configuration audit lost its original added columns")
     for name in ("device", "device_st", "b1_n1_iec61850c_dev_cfg"):

@@ -15,11 +15,15 @@ from pydantic import ValidationError
 
 from benchmarks import comparison_correctness_acceptance as acceptance
 from benchmarks.real_dump_journey import JourneyFailure
+from gateway_backend.application.comparison_audit import ComparisonStructureAudit
+from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
+from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import ComparisonPlan, ComparisonRequest, plan_comparison
 from gateway_backend.capabilities.comparison.production import compare_plan_native
-from gateway_backend.capabilities.surface_assembly.contracts import SurfaceCompare
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_s3_e_live import canonical_bound
+from tests.test_comparison_replacement import _artifact_bound
 
 pytestmark = pytest.mark.unit
 GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v2/surface"
@@ -33,6 +37,7 @@ ISOLATION_FAULTS = (
 )
 MARKER_FAULTS = ("wrong-name", "nonempty", "extra")
 RECORD_FAULTS = ("identity", "before", "current")
+CONFIGURATION_KEY_FAULTS = ("none", "before-missing", "current-missing", "before-order", "current-order", "changed")
 
 
 @pytest.mark.parametrize("path", SURFACE_VECTORS, ids=lambda path: path.stem)
@@ -187,12 +192,39 @@ def test_acceptance_log_failure_cleans_own_stack_and_cannot_replace_original_fai
     assert (tmp_path / "compose-stderr.log").read_text() == "original stderr\n"
 
 
-def test_acceptance_checks_owning_surface_canonical_configuration_key_order() -> None:
-    compare = SurfaceCompare(None, ("no", "page_no"), (), ("no", "page_no"))
-    document = compare.to_document()
-    acceptance._configuration_keys(document["compare_key_columns"])  # type: ignore[arg-type]
-    with pytest.raises(JourneyFailure, match="comparison key"):
-        acceptance._configuration_keys(["no"])
+@pytest.mark.parametrize("nonempty", (False, True))
+@pytest.mark.parametrize("fault", CONFIGURATION_KEY_FAULTS)
+def test_acceptance_checks_effective_audit_keys_with_keyless_canonical_storage(nonempty: bool, fault: str) -> None:
+    store = InMemoryArtifactStore()
+    before = "CREATE TABLE cnt_manage_cfg(page_no INT UNSIGNED,no INT UNSIGNED,value INT);"
+    current = "CREATE TABLE cnt_manage_cfg(page_no INT UNSIGNED,no INT UNSIGNED,value INT,config_type TEXT,tips TEXT);"
+    if nonempty:
+        before += " INSERT INTO cnt_manage_cfg VALUES(1,2,10);"
+        current += " INSERT INTO cnt_manage_cfg VALUES(1,2,10,'type','tip');"
+    result = run_history_pair_pipeline(pair_id="configuration-key-audit",
+        before=_artifact_bound(before, store), current=_artifact_bound(current, store),
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()), store=store,
+        control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
+    assert result.structure_audit_ref is not None
+    assert result.surface_result.surface is not None
+    surface, = result.surface_result.surface.tables
+    assert surface.compare.compare_key_columns == ()
+    audit = ComparisonStructureAudit.model_validate_json(store.locate(result.structure_audit_ref))
+    fact, = audit.tables
+    assert fact.equality_evidence == ("NATIVE_SHARED_VALUES" if nonempty else "BOUND_EMPTY_DESCRIPTORS")
+    changes = fact.raw_fact.schema_changes
+    assert changes.effective_compare_key_before == changes.effective_compare_key_current == ("page_no", "no")
+    acceptance._configuration_keys(fact)
+    if fault != "none":
+        if fault == "changed":
+            update: dict[str, Any] = {"effective_compare_key_changed": True}
+        else:
+            side, failure = fault.split("-")
+            update = {"effective_compare_key_" + side: ("no",) if failure == "missing" else ("no", "page_no")}
+        altered = fact.model_copy(update={"raw_fact": fact.raw_fact.model_copy(update={
+            "schema_changes": changes.model_copy(update=update)})})
+        with pytest.raises(JourneyFailure, match="comparison key"):
+            acceptance._configuration_keys(altered)
 
 
 @pytest.mark.parametrize("fault", MARKER_FAULTS)

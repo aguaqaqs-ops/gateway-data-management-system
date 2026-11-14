@@ -80,6 +80,7 @@ async function installFixtureRoutes(page: Page, options: {
   reviewResultError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
   reviewBundleError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
   reviewResultHold?: Promise<void>;
+  reviewResultHoldAfter?: number;
   reviewVersion?: number;
   reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "BASELINE_VERSION_CONFLICT" | "ARCHIVE_CLOSED";
   reviewTimeoutFirst?: boolean;
@@ -610,7 +611,7 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    if (options.reviewResultHold) await options.reviewResultHold;
+    if (options.reviewResultHold && apiRequests.filter((value) => value.path.endsWith("/result")).length >= (options.reviewResultHoldAfter ?? 1)) await options.reviewResultHold;
     if (options.reviewResultError) {
       const body = { code: options.reviewResultError, message: "提交绑定的比较结果读取失败" };
       const status = options.reviewResultError === "SCOPE_FORBIDDEN" ? 403 : 503;
@@ -2880,9 +2881,24 @@ for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [
 
 
 test("D review opens fixed FULL pairs with independent counts and defaults to original-to-modified", async ({ page }) => {
-  const observed = await installFixtureRoutes(page, { reviewFixture: "preview-full" });
-  await page.goto(browseUrl("REVIEW", "preview-full"));
+  const hold = deferred();
+  const options = { reviewFixture: "preview-full", reviewResultHold: hold.promise as Promise<void> | undefined, reviewResultHoldAfter: 2 };
+  const observed = await installFixtureRoutes(page, options);
+  const initialUrl = browseUrl("REVIEW", "preview-full");
+  expect(initialUrl).not.toContain("bundle=");
+  await page.goto(initialUrl);
+  try {
+    await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBe(2);
+    expect(new URL(page.url()).searchParams.get("bundle")).toBeTruthy();
+    for (const width of [1920, 1280]) await screenshot(page, "d-review-rechecking", width);
+    await expect(page.locator(".compare-workspace")).toBeVisible({ timeout: 1500 });
+    await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
+  } finally {
+    options.reviewResultHold = undefined;
+    hold.resolve();
+  }
   await waitForBrowse(page);
+  await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeEnabled();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await waitForBrowse(page);
   const views = page.getByRole("tablist", { name: "比较视图" });

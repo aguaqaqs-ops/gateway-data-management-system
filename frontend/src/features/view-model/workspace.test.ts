@@ -26,7 +26,7 @@ describe("formal workbench tree and contextual actions", () => {
   });
 
   it("offers the workspace Preview only before Submit and points to the submission after it", () => {
-    const workspaceRow = (overrides: Partial<typeof WORKSPACE_RESPONSE>) => buildWorkspaceTree({ ...WORKSPACE_RESPONSE, ...overrides }, history).find((row) => row.kind === "workspace") ?? null;
+    const workspaceRow = (overrides: Partial<components["schemas"]["WorkspaceResponse"]>) => buildWorkspaceTree({ ...WORKSPACE_RESPONSE, ...overrides } as components["schemas"]["WorkspaceResponse"], history).find((row) => row.kind === "workspace") ?? null;
     const previewed = workspaceRow({ active_submission_id: null, active_submit_attempt_id: null });
     expect(previewed?.status).toBe("可提交");
     expect(deriveWorkbenchActions(previewed)).toEqual([{ id: "continue-preview", label: "继续预览并提交", enabled: true, reason: null }]);

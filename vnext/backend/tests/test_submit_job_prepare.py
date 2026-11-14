@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 import time
@@ -17,10 +19,8 @@ from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.checkpoints import (
-    ReadyClosureDocument,
     load_checkpoint_envelope,
     put_checkpoint_envelope,
-    put_ready_closure,
 )
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_jobs import (
@@ -78,7 +78,6 @@ from gateway_backend.infrastructure.repository_write.import_publication import (
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_transactions import (
-    PREVIEW_READY_CLOSURE_DIGEST,
     RecordingMainResolvePort,
     SubmitSeed,
     _SHA_INITIAL,
@@ -176,15 +175,13 @@ def _materialize_ready_preview(
         )
         store.put(payload, ref)
         additional_refs.append(ref)
-    ready_closure_ref = put_ready_closure(
-        store,
-        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v2"),
-    )
-    protected_refs = tuple(
-        ready_closure_ref if ref.artifact_id == seed.preview_result.ready_closure_artifact_id else ref
-        for ref in seed.protected_refs
-    )
-    preview = replace(seed.preview_result, ready_closure_artifact_id=ready_closure_ref.artifact_id)
+    from tests.support.review_result_fixtures import closed_review_preview
+    preview, closed_refs, payloads = closed_review_preview(
+        seed.preview_result, (*fixture.refs, *additional_refs))
+    for ref in closed_refs:
+        if ref.artifact_id in payloads:
+            store.put(payloads[ref.artifact_id], ref)
+    protected_refs = (*seed.protected_refs[:2], *closed_refs)
     from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
 
     preview_row = preview_result_to_row(preview)
@@ -540,7 +537,7 @@ def _accept_prepared_with_seed(
     protected_refs = seed.protected_refs
     baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     preflight = AcceptSubmitPreflight(
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=protected_refs,
         current_storage_projection_ruleset_digest=(
@@ -849,7 +846,7 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
             intent="current-preview",
         )
     preflight = AcceptSubmitPreflight(
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed_for_reaccept.preview_result),
         preview_operation_id=seed_for_reaccept.preview_operation_id,
         protected_artifact_refs=protected_refs,
         current_storage_projection_ruleset_digest=(

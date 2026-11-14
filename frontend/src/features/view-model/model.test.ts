@@ -6,6 +6,9 @@ import {
   deriveBundleView,
   deriveChangeLocations,
   deriveFormulaDisplays,
+  navigationTabHasDifferences,
+  type NavigationTableScope,
+  type RiskLevel,
   type BusinessNavigation,
   type ComparisonSurface,
   type RiskReport,
@@ -38,15 +41,15 @@ function surface(tables: SurfaceTable[] = [surfaceTable("device"), surfaceTable(
   return { surface_contract_version: "backend-vnext/comparison-surface/v4", comparison_mode: "VERSION_COMPARE", view: {}, tables } as unknown as ComparisonSurface;
 }
 
-const exactFacts = { basis: "EXACT" as const, change_kind: "MODIFIED" as const, risk_level: "MEDIUM_LOW" as const, before_row_count: 3, current_row_count: 3, table_scope: null };
+const exactFacts = { basis: "EXACT" as const, change_kind: "UPDATED" as const, risk_level: "MEDIUM_LOW" as const, before_row_count: 3, current_row_count: 3, table_scope: null };
 
 function navigation(overrides: Partial<BusinessNavigation> = {}): BusinessNavigation {
   return {
-    contract_version: "backend-vnext/business-navigation/v1",
-    groups: [{ group_key: "FUTURE_GROUP", label: "扩展业务组", items: [{
-      item_key: "future:one", item_kind: "FUTURE_ITEM", label: "扩展节点", tabs: [
-        { tab_key: "first", label: "一", table_id: "device", row_filter: { before: { column: "dev_addr", values: [1] }, current: null }, facts: exactFacts },
-        { tab_key: "second", label: "二", table_id: "device", row_filter: { before: null, current: { column: "dev_addr", values: [2] } }, facts: exactFacts },
+    contract_version: "backend-vnext/business-navigation/v2",
+    groups: [{ nonempty_item_count: 1, group_key: "FUTURE_GROUP", label: "扩展业务组", items: [{
+      summary: { change_kinds: ["UPDATED"], risk_level: "MEDIUM_LOW", nonempty_tab_count: 2 }, item_key: "future:one", item_kind: "FUTURE_ITEM", label: "扩展节点", tabs: [
+        { empty: false, tab_key: "first", label: "一", table_id: "device", row_filter: { before: { column: "dev_addr", values: [1] }, current: null }, facts: exactFacts },
+        { empty: false, tab_key: "second", label: "二", table_id: "device", row_filter: { before: null, current: { column: "dev_addr", values: [2] } }, facts: exactFacts },
       ],
     }] }],
     replacement_sides: null,
@@ -84,17 +87,19 @@ describe("business navigation decoding", () => {
     unpublished.groups[0]!.items[0]!.tabs[0]!.table_id = "missing";
     expect(() => decodeBusinessNavigation(unpublished, surface())).toThrow(/未发布的表/);
     const noWholeTable = navigation();
-    noWholeTable.groups[0]!.items[0]!.tabs.push({ tab_key: "third", label: "三", table_id: "device_ext", row_filter: null, facts: exactFacts });
+    noWholeTable.groups[0]!.items[0]!.tabs.push({ empty: false, tab_key: "third", label: "三", table_id: "device_ext", row_filter: null, facts: exactFacts });
+    noWholeTable.groups[0]!.items[0]!.summary.nonempty_tab_count = 3;
     expect(decodeBusinessNavigation(noWholeTable, surface()).groups[0]!.items[0]!.tabs).toHaveLength(3);
     const mixed = navigation();
-    mixed.groups[0]!.items[0]!.tabs.push({ tab_key: "whole", label: "整表", table_id: "device", row_filter: null, facts: exactFacts });
+    mixed.groups[0]!.items[0]!.tabs.push({ empty: false, tab_key: "whole", label: "整表", table_id: "device", row_filter: null, facts: exactFacts });
+    mixed.groups[0]!.items[0]!.summary.nonempty_tab_count = 3;
     expect(() => decodeBusinessNavigation(mixed, surface())).toThrow(/整表页签/);
   });
 
   it("keeps filter tabs of one table in a single group and with one basis", () => {
     const crossGroup = navigation();
-    crossGroup.groups.push({ group_key: "OTHER_TABLES", label: "其他表", items: [{ item_key: "other", item_kind: "TABLE", label: "其他", tabs: [
-      { tab_key: "third", label: "三", table_id: "device", row_filter: { before: null, current: { column: "dev_addr", values: [3] } }, facts: exactFacts },
+    crossGroup.groups.push({ nonempty_item_count: 1, group_key: "OTHER_TABLES", label: "其他表", items: [{ summary: { change_kinds: ["UPDATED"], risk_level: "MEDIUM_LOW", nonempty_tab_count: 1 }, item_key: "other", item_kind: "TABLE", label: "其他", tabs: [
+      { empty: false, tab_key: "third", label: "三", table_id: "device", row_filter: { before: null, current: { column: "dev_addr", values: [3] } }, facts: exactFacts },
     ] }] });
     expect(() => decodeBusinessNavigation(crossGroup, surface())).toThrow(/不在同一分组/);
     const mixedBasis = navigation();
@@ -116,11 +121,11 @@ describe("business navigation decoding", () => {
     (replacementSurface as unknown as { comparison_mode: string }).comparison_mode = "DATASET_REPLACEMENT";
     expect(() => decodeBusinessNavigation(navigation(), replacementSurface)).toThrow(/replacement_sides/);
     const replacement = decodeBusinessNavigation({
-      contract_version: "backend-vnext/business-navigation/v1",
+      contract_version: "backend-vnext/business-navigation/v2",
       groups: [],
       replacement_sides: {
-        before: [{ group_key: "FUTURE_GROUP", label: "改前", items: [{ item_key: "before:device", item_kind: "TABLE", label: "改前装置表", tabs: [{ tab_key: "before", label: "改前", table_id: "device", row_filter: null, facts: null }] }] }],
-        current: [{ group_key: "FUTURE_GROUP", label: "改后", items: [{ item_key: "current:device", item_kind: "TABLE", label: "改后装置表", tabs: [{ tab_key: "current", label: "改后", table_id: "device", row_filter: null, facts: null }] }] }],
+        before: [{ nonempty_item_count: 1, group_key: "FUTURE_GROUP", label: "改前", items: [{ summary: { change_kinds: ["UPDATED"], risk_level: null, nonempty_tab_count: 1 }, item_key: "before:device", item_kind: "TABLE", label: "改前装置表", tabs: [{ empty: false, tab_key: "before", label: "改前", table_id: "device", row_filter: null, facts: null }] }] }],
+        current: [{ nonempty_item_count: 1, group_key: "FUTURE_GROUP", label: "改后", items: [{ summary: { change_kinds: ["UPDATED"], risk_level: null, nonempty_tab_count: 1 }, item_key: "current:device", item_kind: "TABLE", label: "改后装置表", tabs: [{ empty: false, tab_key: "current", label: "改后", table_id: "device", row_filter: null, facts: null }] }] }],
       },
     }, replacementSurface);
     const view = deriveBundleView({ surface: replacementSurface, navigation: replacement });
@@ -132,6 +137,36 @@ describe("business navigation decoding", () => {
     expect(view.groups[0]?.groupKey).toBe("FUTURE_GROUP");
     expect(view.groups[0]?.items.map((item) => item.itemKey)).toEqual(["before:device", "current:device"]);
   });
+});
+
+const INVALID_NAVIGATION_METADATA: Array<[string, (doc: BusinessNavigation) => void]> = [
+  ["missing empty", (doc) => { Reflect.deleteProperty(doc.groups[0]!.items[0]!.tabs[0]!, "empty"); }],
+  ["string empty", (doc) => { Object.assign(doc.groups[0]!.items[0]!.tabs[0]!, { empty: "false" }); }],
+  ["summary extra", (doc) => { Object.assign(doc.groups[0]!.items[0]!.summary, { extra: true }); }],
+  ["unknown risk", (doc) => { Object.assign(doc.groups[0]!.items[0]!.summary, { risk_level: "FUTURE" }); }],
+  ["wrong tab count", (doc) => { doc.groups[0]!.items[0]!.summary.nonempty_tab_count = 0; }],
+  ["string group count", (doc) => { Object.assign(doc.groups[0]!, { nonempty_item_count: "1" }); }],
+];
+
+it.each(INVALID_NAVIGATION_METADATA)("rejects v2 navigation metadata: %s", (_name, mutate) => {
+  const doc = navigation();
+  mutate(doc);
+  expect(() => decodeBusinessNavigation(doc, surface())).toThrow();
+});
+
+it("preserves backend empty markers and neutral all-empty summaries without deriving them from Surface", () => {
+  const doc = navigation();
+  const item = doc.groups[0]!.items[0]!;
+  item.tabs.forEach((tab) => { tab.empty = true; });
+  item.summary = { change_kinds: [], risk_level: null, nonempty_tab_count: 0 };
+  doc.groups[0]!.nonempty_item_count = 0;
+  const view = deriveBundleView({ surface: surface(), navigation: decodeBusinessNavigation(doc, surface()) });
+  expect(view.groups[0]!.nonemptyItemCount).toBe(0);
+  expect(view.groups[0]!.items[0]!.tabs.every((tab) => tab.empty)).toBe(true);
+  expect(view.groups[0]!.items[0]!.changeKinds).toEqual([]);
+  expect(view.groups[0]!.items[0]!.riskLevels).toEqual([]);
+  item.summary.risk_level = "HIGH";
+  expect(() => decodeBusinessNavigation(doc, surface())).toThrow(/全空项/);
 });
 
 describe("bundle view derivation", () => {
@@ -154,19 +189,70 @@ describe("bundle view derivation", () => {
     expect(table.columns.map((value) => value.display_order)).toEqual([0, 1]);
     expect(table.hasRowLocator).toBe(true);
     const wholeTable = navigation();
-    wholeTable.groups[0]!.items[0]!.tabs = [{ tab_key: "whole", label: "整表", table_id: "device", row_filter: null, facts: { ...exactFacts, table_scope: { change: true, risk_level: "HIGH" } } }];
+    wholeTable.groups[0]!.items[0]!.tabs = [{ empty: false, tab_key: "whole", label: "整表", table_id: "device", row_filter: null, facts: { ...exactFacts, table_scope: { change: true, risk_level: "HIGH" } } }];
+    wholeTable.groups[0]!.items[0]!.summary.nonempty_tab_count = 1;
     const withScope = deriveBundleView({ surface: surface([scoped]), navigation: decodeBusinessNavigation(wholeTable, surface([scoped])) });
     expect(withScope.tables[0]?.tableScope).toEqual({ change: true, risk_level: "HIGH" });
   });
 
-  it("summarizes filtered tabs from facts and ignores unknown risk tables", () => {
+  it("reads published nonempty item summaries and ignores unknown risk tables", () => {
     const decoded = decodeBusinessNavigation(navigation(), surface());
     const result = deriveBundleView({ surface: surface(), navigation: decoded, riskReport: riskReport([]) });
-    expect(result.groups[0]?.items[0]?.changeKinds).toEqual(["MODIFIED"]);
+    expect(result.groups[0]?.items[0]?.changeKinds).toEqual(["UPDATED"]);
     expect(result.groups[0]?.items[0]?.riskLevels).toEqual(["MEDIUM_LOW"]);
     expect(result.tables.map((table) => table.riskLevel)).toEqual([null, null]);
     expect(result.tables[0]?.annotationCount).toBe(0);
   });
+});
+
+const SCOPE_VISIBILITY_CASES: Array<[string, string, RiskLevel | null, NavigationTableScope | null, boolean]> = [
+  ["local changes", "UPDATED", null, null, true],
+  ["local row risk", "UNCHANGED", "LOW", null, true],
+  ["table risk without local changes", "UNCHANGED", null, { change: false, risk_level: "HIGH" }, true],
+  ["table changes without row risk", "UNCHANGED", null, { change: true, risk_level: null }, true],
+  ["unchanged rows without table news", "UNCHANGED", null, null, false],
+];
+
+it.each(SCOPE_VISIBILITY_CASES)("difference filtering retains %s", (_name, kind, risk, scope, expected) => {
+  const doc = navigation();
+  doc.groups[0]!.items[0]!.tabs[0]!.facts = { ...exactFacts, change_kind: kind, risk_level: risk, table_scope: scope };
+  const tab = deriveBundleView({ surface: surface(), navigation: decodeBusinessNavigation(doc, surface()) }).groups[0]!.items[0]!.tabs[0]!;
+  expect(navigationTabHasDifferences(tab)).toBe(expected);
+});
+
+function sameKeyReplacement(): BusinessNavigation {
+  return { contract_version: "backend-vnext/business-navigation/v2", groups: [], replacement_sides: {
+    before: [{ group_key: "SECONDARY_DEVICES", label: "装置", nonempty_item_count: 1, items: [{
+      item_key: "same-device", item_kind: "DEVICE", label: "同一装置", summary: { change_kinds: ["ADDED"], risk_level: "LOW", nonempty_tab_count: 1 },
+      tabs: [{ empty: false, tab_key: "table", label: "表", table_id: "device", row_filter: null, facts: null }],
+    }] }],
+    current: [{ group_key: "SECONDARY_DEVICES", label: "装置", nonempty_item_count: 1, items: [{
+      item_key: "same-device", item_kind: "DEVICE", label: "同一装置", summary: { change_kinds: ["DELETED"], risk_level: "HIGH", nonempty_tab_count: 2 },
+      tabs: [{ empty: false, tab_key: "table", label: "表", table_id: "device", row_filter: null, facts: null },
+             { empty: false, tab_key: "extra", label: "扩展", table_id: "device_ext", row_filter: null, facts: null }],
+    }] }],
+  } };
+}
+
+it("merges published replacement summaries for the same item and deduplicates shared tables", () => {
+  const replacementSurface = { ...surface(), comparison_mode: "DATASET_REPLACEMENT" } as ComparisonSurface;
+  const view = deriveBundleView({ surface: replacementSurface, navigation: decodeBusinessNavigation(sameKeyReplacement(), replacementSurface) });
+  const group = view.groups[0]!;
+  expect(group.items).toHaveLength(1);
+  expect(group.nonemptyItemCount).toBe(1);
+  expect(group.items[0]!.tabs.map((tab) => tab.tableName)).toEqual(["device", "device_ext"]);
+  expect(group.items[0]!.nonemptyTabCount).toBe(2);
+  expect(group.items[0]!.changeKinds).toEqual(["ADDED", "DELETED"]);
+  expect(group.items[0]!.riskLevels).toEqual(["HIGH", "LOW"]);
+  expect(view.replacementSides!.before[0]!.items[0]!.tabs).toHaveLength(1);
+  expect(view.replacementSides!.current[0]!.items[0]!.tabs).toHaveLength(2);
+});
+
+it.each(["before", "current"] as const)("rejects empty replacement tab on %s side", (side) => {
+  const doc = sameKeyReplacement();
+  doc.replacement_sides![side][0]!.items[0]!.tabs[0]!.empty = true;
+  const replacementSurface = { ...surface(), comparison_mode: "DATASET_REPLACEMENT" } as ComparisonSurface;
+  expect(() => decodeBusinessNavigation(doc, replacementSurface)).toThrow(/empty/);
 });
 
 describe("record and formula derivation", () => {

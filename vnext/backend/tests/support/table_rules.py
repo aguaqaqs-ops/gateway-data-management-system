@@ -24,6 +24,14 @@ from gateway_backend.capabilities.table_rules import comparison_rule_set, migrat
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 
 
+# Independent Contract vectors: include tables absent from available real dumps.
+CONFIGURATION_TABLE_NAMES = (
+    "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg",
+    "iec61850c_cfg", "jdxx_cfg", "sc_cfg", "scada_cfg",
+    "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
+)
+
+
 def _runtime_comparison_ruleset_digest() -> str:
     digest = comparison_rule_set(migrated_table_ruleset_snapshot()).ruleset_digest
     if digest is None:

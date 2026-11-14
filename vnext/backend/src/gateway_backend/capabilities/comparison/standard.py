@@ -8,7 +8,7 @@ from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_d
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
-    ArtifactScope, ComparisonFacts, ComparisonPlan, ComparisonRecord,
+    ComparisonFacts, ComparisonPlan, ComparisonRecord,
     ComparisonRecordKind, ComparisonSchemaChanges, ComparisonSummary,
     ComparisonTableFact, ComparisonTableStatus, PairResultStatus,
     SchemaEvolution, _ComparisonTablePolicy,
@@ -17,15 +17,15 @@ from gateway_backend.capabilities.comparison.errors import StandardComparisonErr
 from gateway_backend.capabilities.comparison.row_encoding import (
     _can_table_early_exit, _column_map, _empty_schema_changes,
     _ordered_policy_payload, _schema_changes_from_view,
-    _schema_diagnostics, _schema_only_fact, _schema_view,
+    _schema_diagnostics, _schema_only_fact, _schema_view, _pure_column_change,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     COMPARISON_PROJECTION_CONTRACT_VERSION, SCALAR_ENCODING_VERSION,
-    SnapshotTable, SnapshotTableDescriptor,
+    SnapshotTableDescriptor,
 )
 
 COMPARISON_DIRECTION = "BEFORE_TO_CURRENT"
-STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v1"
+STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v3"
 
 
 def _compare_task_metadata(task: Any) -> ComparisonTableFact:
@@ -48,19 +48,15 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
         return _compare_single_side(
             task.table_name,
             current_descriptor,
-            task.current_table,
             policy,
             added=True,
-            artifact_scope=task.artifact_scope,
         )
     if current_descriptor is None:
         return _compare_single_side(
             task.table_name,
             before_descriptor,
-            task.before_table,
             policy,
             added=False,
-            artifact_scope=task.artifact_scope,
         )
 
     if _can_table_early_exit(before_descriptor, current_descriptor, policy):
@@ -77,6 +73,27 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
     schema = _schema_view(before_descriptor, current_descriptor, policy)
     schema_changes = _schema_changes_from_view(schema, policy)
     schema_diagnostics = _schema_diagnostics(schema, policy)
+    if before_descriptor.row_count == current_descriptor.row_count == 0 and _pure_column_change(schema):
+        return ComparisonTableFact(
+            table_name=task.table_name, status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+            before_descriptor=before_descriptor, current_descriptor=current_descriptor,
+            schema_changes=schema_changes, row_count_before=0, row_count_current=0,
+            shared_value_equality="BOUND_EMPTY_DESCRIPTORS",
+        )
+    # With no rows on either side, equal bound schemas prove equality even
+    # when an explicit comparison column is absent. Do not guess a row key.
+    if (before_descriptor.row_count == current_descriptor.row_count == 0
+            and before_descriptor.business_schema_digest == current_descriptor.business_schema_digest
+            and not schema.key_changed):
+        return ComparisonTableFact(
+            table_name=task.table_name,
+            status=ComparisonTableStatus.UNCHANGED,
+            before_descriptor=before_descriptor,
+            current_descriptor=current_descriptor,
+            schema_changes=schema_changes,
+            row_count_before=0,
+            row_count_current=0,
+        )
     if schema.key_invalid or schema.key_changed:
         return ComparisonTableFact(
             table_name=task.table_name,
@@ -120,11 +137,9 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
 def _compare_single_side(
     table_name: str,
     descriptor: SnapshotTableDescriptor | None,
-    table: SnapshotTable | None,
     policy: _ComparisonTablePolicy,
     *,
     added: bool,
-    artifact_scope: ArtifactScope,
 ) -> ComparisonTableFact:
     if descriptor is None:
         raise StandardComparisonError("TABLE_DESCRIPTOR_MISSING")
@@ -138,17 +153,6 @@ def _compare_single_side(
         if added
         else policy.effective_key_before,
     )
-    if table is None or table.reader is None:
-        return ComparisonTableFact(
-            table_name=table_name,
-            status=ComparisonTableStatus.DEGRADED,
-            before_descriptor=None if added else descriptor,
-            current_descriptor=descriptor if added else None,
-            schema_changes=schema_changes,
-            row_count_before=None if added else descriptor.row_count,
-            row_count_current=descriptor.row_count if added else None,
-            diagnostics=("TABLE_READER_UNAVAILABLE",),
-        )
     return ComparisonTableFact(
         table_name=table_name,
         status=ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE,
@@ -289,6 +293,9 @@ def _required_ruleset_digest(plan: ComparisonPlan) -> str:
 
 
 def _summary(tables: tuple[ComparisonTableFact, ...]) -> ComparisonSummary:
+    from gateway_backend.capabilities.comparison.presentation import visible_table_fact
+
+    tables = tuple(visible_table_fact(table) for table in tables)
     unchanged = sum(
         item.status is ComparisonTableStatus.UNCHANGED and not item.content_changed
         for item in tables

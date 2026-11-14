@@ -163,7 +163,7 @@ class _Builder:
         self.used = 0
         self.scanned = 0
         self.diagnostics: list[dict[str, Any]] = []
-        self.names = {t.table_name: t for t in tables}
+        self.tables_by_id = {t.table_id: t for t in tables}
 
     def charge(self, value: object) -> None:
         self.check()
@@ -204,9 +204,45 @@ class _Builder:
         self.charge(value)
         self.diagnostics.append(value)
 
+    def empty(self, table: NavigationTable, old: int | None, new: int | None) -> bool:
+        return (not self.replacement and not table.structure_changed
+                and (table.before is not None or table.current is not None)
+                and all(count == 0 for source, count in ((table.before, old), (table.current, new))
+                        if source is not None))
+
+    def summarize(self, groups: list[dict[str, Any]]) -> None:
+        for group in groups:
+            for item in group["items"]:
+                kinds: set[str] = set()
+                risk: RiskLevel | None = None
+                nonempty = 0
+                for tab in item["tabs"]:
+                    if tab["empty"]:
+                        continue
+                    nonempty += 1
+                    table = self.tables_by_id[tab["table_id"]]
+                    facts = tab["facts"]
+                    if facts is None or facts["basis"] == "TABLE_FALLBACK":
+                        kinds.add(table.change_kind.value)
+                        risk = maximum_risk(risk, table.risk_level)
+                    else:
+                        kinds.add(facts["change_kind"])
+                        risk = maximum_risk(risk, facts["risk_level"])
+                        scope = facts["table_scope"]
+                        if scope is not None:
+                            if scope["change"]:
+                                kinds.add(table.change_kind.value)
+                            risk = maximum_risk(risk, scope["risk_level"])
+                item["summary"] = {"change_kinds": sorted(kinds), "risk_level": risk,
+                                   "nonempty_tab_count": nonempty}
+                self.charge(item["summary"])
+            group["nonempty_item_count"] = sum(i["summary"]["nonempty_tab_count"] > 0 for i in group["items"])
+
     def tab(self, table: NavigationTable, key: str = "table", label: str | None = None) -> dict[str, Any]:
         return {"tab_key": key, "label": label or table.display_name,
-                "table_id": table.table_id, "row_filter": None, "facts": None}
+                "table_id": table.table_id, "row_filter": None, "facts": None,
+                "empty": self.empty(table, None if table.before is None else table.before.row_count,
+                                    None if table.current is None else table.current.row_count)}
 
     def item(self, key: str, kind: str, label: str, tabs: list[dict[str, Any]],
              **attributes: Scalar) -> dict[str, Any]:
@@ -217,6 +253,7 @@ class _Builder:
 
     def groups(self, tables: tuple[NavigationTable, ...], side: str | None) -> list[dict[str, Any]]:
         diagnostic_start = len(self.diagnostics)
+        self.replacement = side is not None
         names = {t.table_name: t for t in tables}
         groups: list[dict[str, Any]] = [{"group_key": key, "label": label, "items": []} for key, label in GROUPS]
         claimed: set[str] = set()
@@ -249,8 +286,7 @@ class _Builder:
                 table = names.get(f"{prefix}_{suffix}")
                 if table is not None:
                     claimed.add(table.table_name)
-                    if not self.omittable(table):
-                        tabs.append(self.tab(table, suffix, table.display_name if suffix == "sg_cfg" and table.display_name != table.table_name else label))
+                    tabs.append(self.tab(table, suffix, table.display_name if suffix == "sg_cfg" and table.display_name != table.table_name else label))
             if tabs:
                 current = rows.get("CURRENT")
                 before = rows.get("BEFORE")
@@ -299,6 +335,7 @@ class _Builder:
             if target["group_key"] == "COMMUNICATION_PROTOCOLS" and target["item_key"] not in visible:
                 target["item_key"] = "protocol:table" if net else None
                 target["table_id"] = net.table_id if net else None
+        self.summarize(groups)
         return groups
 
     @staticmethod
@@ -315,13 +352,6 @@ class _Builder:
             if isinstance(value, str) and value.strip():
                 return value
         return default
-
-    @staticmethod
-    def omittable(table: NavigationTable) -> bool:
-        return (table.local_fallback_reason is None
-                and table.unchanged and not table.table_change and not table.evidence.any_table_risk
-                and table.evidence.table_risk is None
-                and all(s is None or s.row_count == 0 for s in (table.before, table.current)))
 
     def globals(self, output: list[dict[str, Any]], names: dict[str, NavigationTable], claimed: set[str]) -> None:
         for name in ("project", "prot_list", "app_cfg"):
@@ -560,33 +590,28 @@ class _Builder:
                 change = "UNCHANGED" if not has_change else (
                     "ADDED" if old == 0 and new is not None and new > 0 else (
                         "DELETED" if new == 0 and old is not None and old > 0 else "UPDATED"))
-                if (replacement_side is None and reason is None and old == new == 0
-                        and not has_change and row_risk is None and scope is None
-                        and table.unchanged and not table.evidence.any_table_risk):
-                    continue
                 facts = None if replacement_side is not None else {
                     "basis": "EXACT" if reason is None else "TABLE_FALLBACK",
                     "change_kind": change if reason is None else None,
                     "risk_level": row_risk if reason is None else None,
                     "before_row_count": old, "current_row_count": new, "table_scope": scope}
                 tab = {"tab_key": name, "label": tab_label, "table_id": table.table_id,
-                       "row_filter": row_filter, "facts": facts}
+                       "row_filter": row_filter, "facts": facts, "empty": self.empty(table, old, new)}
                 self.charge(tab)
                 candidate["tabs"].append(tab)
                 published = True
-            if not published and (not self.omittable(table) or any(orphans.values())):
+            if not published:
                 whole_items.append(self.item(f"table:{name}", "TABLE", table.display_name, [self.tab(table)]))
             if published and reason:
                 self.diagnostic("DEVICE_TAB_FACTS_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason=reason)
-            if published or not self.omittable(table):
-                for side, source in (("BEFORE", table.before), ("CURRENT", table.current)):
-                    if source is None:
-                        continue
-                    if counts[side] is None:
-                        self.diagnostic("DEVICE_TAB_COUNT_UNKNOWN", "SECONDARY_DEVICES", table=table, side=side, identity_column=column)
-                    elif orphans.get(side, 0):
-                        self.diagnostic("DEVICE_ROWS_UNASSIGNED", "SECONDARY_DEVICES", table=table, side=side, identity_column=column,
-                            row_count=orphans[side], changed_row_count=(changed_orphans[side] if reason is None and replacement_side is None else None))
+            for side, source in (("BEFORE", table.before), ("CURRENT", table.current)):
+                if source is None:
+                    continue
+                if counts[side] is None:
+                    self.diagnostic("DEVICE_TAB_COUNT_UNKNOWN", "SECONDARY_DEVICES", table=table, side=side, identity_column=column)
+                elif orphans.get(side, 0):
+                    self.diagnostic("DEVICE_ROWS_UNASSIGNED", "SECONDARY_DEVICES", table=table, side=side, identity_column=column,
+                        row_count=orphans[side], changed_row_count=(changed_orphans[side] if reason is None and replacement_side is None else None))
         for candidate in candidates.values():
             self.charge(candidate)
             output.append(candidate)

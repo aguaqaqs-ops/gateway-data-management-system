@@ -72,9 +72,11 @@ R4 将它们写入 `CanonicalizationManifest` 与 `RepositoryImportArtifactInput
 随后据此形成 Dolt 的 canonical schema/physical key。它们不是只供 comparison 的临时选择，
 source DDL 仅作为 provenance；当前 canonical commit 的 schema/key 才是权威存储解释。
 
+配置表 ruleset `v5` 使用独立的 `(page_no, no)` 比较键，存储仍沿源 DDL 主键或无键策略；保留全部列和合法重复比较键，不对比较键施加存储 NOT NULL、唯一或索引类型约束。缺失或无效比较键由 comparison 降级，浏览与规范存储不因此失败；真实 DDL 存储主键仍按下节校验。
+
 ## 3. Key、行完整性与 ordered table
 
-普通 canonical keyed table 必须验证 effective key 存在且 retained、tuple 非空、整表唯一，且 projection 前后 row count 相同。不得用 dedup、last-write-wins、覆盖或丢行满足主键。失败在 Preview 形成 typed blocker，在 Submit 的 Repository effect 前拒绝。Keyless/multiset 只能由 ruleset 规定：显式规则使用 `EXPLICIT_KEYLESS`；SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则使用 `DDL_PRIMARY_KEY_OR_KEYLESS`，源 DDL 有主键时以其为有效键，没有主键时该表按 keyless 存储（DC29）。keyless 表保留全部行（含完全相同的重复行），不去重，投影前后 row count 相同；内容摘要与行顺序无关；内容变化时整表重写，不做按行补丁。其余规则的有效键缺失仍是 typed blocker。
+普通 canonical keyed table 必须验证 effective key 存在且 retained、tuple 非空、整表唯一，且 projection 前后 row count 相同。不得用 dedup、last-write-wins、覆盖或丢行满足主键。失败在 Preview 形成 typed blocker，在 Submit 的 Repository effect 前拒绝。Keyless/multiset 只能由 ruleset 规定：显式规则使用 `EXPLICIT_KEYLESS`；SNAPSHOT_ONLY、BROWSE_ONLY、raw-PK 兜底规则及 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md) 精确列出的 12 类配置规则使用 `DDL_PRIMARY_KEY_OR_KEYLESS`，源 DDL 有主键时以其为有效键，没有主键时该表按 keyless 存储（DC29）。keyless 表保留全部行（含完全相同的重复行），不去重，投影前后 row count 相同；内容摘要与行顺序无关；内容变化时整表重写，不做按行补丁。其余规则的有效键缺失仍是 typed blocker。
 
 Ordered table 第一版保持单表：
 

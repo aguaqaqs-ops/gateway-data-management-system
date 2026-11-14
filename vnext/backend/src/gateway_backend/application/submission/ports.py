@@ -94,6 +94,9 @@ class ReviewControlTransaction(ControlTransaction, Protocol):
 
 
 class ReviewApplySubmissionRepository(Protocol):
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+        repository_id: str | None = None) -> SubmitAttempt | None: ...
+
     def get_submission_access_binding(self, submission_id: str) -> SubmissionAccessBinding | None:
         """Read only durable authorization columns, before decoding the body."""
 
@@ -115,6 +118,11 @@ class ReviewApplySubmissionRepository(Protocol):
 
 class ReviewApplyTransaction(ReviewControlTransaction, ArchiveClosureReadPort, Protocol):
     """Minimal control transaction surface required by Review apply/release."""
+
+    @property
+    def operations(self) -> OperationStore: ...
+
+    def list_artifact_protection_for_owner(self, *, owner_kind: str, owner_id: str) -> frozenset[str]: ...
 
     @property
     def submission(self) -> ReviewApplySubmissionRepository: ...

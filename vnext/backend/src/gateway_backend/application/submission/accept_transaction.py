@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     assert_no_canonical_change,
@@ -195,6 +196,9 @@ def _accept_submit_in_transaction(
             operation_id=validation.prior_attempt.operation_id,
             replay=True,
         )
+
+    if preflight.preview_ready_closure_digest != derive_preview_ready_closure_digest(validation.preview_result):
+        raise PreviewBindingConflict("accepted Preview binding changed after preflight")
 
     _assert_preview_protection_matches(
         unit_of_work,

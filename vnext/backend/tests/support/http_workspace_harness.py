@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.review_result_fixtures import review_artifact_refs
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from tests.support.configuration_facts import preview_result_with_facts
@@ -498,6 +500,10 @@ def seed_submit_ready_workspace(
             operation_id="op-preview-1",
             created_at=TS1,
         )
+        from tests.support.review_result_fixtures import closed_review_preview
+        original_refs = tuple(ref for ref in _protected_preview_refs(repository_id)
+            if ref.artifact_id != preview.ready_closure_artifact_id)
+        preview, protected_refs, review_payloads = closed_review_preview(preview, original_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(
@@ -514,7 +520,6 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = preview.operation_id
-        protected_refs = _protected_preview_refs(repository_id)
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",
@@ -533,6 +538,7 @@ def seed_submit_ready_workspace(
         "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303": _PAYLOAD_MODIFIED,
         "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1": _PAYLOAD_CLOSURE,
         **make_canonical_artifact_fixture(repository_id).payloads,
+        **review_payloads,
     }
     for ref in protected_refs:
         artifact_store.register_bytes(ref, payload_by_id[ref.artifact_id])
@@ -1005,6 +1011,7 @@ def seed_pending_review_submission(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(submit_seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=_finalize_facts(submit_seed),
                 submission_id=submission_id,

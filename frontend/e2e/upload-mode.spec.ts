@@ -6,7 +6,7 @@ import type { components } from "../src/features/api/generated/openapi";
 import {
   DISPOSITION_D5_NODE, DISPOSITION_HEAD, DISPOSITION_REVIEW_FACTS, DISPOSITION_SCENARIO_BASELINES, DISPOSITION_SCENARIO_NODES,
   HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, SIMULATED_ERROR_RESPONSES, TEST_OPERATION_SUCCEEDED,
-  TEST_REVIEW_APPLIED, TEST_REVIEW_FACTS, TEST_SUBMIT_ATTEMPT_FINALIZED, WORKSPACE_ALREADY_EXISTS, testPreviewResult,
+  TEST_REVIEW_APPLIED, TEST_REVIEW_FACTS, TEST_SUBMIT_ATTEMPT_FINALIZED, WORKSPACE_ALREADY_EXISTS, testPreviewResult, testSubmissionResult,
 } from "../src/features/dev/simulated-api";
 
 type Schemas = components["schemas"];
@@ -14,7 +14,7 @@ const screenshotDirectory = process.env.GATEWAY_FE_SCREENSHOT_DIR;
 
 interface FixtureBundle {
   tar: Buffer;
-  manifest: { bundle_digest: string };
+  manifest: { bundle_digest: string; pairs: unknown[] };
 }
 
 const bundles = new Map<string, FixtureBundle>();
@@ -24,7 +24,7 @@ async function loadBundle(name: string): Promise<FixtureBundle> {
   if (cached) return cached;
   const tar = await readFile("src/test/fixtures/generated/" + name + ".tar");
   const manifestSize = Number.parseInt(tar.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8);
-  const manifest = JSON.parse(tar.subarray(512, 512 + manifestSize).toString("utf8")) as { bundle_digest: string };
+  const manifest = JSON.parse(tar.subarray(512, 512 + manifestSize).toString("utf8")) as { bundle_digest: string; pairs: unknown[] };
   const result = { tar, manifest };
   bundles.set(name, result);
   return result;
@@ -70,7 +70,7 @@ async function expectNoHorizontalOverflow(page: Page) {
       statusChildren: [...(document.querySelector(".compare-status")?.children ?? [])].map(
         (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} disp=${getComputedStyle(element).display}`,
       ),
-      headerChildren: [...(document.querySelector(".compare-header__top")?.children ?? [])].map(
+      headerChildren: [...(document.querySelector(".compare-header__bar")?.children ?? [])].map(
         (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
       ),
     };
@@ -155,6 +155,13 @@ async function installModeRoutes(page: Page, state: ModeState) {
     const next = state.workspaceSequence?.length ? state.workspaceSequence.shift()! : state.workspace;
     return json(route, 200, next);
   });
+  await page.route(/\/v1\/submissions\/[^/]+\/result$/, (route) => json(route, 200,
+    testSubmissionResult(bundle.manifest, new URL(route.request().url()).pathname.split("/")[3])));
+  await page.route(/\/v1\/submissions\/[^/]+\/result\/bundle$/, (route) => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
+    body: bundle.tar,
+  }));
   await page.route("**/v1/history-compares", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     return json(route, 202, { operation_id: "history-compare-d", status: "QUEUED", replayed: false });
@@ -754,7 +761,7 @@ test("比较页侧栏随顶栏吸顶：已通过提交 Preview 设备栏与原�
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByText("该提交已通过审核，不能撤回")).toBeVisible();
-  await expect(page.locator(".compare-header > .device-bar")).toHaveCount(1);
+  await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(1);
   await expectSidebarSticky(page, "D-preview-reasons-device");
 });
 

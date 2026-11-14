@@ -1,14 +1,13 @@
-import { scopedStorage } from "../features/api/scoped-storage";
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, MoreHorizontal, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi, boundBundleFetch } from "../features/api/application-api";
-import { pollHistoryCompare } from "../features/api/journeys";
+import { assertSubmissionReviewBundle, pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
-import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
+import { deriveChangeLocations, deriveFormulaDisplays, navigationTabHasDifferences, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
@@ -43,7 +42,13 @@ function bundleErrorState(cause: unknown, details: string): { code: string; deta
   return { code: bundleLoadErrorCode(cause), details };
 }
 
-type PairSummary = { pair_id: string };
+function serverResultReleaseCode(cause: unknown): string | undefined {
+  return cause instanceof ApiError && cause.status === 503
+    && (cause.code === "SUBMISSION_RESULT_UNAVAILABLE" || cause.code === "SUBMISSION_RESULT_INTEGRITY_FAILURE")
+    ? cause.code : undefined;
+}
+
+type PairSummary = { pair_id: string; summary?: Record<string, string> };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
@@ -86,7 +91,7 @@ function readColumnWidths(): ColumnWidths {
 }
 
 function viewLabel(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return "基线 → 待审提交";
+  if (mode === "REVIEW" && total === 1) return "基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   const id = pair.pair.pair_id.toLowerCase();
@@ -96,7 +101,7 @@ function viewLabel(pair: PairPresentation, index: number, total: number, mode: B
 }
 
 function viewTitle(pair: PairPresentation, index: number, total: number, mode: BrowseState["mode"]): string {
-  if (mode === "REVIEW") return "审核比较：基线节点 → 待审提交";
+  if (mode === "REVIEW" && total === 1) return "提交绑定比较：基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
   if (total === 1) return "当前基线 → 本次归档组态";
   if (pair.pair.pair_id.toLowerCase().includes("baseline_to_initial")) return "已归档数据 → 原始组态备份";
@@ -115,9 +120,9 @@ function pairDiagnosticDetails(pair: PairPresentation): { codes: string[]; table
   return { codes: pairSurfaceDiagnosticCodes(surface), tableCount };
 }
 
-function tabCount(tab: { facts: { before_row_count?: number | null; current_row_count?: number | null } | null; table: { rowCounts: { before: number | null; current: number | null } } | null }, side: "before" | "current"): number | null {
-  const fact = side === "before" ? tab.facts?.before_row_count : tab.facts?.current_row_count;
-  return typeof fact === "number" ? fact : tab.table?.rowCounts[side] ?? null;
+function tabCount(tab: Pick<NavTab, "facts" | "table" | "rowFilter">, side: "before" | "current"): number | null {
+  if (tab.rowFilter !== null) return (side === "before" ? tab.facts?.before_row_count : tab.facts?.current_row_count) ?? null;
+  return tab.table?.rowCounts[side] ?? null;
 }
 
 function tabChangeKind(tab: { facts: { change_kind?: string | null } | null; table: { changeKind: string } | null }): string {
@@ -130,36 +135,6 @@ function tabRiskLevel(tab: { facts: { risk_level?: RiskLevel | null } | null; ta
 
 type NavItem = DerivedNavigationGroup["items"][number];
 type NavTab = NavItem["tabs"][number];
-
-/** A filter tab with exact facts speaks for its own rows; otherwise the whole table speaks. */
-function tabOwnState(tab: NavTab): { kind: string | null; risk: RiskLevel | null } {
-  if (tab.rowFilter !== null && tab.facts?.basis === "EXACT") return { kind: tab.facts.change_kind ?? null, risk: tab.facts.risk_level ?? null };
-  return { kind: tab.table?.changeKind ?? null, risk: tab.table?.riskLevel ?? null };
-}
-
-const KEEP_EMPTY_TABLE_KINDS = new Set(["SCHEMA_CHANGED", "REPLACED"]);
-
-/**
- * A tab with known row counts and no rows on any existing side. Whether the
- * table was added, removed, degraded or carries table-level risk does not
- * matter: there are no rows to look at. Structure changes and dataset
- * replacements stay visible because they are news without rows.
- */
-function isEmptyTab(tab: NavTab): boolean {
-  const filtered = tab.rowFilter !== null && tab.facts !== null;
-  const before = filtered ? tab.facts?.before_row_count ?? null : tab.table?.rowCounts.before ?? null;
-  const current = filtered ? tab.facts?.current_row_count ?? null : tab.table?.rowCounts.current ?? null;
-  if (before === null && current === null) return false;
-  if ((before ?? 0) !== 0 || (current ?? 0) !== 0) return false;
-  return !KEEP_EMPTY_TABLE_KINDS.has(tab.table?.changeKind ?? "");
-}
-
-/** Badges for an item from the tabs it shows (empty tabs do not colour it). */
-function itemBadges(tabs: readonly NavTab[]): { changeKinds: string[]; riskLevels: RiskLevel[] } {
-  const changeKinds = [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.changeKind : tab.facts?.change_kind).filter((kind): kind is string => Boolean(kind)))];
-  const riskLevels = [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.riskLevel : tab.facts?.risk_level).filter((level): level is RiskLevel => Boolean(level)))];
-  return { changeKinds, riskLevels };
-}
 
 function itemBadgeKind(kinds: readonly string[]): string {
   return kinds.find((kind) => surfaceChangePresentation(kind).badgeText !== null) ?? "UNCHANGED";
@@ -267,7 +242,8 @@ function bundlePathForState(state: BrowseState): string | null {
   if (state.mode === "PREVIEW" && state.workspaceId && state.previewResultId) {
     return `/v1/workspaces/${encodeURIComponent(state.workspaceId)}/preview-results/${encodeURIComponent(state.previewResultId)}/bundle`;
   }
-  if ((state.mode === "HISTORY" || state.mode === "REVIEW") && state.operationId) {
+  if (state.mode === "REVIEW" && state.submissionId) return `/v1/submissions/${encodeURIComponent(state.submissionId)}/result/bundle`;
+  if (state.mode === "HISTORY" && state.operationId) {
     return `/v1/history-compares/${encodeURIComponent(state.operationId)}/bundle`;
   }
   return null;
@@ -285,6 +261,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [error, setError] = useState<{ code: string; details: string } | null>(null);
   const [historyCompareStatus, setHistoryCompareStatus] = useState<components["schemas"]["HistoryCompareResultResponse"]["status"] | null>(null);
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
+  const [reviewResultChecking, setReviewResultChecking] = useState(false);
+  const [reviewResultErrorCode, setReviewResultErrorCode] = useState<string>();
   const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
   // Upload-mode occupancy (withdraw/submit/upload gates) is shared with the
@@ -421,7 +399,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [onlyInteresting, setOnlyInteresting] = useState(runtime.snapshot.state.onlyInteresting);
   const [debug, setDebug] = useState(runtime.snapshot.state.debug);
   const loadingKey = useRef<string | null>(null);
-  const loadedRequest = useRef<{ requestPath: string; bundleDigest: string } | null>(null);
+  const loadedRequest = useRef<{ requestPath: string; bundleDigest: string; bundle: InstalledBundle } | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const selectedNavRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -459,48 +437,66 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [columnWidths, setColumnWidths] = useState<ColumnWidths>(readColumnWidths);
   useEffect(() => { try { window.localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths)); } catch { /* widths remain in memory */ } }, [columnWidths]);
 
+  // Facts remain authoritative even when the separately authorized result is unreadable.
+  // Only failures from server summary/download requests can enable reject/withdraw;
+  // local bundle identity and download failures never supply this permission.
+  const readReviewContext = useCallback(async (submissionId: string) => {
+    const [review, result] = await Promise.allSettled([
+      gatewayApi.getReviewFacts(submissionId).then((facts) => {
+        gatewayApi.assertSession?.();
+        if (runtime.snapshot.state.submissionId === submissionId) setReviewFacts(facts);
+        return facts;
+      }, (cause: unknown) => {
+        if (runtime.snapshot.state.submissionId === submissionId) setReviewFacts(null);
+        throw cause;
+      }),
+      gatewayApi.getSubmissionResult(submissionId),
+    ]);
+    gatewayApi.assertSession?.();
+    if (review.status === "rejected") throw review.reason;
+    if (result.status === "rejected") {
+      const cause: unknown = result.reason;
+      if (runtime.snapshot.state.submissionId === submissionId) setReviewResultErrorCode(serverResultReleaseCode(cause));
+      throw cause;
+    }
+    return result.value;
+  }, [gatewayApi, runtime]);
+
   const loadBundle = useCallback(async () => {
     if (sessionState.kind !== "handoff" && sessionState.kind !== "preset") return;
     const current = runtime.snapshot.state;
-    if (current.mode === "REVIEW" && current.submissionId && !current.operationId) {
-      try {
-        setLoading({ phase: "读取待审提交并准备审核比较", received: 0, total: 0 });
-        const [facts, history] = await Promise.all([gatewayApi.getReviewFacts(current.submissionId), gatewayApi.listHistory()]);
-        setReviewFacts(facts);
-        const matches = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === current.submissionId);
-        if (matches.length !== 1 || !matches[0]?.parent) throw new Error("History 中找不到唯一待审提交及其基线节点");
-        const keyName = `gateway-review-history-key:${current.submissionId}`;
-        let idempotencyKey = scopedStorage.getItem(keyName);
-        if (!idempotencyKey) { idempotencyKey = crypto.randomUUID(); scopedStorage.setItem(keyName, idempotencyKey); }
-        const accepted = await gatewayApi.startHistoryCompare({ nodes: [
-          { ref_kind: matches[0].parent.ref_kind, ref_id: matches[0].parent.ref_id },
-          { ref_kind: "submission", ref_id: current.submissionId },
-        ] }, idempotencyKey);
-        scopedStorage.removeItem(keyName);
-        runtime.execute({ name: "set-operation", operationId: accepted.operation_id, operationKind: "history-compare" }, "external");
-        return;
-      } catch (cause) {
-        const details = cause instanceof Error ? cause.message : String(cause);
-        setError(bundleErrorState(cause, details));
-        return;
-      }
-    }
     const requestPath = bundlePathForState(current);
     if (!requestPath) { setError({ code: "BUNDLE_RESOURCE_MISSING", details: "工作区、Preview 结果或历史比较操作 ID 不完整。" }); return; }
-    if (loadedRequest.current?.requestPath === requestPath
+    if (current.mode !== "REVIEW" && loadedRequest.current?.requestPath === requestPath
       && (!current.bundleDigest || current.bundleDigest === loadedRequest.current.bundleDigest)) return;
     const requestKey = requestPath;
     if (loadingKey.current === requestKey) return;
     loadingKey.current = requestKey;
-    setError(null); setBundle(null); setPairs([]); setHistoryCompareStatus(null);
+    setError(null); setReviewResultErrorCode(undefined); setHistoryCompareStatus(null);
+    if (current.mode === "REVIEW") setReviewResultChecking(true);
+    if (loadedRequest.current?.requestPath !== requestPath) { setBundle(null); setPairs([]); }
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
       let expectedBundleDigest: string | undefined;
+      let submissionResult: components["schemas"]["SubmissionResultResponse"] | undefined;
       if (current.mode === "PREVIEW" && current.workspaceId && current.previewResultId) {
         expectedBundleDigest = (await gatewayApi.getPreviewResult(current.workspaceId, current.previewResultId)).bundle_digest;
       }
-      if (current.mode === "REVIEW" && current.submissionId) setReviewFacts(await gatewayApi.getReviewFacts(current.submissionId));
-      if (current.mode === "HISTORY" || current.mode === "REVIEW") {
+      if (current.mode === "REVIEW" && current.submissionId) {
+        const result = await readReviewContext(current.submissionId);
+        gatewayApi.assertSession?.();
+        if (result.submission_id !== current.submissionId) throw new ApiError("提交结果身份不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
+        submissionResult = result;
+        expectedBundleDigest = result.bundle_digest;
+        if (loadedRequest.current?.requestPath === requestPath
+          && loadedRequest.current.bundleDigest === expectedBundleDigest) {
+          assertSubmissionReviewBundle(current.submissionId, result, loadedRequest.current.bundle);
+          setBundle(loadedRequest.current.bundle);
+          setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
+          return;
+        }
+      }
+      if (current.mode === "HISTORY") {
         if (!current.operationId) throw new Error("历史比较操作 ID 缺失");
         const startedAt = Date.now();
         const compareResult = await pollHistoryCompare(gatewayApi, current.operationId, {
@@ -513,49 +509,74 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         if (compareResult.status !== "SUCCEEDED" || !compareResult.result) throw new Error(compareResult.diagnostic?.message ?? "历史比较未能完成");
         expectedBundleDigest = compareResult.result.bundle_digest;
       }
+      setBundle(null); setPairs([]);
       const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest,
-        fetchBundle: () => fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }),
+        fetchBundle: async () => {
+          try { return await fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }); }
+          catch (cause) {
+            if (current.mode === "REVIEW" && runtime.snapshot.state.submissionId === current.submissionId) {
+              setReviewResultErrorCode(serverResultReleaseCode(cause));
+            }
+            throw cause;
+          }
+        },
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
       gatewayApi.assertSession?.();
-      loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest };
+      loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest, bundle: loaded };
       const pairSummaries = loaded.manifest.pairs.filter((value): value is PairSummary => Boolean(value && typeof value === "object" && typeof (value as PairSummary).pair_id === "string"));
+      if (submissionResult && current.submissionId) assertSubmissionReviewBundle(current.submissionId, submissionResult, loaded);
       const loadedPairs = await Promise.all(pairSummaries.map(async (pair) => ({ pair, presentation: await loadComparisonPresentation(loaded, pair.pair_id) })));
       gatewayApi.assertSession?.();
       setBundle(loaded); setPairs(loadedPairs); setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
       const currentState = runtime.snapshot.state;
       const initialBundleLoad = currentState.bundleDigest === null;
       if (currentState.bundleDigest !== loaded.manifest.bundle_digest) runtime.execute({ name: "set-bundle", mode: currentState.mode, bundleDigest: loaded.manifest.bundle_digest }, "external");
-      const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId) ?? loadedPairs[0];
+      const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId)
+        ?? loadedPairs.find(({ pair }) => pair.pair_id === submissionResult?.default_pair_id) ?? loadedPairs[0];
       if (selected && runtime.snapshot.state.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
       if (initialBundleLoad && currentState.nodeKey && runtime.snapshot.state.nodeKey !== currentState.nodeKey) runtime.execute({ name: "select-node", nodeKey: currentState.nodeKey }, "external");
       if (initialBundleLoad && currentState.tabKey && runtime.snapshot.state.tabKey !== currentState.tabKey) runtime.execute({ name: "select-tab", tabKey: currentState.tabKey }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
+      loadedRequest.current = null;
+      setBundle(null); setPairs([]);
       setError(bundleErrorState(cause, details));
     } finally {
-      if (loadingKey.current === requestKey) loadingKey.current = null;
+      if (loadingKey.current === requestKey) {
+        loadingKey.current = null;
+        if (current.mode === "REVIEW") setReviewResultChecking(false);
+      }
     }
-  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind]);
+  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind, readReviewContext]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
 
-  // C5: after a terminal review action or an expired/closed 409, re-read the
-  // review together with the History (the compare anchor depends on both).
-  // This refresh intentionally leaves the loaded bundle alone: a baseline
-  // change is picked up by the next anchor read instead of tearing down the
-  // current view mid-notice.
-  const reloadReviewContext = useCallback(async () => {
+  // Result authority is invalid while any review-context refresh is pending.
+  const reloadReviewContext = useCallback(async (): Promise<boolean> => {
     const current = runtime.snapshot.state;
-    if (current.mode !== "REVIEW" || !current.submissionId) return;
+    if (current.mode !== "REVIEW" || !current.submissionId) return false;
+    const cached = loadedRequest.current;
+    setBundle(null);
+    setError(null);
+    setReviewResultErrorCode(undefined);
+    setLoading({ phase: "重新读取提交绑定的比较结果", received: 0, total: 0 });
     try {
-      const [facts] = await Promise.all([
-        gatewayApi.getReviewFacts(current.submissionId),
-        gatewayApi.listHistory(),
-      ]);
-      setReviewFacts(facts);
-    } catch {
-      // ReviewActions already surfaced the failure notice; keep the snapshot.
+      const result = await readReviewContext(current.submissionId);
+      gatewayApi.assertSession?.();
+      if (runtime.snapshot.state.submissionId !== current.submissionId) return false;
+      if (!cached || cached.requestPath !== bundlePathForState(current)) {
+        throw new Error("提交绑定的比较结果尚未就绪，请重试下载");
+      }
+      assertSubmissionReviewBundle(current.submissionId, result, cached.bundle);
+      setBundle(cached.bundle);
+      return true;
+    } catch (cause) {
+      if (runtime.snapshot.state.submissionId !== current.submissionId) return false;
+      loadedRequest.current = null;
+      setBundle(null); setPairs([]);
+      setError(bundleErrorState(cause, cause instanceof Error ? cause.message : String(cause)));
+      return false;
     }
-  }, [runtime]);
+  }, [runtime, readReviewContext]);
 
   const activePair = pairs.find(({ pair }) => pair.pair_id === browse.pairId) ?? pairs[0];
   const presentation = activePair?.presentation ?? null;
@@ -565,12 +586,15 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   // Showing empty tabs lasts for this page only, so it cannot silently stick.
   const [showEmptyTabs, setShowEmptyTabs] = useState(false);
   const shownTabs = useCallback((item: NavItem): NavTab[] => item.tabs.filter((tab) => {
-    if (!showEmptyTabs && isEmptyTab(tab)) return false;
+    if (!showEmptyTabs && tab.empty) return false;
     if (!browse.onlyInteresting) return true;
-    const { kind, risk } = tabOwnState(tab);
-    return (kind !== null && kind !== "UNCHANGED") || risk !== null
+    return navigationTabHasDifferences(tab)
       || (navigationDiagnostics ?? []).some(({ target }) => target.item_key === item.itemKey && (!target.tab_key || target.tab_key === tab.tabKey));
   }), [browse.onlyInteresting, navigationDiagnostics, showEmptyTabs]);
+  const shownItems = useCallback((group: DerivedNavigationGroup): NavItem[] => {
+    const groupMatches = group.label.toLocaleLowerCase().includes(browse.search.trim().toLocaleLowerCase());
+    return group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
+  }, [browse.search, shownTabs]);
   const visibleGroups = useMemo(() => groups.filter((group) => {
     if (!matchesGroup(group, browse.search)) return false;
     return group.items.some((item) => shownTabs(item).length > 0)
@@ -579,15 +603,29 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const navigationEntries = useMemo(() => groups.flatMap((group) => group.items.flatMap((item) => item.tabs.map((tab) => ({ group, item, tab })))), [groups]);
   const wholeTableName = browse.tabKey?.startsWith("__whole__:") ? browse.tabKey.slice("__whole__:".length) : null;
   const wholeTable = wholeTableName ? presentation?.view.tables.find((item) => item.tableName === wholeTableName) : null;
+  // A saved location identifies both the item and its tab, including hidden empty tabs.
   const selectedEntry = useMemo(() => navigationEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && tab.tabKey === browse.tabKey)
-    ?? navigationEntries.find(({ tab }) => tab.tabKey === browse.tabKey)
+    ?? navigationEntries.find(({ item, tab }) => item.itemKey === browse.nodeKey && shownTabs(item).includes(tab))
+    ?? navigationEntries.find(({ item }) => item.itemKey === browse.nodeKey)
     ?? navigationEntries.find(({ item, tab }) => shownTabs(item).includes(tab))
+    ?? navigationEntries.find(({ tab }) => !tab.empty)
     ?? navigationEntries[0]
     ?? null, [browse.nodeKey, browse.tabKey, navigationEntries, shownTabs]);
-  const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => isEmptyTab(tab)).length, [navigationEntries]);
-  const toggleEmptyTabs = () => setShowEmptyTabs((value) => !value);
+  const emptyTabCount = useMemo(() => navigationEntries.filter(({ tab }) => tab.empty).length, [navigationEntries]);
+  const toggleEmptyTabs = () => {
+    if (showEmptyTabs && selectedEntry?.tab.empty && !wholeTable) {
+      const next = visibleGroups.flatMap((group) => shownItems(group).flatMap((item) =>
+        shownTabs(item).map((tab) => ({ item, tab })))).find(({ tab }) => !tab.empty)
+        ?? navigationEntries.find(({ tab }) => !tab.empty);
+      if (next) {
+        runtime.execute({ name: "select-node", nodeKey: next.item.itemKey });
+        runtime.execute({ name: "select-tab", tabKey: next.tab.tabKey });
+      }
+    }
+    setShowEmptyTabs((value) => !value);
+  };
   const selectedTab = useMemo(() => wholeTable && wholeTableName
-    ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, rowFilter: null, facts: null, table: wholeTable }
+    ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, empty: false, rowFilter: null, facts: null, table: wholeTable }
     : selectedEntry?.tab ?? null, [selectedEntry, wholeTable, wholeTableName]);
   const selectedNodeKey = wholeTableName
     ? groups.flatMap((group) => group.items).find((item) => item.tabs.some((tab) => tab.tableName === wholeTableName))?.itemKey ?? browse.nodeKey ?? ""
@@ -695,7 +733,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const shown = shownTabs(selectedItem);
     return selectedItem.tabs.filter((tab) => shown.includes(tab) || (!wholeTable && tab.tabKey === selectedTab?.tabKey && tab.tableName === selectedTab.tableName));
   }, [selectedItem, selectedTab, shownTabs, wholeTable]);
-  const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter(isEmptyTab).length : 0;
+  const itemEmptyTabCount = selectedItem ? selectedItem.tabs.filter((tab) => tab.empty).length : 0;
   const stripVisible = Boolean(selectedItem && (stripTabs.length > 1 || wholeTable || itemEmptyTabCount > 0));
   useEffect(() => { document.querySelector(".overflow-tabs button.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [selectedNodeKey, browse.tabKey]);
 
@@ -766,7 +804,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         deletedPointKeys.add(`${values.source_table}:${String(values.point_gid)}`);
         continue;
       }
-      if (browse.mode !== "PREVIEW" || hasBeforeSnapshot || !["ROW_MODIFIED", "ORDERED_ROW_MODIFIED"].includes(recordKind)
+      if (browse.mode === "HISTORY" || hasBeforeSnapshot || !["ROW_MODIFIED", "ORDERED_ROW_MODIFIED"].includes(recordKind)
         || !("formula_digest" in values)) continue;
       const recordIdentity = normalizeRowIdentity((record.current_row_identity ?? record.row_identity) as never);
       const locatedIndex = recordIdentity ? compositeLocator.get(recordIdentity)?.currentRowIndex ?? null : null;
@@ -774,14 +812,14 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       if (!currentRow) continue;
       beforeRows.push({ ...currentRow, ...values, formula_ast_json: null });
     }
-    setFormulas(deriveFormulaDisplays({ mode: browse.mode === "PREVIEW" ? "PREVIEW" : "HISTORY", before: beforeRows, current: currentRows,
+    setFormulas(deriveFormulaDisplays({ mode: browse.mode === "HISTORY" ? "HISTORY" : "PREVIEW", before: beforeRows, current: currentRows,
       beforeDevices: beforeDevices as Record<string, unknown>[], currentDevices: currentDevices as Record<string, unknown>[], deletedPointKeys }));
     setFormulaFocus(pointKey);
     setFormulaOpen(true);
   }, [browse.mode, bundle, presentation]);
 
   const activePairIndex = activePair ? pairs.findIndex(({ pair }) => pair.pair_id === activePair.pair.pair_id) : 0;
-  const viewPairs = browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs;
+  const viewPairs = pairs;
   // The device path leads the breadcrumb (full path on hover); the view label is
   // left out when the view switcher is visible in the same row.
   const deviceDisplay = sessionState.kind === "handoff" ? sessionState.session.display : null;
@@ -824,14 +862,15 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             onRetry={() => void refreshUploadMode()}
             onSubmit={() => { clearResumeNotice(); setSubmitOpen(true); }}
           />}
-          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} onReviewSettled={() => void reloadReviewContext()} errorNoticeHost={reviewNoticeRef} />}
+          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle) && !reviewResultChecking} resultErrorCode={reviewResultErrorCode} onFactsChanged={setReviewFacts} onReviewSettled={reloadReviewContext} errorNoticeHost={reviewNoticeRef} />}
         </div>
         <details className="compare-more">
           <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>
           <div className="compare-more__menu">
-            <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（两侧都没有行，共 {emptyTabCount} 个）</label>
+            <label className="compare-more__check"><input type="checkbox" checked={showEmptyTabs} onChange={toggleEmptyTabs} />显示空页签（没有行，共 {emptyTabCount} 个）</label>
             {import.meta.env.DEV && <div className="display-mode"><span>显示模式（开发环境）</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}
             {widthTable && Object.keys(storedWidths).length > 0 && <button className="link-button compare-more__action" onClick={resetColumnWidths}>恢复本表默认列宽</button>}
+            {browse.mode === "REVIEW" && pairs.map((pair, index) => <div key={pair.pair.pair_id} className="compare-more__bundle" data-pair-summary={pair.pair.pair_id}><strong>{viewLabel(pair, index, pairs.length, browse.mode)}</strong><span>变化表 {pair.pair.summary?.changed_table_count ?? "—"}/{pair.pair.summary?.table_count ?? "—"}</span><span>逐行 +{pair.pair.summary?.row_added_count ?? "—"} / ~{pair.pair.summary?.row_modified_count ?? "—"} / −{pair.pair.summary?.row_deleted_count ?? "—"}</span></div>)}
             {bundle && <div className="compare-more__bundle"><span>本地 bundle · 浏览期间不请求后端</span><code>{bundle.manifest.bundle_digest}</code></div>}
           </div>
         </details>
@@ -846,20 +885,19 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       <aside className="navigation-sidebar" aria-label="比较导航"><div className="sidebar-heading"><div className="sidebar-search"><Search size={14} /><input ref={searchInputRef} aria-label="搜索组、节点或页签" value={search} onChange={(event) => runtime.execute({ name: "set-search", search: event.currentTarget.value })} placeholder={`搜索 · ${presentation.view.tables.length} 张表`} /></div><button className="icon-button" aria-label="收起导航" title="收起导航" onClick={() => setSettings((state) => ({ ...state, sidebarCollapsed: true }))}><ChevronLeft size={16} /></button></div>
         {globalNavigationDiagnostics.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
         <div className="sidebar-scroll">{visibleGroups.map((group) => {
-          const groupMatches = group.label.toLocaleLowerCase().includes(browse.search.trim().toLocaleLowerCase());
-          const items = group.items.filter((item) => (groupMatches || matchesItem(item, browse.search)) && shownTabs(item).length > 0);
+          const items = shownItems(group);
           const groupDiagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey);
           if (items.length === 0 && groupDiagnostics.length === 0) return null;
-          return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small>{items.length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
+          return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small title="非空项">{items.filter((item) => item.nonemptyTabCount > 0).length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
           {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey && !diagnostic.target.item_key && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
-          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = itemBadges(showEmptyTabs ? item.tabs : item.tabs.filter((tab) => !isEmptyTab(tab))); const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
+          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = item; const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
             {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
           </div>; })}</section>; })}</div>
       </aside>
       {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度（双击适应名称）" title="拖动调整宽度，双击适应名称" onDoubleClick={fitSidebarWidth} aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
-        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><ScrollStrip>{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</ScrollStrip>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="空页签：两侧都没有行的表" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
+        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><ScrollStrip>{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</ScrollStrip>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="没有行的页签" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
           {selectedTab && table && surfaceTable ? <>
             {(() => {
               // One info line: what changed and how many rows; reasons and notes open as popovers.
@@ -931,7 +969,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       return <>
         {formulaFocus && focused.length === 0 && <p className="formula-drawer__note">没有找到该行的公式，下面列出全部 {formulas.length} 条。</p>}
         {focused.length > 0 && formulas.length > 1 && <button className="link-button formula-drawer__all" onClick={() => setFormulaFocus(null)}>显示全部 {formulas.length} 条公式</button>}
-        {shown.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}
+        {shown.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode !== "HISTORY"} />)}
       </>;
     })()}</div></aside></div>}
   </main>;

@@ -266,6 +266,24 @@ fn schema_addition_uses_only_shared_columns_for_value_comparison() -> Result<(),
 }
 
 #[test]
+fn schema_only_shared_content_evidence_requires_column_projection() -> Result<(), Box<dyn Error>> {
+    let before = batch(&[Some(1)], &[1], &[Some("a")])?;
+    let current = batch(&[Some(1)], &[1], &[Some("b")])?;
+    for column_projection in [false, true] {
+        let mut policy = options();
+        policy.schema_changed = true;
+        policy.raw_content_changed = true;
+        policy.columns_added = column_projection;
+        policy.compare_excluded_columns = vec!["name".to_string()];
+        let result = compare(&before, &current, &policy)?;
+        assert_eq!(result.status, "SCHEMA_ONLY_CHANGED");
+        assert_eq!(result.row_modified_count, 0);
+        assert_eq!(result.content_changed, column_projection);
+    }
+    Ok(())
+}
+
+#[test]
 fn duplicate_identity_and_position_degrade_with_contract_diagnostics() -> Result<(), Box<dyn Error>>
 {
     let duplicate_identity = batch(&[Some(1), Some(1)], &[1, 2], &[Some("a"), Some("b")])?;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
+from gateway_backend.application.comparison_audit import publish_structure_audit
 from gateway_backend.application.business_presentation import RiskAttribution, publish_business_presentation
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -102,6 +103,7 @@ class PreviewPairPipelineResult:
     identity_assessment_ref: ArtifactRef | None
     before_presentation: PresentationMetadata = PresentationMetadata()
     current_presentation: PresentationMetadata = PresentationMetadata()
+    structure_audit_ref: ArtifactRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +117,7 @@ class HistoryPairPipelineResult:
     surface_result: SurfaceAssemblyResult
     before_presentation: PresentationMetadata = PresentationMetadata()
     current_presentation: PresentationMetadata = PresentationMetadata()
+    structure_audit_ref: ArtifactRef | None = None
 
 
 def preview_identity_assessment(
@@ -235,6 +238,7 @@ def run_preview_pair_pipeline(
         surface_digest=surface.surface_digest,
         records_closure=records_closure,
         surface_result=surface.surface_result,
+        structure_audit_ref=surface.structure_audit_ref,
         identity_assessment=assessment,
         identity_assessment_ref=assessment_ref,
     )
@@ -291,6 +295,7 @@ def run_history_pair_pipeline(
         record_count=int(record_count),
         records_closure=records_closure,
         surface_result=surface.surface_result,
+        structure_audit_ref=surface.structure_audit_ref,
     )
 
 
@@ -303,6 +308,7 @@ class _ComparisonRiskSurfaceResult:
     published: DetailedFactsResult | DatasetReplacementResult
     comparison_facts: ComparisonFacts
     risk_evaluation: RiskEvaluation | None
+    structure_audit_ref: ArtifactRef | None
 
 
 def _run_comparison_risk_surface(
@@ -423,6 +429,8 @@ def _finish_comparison_risk_surface(
     if control.cancel_requested:
         on_cancel()
         raise PairPipelineCancelled
+    structure_audit_ref = publish_structure_audit(plan, comparison_facts, store)
+    checkpoint()
     risk_conversion: dict[str, float] = {}
     attribution = RiskAttribution()
     risk = evaluate_risk(
@@ -468,7 +476,7 @@ def _finish_comparison_risk_surface(
     )
     table_artifacts, navigation_projection, _presentation_metrics = publish_business_presentation(
         plan, comparison_facts, published.records_closure, native_comparison.handles,
-        table_artifacts, attribution, store, before_presentation=before_presentation,
+        table_artifacts, attribution, store, risk_report=risk.risk_report, before_presentation=before_presentation,
         current_presentation=current_presentation, same_complete=_same_complete_table_identity,
     )
     with reserve_surface(8 * 16 * 1024**2):
@@ -521,6 +529,7 @@ def _finish_comparison_risk_surface(
         published=published,
         comparison_facts=comparison_facts,
         risk_evaluation=risk.risk_evaluation,
+        structure_audit_ref=structure_audit_ref,
     )
 
 

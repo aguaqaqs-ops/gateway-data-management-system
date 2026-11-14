@@ -23,7 +23,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.row_encoding import (
     _can_table_early_exit, _is_columns_added, _schema_changes_from_view,
-    _schema_diagnostics, _schema_view,
+    _schema_diagnostics, _schema_view, _pure_column_change,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance, DegradedReason, MaterializationStage, SnapshotTable,
@@ -133,7 +133,7 @@ def standard_policy(task: TableComparisonTask, schema: Any) -> dict[str, object]
         "compare_excluded_columns": list(policy.compare_excluded_columns),
         "incompatible_columns": list(schema.incompatible),
         "emit_add_delete": task.artifact_scope is ArtifactScope.ALL_CHANGES,
-        "columns_added": _is_columns_added(schema),
+        "columns_added": _is_columns_added(schema) or _pure_column_change(schema),
         "mode": ("keyless" if standard_identity_is_keyless(schema.before_key, schema.current_key,
                  policy.allow_keyless_key_transition) else "keyed"),
         "schema_diagnostics": _schema_diagnostics(schema, policy),
@@ -209,13 +209,17 @@ def build_table_task_input(
     if before is not None and current is not None and policy is not None:
         schema = _schema_view(before, current, policy)
         changes = _schema_changes_from_view(schema, policy)
-        if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
-            if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED:
+        if before.row_count == current.row_count == 0 and _pure_column_change(schema):
+            pass  # Bound empty descriptors use the existing uncached metadata route.
+        elif policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
+            if (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+                    or (_pure_column_change(schema) and schema.before_key and not schema.key_invalid)):
                 kind = "nonrecord-shared-multiset"
                 request = standard_policy(task, schema)
-                request.update(mode="keyless", effective_key_before=[], effective_key_current=[],
-                               compare_excluded_columns=[], emit_add_delete=False,
+                request.update(compare_excluded_columns=[], emit_add_delete=False,
                                columns_added=True, schema_diagnostics=[])
+                if not schema.before_key or schema.key_invalid:
+                    request.update(mode="keyless", effective_key_before=[], effective_key_current=[])
         elif policy.ordered_policy is not None:
             unchanged = _can_table_early_exit(before, current, policy)
             kind = "ordered-current-summary" if unchanged else "row-comparison"

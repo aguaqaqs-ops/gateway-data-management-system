@@ -914,3 +914,14 @@ ORDERED_TABLE_COMPARE implementation
 risk engine input contract
 surface/workbench assembly
 ```
+
+
+2026-11-13 配置表修订：使用 [Comparison Contract](../contracts/comparison.md#配置表比较键2026-11-13) 和 ADR 0018 的精确规则。native 标准比较 `standard-reference/v2` 在需按键对齐时检查 NULL/空字符串，与重复比较键统一返回表级降级；浏览身份扫描不施加存储键约束。规则集为 `v5`，比较键与 DDL/无键存储职责独立；不增加另一套规则注册表。
+
+2026-11-13 结构审计修订：Comparison v4 / standard-reference v3 将共有值相等依据纳入 table digest 与 neutral cache。列删除及同时增删沿既有 shared-column native 比较；有序 schema-only 同样核对共有保留字段变化。只浏览表可做最小 native 探测但不发布行 records；无键非空默认零计数不构成隐藏证据。双侧零行使用绑定 descriptor，不为证明空表创建行比较键。详见 [Comparison 共有值证据](../contracts/comparison.md#共有值证据与纯结构展示2026-11-13)。缓存恢复使用严格 pydantic、禁止额外字段，恢复后重新核对 native metadata 与相同证据；缓存命中仍经过当前 pair 审计发布及校验，不禁用缓存绕过生命周期。
+
+### 共有展示与原始事实的公共边界（2026-11-14）
+
+Comparison 的公共 package facade 提供 `structure_change_is_audit_only`、`visible_table_fact`、`visible_comparison_facts`，作为 application、risk 和 surface 消费同一展示策略的入口；调用方不导入 `comparison.presentation` 内部模块。DAG 方向保持 Comparison → 已有上游不变，risk/surface 仅沿既有 Comparison 公共能力依赖。
+
+`ComparisonTableFactDocument` 与 `describe_table_fact` 是 Comparison 拥有的 flow-neutral 严格原始结果文档及构造入口，供后台审计消费；同一内部字节编码供 neutral cache 使用。文档保留原有字段、严格解码和禁止 row details 的约束，不暴露 cache session、Arrow handle、artifact authority 或缓存私有 helper。此次只收口模块归属与 API，JSON 载荷、digest preimage、算法/Contract/cache identity 和审计/缓存行为均不变；不增加版本或架构豁免。

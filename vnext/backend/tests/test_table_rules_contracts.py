@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 from dataclasses import replace
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from gateway_backend.capabilities.table_rules.registry import (
 )
 from gateway_shared_kernel import DigestRef
 from tests.support.table_rules import (
+    CONFIGURATION_TABLE_NAMES,
     keyless_record,
     net_cfg_record,
     ordered_syx_record,
@@ -108,7 +110,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
                 canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
             )
         )
-    assert RULESET_VERSION == "v4"
+    assert RULESET_VERSION == "v5"
 
 
 def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() -> None:
@@ -139,27 +141,15 @@ def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() 
         assert record.compare_key_columns == columns
 
     added_browse_names = {
-        "cnt_manage_cfg",
         "dev104_cfg",
-        "iec101_cfg",
-        "iec104_cfg",
-        "iec104gw_cfg",
-        "iec61850c_cfg",
-        "jdxx_cfg",
         "nbridge_cfg",
         "nr103d_cfg",
         "nr103ht_cfg",
-        "sc_cfg",
-        "scada_cfg",
-        "sg_manage_cfg",
         "sntp_cfg",
-        "vqc_cfg",
-        "wave_cfg",
-        "wf_cfg",
     }
-    assert len(added_browse_names) == 17
+    assert len(added_browse_names) == 5
     assert added_browse_names <= set(DEFAULT_BROWSE_ONLY_TABLE_NAMES)
-    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 30
+    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 18
     assert all(
         by_selector[(TableRuleSelectorKind.EXACT, name)].precedence_class
         is SelectorPrecedenceClass.BROWSE_ONLY
@@ -393,3 +383,30 @@ def test_golden_duplicate_selector_is_rejected() -> None:
     )
     with pytest.raises(ValueError, match="duplicate selectors are forbidden"):
         table_ruleset_from_document(payload)
+
+
+@pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
+def test_configuration_contract_separates_storage_and_comparison_keys(table_name: str) -> None:
+    records = [r for r in migrated_table_rule_records() if r.selector.value == table_name]
+    assert len(records) == 1
+    record = records[0]
+    assert record.static_role is TableStaticRole.STANDARD_DIFF
+    assert record.compare_key_columns == ("page_no", "no")
+    assert record.compare_key_mode is TableCompareKeyMode.EXPLICIT_KEY
+    assert record.artifact_scope is TableArtifactScope.ALL_CHANGES
+    assert record.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert record.ignored_columns == ()
+    assert record.dropped_columns == ()
+    assert record.compare_excluded_columns == ()
+
+
+@pytest.mark.parametrize("field,value", (
+    ("selector", TableRuleSelector(TableRuleSelectorKind.EXACT, "other_cfg")),
+    ("compare_key_columns", ("no",)),
+    ("compare_key_mode", TableCompareKeyMode.RAW_PRIMARY_KEY),
+    ("artifact_scope", TableArtifactScope.UPDATE_ONLY),
+))
+def test_configuration_storage_exception_does_not_generalize(field: str, value: Any) -> None:
+    record = next(r for r in migrated_table_rule_records() if r.selector.value == "iec104_cfg")
+    with pytest.raises(ValueError, match="restricted to snapshot-only"):
+        replace(record, **{field: value})

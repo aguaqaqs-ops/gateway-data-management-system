@@ -5484,6 +5484,89 @@
         "title": "SubmissionResponse",
         "type": "object"
       },
+      "SubmissionResultPairResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "comparison_digest": {
+            "title": "Comparison Digest",
+            "type": "string"
+          },
+          "pair_id": {
+            "title": "Pair Id",
+            "type": "string"
+          },
+          "risk_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Digest"
+          },
+          "surface_digest": {
+            "title": "Surface Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pair_id",
+          "comparison_digest",
+          "risk_digest",
+          "surface_digest"
+        ],
+        "title": "SubmissionResultPairResponse",
+        "type": "object"
+      },
+      "SubmissionResultResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "bundle_digest": {
+            "title": "Bundle Digest",
+            "type": "string"
+          },
+          "default_pair_id": {
+            "const": "initial_to_modified",
+            "title": "Default Pair Id",
+            "type": "string"
+          },
+          "input_completeness": {
+            "enum": [
+              "FULL",
+              "MODIFIED_ONLY"
+            ],
+            "title": "Input Completeness",
+            "type": "string"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/SubmissionResultPairResponse"
+            },
+            "title": "Pairs",
+            "type": "array"
+          },
+          "preview_result_id": {
+            "title": "Preview Result Id",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "preview_result_id",
+          "bundle_digest",
+          "default_pair_id",
+          "input_completeness",
+          "pairs"
+        ],
+        "title": "SubmissionResultResponse",
+        "type": "object"
+      },
       "SubmitAcceptedResponse": {
         "additionalProperties": false,
         "properties": {
@@ -9334,6 +9417,147 @@
         "summary": "Close Submission Route",
         "tags": [
           "archives"
+        ]
+      }
+    },
+    "/v1/submissions/{submission_id}/result": {
+      "get": {
+        "operationId": "get_submission_result_route_v1_submissions__submission_id__result_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Gateway-Device-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "X-Gateway-Device-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SUBMISSION_RESULT_UNAVAILABLE, SUBMISSION_RESULT_INTEGRITY_FAILURE"
+          }
+        },
+        "summary": "Get Submission Result Route",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/v1/submissions/{submission_id}/result/bundle": {
+      "get": {
+        "operationId": "get_submission_result_bundle_route_v1_submissions__submission_id__result_bundle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Gateway-Device-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "X-Gateway-Device-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-tar": {}
+            },
+            "description": "Immutable submission-bound Preview bundle",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SUBMISSION_RESULT_UNAVAILABLE, SUBMISSION_RESULT_INTEGRITY_FAILURE"
+          }
+        },
+        "summary": "Get Submission Result Bundle Route",
+        "tags": [
+          "reviews"
         ]
       }
     },

@@ -106,6 +106,9 @@ def extract_risk_facts(
     record_view_metrics: dict[str, float] | None = None,
     operation: RiskOperationPort | None = None,
 ) -> tuple[ExtractedRiskFacts, ...]:
+    from gateway_backend.capabilities.comparison import visible_comparison_facts
+
+    facts = visible_comparison_facts(facts)
     requested = None if requested_tables is None else frozenset(requested_tables)
     result: list[ExtractedRiskFacts] = []
     for table in facts.tables:

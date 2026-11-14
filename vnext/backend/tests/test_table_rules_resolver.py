@@ -68,23 +68,11 @@ _COMPOSITE_COMPARE_EXCLUDED = frozenset(COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_
 _MIGRATED_RULE_COUNT = 80
 DC56_BROWSE_ONLY_ADDITIONS = frozenset(
     {
-        "cnt_manage_cfg",
         "dev104_cfg",
-        "iec101_cfg",
-        "iec104_cfg",
-        "iec104gw_cfg",
-        "iec61850c_cfg",
-        "jdxx_cfg",
         "nbridge_cfg",
         "nr103d_cfg",
         "nr103ht_cfg",
-        "sc_cfg",
-        "scada_cfg",
-        "sg_manage_cfg",
         "sntp_cfg",
-        "vqc_cfg",
-        "wave_cfg",
-        "wf_cfg",
     }
 )
 

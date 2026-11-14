@@ -154,7 +154,7 @@ export interface ComparisonSurface {
   tables: SurfaceTable[];
 }
 
-export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v1";
+export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v2";
 
 export type NavigationBasis = "EXACT" | "TABLE_FALLBACK";
 
@@ -184,8 +184,15 @@ export interface NavigationRowFilter {
   current: NavigationPredicate | null;
 }
 
+export interface NavigationSummary {
+  change_kinds: ChangeKind[];
+  risk_level: RiskLevel | null;
+  nonempty_tab_count: number;
+}
+
 export interface NavigationTab {
   tab_key: string;
+  empty: boolean;
   label: string;
   table_id: string;
   row_filter: NavigationRowFilter | null;
@@ -198,12 +205,14 @@ export interface NavigationItem {
   label: string;
   attributes?: Record<string, string | number | boolean | null>;
   tabs: NavigationTab[];
+  summary: NavigationSummary;
 }
 
 export interface NavigationGroup {
   group_key: string;
   label: string;
   items: NavigationItem[];
+  nonempty_item_count: number;
 }
 
 export interface DerivedReplacementSide {
@@ -299,6 +308,7 @@ export interface DerivedTable {
 }
 
 export interface DerivedNavigationGroup {
+  nonemptyItemCount: number;
   groupKey: string;
   label: string;
   items: Array<{
@@ -308,16 +318,27 @@ export interface DerivedNavigationGroup {
     attributes: NavigationItem["attributes"];
     tabs: Array<{
       tabKey: string;
+      empty: boolean;
       label: string;
       tableName: string;
       rowFilter: NavigationTab["row_filter"];
       facts: NavigationFacts | null;
       table: DerivedTable | null;
     }>;
+    nonemptyTabCount: number;
     showTabs: boolean;
     changeKinds: ChangeKind[];
     riskLevels: RiskLevel[];
   }>;
+}
+
+/** Exact filter facts describe local rows; typed table scope retains whole-table differences. */
+export function navigationTabHasDifferences(tab: DerivedNavigationGroup["items"][number]["tabs"][number]): boolean {
+  const exact = tab.rowFilter !== null && tab.facts?.basis === "EXACT";
+  const kind = exact ? tab.facts?.change_kind : tab.table?.changeKind;
+  const risk = exact ? tab.facts?.risk_level : tab.table?.riskLevel;
+  return (kind != null && kind !== "UNCHANGED") || risk != null
+    || tab.facts?.table_scope?.change === true || tab.facts?.table_scope?.risk_level != null;
 }
 
 export interface DerivedBundleView {
@@ -438,7 +459,23 @@ function decodeFacts(value: unknown, where: string): NavigationFacts | null {
   };
 }
 
-function decodeGroups(value: unknown, tables: Map<string, SurfaceTable>, where: string): NavigationGroup[] {
+const SUMMARY_KINDS = new Set(["UNCHANGED", "BUSINESS_EQUIVALENT", "ADDED", "DELETED", "UPDATED", "SCHEMA_CHANGED", "DEGRADED", "FAILED", "REPLACED"]);
+const SUMMARY_RISKS = new Set(["LOW", "MEDIUM_LOW", "UNKNOWN", "MEDIUM_HIGH", "HIGH"]);
+
+function decodeSummary(value: unknown, tabs: NavigationTab[], where: string): NavigationSummary {
+  if (!isRecord(value) || Object.keys(value).sort().join(",") !== "change_kinds,nonempty_tab_count,risk_level") reject(`${where} 的 summary 字段无效`);
+  const kinds = value.change_kinds;
+  if (!Array.isArray(kinds) || kinds.some((kind) => typeof kind !== "string" || !SUMMARY_KINDS.has(kind))
+      || JSON.stringify(kinds) !== JSON.stringify([...new Set(kinds)].sort())) reject(`${where} 的 summary.change_kinds 无效`);
+  const risk = value.risk_level;
+  if (risk !== null && (typeof risk !== "string" || !SUMMARY_RISKS.has(risk))) reject(`${where} 的 summary.risk_level 无效`);
+  const count = value.nonempty_tab_count;
+  if (!Number.isSafeInteger(count) || count !== tabs.filter((tab) => !tab.empty).length) reject(`${where} 的 summary.nonempty_tab_count 无效`);
+  if (count === 0 && (kinds.length !== 0 || risk !== null)) reject(`${where} 的全空项 summary 必须中性`);
+  return { change_kinds: kinds as ChangeKind[], risk_level: risk as RiskLevel | null, nonempty_tab_count: count as number };
+}
+
+function decodeGroups(value: unknown, tables: Map<string, SurfaceTable>, where: string, replacement = false): NavigationGroup[] {
   if (!Array.isArray(value)) reject(`${where} 不是数组`);
   const groupKeys = new Set<string>();
   const perTable = new Map<string, Array<{ groupKey: string; tab: NavigationTab }>>();
@@ -469,7 +506,10 @@ function decodeGroups(value: unknown, tables: Map<string, SurfaceTable>, where: 
         tabKeys.add(tabKey);
         const tableId = rawTab.table_id;
         if (typeof tableId !== "string" || !tables.has(tableId)) reject(`导航引用了未发布的表：${String(tableId)}`);
+        if (typeof rawTab.empty !== "boolean" || (replacement && rawTab.empty)) reject(`${where}.${groupKey}.${itemKey}.${tabKey} 的 empty 无效`);
+        if (Object.keys(rawTab).sort().join(",") !== "empty,facts,label,row_filter,tab_key,table_id") reject(`${where}.${groupKey}.${itemKey}.${tabKey} 的页签字段无效`);
         const tab: NavigationTab = {
+          empty: rawTab.empty,
           tab_key: tabKey,
           label: typeof rawTab.label === "string" && rawTab.label.length > 0 ? rawTab.label : tabKey,
           table_id: tableId,
@@ -487,9 +527,12 @@ function decodeGroups(value: unknown, tables: Map<string, SurfaceTable>, where: 
         label: typeof rawItem.label === "string" && rawItem.label.length > 0 ? rawItem.label : itemKey,
         attributes: isRecord(rawItem.attributes) ? (rawItem.attributes as NavigationItem["attributes"]) : undefined,
         tabs,
+        summary: decodeSummary(rawItem.summary, tabs, `${where}.${groupKey}.${itemKey}`),
       });
     }
-    groups.push({ group_key: groupKey, label: typeof rawGroup.label === "string" ? rawGroup.label : groupKey, items });
+    const count = rawGroup.nonempty_item_count;
+    if (!Number.isSafeInteger(count) || count !== items.filter((item) => item.summary.nonempty_tab_count > 0).length) reject(`${where}.${groupKey} 的 nonempty_item_count 无效`);
+    groups.push({ nonempty_item_count: count as number, group_key: groupKey, label: typeof rawGroup.label === "string" ? rawGroup.label : groupKey, items });
   }
   for (const [tableId, entries] of perTable) {
     const wholeTable = entries.filter((entry) => entry.tab.row_filter === null);
@@ -519,8 +562,8 @@ export function decodeBusinessNavigation(input: unknown, surface: ComparisonSurf
     if (surface.comparison_mode !== "DATASET_REPLACEMENT") reject("非替换模式下出现 replacement_sides");
     if (groups.length > 0) reject("替换模式的 groups 必须为空");
     replacementSides = {
-      before: decodeGroups(replacementRaw.before, tables, "replacement_sides.before"),
-      current: decodeGroups(replacementRaw.current, tables, "replacement_sides.current"),
+      before: decodeGroups(replacementRaw.before, tables, "replacement_sides.before", true),
+      current: decodeGroups(replacementRaw.current, tables, "replacement_sides.current", true),
     };
   } else if (surface.comparison_mode === "DATASET_REPLACEMENT") {
     reject("替换模式缺少 replacement_sides");
@@ -530,10 +573,12 @@ export function decodeBusinessNavigation(input: unknown, surface: ComparisonSurf
 
 function deriveGroups(groups: NavigationGroup[], tables: Map<string, DerivedTable>): DerivedNavigationGroup[] {
   return groups.map((group) => ({
+    nonemptyItemCount: group.nonempty_item_count,
     groupKey: group.group_key,
     label: group.label || group.group_key,
     items: group.items.map((item) => {
       const tabs = item.tabs.map((tab) => ({
+        empty: tab.empty,
         tabKey: tab.tab_key,
         label: tab.label,
         tableName: tab.table_id,
@@ -547,9 +592,10 @@ function deriveGroups(groups: NavigationGroup[], tables: Map<string, DerivedTabl
         label: item.label,
         attributes: item.attributes,
         tabs,
+        nonemptyTabCount: item.summary.nonempty_tab_count,
         showTabs: tabs.length > 1,
-        changeKinds: [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.changeKind : tab.facts?.change_kind).filter((value): value is ChangeKind => Boolean(value)))],
-        riskLevels: [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.riskLevel : tab.facts?.risk_level).filter((value): value is RiskLevel => Boolean(value)))],
+        changeKinds: item.summary.change_kinds,
+        riskLevels: item.summary.risk_level === null ? [] : [item.summary.risk_level],
       };
     }),
   }));
@@ -573,10 +619,14 @@ function mergeReplacementGroups(sides: { before: DerivedNavigationGroup[]; curre
           else sameTable.rowFilter ??= tab.rowFilter;
         }
         existing.showTabs = existing.tabs.length > 1;
+        existing.nonemptyTabCount = existing.tabs.filter((tab) => !tab.empty).length;
+        existing.changeKinds = [...new Set([...existing.changeKinds, ...item.changeKinds])].sort();
+        existing.riskLevels = [...new Set([...existing.riskLevels, ...item.riskLevels])]
+          .sort((a, b) => ["HIGH", "MEDIUM_HIGH", "UNKNOWN", "MEDIUM_LOW", "LOW"].indexOf(a) - ["HIGH", "MEDIUM_HIGH", "UNKNOWN", "MEDIUM_LOW", "LOW"].indexOf(b));
       }
     }
   }
-  return [...groups.values()];
+  return [...groups.values()].map((group) => ({ ...group, nonemptyItemCount: group.items.filter((item) => item.nonemptyTabCount > 0).length }));
 }
 
 export function deriveBundleView(input: {

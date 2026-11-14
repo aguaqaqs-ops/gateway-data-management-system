@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
+
+from tests.support.review_result_fixtures import review_artifact_refs
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts, replace_preview_with_facts
@@ -134,7 +138,6 @@ pytestmark = pytest.mark.unit
 TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 BASELINE_HEAD = make_baseline_head(version=3, commit_id="commit-base")
-PREVIEW_READY_CLOSURE_DIGEST = "d-closure"
 _SHA_INITIAL = "sha256:" + "a" * 64
 _SHA_MODIFIED = "sha256:" + "b" * 64
 _SHA_CLOSURE = "sha256:" + "c" * 64
@@ -451,6 +454,7 @@ def seed_submit_ready_workspace(
     device_key: str = "device-1",
     project_id: str = "project-1",
     baseline_head: BaselineHead = BASELINE_HEAD,
+    input_completeness: InputCompleteness = InputCompleteness.FULL,
 ) -> SubmitSeed:
     from tests.support.baseline_fixtures import read_authoritative_baseline_head
 
@@ -504,6 +508,9 @@ def seed_submit_ready_workspace(
             created_by=actor_id,
             created_at=TS0,
         )
+        if input_completeness is InputCompleteness.MODIFIED_ONLY:
+            upload_revision = replace(upload_revision, input_completeness=input_completeness,
+                source_artifacts={SourceArtifactRole.MODIFIED: upload_revision.source_artifacts[SourceArtifactRole.MODIFIED]})
         preview = replace_preview_with_facts(
             _preview_result(workspace.workspace_id, repository_id),
             preview_result_id=preview_result_id,
@@ -514,6 +521,14 @@ def seed_submit_ready_workspace(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
         )
+        if input_completeness is InputCompleteness.MODIFIED_ONLY:
+            preview = replace(preview, canonical=replace(preview.canonical,
+                configuration_facts=replace(preview.canonical.configuration_facts, initial_origin="BASELINE_REUSED")))
+        from tests.support.review_result_fixtures import closed_review_preview
+        preview, review_refs, _payloads = closed_review_preview(
+            preview, make_canonical_artifact_fixture(repository_id).refs)
+        source_ids = {binding.artifact_id for binding in upload_revision.source_artifacts.values()}
+        protected_refs = (*(ref for ref in _protected_preview_refs(repository_id) if ref.artifact_id in source_ids), *review_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(
@@ -530,7 +545,6 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = "op-preview-1"
-        protected_refs = _protected_preview_refs(repository_id)
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",
@@ -582,7 +596,7 @@ def _accept_command(
 
 def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
     return AcceptSubmitPreflight(
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=seed.protected_refs,
         current_storage_projection_ruleset_digest=(
@@ -1123,7 +1137,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
         upload_revision=seed.upload_revision,
         baseline_head=BASELINE_HEAD,
         repository_expected_commit_id="commit-main",
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
     )
     with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
         attempt = submit_attempt_with_facts(
@@ -1150,7 +1164,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
                 seed.preview_result.canonical.canonical_table_set_closure_digest.value
             ),
             preview_ready_closure_ref=seed.preview_result.ready_closure_artifact_id,
-            preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+            preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
             canonicalization_manifest_ref=(
                 seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id
             ),
@@ -1563,6 +1577,7 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         result = finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=facts,
                 submission_id="sub-1",
@@ -1649,6 +1664,7 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=facts,
                 submission_id="sub-1",
@@ -1664,6 +1680,7 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         replay = finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=facts,
                 submission_id="sub-1",
@@ -1715,6 +1732,7 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=facts,
                 submission_id="sub-1",
@@ -1739,6 +1757,7 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
     with ControlDbUnitOfWork(db_path) as unit_of_work, pytest.raises(ReviewIntegrityFailure):
         finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=facts,
                 submission_id="sub-1",
@@ -1877,6 +1896,7 @@ def _finalize(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         return finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=_finalize_facts(seed),
                 submission_id="sub-1",

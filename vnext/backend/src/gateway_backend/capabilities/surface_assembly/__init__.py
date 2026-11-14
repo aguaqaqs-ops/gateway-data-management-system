@@ -2,6 +2,7 @@
 
 from gateway_backend.capabilities.surface_assembly._assembly import (
     assemble_surface,
+    table_change_kind,
     validate_surface,
     validate_surface_artifacts,
 )
@@ -91,6 +92,7 @@ __all__ = [
     "SurfaceView",
     "SurfaceIdentityAnnotation",
     "assemble_surface",
+    "table_change_kind",
     "compute_surface_digest",
     "rewrite_surface_refs",
     "surface_digest_payload",

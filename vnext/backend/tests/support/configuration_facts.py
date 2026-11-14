@@ -8,7 +8,7 @@ from gateway_backend.domain.configuration_facts import (
     CONFIGURATION_FACTS_SCHEMA, CONFIGURATION_TIME_RULE, CanonicalContentIdentity,
     ConfigurationFacts, ConfigurationGeneratedTime, ConfigurationSideFacts,
 )
-from gateway_backend.domain.workspace.models import PreviewResult
+from gateway_backend.domain.workspace.models import PreviewResult, PreviewComparisonPair
 from gateway_backend.domain.submission.models import Submission, SubmitAttempt
 
 
@@ -38,6 +38,13 @@ def preview_result_with_facts(**kwargs: Any) -> PreviewResult:
         business_baseline_commit_id=kwargs["business_baseline_commit_id"], baseline_head_version=kwargs["baseline_head_version"],
         operation_id=kwargs["operation_id"])
     kwargs["canonical"] = replace(canonical, configuration_facts=facts)
+    kwargs.setdefault("comparison_pairs", tuple(PreviewComparisonPair(
+        pair_id=pair.pair_id, before_snapshot_digest=kwargs["digests"].snapshot_digest,
+        current_snapshot_digest=kwargs["digests"].snapshot_digest,
+        comparison_digest=kwargs["digests"].comparison_digest,
+        risk_digest=kwargs["digests"].risk_digest, surface_digest=kwargs["digests"].surface_digest,
+        ruleset_digest=canonical.storage_projection_ruleset_digest.value,
+        structure_audit_artifact_id=None) for pair in kwargs["identity_pairs"]))
     return PreviewResult(**kwargs)
 
 

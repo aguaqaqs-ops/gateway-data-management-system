@@ -1,6 +1,6 @@
 # Risk Contract
 
-> 当前实现合同为 `backend-vnext/risk/v2`：schema-only additions 不产生 schema-change 风险，整表新增/删除风险证据带表行数。
+> 当前实现合同为 `backend-vnext/risk/v2`：严格证明共有值未变的纯增删列不产生 schema 风险；整表新增/删除风险证据带表行数。
 
 本文定义 backend vNext 第一版 risk engine contract。Risk 只消费 `ComparisonFacts` 和可选 records artifacts，输出 flow-neutral `RiskEvaluation`、`RiskReport` 和可选 annotation artifacts。
 
@@ -436,7 +436,7 @@ ComparisonFacts + optional records access + RiskRulesetSnapshot
 规则：
 
 - 默认风险等级可由 `RiskRulesetSnapshot` 调整。
-- `schema_evolution=COLUMNS_ADDED` 不产生 `SCHEMA_CHANGED` 风险；`COLUMNS_REMOVED` 与 `INCOMPATIBLE` 按 schema-change 规则评估。
+- 风险使用 Comparison v4 的统一投影：已证明的纯增删列不产生 `SCHEMA_CHANGED`；未知结构变化可投影为 `SCHEMA_ONLY_CHANGED`，不能仅凭 `COLUMNS_ADDED` 名称免除风险。兼容 ENUM/SET 演进及真实共有值变化按原行/content 口径；其余可见 `COLUMNS_REMOVED` 与 `INCOMPATIBLE` 继续按 schema-change 规则评估。
 - `ORDERED_DIFF_UNSUPPORTED` 的默认 reason code 建议为 `ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED`。
 - ignored columns 不直接产生 row risk；可作为 diagnostics 或 LOW notice。
 
@@ -521,3 +521,7 @@ S3 风险上限重放必须保留当前控制流：在等级过滤前检查上�
 状态：S1a risk 位置接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。risk content/annotation manifest/closure与持久neutral candidates/envelope显式归comparison；READY/Attempt用途只增加保护，不搬为durable。正常cold/restored风险顺序、cap、编号、level过滤与当前closure校验保持，不增统计成功前提。
 
 artifact refs继续不直接进入risk_evaluation_digest；不含ref的内容/manifest与风险事实摘要保持原公式。含新ref的closure、report、cache envelope原bytes/SHA以及消费它们完整性的surface/bundle摘要按实际载荷传递重算。不得放宽closure校验、删除raw SHA输入或复用旧绑定来保旧golden。同盘/分盘配置本身不进入候选key或业务摘要。
+
+## 纯结构变化与后台审计（2026-11-13）
+
+Risk 消费 Comparison v4 的 `comparison.presentation` 统一投影；严格证明共有业务值未变的列增删不输出 schema 风险。其他行风险、诊断及 ordered 语义不删除；未知或只浏览默认零计数不能放行。Risk 文档形状/preimage 不变；comparison digest 已绑定 v4 证据与 standard-reference v3，既有 risk cache/candidate identity 核对该输入，不新增独立版本轴。

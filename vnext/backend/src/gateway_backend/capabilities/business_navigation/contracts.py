@@ -1,4 +1,4 @@
-"""Flow-neutral inputs and strict wire validation for business navigation v1.
+"""Flow-neutral inputs and strict wire validation for business navigation v2.
 
 Row identities, scalar encodings and comparison/risk facts are supplied by their owners.
 This capability never reconstructs a canonical row identity from business values.
@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypeAlias
+from enum import StrEnum
+from typing import Any, TypeAlias, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -18,7 +21,22 @@ from gateway_backend.capabilities.comparison.contracts import (
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
 
-CONTRACT_VERSION = "backend-vnext/business-navigation/v1"
+CONTRACT_VERSION = "backend-vnext/business-navigation/v2"
+
+
+class NavigationChangeKind(StrEnum):
+    """Navigation boundary vocabulary; the Surface Contract owns these wire values."""
+    UNCHANGED = "UNCHANGED"
+    BUSINESS_EQUIVALENT = "BUSINESS_EQUIVALENT"
+    ADDED = "ADDED"
+    DELETED = "DELETED"
+    UPDATED = "UPDATED"
+    SCHEMA_CHANGED = "SCHEMA_CHANGED"
+    DEGRADED = "DEGRADED"
+    FAILED = "FAILED"
+    REPLACED = "REPLACED"
+
+
 GROUPS = (
     ("FORWARD_CHANNELS", "转发通道"), ("SECONDARY_DEVICES", "二次装置列表"),
     ("COMMUNICATION_PROTOCOLS", "通讯规约列表"), ("GLOBAL_PARAMETERS", "全局参数"),
@@ -125,6 +143,10 @@ class NavigationTable:
     evidence: NavigationEvidence = field(default_factory=NavigationEvidence)
     table_change: bool = False
     unchanged: bool = False
+    # Raw structural facts survive C's audit-only projection; they forbid emptiness.
+    structure_changed: bool = False
+    change_kind: NavigationChangeKind = NavigationChangeKind.UNCHANGED
+    risk_level: RiskLevel | None = None
     # Actual owner-resolved pair eligibility. Missing physical columns are distinct
     # from an existing column excluded from comparison.
     identity_excluded_sides: frozenset[str] = frozenset()
@@ -210,8 +232,78 @@ def _string(value: object) -> None:
         raise ValueError("expected a nonempty string")
 
 
+class _Document(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class _Predicate(_Document):
+    column: str
+    values: list[str] | list[int]
+
+
+class _Filter(_Document):
+    before: _Predicate | None
+    current: _Predicate | None
+
+
+class _Scope(_Document):
+    change: bool
+    risk_level: str | None
+
+
+class _Facts(_Document):
+    basis: Literal["EXACT", "TABLE_FALLBACK"]
+    change_kind: str | None
+    risk_level: str | None
+    before_row_count: int | None
+    current_row_count: int | None
+    table_scope: _Scope | None
+
+
+class _Summary(_Document):
+    change_kinds: list[str]
+    risk_level: str | None
+    nonempty_tab_count: int
+
+
+class _Tab(_Document):
+    tab_key: str
+    label: str
+    table_id: str
+    row_filter: _Filter | None
+    facts: _Facts | None
+    empty: bool
+
+
+class _Item(_Document):
+    item_key: str
+    item_kind: str
+    label: str
+    attributes: dict[str, str | int]
+    tabs: list[_Tab]
+    summary: _Summary
+
+
+class _Group(_Document):
+    group_key: str
+    label: str
+    items: list[_Item]
+    nonempty_item_count: int
+
+
+class _Sides(_Document):
+    before: list[_Group]
+    current: list[_Group]
+
+
+class _Navigation(_Document):
+    contract_version: str
+    groups: list[_Group]
+    replacement_sides: _Sides | None
+
+
 def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any]:
-    doc = _object(document, {"contract_version", "groups", "replacement_sides"})
+    doc = _Navigation.model_validate(document).model_dump()
     if doc["contract_version"] != CONTRACT_VERSION:
         raise ValueError("unsupported navigation version")
     if replacement:
@@ -238,12 +330,14 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
     item_keys: set[str] = set()
     scopes: dict[str, object] = {}
     for raw, (key, _) in zip(value, GROUPS, strict=True):
-        group = _object(raw, {"group_key", "label", "items"})
+        group = _object(raw, {"group_key", "label", "items", "nonempty_item_count"})
         if group["group_key"] != key or type(group["items"]) is not list:
             raise ValueError("invalid group order or items")
         _string(group["label"])
+        if group["nonempty_item_count"] != sum(any(not t["empty"] for t in i["tabs"]) for i in group["items"]):
+            raise ValueError("group count differs from nonempty items")
         for raw_item in group["items"]:
-            item = _object(raw_item, {"item_key", "item_kind", "label", "attributes", "tabs"})
+            item = _object(raw_item, {"item_key", "item_kind", "label", "attributes", "tabs", "summary"})
             _string(item["item_key"])
             _string(item["label"])
             if item["item_key"] in item_keys:
@@ -256,14 +350,24 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
             for attr in item["attributes"].values():
                 if type(attr) not in {str, int} or (type(attr) is int and abs(attr) > SAFE_INTEGER):
                     raise ValueError("invalid attribute scalar")
+            summary = item["summary"]
+            nonempty = sum(not t["empty"] for t in item["tabs"])
+            if (summary["nonempty_tab_count"] != nonempty
+                    or summary["change_kinds"] != sorted(set(summary["change_kinds"]))
+                    or any(k not in {v.value for v in NavigationChangeKind} for k in summary["change_kinds"])
+                    or summary["risk_level"] not in {v.value for v in RiskLevel} | {None}
+                    or (not nonempty and (summary["change_kinds"] or summary["risk_level"] is not None))):
+                raise ValueError("invalid nonempty item summary")
             tabs: set[str] = set()
             for raw_tab in item["tabs"]:
-                tab = _object(raw_tab, {"tab_key", "label", "table_id", "row_filter", "facts"})
+                tab = _object(raw_tab, {"tab_key", "label", "table_id", "row_filter", "facts", "empty"})
                 for name in ("tab_key", "label", "table_id"):
                     _string(tab[name])
                 if tab["tab_key"] in tabs:
                     raise ValueError("duplicate tab key")
                 tabs.add(tab["tab_key"])
+                if side is not None and tab["empty"]:
+                    raise ValueError("replacement tabs cannot be empty")
                 filtered = tab["row_filter"] is not None
                 previous = tables.get(tab["table_id"])
                 if previous is not None and (not filtered or not previous[1] or previous[0] != key):
@@ -348,11 +452,30 @@ _DIAGNOSTIC_PARAMS = {
 }
 
 
+class _Target(_Document):
+    group_key: str | None
+    item_key: str | None
+    tab_key: str | None
+    table_id: str | None
+
+
+class _Diagnostic(_Document):
+    code: str
+    target: _Target
+    side: Literal["BEFORE", "CURRENT"] | None
+    params: dict[str, Any]
+
+
+class _Diagnostics(_Document):
+    contract_version: str
+    diagnostics: list[_Diagnostic]
+
+
 def validate_diagnostics(
     document: object, navigation: dict[str, Any], table_ids: frozenset[str],
 ) -> dict[str, Any]:
     """Validate fixed-code params, side/targets and the per-table fallback invariant."""
-    doc = _object(document, {"contract_version", "diagnostics"})
+    doc = _Diagnostics.model_validate(document).model_dump()
     if doc["contract_version"] != CONTRACT_VERSION or type(doc["diagnostics"]) is not list or not doc["diagnostics"]:
         raise ValueError("invalid diagnostics envelope")
     replacement = navigation["replacement_sides"] is not None

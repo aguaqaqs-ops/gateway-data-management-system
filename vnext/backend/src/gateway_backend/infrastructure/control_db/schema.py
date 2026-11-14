@@ -249,7 +249,8 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         repository_id TEXT NOT NULL
             CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
         binding BLOB NOT NULL
-            CHECK (typeof(binding) = 'blob'),
+            CHECK (typeof(binding) = 'blob' AND json_valid(CAST(binding AS TEXT))
+                AND json_type(CAST(binding AS TEXT), '$.comparison_pairs') IS 'array'),
         operation_id TEXT NOT NULL UNIQUE
             CHECK (typeof(operation_id) = 'text' AND length(operation_id) BETWEEN 1 AND 255),
         created_at_us INTEGER NOT NULL

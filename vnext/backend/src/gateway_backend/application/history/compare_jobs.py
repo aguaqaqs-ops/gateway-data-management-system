@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
+
 from gateway_backend.statistics.metrics import bind_scope
 
 from gateway_backend.statistics.metrics import input_shape, timed
@@ -171,7 +173,7 @@ HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
 )
 HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
 HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/assemble-state/v1"
+    "backend-vnext/history-compare/assemble-state/v3"
 )
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(
@@ -593,6 +595,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             ready_closure_ref = _history_compare_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_history_bundle_binding(envelope.job_state, closure.artifact_refs())
+            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs(), _assemble_state.get("pair_ids"))
             _pin_history_compare_refs(
                 deps,
                 (
@@ -609,6 +612,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             assert assembled_result is not None
             assemble_state, bundle_manifest_ref, bundle_digest = assembled_result
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs, assemble_state.get("pair_ids"))
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
@@ -736,6 +740,8 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 ready_closure_ref,
             ).artifact_refs()
             _assert_history_bundle_binding(assemble_envelope.job_state, closure_output_refs)
+            _, assemble_state = history_compare_assemble_state_from_checkpoint(assemble_envelope.job_state, deps.artifact_store)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), closure_output_refs, assemble_state.get("pair_ids"))
             _release_history_compare_step_protection(
                 transaction,
                 operation_id=current_operation.operation_id,
@@ -987,6 +993,8 @@ def _assemble_comparison(
 
         assemble_state: dict[str, object] = {
             "pair_ids": [item.pair_id for item in pair_results],
+            "structure_audit_bindings": [structure_audit_binding(
+                item.pair_id, item.comparison_digest, item.structure_audit_ref) for item in pair_results],
             "pairs": [
                 {
                     "pair_id": pair_state.pair_id,
@@ -1307,6 +1315,8 @@ def _required_ready_refs(
         if pair_state.surface_result.surface is None:
             raise HistoryCompareJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
+        if pair_state.structure_audit_ref is not None:
+            refs.append(pair_state.structure_audit_ref)
     refs.append(bundle_manifest_ref)
     refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))

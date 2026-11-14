@@ -412,7 +412,8 @@ test("r2-preview", async ({ browser }, testInfo) => {
     expect(opfs.hasManifest, "OPFS manifest.json").toBe(true);
     expect(opfs.hasCompleteMarker, "OPFS complete marker").toBe(true);
 
-    const footer = session.page.locator(".sidebar-footer");
+    await session.page.locator(".compare-more > summary").click();
+    const footer = session.page.locator(".compare-more__bundle");
     await expect(footer).toContainText("本地 bundle · 浏览期间不请求后端");
     await expect(footer).toContainText(run.bundle.manifest.bundle_digest.slice(0, 19));
 
@@ -464,7 +465,8 @@ test("r2-full", async ({ browser }, testInfo) => {
     await expect(tabs.getByRole("tab")).toHaveCount(2);
     await expect(tabs.getByRole("tab", { name: "原始组态视图" })).toBeVisible();
     await expect(tabs.getByRole("tab", { name: "本次组态视图" })).toBeVisible();
-    await expect(session.page.locator(".sidebar-footer")).toContainText("本地 bundle");
+    await session.page.locator(".compare-more > summary").click();
+    await expect(session.page.locator(".compare-more__bundle")).toContainText("本地 bundle");
     await expect(session.page.locator(".grid-frame")).toBeVisible();
 
     await saveEvidence(session.page, testInfo, "r2-full-diff");

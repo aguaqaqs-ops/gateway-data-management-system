@@ -64,7 +64,21 @@ def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_cont
     else:
         assert tab["facts"]["change_kind"] == "UNCHANGED"
     if schema_added:
-        assert tab["facts"]["table_scope"]["change"] is True
+        from gateway_backend.application.comparison_audit import ComparisonStructureAudit
+        assert result.structure_audit_ref is not None
+        audit = ComparisonStructureAudit.model_validate_json(store.locate(result.structure_audit_ref))
+        hidden, = audit.tables
+        assert hidden.table_name == "device_cfg"
+        assert hidden.equality_evidence == "NATIVE_SHARED_VALUES"
+        raw = hidden.raw_fact
+        assert raw.row_count_before == raw.row_count_current == 1
+        assert raw.row_added_count == raw.row_deleted_count == raw.row_modified_count == 0
+        assert raw.suppressed_added_count == raw.suppressed_deleted_count == 0
+        assert raw.schema_changes.current_only_columns == ("extra",)
+        assert raw.schema_changes.effective_compare_key_before == raw.schema_changes.effective_compare_key_current == ("id",)
+        assert tab["facts"]["table_scope"] is None
+        assert cfg.change_kind.value == "UNCHANGED" and cfg.risk_refs.risk_level is None
+        assert not tab["empty"]
     closure = surface_artifact_closure(surface, result.pair_id, result.records_closure,
         before=before, current=current, store=store, repository_id="replacement-fixture")
     bundle = assemble_bundle(BundleAssemblyInput(bundle_contract_version=BUNDLE_CONTRACT_VERSION,

@@ -137,7 +137,7 @@ comparison_options:
 
 Summary 判等只消除不需要行内容的工作，不等于所有任务零读取。
 
-Table 级判等须同时满足：两侧同一逻辑表、business schema digest与行数相同、非空raw content digest相同；两侧storage facts存在，StorageRuleView、source schema、非空canonical schema及非空projection version相同，facts的raw digest与各自descriptor及另一侧一致；允许key transition时effective key仍相等，policy表名与descriptor绑定正确。不得仅凭raw digest或零行数判定未变。
+Table 级判等须同时满足：两侧同一逻辑表、business schema digest与行数相同、非空raw content digest相同；两侧storage facts存在，StorageRuleView、source schema、非空canonical schema及非空projection version相同，facts的raw digest与各自descriptor及另一侧一致；允许key transition时effective key仍相等，policy表名与descriptor绑定正确。不得仅凭raw digest或零行数执行该 table early-exit。标准比较的双侧空表另走 descriptor 元数据路径：两侧已校验存在性、行数为零且 business schema digest 相等、有效比较键没有变化时，判为 UNCHANGED，不为不存在的行猜键；schema 不同或明确键变化继续保留原 schema/降级语义。
 
 - 普通 metadata-only 未变化任务可直接形成 `UNCHANGED` facts，不打开行reader。
 - 未变化 ordered 任务须按当前pair有效策略取得current侧ordered/occupancy摘要，完整填写两侧ordered/blank extension。健康同任务缓存可以恢复这些facts；未命中则读取current规范行做单侧摘要，不读before、不执行LIS或生成逐行records。
@@ -416,12 +416,13 @@ SchemaChanges:
 - 删除表输出 `DELETED_TABLE`。
 - 仅对 before/current 都存在的表分类 schema 演进。字段只增、ENUM 只增标签（标签位置不限）、SET 只增成员且共有字段兼容时为 `COLUMNS_ADDED`；字段只删且共有字段兼容时为 `COLUMNS_REMOVED`；其余 schema 变化为 `INCOMPATIBLE`。有效比较键变化、键无效或共有字段不兼容时不得归类为只增列。
 - ENUM/SET 兼容性按解析后的类型和标签精确比较；只规范化类型关键字，不改写标签字符串字面量。大小写变化或标签替换都是 `INCOMPATIBLE`，不能被其他新增列豁免。
-- `COLUMNS_ADDED` 按共有列计算行变化，不改变 table status、不降级，也不产生 schema-change record。新增列名保留在内部 comparison facts 中；surface 不发布新增列列表，Submission/History 面向用户的结果不列出新增列。
+- `COLUMNS_ADDED` 的原始行比较按共有列计算，不因分类本身产生 schema-change record；原始 table status、schema 分类与对外展示分开。v4 只有具备下述严格证据的纯增删列才对外隐藏；未知的零计数不得无条件视为未变化。兼容 ENUM/SET 演进及真实共有字段变化继续使用现有行/content 口径。新增列名保留在后台原始事实；surface 不发布新增列列表。
 - `COLUMNS_REMOVED` 保持 `SCHEMA_CHANGED`；`INCOMPATIBLE` 保持现行 schema-change/degraded 规则。
 - key 不变时，row diff 只比较 selected columns。
 - before-only/current-only columns 不进入 row diff。
 - key 变化时，不做复杂 row identity 映射；输出全表变化或 `DEGRADED`。
-- 整表新增/删除只输出表级 fact 与 row count，不生成 `ROW_ADDED` / `ROW_DELETED` 记录。
+- 整表新增/删除只依赖已经校验表身份、存在性、schema 和行数的 descriptor，输出表级 fact 与 row count，不要求行 reader、比较键或 ordered/blank extension，不生成 `ROW_ADDED` / `ROW_DELETED` 记录。存在但零行的表仍输出整表新增/删除，不能等同于表不存在。
+- 整表导出与浏览独立满足当前绑定、内容及 bundle closure 校验；导出缓存命中与否不改变比较事实，导出缺失且无法恢复仍使交付失败。
 - 降级表不阻塞其他表比较。
 
 ## ComparisonRecords
@@ -625,3 +626,20 @@ ComparisonComputeResult:
 状态：S1a comparison 位置接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。records、records manifest/closure、comparison cache成员与cache manifest均显式归comparison；恢复重绑后的新对象仍归comparison，不因进入READY或冻结Attempt而搬盘。producer固定kind与完整身份输入统一经位置codec，cache中empty view仍不造文件。
 
 table/core/comparison任务身份与facts/records内容、规则和业务摘要不新增物理位置输入。含完整新ref的closure/cache envelope原字节与raw SHA可变；原records manifest不含ref的业务摘要不因位置变化而变。当前operation依原公式重绑/闭合/保护，optional cache miss与冻结输入丢失不能混淆；root SH→短DB pin→事务外hash的顺序和READY前释放窄cache intent保持。Bundle物理metadata完整性带来的传递变化见A§4，不全量重录golden。Parquet records的SpooledTemporaryFile必须显式使用本operation scratch（包括rollover）；共享temporary cap与原records/spool上限共同约束，返回bytes的M预约另计。取消、ENOSPC、writer/close失败均释放writer/spool，不发表READY，不能回退系统temp。
+
+
+### 配置表比较键（2026-11-13）
+
+[ADR 0018](../refactoring/formal/adr/0018-canonical-domain-comparison-and-comparison-rule-view.md) 的 12 类精确配置表采用 STANDARD/ALL_CHANGES，以 `(page_no, no)` 对齐，不从 DDL 主键猜测比较键。同一 no 在不同 page_no 下为不同行；正常增删改进入 records 与摘要，供风险、surface 和业务导航消费。需按键对齐的两侧缺列、NULL、空字符串或重复键时按表 DEGRADED，不去重或回退 DDL 键；单侧和双侧空表保留既有元数据路径。合法存储中的无效比较键不阻止表浏览，非法 DDL 存储主键仍由 projection 拒绝。
+
+本次 ruleset `v5` 的规范规则文档和逐表 comparison-rule-view digest 反映新角色与键；`standard-reference/v2` 增加 native 键值验证，进入 TableTaskInputV1 的 standard_algorithm 身份，持久与运行内缓存经同一 task input 核对。未改变 DTO/checkpoint、规则文档形状或 digest preimage，也不提升 storage projection version；旧键语义缓存不得恢复到新结果。
+
+## 共有值证据与纯结构展示（2026-11-13）
+
+当前 Comparison selector 为 `backend-vnext/comparison/v4`，standard algorithm 为 `standard-reference/v3`。TableFact 新增 nullable `shared_value_equality`，其取值仅为 `BOUND_EMPTY_DESCRIPTORS`（已绑定双侧零行描述）或 `NATIVE_SHARED_VALUES`（native 实际按有效键比较共有字段）。未知必须为 null，零 records、默认零计数、`SCHEMA_ONLY_CHANGED` 或只浏览角色都不是证据。该字段进入 table/facts digest preimage 与完整 neutral cache document；现有 TableTaskInput 的 comparison/standard_algorithm 身份由运行内和持久缓存消费者核对，拒绝旧语义复用，无新增独立缓存版本轴。
+
+统一展示策略由 `comparison.presentation` 拥有，风险、surface、导航及 comparison summary 共用。仅隐藏双侧存在、已知等行数、只有列增删、共有类型兼容、比较键及存储主键未变且没有其他诊断/内容证据的结构变化；不猜重命名，不掩盖兼容 ENUM/SET 演进中的其他内容。非空表必须有 native 键校验及共有值相等证据，原始 row_added/deleted/modified 与 suppressed 计数全部为零；row_added/deleted 已是原始计数，不再与 suppressed 相加。共有保留但排除比较的字段也须相等。双空表允许 descriptor 证据，不猜行键；明确键变化和类型不兼容仍可见。有序表的移动、位置、空白和降级均阻止隐藏。
+
+原始 table status/schema/diagnostics、计数与证据保持不变。仅派生对外 UNCHANGED、清除对应 schema 标记及风险与统计；该表仍可浏览。非空无有效键、无共有字段、比较失败或未知证据保持原有可见/降级语义。只浏览表只沿现有 native 路径做最小共有字段探测，不新增行级展示。canonical 保存身份及 NO_CANONICAL_CHANGE 资格完全独立。
+
+后台结构审计由共享 pair pipeline 在风险/surface 成功发布前写入并 exact-ref 回读校验，保存双方 snapshot/raw content 身份、pair、comparison digest、ruleset digest、原始严格 table fact 文档与 table_fact_digest、被隐藏列和相等依据/原因，不复制整表。ArtifactStore 的内容寻址 ID 防止内容错配，由 exact-ref locate 和 READY closure 核对；不增加只计算不核对的新 digest 或版本。

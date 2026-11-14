@@ -9,6 +9,7 @@ from datetime import datetime
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     AcceptPreflightLoadedFacts,
@@ -17,6 +18,8 @@ from gateway_backend.application.submission.accept import (
     load_new_accept_preflight_facts,
     try_accept_submit_replay,
 )
+from gateway_backend.application.submission.review_result import load_preview_review_closure
+from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
@@ -48,17 +51,12 @@ from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.submit import SubmitAcceptedResponse, SubmitAttemptStateLiteral
-PREVIEW_READY_CLOSURE_DIGEST_PREFIX = "v1:"
 
 
 @dataclass(frozen=True, slots=True)
 class SubmitAcceptanceResult:
     response: SubmitAcceptedResponse
     replay: bool
-
-
-def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
-    return f"{PREVIEW_READY_CLOSURE_DIGEST_PREFIX}{preview.ready_closure_artifact_id}"
 
 
 def build_replay_preflight_from_attempt(attempt: SubmitAttempt) -> AcceptSubmitPreflight:
@@ -144,7 +142,15 @@ def load_accept_submit_preflight(
         )
     except SubmitImportBuilderError as exc:
         raise PreviewBindingConflict(str(exc)) from exc
-    refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
+    try:
+        review_refs = load_preview_review_closure(preview_result,
+            lookup=artifact_ref_lookup, store=artifact_store)
+    except ManifestVerificationError as exc:
+        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="required review artifact is not readable",
+            status_code=503) from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise PreviewBindingConflict("preview review closure is invalid") from exc
+    refs_by_id = {ref.artifact_id: ref for ref in (*canonical_refs, *review_refs)}
     for _role, binding in upload_revision.source_artifacts.items():
         refs_by_id[binding.artifact_id] = ArtifactRef(
             artifact_id=binding.artifact_id,

@@ -214,16 +214,16 @@ def test_deleted_table_risk_evidence_includes_table_row_count() -> None:
 
 
 def test_added_columns_do_not_emit_schema_change_risk() -> None:
-    table = ComparisonTableFact(
-        table_name="orders",
-        status=ComparisonTableStatus.UNCHANGED,
-        schema_changes=ComparisonSchemaChanges(
-            current_only_columns=("note",),
-            schema_evolution=SchemaEvolution.COLUMNS_ADDED,
-        ),
-    )
+    from contextlib import closing
+    from tests.support.comparison_s3_e_live import native_product
 
-    result = _evaluate(table, store=InMemoryArtifactStore())
+    with closing(native_product(
+        "CREATE TABLE orders(id INT PRIMARY KEY,v INT); INSERT INTO orders VALUES(1,10);",
+        "CREATE TABLE orders(id INT PRIMARY KEY,v INT,note TEXT); INSERT INTO orders VALUES(1,10,'new');",
+    )) as product:
+        assert product.result.facts is not None
+        table, = product.result.facts.tables
+        result = _evaluate(table, store=InMemoryArtifactStore())
 
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None

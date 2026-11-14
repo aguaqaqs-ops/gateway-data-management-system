@@ -8,17 +8,22 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
+import tarfile
 import json
 import time
 from pathlib import Path
 from typing import Any, Sequence
 
 import httpx
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
+from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, RowField, UnsignedIntegerScalar, encode_row
 
 from benchmarks import real_dump_journey as journey
 from benchmarks.bundle_tar import verify_bundle_tar
-from benchmarks.comparison_correctness_acceptance import _read_review
-from tests.support.compose_gate_harness import BASELINE_NODE_ID, compose_auth_headers
+from benchmarks.comparison_correctness_acceptance import _payload_file, _read_review, _surfaces
+from gateway_backend.capabilities.bundle_assembly.contracts import BundleArtifactKind
+from tests.support.compose_gate_harness import BASELINE_NODE_ID, SESSION_TOKEN, compose_auth_headers
 
 
 def _write(path: Path, data: Any) -> None:
@@ -69,14 +74,27 @@ class RecordingClient(httpx.Client):
         return response
 
 
+SOURCE_SQL_SHA256 = (
+    "b3089d8a734651eb6dd439f11951699d176b7c1b3794bb55142d4532e8d721e8",
+    "65358db2cfba310f145446698d6d20b580ba3b805d520bd3ff9ae33a12ad01af",
+    "2876e79b55420ae6a7c3f6742b76f06be468688bc4315bb5e314d7cebe061da6",
+    "08f25714598a143b21efcdd58bd1b12735c3f4586e40f759091207485d36eab6",
+    "0c86572ee5a30e6229a34f246ecc94e06757988d28386afd44e25531a3839cee",
+)
+
+
 def _packages(paths: Sequence[Path], hashes: Sequence[str]) -> list[bytes]:
     if len(paths) != 5 or len(hashes) != 5:
         raise ValueError("exactly five ordered packages and hashes are required")
     result = []
-    for path, digest in zip(paths, hashes, strict=True):
+    for index, (path, digest) in enumerate(zip(paths, hashes, strict=True)):
         raw = path.read_bytes()
         if hashlib.sha256(raw).hexdigest() != digest:
             raise ValueError(f"package hash mismatch: {path}")
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as archive:
+            source = archive.extractfile("sql/dbcfg.sql")
+            if source is None or hashlib.sha256(source.read()).hexdigest() != SOURCE_SQL_SHA256[index]:
+                raise ValueError(f"package source SQL does not match the frozen business oracle: {path}")
         result.append(raw)
     return result
 
@@ -90,7 +108,7 @@ def run(*, base_url: str, repo_url: str, repository_id: str, initial_commit: str
     repo = (repo_url, repository_id)
     if journey._repository_main_commit(*repo) != initial_commit:
         raise journey.JourneyFailure("initial technical main does not match the supplied initial commit")
-    with RecordingClient(base_url=base_url, headers=compose_auth_headers(token=journey.SESSION_TOKEN),
+    with RecordingClient(base_url=base_url, headers=compose_auth_headers(token=SESSION_TOKEN),
                          timeout=600, ledger=ledger) as client, RecordingClient(
             base_url=base_url, headers=compose_auth_headers(token=journey.REPEAT_SUBMITTER_TOKEN),
             timeout=600, ledger=ledger) as full_client:
@@ -139,6 +157,8 @@ def run(*, base_url: str, repo_url: str, repository_id: str, initial_commit: str
             if summary["changed_table_count"] == 0:
                 raise journey.JourneyFailure(f"M{index} has no business changes; stop before Submit")
             _write(stage / "assertions.json", {"identity": identity, "summary": summary})
+            if index in (4, 5):
+                _check_source_oracle(stage, manifest, index)
             submission = journey._submit(client, workspace=workspace, upload=upload, preview=preview,
                 baseline_node_id=baseline_node, baseline_head_version=baseline_version,
                 idempotency_key=f"{session}-m{index}-submit", stage=f"M{index} Submit",
@@ -173,6 +193,36 @@ def run(*, base_url: str, repo_url: str, repository_id: str, initial_commit: str
             _check_history(base_url, stage, archived_submissions, baseline_node, baseline_commit, baseline_version)
 
 
+def _assert_name_record(rows: list[dict[str, Any]], before: str, after: str) -> None:
+    identity = encode_row([RowField("gid", DeclaredType(DeclaredTypeKind.UNSIGNED_INTEGER, bits=32),
+                                    UnsignedIntegerScalar("628"))]).digest_ref.raw_digest
+    selected = [row for row in rows if row.get("row_identity") == identity]
+    if len(selected) != 1:
+        raise journey.JourneyFailure("source oracle row is absent or duplicated")
+    row = selected[0]
+    if row.get("table_name") != "device_st" or row.get("record_kind") != "ROW_MODIFIED" or row.get("changed_columns") != ["name"]:
+        raise journey.JourneyFailure("source oracle row kind or changed column differs")
+    for field, expected in (("before_values", before), ("current_values", after)):
+        values = {item["column_name"]: item["value"] for item in row[field]}
+        if values["name"].get("kind") != "string" or values["name"].get("text") != expected:
+            raise journey.JourneyFailure("source oracle before/current value differs")
+
+
+def _check_source_oracle(stage: Path, manifest: dict[str, Any], index: int) -> None:
+    tar = stage / "preview.tar"
+    surface = _surfaces(tar, manifest)["initial_to_modified"]
+    tables = [table for table in surface.tables if table.table_name == "device_st"]
+    if len(tables) != 1:
+        raise journey.JourneyFailure("source oracle table is missing or ambiguous")
+    with _payload_file(tar, tables[0].records_refs["records_ref"], BundleArtifactKind.RECORDS,
+                       "initial_to_modified", table="device_st") as payload:
+        rows = pq.ParquetFile(payload).read().to_pylist()
+    before, after = ("检修", "检修1111") if index == 4 else ("检修1111", "检修")
+    _assert_name_record(rows, before, after)
+    _write(stage / "source-oracle.json", {"table": "device_st", "gid": 628, "column": "name",
+        "assertion": "exact source before/current and ROW_MODIFIED verified", "source_steps": [index - 1, index]})
+
+
 def _check_history(base_url: str, output: Path, submissions: list[str], node: str,
                    commit: str, version: int) -> None:
     nodes: list[dict[str, Any]] = []
@@ -204,7 +254,7 @@ def _check_history(base_url: str, output: Path, submissions: list[str], node: st
 
 def _preview(client: RecordingClient, *, workspace: dict[str, Any], upload: dict[str, Any],
              output: Path, baseline_node_id: str, baseline_head_version: int, idempotency_key: str,
-             stage: str, operation_timeout_seconds: int, token: str = journey.SESSION_TOKEN
+             stage: str, operation_timeout_seconds: int, token: str = SESSION_TOKEN
              ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Observe this exact operation and save every result before interpreting it."""
     response = client.post(
@@ -253,6 +303,8 @@ def _preview(client: RecordingClient, *, workspace: dict[str, Any], upload: dict
                     manifest = _download_preserving_failure(client,
                         f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result_id}/bundle", output)
                     _write(output / "manifest.json", manifest)
+                    if manifest.get("bundle_digest") != result.get("bundle_digest"):
+                        raise journey.JourneyFailure("verified bundle differs from the same operation result digest")
                     return preview, manifest
         time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
     raise journey.JourneyFailure(f"{stage} Preview result was not readable before timeout")

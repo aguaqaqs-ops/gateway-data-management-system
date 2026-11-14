@@ -152,10 +152,11 @@ def test_acceptance_requires_the_exact_original_project_marker(tmp_path: Path, f
 
 def _source_and_native_rows(root: Path) -> tuple[acceptance._DeviceChange, list[dict[str, Any]]]:
     ddl = ("CREATE TABLE `device` (\n  `gid` INT UNSIGNED NOT NULL PRIMARY KEY,\n"
-           "  `dev_addr` INT,\n  `map_addr` INT,\n  `description` VARCHAR(255)\n) ENGINE=MyISAM;\n")
+           "  `dev_addr` INT,\n  `map_addr` INT,\n  `description` VARCHAR(255),\n"
+           "  `model` VARCHAR(32)\n) ENGINE=MyISAM;\n")
     source_sql = []
     for side, value in (("data1", "公用测控装置2"), ("data2", "公用测控装置2--1")):
-        sql = ddl + f"INSERT INTO `device` VALUES (15542,17,17,'{value}');\n"
+        sql = ddl + f"INSERT INTO `device` VALUES (15542,17,17,'{value}','model');\n"
         directory = root / side / "sql"
         directory.mkdir(parents=True)
         (directory / "dbcfg.sql").write_text(sql, encoding="utf-8")

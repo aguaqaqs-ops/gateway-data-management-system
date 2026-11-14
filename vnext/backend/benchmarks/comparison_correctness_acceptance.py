@@ -475,32 +475,37 @@ def _history(client: httpx.Client, submission: dict[str, Any], output: Path,
         return _download(reader, f"/v1/history-compares/{operation_id}/bundle", output, name)
 
 
+def _t4_representatives(manifest: dict[str, Any], tar: Path) -> dict[str, Any]:
+    surfaces = _surfaces(tar, manifest)
+    _check(len(surfaces) == 1, "MO History must have one pair")
+    pair_id, surface = next(iter(surfaces.items()))
+    tables = {table.table_name: table for table in surface.tables}
+    representatives = {}
+    for name, count in (("iec104_cfg", 334), ("b1_n11_iec104_syx_list", 9822)):
+        table = tables[name]
+        stats = table.row_change_stats
+        _check(table.table_status == "ADDED_TABLE" and table.change_kind == "ADDED",
+               "single-side real table was not added")
+        _check(stats.row_count_before is None and stats.row_count_current == count,
+               "single-side table row counts differ from the known source")
+        _check((stats.row_added_count, stats.row_deleted_count, stats.row_modified_count,
+                stats.suppressed_added_count, stats.suppressed_deleted_count) == (0, 0, 0, 0, 0),
+               "whole-table addition was converted to row differences")
+        _check(table.ordered_extension is None, "single-side table has an ordered extension")
+        _check(table.records_refs["records_ref"] is None
+               and table.records_refs["records_manifest_ref"] is None, "single-side row records emitted")
+        _check(_browse_count(tar, pair_id, table) == count,
+               "single-side browse parquet count mismatch")
+        representatives[name] = table.model_dump(mode="json")
+    return representatives
+
+
 def _t4(client: httpx.Client, submission: dict[str, Any], env: dict[str, str],
         output: Path) -> None:
     observed = []
     for temperature in ("cold", "warm"):
         manifest, tar = _history(client, submission, output, f"t4-{temperature}")
-        surfaces = _surfaces(tar, manifest)
-        _check(len(surfaces) == 1, "MO History must have one pair")
-        pair_id, surface = next(iter(surfaces.items()))
-        tables = {table.table_name: table for table in surface.tables}
-        representatives = {}
-        for name, count in (("iec104_cfg", 334), ("b1_n11_iec104_syx_list", 9822)):
-            table = tables[name]
-            stats = table.row_change_stats
-            _check(table.table_status == "ADDED_TABLE" and table.change_kind == "ADDED",
-                   "single-side real table was not added")
-            _check(stats.row_count_before is None and stats.row_count_current == count,
-                   "single-side table row counts differ from the known source")
-            _check((stats.row_added_count, stats.row_deleted_count, stats.row_modified_count,
-                    stats.suppressed_added_count, stats.suppressed_deleted_count) == (0, 0, 0, 0, 0),
-                   "whole-table addition was converted to row differences")
-            _check(table.ordered_extension is None, "single-side table has an ordered extension")
-            _check(table.records_refs["records_ref"] is None
-                   and table.records_refs["records_manifest_ref"] is None, "single-side row records emitted")
-            _check(_browse_count(tar, pair_id, table) == count,
-                   "single-side browse parquet count mismatch")
-            representatives[name] = table.model_dump(mode="json")
+        representatives = _t4_representatives(manifest, tar)
         observed.append(representatives)
     _check(observed[0] == observed[1], "cold/warm representative semantics differ")
     logs = _logged_compose(env, output, "history-worker", "logs", "--no-color", "worker")
@@ -713,11 +718,14 @@ def _run(scope: Literal["t4", "number1"], root: Path, output: Path, session: str
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scope", choices=("t4", "number1"), required=True)
+    parser.add_argument("--scope", choices=("t4", "number1", "t4-history"), required=True)
     parser.add_argument("--input-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expected-head", required=True)
     parser.add_argument("--session", required=True)
+    parser.add_argument("--source-run", type=Path)
+    parser.add_argument("--source-root", type=Path)
+    parser.add_argument("--source-head")
     args = parser.parse_args(argv)
     def interrupted(_number: int, _frame: object) -> None:
         raise KeyboardInterrupt("acceptance interrupted")
@@ -760,7 +768,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_created = True
         _write(output / "start.json", owner)
         _write(output / "execution-isolation.json", isolation)
-        _run(args.scope, root, output, args.session, state)
+        if args.scope == "t4-history":
+            from benchmarks.comparison_correctness_history_supplement import run_supplement
+            _check(args.source_run is not None and args.source_root is not None
+                   and args.source_head is not None, "supplement requires explicit source run/root/HEAD")
+            run_supplement(root, output, args.session, state, source_run=args.source_run,
+                           source_root=args.source_root, source_head=args.source_head)
+        else:
+            _check(args.source_run is None and args.source_root is None and args.source_head is None,
+                   "source reuse is only authorized for the bounded History supplement")
+            _run(args.scope, root, output, args.session, state)
         _check(_git("rev-parse", "HEAD") == args.expected_head and not _git("status", "--porcelain"),
                "source changed during acceptance")
         exit_code = 0

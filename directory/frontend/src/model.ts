@@ -15,14 +15,21 @@ export interface Catalog {
   projects: Project[];
 }
 
-export interface ViewState { r1: string; r2: string; q: string; scope: "all" | "region"; page: number }
+export type ListView = "list" | "tiles";
+export interface ViewState { r1: string; r2: string; q: string; scope: "all" | "region"; page: number; view: ListView }
 
-export function readState(search: string): ViewState {
+// The overview shows names only, so a page holds more projects than the detailed list.
+export const PAGE_SIZE: Record<ListView, number> = { list: 50, tiles: 200 };
+
+// `fallbackView` is the viewer's last choice, used when the address does not name a view.
+export function readState(search: string, fallbackView: ListView = "list"): ViewState {
   const params = new URLSearchParams(search);
   const page = Number(params.get("page"));
+  const view = params.get("view");
   return { r1: params.get("r1") || "", r2: params.get("r2") || "", q: params.get("q") || "",
     scope: params.get("scope") === "region" ? "region" : "all",
-    page: Number.isSafeInteger(page) && page > 0 ? page : 1 };
+    page: Number.isSafeInteger(page) && page > 0 ? page : 1,
+    view: view === "tiles" || view === "list" ? view : fallbackView };
 }
 
 export function stateSearch(state: ViewState): string {
@@ -32,6 +39,7 @@ export function stateSearch(state: ViewState): string {
   if (state.q) params.set("q", state.q);
   if (state.scope === "region") params.set("scope", "region");
   if (state.page > 1) params.set("page", String(state.page));
+  if (state.view === "tiles") params.set("view", "tiles");
   const query = params.toString();
   return query ? `?${query}` : "";
 }

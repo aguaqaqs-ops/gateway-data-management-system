@@ -253,7 +253,17 @@ def main() -> int:
     parser.add_argument("--right-repository", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    report = compare(args.left, args.right, left_repository=args.left_repository, right_repository=args.right_repository)
+    if not args.left_repository or not args.right_repository:
+        raise ValueError("both repository identities are required")
+    try:
+        report = compare(args.left, args.right, left_repository=args.left_repository, right_repository=args.right_repository)
+    except Exception as error:
+        report = {"equal": False, "status": "comparison_error", "error_type": type(error).__name__,
+                  "error": str(error)}
+        with args.output.open("x", encoding="utf-8") as target:
+            json.dump(report, target, ensure_ascii=False, sort_keys=True, indent=2)
+            target.write("\n")
+        return 2
     with args.output.open("x", encoding="utf-8") as target:
         json.dump(report, target, ensure_ascii=False, sort_keys=True, indent=2)
         target.write("\n")

@@ -103,3 +103,16 @@ def test_cross_repository_bundle_compares_rows_and_bindings(tmp_path: Path) -> N
     assert compare(left, left, left_repository="repo-left", right_repository="repo-right")["equal"] is False
     assert compare(left, changed, left_repository="repo-left", right_repository="repo-right")["equal"] is False
     assert compare(left, other_side, left_repository="repo-left", right_repository="repo-right")["equal"] is False
+
+
+def test_risk_and_navigation_values_are_never_scope_masked() -> None:
+    from benchmarks.preview_bundle_compare import _map_proven_refs
+
+    original = {"risk": {"level": "HIGH", "reason_codes": ["R1"]},
+                "navigation": {"group_key": "DEVICE", "items": [{"table_id": "device_st"}]}}
+    changed_risk = {"risk": {"level": "LOW", "reason_codes": ["R1"]},
+                    "navigation": original["navigation"]}
+    changed_navigation = {"risk": original["risk"],
+                          "navigation": {"group_key": "DEVICE", "items": [{"table_id": "device"}]}}
+    assert _map_proven_refs(original, {}, set()) != _map_proven_refs(changed_risk, {}, set())
+    assert _map_proven_refs(original, {}, set()) != _map_proven_refs(changed_navigation, {}, set())

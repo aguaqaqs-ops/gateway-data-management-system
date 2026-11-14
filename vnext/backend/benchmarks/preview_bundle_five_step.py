@@ -37,6 +37,7 @@ class RecordingClient(httpx.Client):
         super().__init__(**kwargs)
         self.ledger = ledger
         self.count = 0
+        self.last_preview_response_monotonic: float | None = None
         self.evidence_dir: Path | None = None
         self.audit_count = 0
 
@@ -63,6 +64,7 @@ class RecordingClient(httpx.Client):
             json.dump(record, stream, sort_keys=True)
             stream.write("\n")
         response = super().post(url, **kwargs)
+        self.last_preview_response_monotonic = time.monotonic()
         record["http_status"] = response.status_code
         if response.status_code in {200, 202}:
             payload = response.json()
@@ -265,7 +267,9 @@ def _preview(client: RecordingClient, *, workspace: dict[str, Any], upload: dict
               "expected_baseline_node_id": baseline_node_id,
               "expected_baseline_head_version": baseline_head_version, "options": {}},
     )
-    accepted_at = time.monotonic()
+    accepted_at = client.last_preview_response_monotonic
+    if accepted_at is None:
+        raise journey.JourneyFailure("acceptance response timestamp is unavailable")
     (output / "acceptance-response.json").write_bytes(response.content)
     accepted = journey._require_one_of(response, {200, 202}, "preview acceptance")
     operation_id = str(accepted["operation_id"])

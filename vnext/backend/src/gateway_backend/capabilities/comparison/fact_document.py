@@ -1,13 +1,16 @@
-"""Strict persisted neutral fact document; Arrow row views have their own owner."""
+"""Strict flow-neutral table facts shared by comparison cache and backend audit."""
 from __future__ import annotations
 
 from typing import Literal
+from dataclasses import fields
+
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from gateway_backend.capabilities.comparison.contracts import (
     OrderedStatus, OrderedTableProcessingMode, ReplayGuarantee,
-    SchemaChangeSource, SchemaEvolution, ComparisonTableStatus,
+    SchemaChangeSource, SchemaEvolution, ComparisonTableStatus, ComparisonTableFact,
 )
 
 
@@ -67,7 +70,7 @@ class BlankDocument(_Document):
     contract_version: str
 
 
-class NeutralFactDocument(_Document):
+class ComparisonTableFactDocument(_Document):
     status: ComparisonTableStatus
     schema_changes: SchemaDocument
     row_count_before: int | None = Field(ge=0)
@@ -83,3 +86,20 @@ class NeutralFactDocument(_Document):
     shared_value_equality: Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"] | None
     ordered_extension: OrderedDocument | None
     blank_extension: BlankDocument | None
+
+
+def table_fact_document_bytes(fact: ComparisonTableFact) -> bytes:
+    """Encode the small completed outcome; native Arrow owns all row details."""
+    from gateway_backend.capabilities.comparison.task_input import semantic_value
+
+    if (fact.records or (fact.ordered_extension is not None and fact.ordered_extension.records)
+            or (fact.blank_extension is not None and fact.blank_extension.records)):
+        raise ValueError("neutral table metadata cannot carry row records")
+    removed = {"table_name", "before_descriptor", "current_descriptor", "table_fact_digest"}
+    return canonicalize_json_value({field.name: semantic_value(getattr(fact, field.name))
+        for field in fields(fact) if field.name not in removed})
+
+
+def describe_table_fact(fact: ComparisonTableFact) -> ComparisonTableFactDocument:
+    """Public immutable raw outcome for audit; no cache or artifact authority leaks."""
+    return ComparisonTableFactDocument.model_validate_json(table_fact_document_bytes(fact))

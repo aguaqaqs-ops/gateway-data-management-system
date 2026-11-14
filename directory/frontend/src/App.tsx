@@ -174,6 +174,8 @@ export default function App() {
   // The scope choice only matters while searching inside a selected region.
   const showScope = !!view.q && !!view.r1;
   const searchingAll = !!view.q && (view.scope === "all" || !view.r1);
+  // The region column only helps when results can span several second-level regions.
+  const showRegion = searchingAll || (!!view.q && !view.r2);
   const first = filtered.length ? (currentPage - 1) * pageSize + 1 : 0;
 
   const crumb = searchingAll ? <strong className="crumb">搜索结果</strong>
@@ -188,17 +190,17 @@ export default function App() {
     : <span title={UNPROVISIONED}><button className="unavailable" disabled aria-label={`未开通：${project.name}，${UNPROVISIONED}`}>未开通</button></span>;
 
   const table = <div className="table-wrap">
-    <table className={view.q ? "search-results" : undefined}>
+    <table className={showRegion ? "search-results" : undefined}>
       <thead><tr>
         <th aria-sort="ascending">项目名<span className="sort-mark" aria-hidden="true">↑</span></th>
-        {view.q && <th>地区</th>}
+        {showRegion && <th>地区</th>}
         <th>站号</th><th>设备标识</th><th><span className="sr-only">操作</span></th>
       </tr></thead>
       <tbody>{rows.map((project, index) => <tr key={project.device_key} ref={(node) => { rowRefs.current[index] = node; }} tabIndex={-1}
         aria-selected={selected === index} className={selected === index ? "focused" : ""} onClick={() => setSelected(index)}>
         <td><span className="name"><Highlighted text={project.name} query={view.q}/></span>
           {(duplicates.get(project.name) || 0) > 1 && <span className="dup" title={`全目录有 ${duplicates.get(project.name)} 个同名项目，按站号区分`}>同名</span>}</td>
-        {view.q && <td className="muted" title={`${project.region1} / ${project.region2}`}>{project.region1} / {project.region2}</td>}
+        {showRegion && <td className="muted" title={`${project.region1} / ${project.region2}`}>{project.region1} / {project.region2}</td>}
         <td className="mono"><Highlighted text={project.station_code} query={view.q} prefix/></td>
         <td className="mono key">{project.device_key}</td>
         <td>{enterButton(project)}</td>

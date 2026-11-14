@@ -219,9 +219,12 @@ def _inputs(scope: str, root: Path, output: Path) -> tuple[bytes, bytes | None]:
             _check(digest == NUMBER1_FILES[f"{side}/{relative}"], "number1 source identity mismatch")
             members[relative] = raw
             records.append({"path": str(source), "bytes": len(raw), "sha256": digest})
-        # Same accepted source file set as the package ingestion Contract. The
-        # marker is not a fabricated configuration; it is an empty project marker.
-        members["number1.pmc"] = b""
+        markers = tuple((root / side).glob("*.pmc"))
+        _check(len(markers) == 1 and markers[0].read_bytes() == b"",
+               "number1 must retain its original empty project marker")
+        marker = markers[0]
+        members[marker.name] = b""
+        records.append({"path": str(marker), "bytes": 0, "sha256": _file_sha(marker)})
         package = pack_tar_gz(members)
         packages.append(package)
         records.append({"derived_package": side, "bytes": len(package),

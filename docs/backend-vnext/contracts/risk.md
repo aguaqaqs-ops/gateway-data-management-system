@@ -534,7 +534,7 @@ Risk 消费 Comparison v4 的 `comparison.presentation` 统一投影；严格证
 空基线由共享 pair pipeline 根据完整 before.summary.tables 判定，不以单表缺失或筛选后的 task 集合推断。
 该事实通过 RiskOptions.empty_baseline 传入；无风险表不补 UNKNOWN，各表仍发布完整的空风险归属供导航消费。
 
-risk-model/v4 与 rule version v4 标识本轮规则，规则校验器核对 model，ruleset/evaluation digest 与消费者绑定结果。
+risk-model/v4、ruleset version v4 与 rule version v4 标识本轮规则，规则校验器核对 model，ruleset/evaluation digest 与消费者绑定结果。
 empty_baseline 进入已有 options 文档、evaluation digest 和 candidate cache key，防止同一新增表任务在空基线和
 增量场景间误用判定。Preview assemble-state v7、History assemble-state v4 由现有 checkpoint decoder 核对，
 防止恢复旧风险/导航结果；没有双读或迁移。比较事实与比较缓存不变，继续复用中性比较结果。

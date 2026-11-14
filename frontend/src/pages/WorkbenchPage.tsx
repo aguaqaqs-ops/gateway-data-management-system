@@ -401,7 +401,9 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     if (!historyCompareOperationId) return;
     const controller = new AbortController();
     const startedAt = Date.now();
-    setCompareState({ operation_id: historyCompareOperationId, status: "QUEUED", diagnostic: null });
+    // Unknown until the first read: returning from the diff view re-reads a
+    // finished compare, which must not show as queued again.
+    setCompareState(null);
     setBundleStatus("idle");
     setCompareError(null);
     setCompareConnectionLost(false);
@@ -563,12 +565,12 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
           <div className="compare-tray__items">{compareRefs.map((node, index) => <div className="compare-chip" key={refKey(node)}><span>{index + 1}</span>{compareLabels[index]}<button aria-label={`移除${compareLabels[index]}`} disabled={comparisonLocked} onClick={() => setCompareSelection(compareRefs.filter((item) => refKey(item) !== refKey(node)))}><X size={13} /></button></div>)}</div>
           <div className="compare-tray__actions"><button className="button button--ghost" disabled={!compareRefs.length || comparisonLocked} onClick={() => setCompareSelection([])}><Trash2 size={14} />清空比较</button>
             {compareStartError && <span role="alert" className="compare-tray__error" title={compareStartError.code}>{compareStartError.message}（{compareStartError.code}）<button className="icon-button" aria-label="复制比较错误详情" onClick={() => void navigator.clipboard?.writeText(`${compareStartError.code}\n${compareStartError.message}`)}><Copy size={13} /></button></span>}
-            {compareIntent && compareStartError ? <button className="button button--primary" disabled={comparePending || comparisonLocked} onClick={() => startOrRetryCompare(compareIntent.request)}><RefreshCw size={14} />重试发起比较</button> : <button className="button button--primary" disabled={compareRefs.length < 2 || comparisonLocked} onClick={() => startOrRetryCompare()}>{comparisonLocked ? <RefreshCw size={14} /> : null}{comparisonLocked ? "比较中" : "历史比较"}</button>}
+            {compareIntent && compareStartError ? <button className="button button--primary" disabled={comparePending || comparisonLocked} onClick={() => startOrRetryCompare(compareIntent.request)}><RefreshCw size={14} />重试发起比较</button> : <button className="button button--primary" disabled={compareRefs.length < 2 || comparisonLocked} onClick={() => startOrRetryCompare()}>{comparisonLocked ? <RefreshCw size={14} /> : null}{!comparisonLocked ? "历史比较" : compareState === null || compareState.status === "SUCCEEDED" ? "读取中" : "比较中"}</button>}
             {compareRefs.length < 2 && <small>至少选择 2 个节点</small>}
           </div>
         </div>
         {showHistoryDrawer && <section className="history-result-drawer" aria-label="历史比较结果抽屉">
-          <div className="history-result-drawer__heading"><div><GitBranch size={16} /><strong>历史比较</strong><span className={`status-tag status-tag--${compareState?.status === "SUCCEEDED" ? "success" : compareState?.status === "FAILED" ? "warning" : "info"}`}>{compareConnectionLost ? "连接中断" : compareState?.status === "QUEUED" ? "排队中" : compareState?.status === "RUNNING" ? "执行中" : compareState?.status === "SUCCEEDED" ? "已完成" : compareState?.status === "FAILED" ? "失败" : compareState?.status === "CANCELLED" ? "已取消" : "查询中"}</span><small>已等待 {formatWaitDuration(compareElapsed)}</small></div>
+          <div className="history-result-drawer__heading"><div><GitBranch size={16} /><strong>历史比较</strong><span className={`status-tag status-tag--${compareState?.status === "SUCCEEDED" ? "success" : compareState?.status === "FAILED" ? "warning" : "info"}`}>{compareConnectionLost ? "连接中断" : compareState?.status === "QUEUED" ? "排队中" : compareState?.status === "RUNNING" ? "执行中" : compareState?.status === "SUCCEEDED" ? "已完成" : compareState?.status === "FAILED" ? "失败" : compareState?.status === "CANCELLED" ? "已取消" : "读取结果中"}</span>{(compareState?.status === "QUEUED" || compareState?.status === "RUNNING") && <small>已等待 {formatWaitDuration(compareElapsed)}</small>}</div>
             <div className="history-result-drawer__buttons">{compareConnectionLost && <button className="button button--secondary" onClick={() => setRefreshCompare((value) => value + 1)}><RefreshCw size={14} />重试查询</button>}
               {bundleStatus === "failed" && <button className="button button--secondary" onClick={() => { setCompareError(null); setDownloadRevision((value) => value + 1); }}><RefreshCw size={14} />重试下载</button>}
               {bundleStatus === "ready" && <button className="button button--primary" onClick={() => window.location.assign(pageUrl("compare", { mode: "HISTORY", operationId: historyCompareOperationId, operationKind: "history-compare", workbenchNode: selectedKey }, compareRefs))}>打开差异工作台</button>}

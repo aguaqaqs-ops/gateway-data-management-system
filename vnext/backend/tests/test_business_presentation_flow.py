@@ -318,12 +318,14 @@ def test_new_table_risk_distinguishes_empty_baseline_from_incremental_addition(
     existing = "CREATE TABLE existing(id INT PRIMARY KEY);"
     before = complete_canonical_bound(canonical_bound("" if empty_baseline else existing))
     current = complete_canonical_bound(canonical_bound(
-        "CREATE TABLE added(id INT PRIMARY KEY); INSERT INTO added VALUES(1);" + existing))
+        "CREATE TABLE added(id INT PRIMARY KEY); INSERT INTO added VALUES(1);"
+        "CREATE TABLE app_cfg(app_name TEXT,enable TEXT,table_cfg TEXT);"
+        "INSERT INTO app_cfg VALUES('JMS','0:NO','jms_cfg');" + existing))
     store = InMemoryArtifactStore()
     run = run_preview_pair_pipeline if flow == "preview" else run_history_pair_pipeline
     result = run(pair_id="baseline_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
-        rule_set=comparison_ruleset_for(standard_rule_record("existing"), standard_rule_record("added")),
+        rule_set=comparison_ruleset_for(standard_rule_record("existing"), standard_rule_record("added"), standard_rule_record("app_cfg")),
         repository_id="replacement-fixture")
     surface = result.surface_result.surface
     assert surface is not None
@@ -332,3 +334,5 @@ def test_new_table_risk_distinguishes_empty_baseline_from_incremental_addition(
     assert added.risk_refs.risk_level == (None if empty_baseline else "LOW")
     if empty_baseline:
         assert all(t.risk_refs.risk_level is None for t in surface.tables)
+    projection, = surface.projections
+    assert projection.diagnostics_ref is None

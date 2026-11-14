@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-import io
 import json
 from pathlib import Path
 import os
 import socket
-import tarfile
 from typing import Any
 
 import httpx
@@ -20,6 +18,7 @@ from benchmarks import real_dump_journey as journey
 from benchmarks.real_dump_journey import JourneyFailure
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+from gateway_backend.artifacts.tar_stream import TAR_END, TarMember
 from gateway_backend.capabilities.bundle_assembly import (
     BundleAssemblyStatus, BundleInput, BundlePairInput, BundleProfile, assemble_bundle,
     read_bundle_transport_metadata,
@@ -52,12 +51,18 @@ def source(tmp_path: Path) -> n.Source:
     for folder in (directory, fixture, inputs):
         folder.mkdir()
     tar = directory / "preview.tar"
-    with tarfile.open(tar, "w") as archive:
+    # Match the production transport's exact framing. stdlib tar writers add
+    # record padding after EOF, which the owning complete consumer rejects.
+    with tar.open("wb") as archive:
         for path, payload in (("manifest.json", raw), ("artifact-closure.json", metadata.expected_closure_bytes),
                               *((e.logical_path, store.locate(e.artifact_ref)) for e in metadata.entries)):
-            member = tarfile.TarInfo(path)
-            member.size = len(payload)
-            archive.addfile(member, io.BytesIO(payload))
+            member = TarMember(path, len(payload))
+            for block in member.prefix():
+                archive.write(block)
+            archive.write(payload)
+            for block in member.suffix():
+                archive.write(block)
+        archive.write(TAR_END)
     submission = SubmissionResponse(submission_id="submission", submit_attempt_id="attempt", workspace_id="workspace",
         upload_revision_id="upload", preview_result_id="preview", generation=1, repository_id="repository",
         based_on_baseline_node_id=harness.BASELINE_NODE_ID, business_baseline_commit_id="before", repository_commit_id="after",

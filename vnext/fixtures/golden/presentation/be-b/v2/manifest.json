@@ -1,13 +1,13 @@
 {
   "format": "backend-presentation-golden/v1",
-  "generator_commit": "4fbfd9f60a20a8af5c109216533954d870524415",
-  "generator_vnext_tree": "4fef01432cfc295e5bf2c439a060dd2eec873bdc",
+  "generator_commit": "a5e2b8a6abbfd2a96a51c8e4077fd100a63e48d2",
+  "generator_vnext_tree": "f7a480f0a55ad046e543008700ab554c2cf5aaa9",
   "input_manifest_sha256": "b12e64d40a952378761823a746590210887eb1984bb7b6a74fcaa6356f88b501",
   "scenarios": [
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:75116c32469112d6da84652af9fad91039bcc800440e5e4fc3c291d38303339b",
+      "bundle_digest": "sha256:3e7f3aa1e70430e426cc493e92989da605d3eec2daeda1e8ce0857594419abe7",
       "comparison_exclusions": {},
       "coverage": [
         "ordinary-two-pairs",
@@ -109,9 +109,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "d8e9f1a6832720e2e09f8cdaebcec39c3f3d08bb26651bfe251b230af83361e9",
-        "manifest.json": "4884b58661ec5c0d7685f73fbdc1925d9369f3d9aada430a7ee4189eb4d1e958",
-        "pairs/baseline_to_initial/comparison-surface.json": "b6891647f3b762bf22326dabbc55bec98205ec606c19d4674acddeab66881bf6",
+        "artifact-closure.json": "0c40b21dfd774fd11ad87c324a52739b610d4c493b8f1de8fbf3acc460088c7f",
+        "manifest.json": "fc1f04a53aba1174aa4ac2c2bf32a9c674175ade611c3f751881f656f7096ec0",
+        "pairs/baseline_to_initial/comparison-surface.json": "6031d4edc4ec314f8bf208a4be5a04cd2dafeb6bf0f812b49b707c547e006d12",
         "pairs/baseline_to_initial/comparison/locators/device.parquet": "160a8feb3783a213cf9fb9b0806b214e7672846a1798a9dc13f06377909d9058",
         "pairs/baseline_to_initial/comparison/locators/keyless_demo.parquet": "fbd89ac344e5d4dd2d955a2f6bbb77cceaf056167cda89d9b7c0eb5ec2838a72",
         "pairs/baseline_to_initial/comparison/records/b1_n1_iec104_syx_list/blank/manifest.json": "fa31a615f38e0ffbc6f1d88306b39d19748fe84b04ed94c7256ddcbe796fbaaa",
@@ -139,7 +139,7 @@
         "pairs/baseline_to_initial/tables/before/device.parquet": "41a3e7cbee3deecd9e13b4612438900ddb139ef6cb8ba8ada1b17d54e448703f",
         "pairs/baseline_to_initial/tables/current/keyless_demo.parquet": "244fb4a33d738ec4c03a17b1532c71f983487d9b7d2923177a532bceeed5045b",
         "pairs/baseline_to_initial/tables/current/schema_demo.parquet": "41a35fd6c88656eefef0cb2c2897d885a355e77782c066058902301c3e7f4199",
-        "pairs/initial_to_modified/comparison-surface.json": "fec89ab54d7f0238fce1def762879dc791b2a95edaa27839d8d9e853a88b79f6",
+        "pairs/initial_to_modified/comparison-surface.json": "a0d3812c2a7b8b64f73b192b11ef8256d01c4ec1fe8c66efe90c049d1c34d09a",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "9855bf02e9df59461649d5e5029ae064af7705466110b98687af66a12ee09845",
         "pairs/initial_to_modified/comparison/locators/keyless_demo.parquet": "1daf5b1f77c1a6fa3f66a5534e5c5baededcdd8de08b0b18ba1a92be8b96d365",
         "pairs/initial_to_modified/comparison/locators/schema_demo.parquet": "d6e6d9c6f412ca17a3fde6221c028753adf80a1ca0d95a8aed611af83c135588",
@@ -153,9 +153,9 @@
         "pairs/initial_to_modified/comparison/records/schema_demo/manifest.json": "f0d85bf40b6d02d55dbc11f68261fc9d6e28b25c929569591c4a5effb2efb24a",
         "pairs/initial_to_modified/comparison/records/schema_demo/rows.bin": "96d4f9ad957a27e3ae6ba324a726609b135fd3e3ca7ae86bc01cb47ebafbb241",
         "pairs/initial_to_modified/identity/assessment.json": "18b69aa296775c188e130168d13db2bfb5fdf863064c9d0f2f3805dce65313bc",
-        "pairs/initial_to_modified/projections/business_navigation.json": "d851bbbd1794072163ba96ba15c529093abfb15fc444be41ef595cceeacac9da",
-        "pairs/initial_to_modified/risk/tables/added_table/annotations.bin": "6c6572822deb25fd239ab11406f866907da44300bc988ecc4816268954b68b45",
-        "pairs/initial_to_modified/risk/tables/added_table/annotations/manifest.json": "7323fc866a53582709af70b8114d9b1eee5f0482a1fd625b5df8b40d122dec32",
+        "pairs/initial_to_modified/projections/business_navigation.json": "cf13f66d7aa6f8d38dcffc247539a6010fa155ce53ccf4ba743d900cff54cc38",
+        "pairs/initial_to_modified/risk/tables/added_table/annotations.bin": "59b701600dae3889002d8c49d3196deb5bb198423310a417f3d3c3a5e807eb9e",
+        "pairs/initial_to_modified/risk/tables/added_table/annotations/manifest.json": "58fc5d7380597c653c1359562ed67ad4f7e488f9dff6c794f74e1989b2311353",
         "pairs/initial_to_modified/risk/tables/device/annotations.bin": "2ca0e2c08125c4966796fb46d7367c0365e0b00fd6221c67c3afb1c610233249",
         "pairs/initial_to_modified/risk/tables/device/annotations/manifest.json": "f8bc44ba3478c7ae4fbd7457605d11ee9937b397e3f9154f4c84c1848ddb0305",
         "pairs/initial_to_modified/risk/tables/keyless_demo/annotations.bin": "6e3ec4d9f17538b46242224e2dddc58a2e433d554116b8cb633d6911b36f120f",
@@ -189,7 +189,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:86ec7b69af4661891cfc0e0fafc42677e7685221dc43a4c59f6d80f4cf14a0c6",
+      "bundle_digest": "sha256:b00643b4b8009cbcfe76efdc39b1b92148d2f93c85deca9366a1c059892b0152",
       "comparison_exclusions": {},
       "coverage": [
         "modified-only",
@@ -263,9 +263,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "f5ebcb52fe2de66a71c896e28931c468e46935c1644d780738db2111c97a39e0",
-        "manifest.json": "342e5cb652d1937f4523c4a23b7d724e21f8d44cc590a6c70a121d1294d2fb2d",
-        "pairs/initial_to_modified/comparison-surface.json": "04423db53451d03eec8d8411c15ba3943e3b7c5bac443f8c574c90c6f4fd47b3",
+        "artifact-closure.json": "a685fa51adcfb7ba914422fd1df55d1783b98011598d1ab16f7437277f527a14",
+        "manifest.json": "960930c5e8ed38b1e385ebc5f48ebc814177e5927bf09b4e9b4533875d6449d2",
+        "pairs/initial_to_modified/comparison-surface.json": "16f3e0bad14c8754c42cf7c78208d363ffeb8951bc3e6ef142cdc638ca430522",
         "pairs/initial_to_modified/comparison/locators/composite_signal_point.parquet": "d23b46b8913a03c1d343ae16ff422d407388a63cac63b1d1368d9a1a54c324ab",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "160a8feb3783a213cf9fb9b0806b214e7672846a1798a9dc13f06377909d9058",
         "pairs/initial_to_modified/comparison/locators/keyless_demo.parquet": "018a107604511ff7f3fe6d741471219154216eb0b3d4f1155825ce363d8e3c3b",
@@ -283,10 +283,10 @@
         "pairs/initial_to_modified/identity/assessment.json": "5534627b79c40dbf9028bd7caeb45023b633dd846490dd8bee06614f0c7deeba",
         "pairs/initial_to_modified/ordered/b1_n1_iec104_syx_list/ordered_records_manifest_ref.json": "f8a0264138012eabb8494c7957a4cdad10da9d51d40d566dd7f1fd2383bb760b",
         "pairs/initial_to_modified/ordered/b1_n1_iec104_syx_list/ordered_records_ref.json": "47e0e48bebc9464c8196ec1a7011471df2ba2cf39ffdd523be0c55a071624f72",
-        "pairs/initial_to_modified/projections/business_navigation.json": "1e970a91cd813edfae306da2412b32a627ca25a361fb1f383e964b73d981dea7",
+        "pairs/initial_to_modified/projections/business_navigation.json": "558a480c8e640b306d18b9b24bb9fde152dc3257e9b3f259499cef7aa10ea5be",
         "pairs/initial_to_modified/projections/business_navigation/diagnostics.json": "fa08a930d3371f6d978bd4bf79f5865a72c2be8be6bcdd01ebab0ef1290575dc",
-        "pairs/initial_to_modified/risk/tables/added_table/annotations.bin": "6c6572822deb25fd239ab11406f866907da44300bc988ecc4816268954b68b45",
-        "pairs/initial_to_modified/risk/tables/added_table/annotations/manifest.json": "7323fc866a53582709af70b8114d9b1eee5f0482a1fd625b5df8b40d122dec32",
+        "pairs/initial_to_modified/risk/tables/added_table/annotations.bin": "59b701600dae3889002d8c49d3196deb5bb198423310a417f3d3c3a5e807eb9e",
+        "pairs/initial_to_modified/risk/tables/added_table/annotations/manifest.json": "58fc5d7380597c653c1359562ed67ad4f7e488f9dff6c794f74e1989b2311353",
         "pairs/initial_to_modified/risk/tables/composite_signal_point/annotations.bin": "a0d0ce905da5dd8be243fb212e986ed20d3a77d1560a326ca05fc4238b8b8faa",
         "pairs/initial_to_modified/risk/tables/composite_signal_point/annotations/manifest.json": "ccddaa73d35829cc8c0aeb1cfdd495c3902828d6e8ab3895601ce5ae6888edb5",
         "pairs/initial_to_modified/risk/tables/device/annotations.bin": "6bc85a9204eb02f0836f2d8178de75622255496076a74d3f5d2f4c0d6ad757ef",
@@ -318,7 +318,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:08ba2cac6c05eff0e2ac69137d17ea3868181ad931614edceb63c3659f02797c",
+      "bundle_digest": "sha256:6fa26fac14b24de5a3ae879c64714efa11f57f9beb799eae0e53e43c31d647ec",
       "comparison_exclusions": {},
       "coverage": [
         "replacement",
@@ -357,9 +357,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "0d543547de72d74e41d2086f59a671ac68212946901d2a1ac1385c2203654e6f",
-        "manifest.json": "2323de704f9fa20633ddcf56f6caae72ea1765c698c100e19ead9287fcaa06c4",
-        "pairs/initial_to_modified/comparison-surface.json": "5006aef04ab97f6a6e90b00ff38d6f1bae186dbca2f3a51519a600ffbcfe5a5c",
+        "artifact-closure.json": "82e8bd733ea507c328cd3a0a8375accb23b31a218998455e9ff0f664fd7f6c29",
+        "manifest.json": "43390e586f6bc0ca1b22f9c41fb79612105799b2ab11185990a4396bb0b95afe",
+        "pairs/initial_to_modified/comparison-surface.json": "ee08e690559295802fb63de3c36624df3e188e01e77bf20a0945987548fcb559",
         "pairs/initial_to_modified/identity/assessment.json": "3b20cfa1234d7c7bc680c252bfef1b089fc04abb9f544c5b6fe0e1040ab33678",
         "pairs/initial_to_modified/projections/business_navigation.json": "2fe9deab2fe555ea0d2d1e1d5bd7d49582afe0f98c735e2fc9d867651d279e03",
         "pairs/initial_to_modified/tables/before/composite_signal_point.parquet": "c62a55567e34bfc1606fa3533a867029b85d389c0f0dbb3a08619f13bd85e46e",
@@ -378,7 +378,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:775f3d01437e52b982b762eb4baa8c0237054f4ceedb4e6289538b15c93a2ef5",
+      "bundle_digest": "sha256:cbe1d0f1740f9edbdebdea7ab730cd418eda95314013e093aa5db2cf1b3f1b0a",
       "comparison_exclusions": {},
       "coverage": [
         "history-three-nodes",
@@ -479,9 +479,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "78762d85b44c4bef3937fdf00f0ae57d60e740df658b7dbd095c115c340dc8bb",
-        "manifest.json": "b37c67a378cb26be84389a42b1f1f9dd9457e231c3544d6c6d2979c9832a902b",
-        "pairs/left_to_middle/comparison-surface.json": "78877999e08360cee9a5ab5092da1093a600886422b5a5bb805d035e8249cf98",
+        "artifact-closure.json": "cba2522cd55d868cfe23d61a2ea8972377efc7cc0c2a8a6d374cb47d190cf6a4",
+        "manifest.json": "2e197622ed6dd9d83e26bb68be398f9ec24bbe804ec5c395412a9d93c2a69b25",
+        "pairs/left_to_middle/comparison-surface.json": "08b895c0f16a70571f5ec6daacd88681500dbddc13c79d1760580a969ad05ce3",
         "pairs/left_to_middle/comparison/locators/device.parquet": "160a8feb3783a213cf9fb9b0806b214e7672846a1798a9dc13f06377909d9058",
         "pairs/left_to_middle/comparison/locators/keyless_demo.parquet": "8eb415623a0fe0ff0daa6b84befb4a26295ea13ef514f9555daa0ea5d96958b9",
         "pairs/left_to_middle/comparison/records/b1_n1_iec104_syx_list/blank/manifest.json": "fa31a615f38e0ffbc6f1d88306b39d19748fe84b04ed94c7256ddcbe796fbaaa",
@@ -509,7 +509,7 @@
         "pairs/left_to_middle/tables/before/device.parquet": "41a3e7cbee3deecd9e13b4612438900ddb139ef6cb8ba8ada1b17d54e448703f",
         "pairs/left_to_middle/tables/before/keyless_demo.parquet": "5503ef912b83cd227c8cd9c90cc3d34355d3baf856ae7b2c1290d0ebe7d49ac1",
         "pairs/left_to_middle/tables/before/schema_demo.parquet": "7341b5c2a6a99d73300dba1a11e6a6def835e76b1cbbf988d9f90dc08064a7c5",
-        "pairs/middle_to_right/comparison-surface.json": "bd8994cd47cd157e5f88af7ce580669dfb45c8efda8939b605b3c10e0189e6c2",
+        "pairs/middle_to_right/comparison-surface.json": "a1a81577d701cf1c304915a9a9850075778641b494f24da92b73f180ff0cfb81",
         "pairs/middle_to_right/comparison/locators/device.parquet": "9855bf02e9df59461649d5e5029ae064af7705466110b98687af66a12ee09845",
         "pairs/middle_to_right/comparison/locators/keyless_demo.parquet": "0453c4954d4ab151a1a0f65dcca4fdbeed4d7645387c53a68f6583b7144b5ff4",
         "pairs/middle_to_right/comparison/locators/schema_demo.parquet": "b04e3eb40b6670e2edf779bec59e9eb8c1f31918d4b8c8eb76adb608e9fc45e1",
@@ -522,9 +522,9 @@
         "pairs/middle_to_right/comparison/records/keyless_demo/rows.bin": "1fb37087e063856344754288943e28f6bd367e40414da8c3536b2d8e6e5b7b02",
         "pairs/middle_to_right/comparison/records/schema_demo/manifest.json": "f0d85bf40b6d02d55dbc11f68261fc9d6e28b25c929569591c4a5effb2efb24a",
         "pairs/middle_to_right/comparison/records/schema_demo/rows.bin": "96d4f9ad957a27e3ae6ba324a726609b135fd3e3ca7ae86bc01cb47ebafbb241",
-        "pairs/middle_to_right/projections/business_navigation.json": "d851bbbd1794072163ba96ba15c529093abfb15fc444be41ef595cceeacac9da",
-        "pairs/middle_to_right/risk/tables/added_table/annotations.bin": "6c6572822deb25fd239ab11406f866907da44300bc988ecc4816268954b68b45",
-        "pairs/middle_to_right/risk/tables/added_table/annotations/manifest.json": "7323fc866a53582709af70b8114d9b1eee5f0482a1fd625b5df8b40d122dec32",
+        "pairs/middle_to_right/projections/business_navigation.json": "cf13f66d7aa6f8d38dcffc247539a6010fa155ce53ccf4ba743d900cff54cc38",
+        "pairs/middle_to_right/risk/tables/added_table/annotations.bin": "59b701600dae3889002d8c49d3196deb5bb198423310a417f3d3c3a5e807eb9e",
+        "pairs/middle_to_right/risk/tables/added_table/annotations/manifest.json": "58fc5d7380597c653c1359562ed67ad4f7e488f9dff6c794f74e1989b2311353",
         "pairs/middle_to_right/risk/tables/device/annotations.bin": "2ca0e2c08125c4966796fb46d7367c0365e0b00fd6221c67c3afb1c610233249",
         "pairs/middle_to_right/risk/tables/device/annotations/manifest.json": "f8bc44ba3478c7ae4fbd7457605d11ee9937b397e3f9154f4c84c1848ddb0305",
         "pairs/middle_to_right/risk/tables/keyless_demo/annotations.bin": "6e3ec4d9f17538b46242224e2dddc58a2e433d554116b8cb633d6911b36f120f",
@@ -560,7 +560,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:d83ac18df96545eaca39d7e031f05e7564165561c5b74d1663c748aec071e85a",
+      "bundle_digest": "sha256:dcdb532ca6aae029e4471657b68e50cc1eceb8b21303383c3a951f0a8786a215",
       "comparison_exclusions": {},
       "coverage": [
         "ordered-normal"
@@ -601,9 +601,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "816374abaf4496020f1ba1778ad1d9363e8114c93cbc6337a27a5a2c9b68445f",
-        "manifest.json": "30042e9e34776496a65a54ba3dff09091f2628c7fa8b6be81a124a218f91cb51",
-        "pairs/initial_to_modified/comparison-surface.json": "3e4c5d04f3bfb72279e095bae1ebf9e58a6e91bd84cfdf98430660c52083cbf9",
+        "artifact-closure.json": "2543eacf37cbe26240161682aec84503f9346d95d517262d06a4fd7096d4d635",
+        "manifest.json": "d950c2c5d11e017d240275c5ecbdab9232343d389c62489f034bff3ee4ff2331",
+        "pairs/initial_to_modified/comparison-surface.json": "4db66f7243659dcdfa4d83facace59134734503c7ed69b5a250714529ac9af76",
         "pairs/initial_to_modified/comparison/locators/b1_n1_iec104_yc_list.parquet": "a94665f0a8ca317b95985e4d8223c15c028f89d7aeb1627bdad2aa06b76ddb60",
         "pairs/initial_to_modified/comparison/records/b1_n1_iec104_yc_list/manifest.json": "c614359cb39a96ca874c7b008fd725b20eb56029d75b8ce5862325d71b335f75",
         "pairs/initial_to_modified/comparison/records/b1_n1_iec104_yc_list/rows.bin": "c06d6f48afec31e10421cfd216b82738ea7d6d8157544d6d3d65a2a34ca8776c",
@@ -626,7 +626,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:e2e2aaa51b059af9f42eb692eca0a21c7cd8cbc6b2b07cb0aa72b5a7d5c4a658",
+      "bundle_digest": "sha256:9a143db817d6a634321a18149f338a8bc5d3f43360787c8ecc0eeb20639adf07",
       "comparison_exclusions": {},
       "coverage": [
         "bundle-closure-digests"
@@ -695,9 +695,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "42e3c7bbcf763885a25442063d7c0ad789b6f9a1e4f56adceba4149012259013",
-        "manifest.json": "0012bff8c95fbf350b73d09285570a72ed19d7b01eb922e8fcc7a9fe0de5f45f",
-        "pairs/initial_to_modified/comparison-surface.json": "fec89ab54d7f0238fce1def762879dc791b2a95edaa27839d8d9e853a88b79f6",
+        "artifact-closure.json": "31476d5dfe3cd3efd5b40e3c38ef0e0195c7d9dbef91261c98ecda8f0a9c6b4d",
+        "manifest.json": "6d61c28d96836084e4931241450bad8b2dbe9fe39e8c6c00d7722d60316a4015",
+        "pairs/initial_to_modified/comparison-surface.json": "a0d3812c2a7b8b64f73b192b11ef8256d01c4ec1fe8c66efe90c049d1c34d09a",
         "pairs/initial_to_modified/comparison/locators/composite_signal_point.parquet": "d23b46b8913a03c1d343ae16ff422d407388a63cac63b1d1368d9a1a54c324ab",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "9855bf02e9df59461649d5e5029ae064af7705466110b98687af66a12ee09845",
         "pairs/initial_to_modified/comparison/locators/keyless_demo.parquet": "1daf5b1f77c1a6fa3f66a5534e5c5baededcdd8de08b0b18ba1a92be8b96d365",
@@ -712,10 +712,10 @@
         "pairs/initial_to_modified/comparison/records/schema_demo/manifest.json": "f0d85bf40b6d02d55dbc11f68261fc9d6e28b25c929569591c4a5effb2efb24a",
         "pairs/initial_to_modified/comparison/records/schema_demo/rows.bin": "96d4f9ad957a27e3ae6ba324a726609b135fd3e3ca7ae86bc01cb47ebafbb241",
         "pairs/initial_to_modified/identity/assessment.json": "18b69aa296775c188e130168d13db2bfb5fdf863064c9d0f2f3805dce65313bc",
-        "pairs/initial_to_modified/projections/business_navigation.json": "d851bbbd1794072163ba96ba15c529093abfb15fc444be41ef595cceeacac9da",
+        "pairs/initial_to_modified/projections/business_navigation.json": "cf13f66d7aa6f8d38dcffc247539a6010fa155ce53ccf4ba743d900cff54cc38",
         "pairs/initial_to_modified/projections/business_navigation/diagnostics.json": "fa08a930d3371f6d978bd4bf79f5865a72c2be8be6bcdd01ebab0ef1290575dc",
-        "pairs/initial_to_modified/risk/tables/added_table/annotations.bin": "6c6572822deb25fd239ab11406f866907da44300bc988ecc4816268954b68b45",
-        "pairs/initial_to_modified/risk/tables/added_table/annotations/manifest.json": "7323fc866a53582709af70b8114d9b1eee5f0482a1fd625b5df8b40d122dec32",
+        "pairs/initial_to_modified/risk/tables/added_table/annotations.bin": "59b701600dae3889002d8c49d3196deb5bb198423310a417f3d3c3a5e807eb9e",
+        "pairs/initial_to_modified/risk/tables/added_table/annotations/manifest.json": "58fc5d7380597c653c1359562ed67ad4f7e488f9dff6c794f74e1989b2311353",
         "pairs/initial_to_modified/risk/tables/composite_signal_point/annotations.bin": "a0d0ce905da5dd8be243fb212e986ed20d3a77d1560a326ca05fc4238b8b8faa",
         "pairs/initial_to_modified/risk/tables/composite_signal_point/annotations/manifest.json": "ccddaa73d35829cc8c0aeb1cfdd495c3902828d6e8ab3895601ce5ae6888edb5",
         "pairs/initial_to_modified/risk/tables/device/annotations.bin": "2ca0e2c08125c4966796fb46d7367c0365e0b00fd6221c67c3afb1c610233249",
@@ -756,7 +756,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:d247c2e53426cf627feaceeac686d17a7f330d189f3ee0f0cbcbc0880ce79892",
+      "bundle_digest": "sha256:e21f9eda5273b030388a459081fdae074d4657d6bce3081050aa74a59df6b29f",
       "comparison_exclusions": {},
       "coverage": [
         "gid-change-unrecorded-cfg",
@@ -810,9 +810,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "139c7946a0a5dead0b3c61692d9f9b03a2c6e82a99c3e205239c47dd1f48fd22",
-        "manifest.json": "b9b8f57abdb031e53c51cf078808e5f86b3e37fd7792b49ee6d31612cb4bf07a",
-        "pairs/initial_to_modified/comparison-surface.json": "4b368453421d41d65748d2d6e3ac66faa708a8532e31631f11f86f00074ddfd0",
+        "artifact-closure.json": "4c1a11497b5bbe5dbff5c22c99838519abc848eed3f016026fa85d55b3453bd3",
+        "manifest.json": "4af1cf4c258e70ff5365690d3f1fbfa6b41bf0f9314a63cad7b23bfdbd76184b",
+        "pairs/initial_to_modified/comparison-surface.json": "f95f0944d424299a3afd4d06de46f922c6989e2d849c7c9490ec7defe727191d",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "b31a8a94fd2f54153d32caef8d9c35621978cc8cd760bb04ef9e41b8db35f4f5",
         "pairs/initial_to_modified/comparison/records/closure.json": "db854b9d3117b4d1f21e8ceda6a7581b58443b49b444cc7c0d7a892c6a2ceed0",
@@ -849,7 +849,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:e9bd24f68ede62042d0c23c304a9d6b395dd04d611589498c12da6075895732a",
+      "bundle_digest": "sha256:4c88cb749cdc2fad8cf3b7d55befdefd2d006672ed59ef9c56fbd0ccb5ca87d7",
       "comparison_exclusions": {},
       "coverage": [
         "duplicate-address-multiple-gid",
@@ -904,9 +904,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "3d8fe82509356fae838850d97a2285c70ed7c401dae68de42850d0fb996f2413",
-        "manifest.json": "01cb0f3b1002d5ebd9666da643bfceceacecb32e269c98517dc0b1de6185c5b8",
-        "pairs/initial_to_modified/comparison-surface.json": "d52ba40246f5d6c36a164dc9106d976a92aecdf33130411954c30a3119aadf61",
+        "artifact-closure.json": "45a20c834c993d97b842ca049e89b2b0ae0b96f9249d63ad2a5613dfefcaf1b4",
+        "manifest.json": "e3da48348ebc21ad28b75e9c831ed6903d0addd684b1ea16f7f9da3f2e023f33",
+        "pairs/initial_to_modified/comparison-surface.json": "54dd9bad72de00965d4f0de7b44728a679cf049ddefe5b9512de013c0717f57a",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "9bc7062cbffa34bb2d46abcdd0473fbd9e248011196db950af2acf92abb5836b",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "0bff96184d01d955b6c106aa69bd645ecab66036f051fde198da6b443b10f7eb",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "6e2156f7df6b3def54b278d05e219d9ecd185ee15eb477c5f7dfc67a1aeae0e1",
@@ -955,7 +955,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:57de7b9376e4dea32b679c112533aaba335e88f56f96a9e9152137607ee6c7ac",
+      "bundle_digest": "sha256:b70e9f0a1f2e0cf7351c1eefaaeb2bdc77b3f3bd4b9ebb7bab8de1c7df1e252d",
       "comparison_exclusions": {},
       "coverage": [
         "text-digits-not-integer",
@@ -997,9 +997,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "8915d214e6cbd78b7c3c28e42c121d3041786c88ea2197e6bf1c2417a0c1becc",
-        "manifest.json": "2ef7680ebf893c0e73ea646c94a42c82ef3fb2876d2cb44dc6632393b65396e9",
-        "pairs/initial_to_modified/comparison-surface.json": "bff2c68ba91a67e6b6886c3e80b9cd2e8eee8391c2f0fff064cccf6df1188f38",
+        "artifact-closure.json": "7d9f585db232e7aa0a4b5e15d16a78f5be84b00c958a5af6a87797c56818c682",
+        "manifest.json": "03a80b4ac0202a8205d42acae84f115f76f74eaf0aa605a7952f236b442a350d",
+        "pairs/initial_to_modified/comparison-surface.json": "ce0f6f434781785cb7eb03b4e835682ddcf8c3023b9b6578522d0a18bd04337b",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "d6e6d9c6f412ca17a3fde6221c028753adf80a1ca0d95a8aed611af83c135588",
         "pairs/initial_to_modified/comparison/records/closure.json": "997d5c91dd6a8510da8ba58c1e69d22d323f47c6ba584b86070f2fc7f448fa3b",
         "pairs/initial_to_modified/comparison/records/device_cfg/manifest.json": "5338414beb52d9fff619118e12163ecd6ec5ca703bf0818efcc05e1578adb017",
@@ -1030,7 +1030,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:8384b97658f1e0a112cec9a0742eba146a4c8c704dab257399251bf47f0809ec",
+      "bundle_digest": "sha256:53c08e5f6e4888d4017a01cafd6719b208361f2c6e33597b3c4ae5d144eda963",
       "comparison_exclusions": {},
       "coverage": [
         "safe-integer-boundary",
@@ -1077,9 +1077,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "f2e9a8e3cb062a91d0649ed8b57e07aa69e62bef218995299a3bb8b80fafb2ed",
-        "manifest.json": "9586a649983d573606a4c43ff94cfde6a4a8beaba1231b43ad27b38c02bcf140",
-        "pairs/initial_to_modified/comparison-surface.json": "b62741b9f924a68ac463a44377faa5507dddbb993f787fbf8f5bab232ff2c6c5",
+        "artifact-closure.json": "66613e424abe0e7d0acf23bf174d63e40dc6396bf9bae9894a71a043bba4486f",
+        "manifest.json": "dfd84246aaddd18a03e6a35cea39fa7f424bffdc6354384d81f2b069d23a6e88",
+        "pairs/initial_to_modified/comparison-surface.json": "cfc5dd08bb3c1b7257f1d191bfc4166b2a14f32a096d9b313ca75aab232de9bd",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "7a15703f2c5e45308a4dd543cbd9cdd75aeeacde4bc6660238790186c1a2e087",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "67e0a9c76405a86a25451ea131a97a6830186b1a95f714332fc3df820cd1ae7e",
         "pairs/initial_to_modified/comparison/records/closure.json": "e6dd655699e3f106a40a0ee37804480a631545af86cf76f0dab87ad775939fe1",
@@ -1116,7 +1116,7 @@
         }
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:79cff801a2cacfe237650b6a1ac846e89be55799cc026f65ab99de37dae5bfd3",
+      "bundle_digest": "sha256:6bfedcdcfc1109bc535adec5545273879f43ddebea0cdef6e6cab3101a9b0d73",
       "comparison_exclusions": {},
       "coverage": [
         "before-only-column",
@@ -1172,9 +1172,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "5d13aacc00ecc20311b8e063de7f939714adf0d137cabd1026217556860e0591",
-        "manifest.json": "b775687de557dea2a0516b866fb6713c62bc032eb4476b908ce0e8da769c4963",
-        "pairs/left_to_right/comparison-surface.json": "186e8a613913eabaeda3d018e00fc507f378a9cdf2b89dca69c23ee1499f3cfe",
+        "artifact-closure.json": "e88c61196cd6928c41267af30a27e92d1e0ce331a5d844651e47151b03544ce3",
+        "manifest.json": "aaef5b318b36be20cdffbfabd41cc5b33d5ed2d0f814a2fd64aae5dddd7b77bc",
+        "pairs/left_to_right/comparison-surface.json": "c907148d7d9886af289765bebed4b18fef9baa50e771e12ab73971df160fc16d",
         "pairs/left_to_right/comparison/locators/keyless_demo.parquet": "872746f7b52b2ef61f1b6782b5ebbe9d11d9b5cc01cbb958b293cf3030426804",
         "pairs/left_to_right/comparison/records/b1_n1_sg_cfg/manifest.json": "7a90708beaebbe4f573f2d68e5556823d693591f6cddc5103e82613e99bcdbc5",
         "pairs/left_to_right/comparison/records/b1_n1_sg_cfg/rows.bin": "ad0dde20dca0f6f481c5caa9f3ad0e91248052af0200ee0b090bc1dcf69aed8e",
@@ -1208,7 +1208,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:ab56609e8612e544ce95fbbedcf56d4feb474e868b403f2c0227d0153427b712",
+      "bundle_digest": "sha256:786b088010a8271bbcaf6d3ff372e58ae3c6e7247d6093e84f9b186b5a9f8c22",
       "comparison_exclusions": {},
       "coverage": [
         "whole-table-addition",
@@ -1254,21 +1254,21 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "5605e2a1250fae56fea72b91350c0a3a3a64f926fcb624d4532864f5259d1e58",
-        "manifest.json": "e462082b65afad01928c6c968cf2635bb4a4c3e85cc950fff495cd539e3335c0",
-        "pairs/initial_to_modified/comparison-surface.json": "1592503bd5b3bf7bbad4c4ca32959928917efd6699c4ebdcde6743de236b3299",
+        "artifact-closure.json": "a11df00ed5db9f57fd725af6511681a695d5bc858f68d6a502ab12fa08152f6b",
+        "manifest.json": "198453af7aec119b1c5e99d10ebcbead36c7ac5756b506785445757eadfb5ec9",
+        "pairs/initial_to_modified/comparison-surface.json": "8cd69e79219454c30409cfd07621c9b4574285ad77fb63d5475628868208668d",
         "pairs/initial_to_modified/comparison/records/closure.json": "0db16a28ab2e2c5a0f9bd33b389719621357b0407bde91d37ec9b23139d4f8cb",
         "pairs/initial_to_modified/identity/assessment.json": "b18f4d6962bc98392c3d1b9f279f15025514eb2ad308869e11f5f52353dabfa3",
-        "pairs/initial_to_modified/projections/business_navigation.json": "0fc7bf75edf560c91e4820f5a08349db365e47b2356343fa788ebd0014391161",
+        "pairs/initial_to_modified/projections/business_navigation.json": "d043a9129eb54af6c38ac722d6e616d6c75d76f3bf127ef4969eb7613feb3810",
         "pairs/initial_to_modified/projections/business_navigation/diagnostics.json": "c3c3e72ab60afacb201b8f701be5c793257fd68b40ef3c6bd043b5111b6aa203",
-        "pairs/initial_to_modified/risk/tables/b1_n1_sg_cfg/annotations.bin": "8e8386002bcc6dacdd396a100d91131b5cec17d12c3f6e85dd85d70468d67acb",
-        "pairs/initial_to_modified/risk/tables/b1_n1_sg_cfg/annotations/manifest.json": "8e8a65964b9501a3ed1f3714cf2f4be5ecb49eb03e368f3e11af24e0abc05acb",
-        "pairs/initial_to_modified/risk/tables/device/annotations.bin": "2306e7cfb73b9bdade792f7d17d9e58616289f4a0e36c94b34113ddedbb5d7c5",
-        "pairs/initial_to_modified/risk/tables/device/annotations/manifest.json": "2dcda30c7cfee594feae122d53bbed03d544432c16d387bc10ccd5328c591f57",
-        "pairs/initial_to_modified/risk/tables/device_st/annotations.bin": "b2246c625c054cb2db2430ef0e35a948cbe8a681b340608859e5ba6cb215be1b",
-        "pairs/initial_to_modified/risk/tables/device_st/annotations/manifest.json": "48b55a89c93ca9d765d84964a118fbdf6576637f4b3d74cbe6ad4c0d3bc6b76c",
-        "pairs/initial_to_modified/risk/tables/keyless_demo/annotations.bin": "7c1bd6ba6d3d6330d253a9f89925a21305b0d1d8aab5ddc964b8f881dcf1c5be",
-        "pairs/initial_to_modified/risk/tables/keyless_demo/annotations/manifest.json": "53763d1abe131f2540a3600cb2ce814e6f23fdd047fd33ca0ad11695eea0bc0b",
+        "pairs/initial_to_modified/risk/tables/b1_n1_sg_cfg/annotations.bin": "7aea903afbc854fdc4674f551a6c3368c2772df1fb1f9e8082973ee1aa2290e7",
+        "pairs/initial_to_modified/risk/tables/b1_n1_sg_cfg/annotations/manifest.json": "6956e9ff6eb6412d021b38d375efa49969ebf1d65c95b5c69c586e7c6413ea7b",
+        "pairs/initial_to_modified/risk/tables/device/annotations.bin": "2e307f8143b97edd80f01c9f68165895b7ad52518e59c302f94c579f0d11d8fe",
+        "pairs/initial_to_modified/risk/tables/device/annotations/manifest.json": "3d5451521069616f55ae08dd1df036d7cf940c46dd0ad8b4f05f2ea88c4cae1c",
+        "pairs/initial_to_modified/risk/tables/device_st/annotations.bin": "5708ef2ece4b54a159b978e7d2156906487cb7efdff029ef252a6b721f5406da",
+        "pairs/initial_to_modified/risk/tables/device_st/annotations/manifest.json": "279bb2de0448fede89401a65744d3bab84f25e317016137015a2e303b63976df",
+        "pairs/initial_to_modified/risk/tables/keyless_demo/annotations.bin": "ad2efd36f21d2168ef3406ac46fc2fc050bff416fff792c53abbdd465f85b05b",
+        "pairs/initial_to_modified/risk/tables/keyless_demo/annotations/manifest.json": "76f714e57e9edd3c251eb6107dddc7cc79c04e4689f273c9eef34e5e5692eceb",
         "pairs/initial_to_modified/tables/current/b1_n1_sg_cfg.parquet": "e0ec1fcf3f9b21f71163dd4c092d22156b1cd332d5875205d27cac80360488df",
         "pairs/initial_to_modified/tables/current/device.parquet": "515b005b5c5287606f242e1442bf06d3de97328aec19c93864281ef2827edb11",
         "pairs/initial_to_modified/tables/current/device_st.parquet": "f6ad5f60f5dc67a5dea64d9e19e10a1c77d0a607f1c16c37c39694ce6aa3ea16",
@@ -1287,7 +1287,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:d4ad65143db2f30f13c5bbf7685b8c87a9534235708d73bc7cb7167151842409",
+      "bundle_digest": "sha256:ad6f783fff6b672fe0a6461c3741ee3d5d9797313798fe9a4ca80e1f59edbc08",
       "comparison_exclusions": {},
       "coverage": [
         "comment-only-preview",
@@ -1321,9 +1321,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "1a87dd5023ef0d7bf2ba84e33c4cef69367bdcff0b21f23cde35aaaeceb956e4",
-        "manifest.json": "45274b3c9a2bd7c827d81b5f7189c5a3c4cfb8f9311b23ba7330ae7d2ce2883e",
-        "pairs/initial_to_modified/comparison-surface.json": "daa6737133920107e3e733459b952daf216e7cade803132f29d7bb11c433a448",
+        "artifact-closure.json": "6c21686cacfe29a2719197c2bf85655e7e7df55e327312415723533dbf2c6716",
+        "manifest.json": "752c2e7ce000dfc59c5dc1d313785e6a5d5b0d6ae770c53239b25df23ac0aca9",
+        "pairs/initial_to_modified/comparison-surface.json": "6ace279d5abf3508e16cbe3069b0537bf540bcfd481952fb034e0bd4cd7982d7",
         "pairs/initial_to_modified/comparison/records/closure.json": "f80a6c3b6e3d928c86db317562ffa89af9c887beadf1bfbcdac1634bc732cfe2",
         "pairs/initial_to_modified/identity/assessment.json": "a437fabadb11e39c61de04c80a612212f40f5755b00638945670eeb2282c6780",
         "pairs/initial_to_modified/projections/business_navigation.json": "2591248355d273320821582272a9e60556af9923c4a5089eead36dab2c9e9194",
@@ -1376,7 +1376,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:fadc49052ff992adb5ce7aee145778ca3f19068bb974b63d790e848c59b70c1e",
+      "bundle_digest": "sha256:d347f2718b44e4821f24fecf4faddbc4e22f5691ad973396311e0411eeb30349",
       "comparison_exclusions": {},
       "coverage": [
         "before-formula",
@@ -1424,9 +1424,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "c8f338b978029a0b500b62a5b1b9bfaf32beca47ee69df78c568b9bd1d99177d",
-        "manifest.json": "0d34362920bad6cb5b413caa2a3df806b18329c3e51319ea8ef3708137d8eb22",
-        "pairs/initial_to_modified/comparison-surface.json": "94f336fae072db9c1b5bd8ecb9dffd4460b99d6b02e1c3111ebb6421c3b4c35d",
+        "artifact-closure.json": "156dcf5845ced56158c361dc0c237c3231a185c21b4a9ce63cc1063598d43802",
+        "manifest.json": "ae1284222b1512738a3e7c4be42405c84d2607f4f755b0b10bc465522d94a569",
+        "pairs/initial_to_modified/comparison-surface.json": "5a5ab04ca9af7bda2a7538bcc1fcc975ccbd0c12d3cd9cfb08f33d09b1d2f2c8",
         "pairs/initial_to_modified/comparison/locators/composite_signal_point.parquet": "d23b46b8913a03c1d343ae16ff422d407388a63cac63b1d1368d9a1a54c324ab",
         "pairs/initial_to_modified/comparison/records/closure.json": "729dc96ce9cb4d34572c1d0ca6247ab3590a7592c8417d3fd0f2db94449279f1",
         "pairs/initial_to_modified/comparison/records/composite_signal_point/manifest.json": "f881f9ef5742ade862a7e40a6f22a48391e8af4c2d6440937fa959d42847bd04",
@@ -1463,7 +1463,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:b323334053724ab1ff35b268b238db9316ebd35b479fb39a2d416757418394e5",
+      "bundle_digest": "sha256:b613ddf32d52a1e108f817a1eafc14533f3694dda96a60edf5e11830e3921134",
       "comparison_exclusions": {},
       "coverage": [
         "gid-change-unrecorded-cfg",
@@ -1507,9 +1507,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "a90bd4e36d16c8462fbcf1f4533c200f5fb305d6019820ad39762be6f6e3af2b",
-        "manifest.json": "8d09aa46f4215d5997ed04ac83e0961f9d580b378939c373e01f4b87563eb187",
-        "pairs/initial_to_modified/comparison-surface.json": "b25e65e90243837bcb88d2f1c03d189a8d86e583429bd957d67c7924b329d017",
+        "artifact-closure.json": "d434c336ea0c2ee0bad27f0bdeecfb84efe7473dec899c7f4fcc83198bad0bcd",
+        "manifest.json": "9f26a30d30e962d2efe9bb3ea2352096834e6d60090cb6710e14b1b7ecb5cd7f",
+        "pairs/initial_to_modified/comparison-surface.json": "0cdf74930eea78e1426311599e2aae2a2339bf7ecfb0fc71f0518f5b08dd172d",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/records/closure.json": "770ef28060908678c6b328d8f199bc7f784b3ea12d18371989db2b954176cd55",
         "pairs/initial_to_modified/comparison/records/device/manifest.json": "655f29520d8f36b55b8c7d566625db98d88b9e66cfccdb3e3d4d7e8faef63727",
@@ -1548,7 +1548,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:bdb2de43e9475e95f1605c50878917892d90f128a24e27227d2b82237279829a",
+      "bundle_digest": "sha256:f4754fc7dcc03f2b54bcb315bb856769cde0a1e3d6913ac59a1420763d1b06f8",
       "comparison_exclusions": {
         "device_st": [
           "dev_addr"
@@ -1595,9 +1595,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "d2896b6517865b6e88a51d182712ad3654056704ea1f27848d3e05de61fb538f",
-        "manifest.json": "1728f9bcb2a60e6ebea63a66a180b178cc9d3e14607b2df16a9ae7d68a744a40",
-        "pairs/initial_to_modified/comparison-surface.json": "6128ee7e13ab97463499d142d8559f513c025afb1b5f857e0b85e850e123b3e9",
+        "artifact-closure.json": "2568049f48ab1a2d901ed1ebea5810a7aaf8daf67382dccb875ac821c7c5507b",
+        "manifest.json": "d542526fe9b23010bc832d15b5a57aa58bdf4e7a7e2ddcf153f065bc37b433e4",
+        "pairs/initial_to_modified/comparison-surface.json": "09e0c91898effc955ea10fca7329df69c1bdc8bf0fede234e03dc603b79ff131",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/records/closure.json": "a3a7075ae4ebbbe4aee47e65e7add18aa5152c0fe534361e59a44f9d67304150",
         "pairs/initial_to_modified/comparison/records/device/manifest.json": "655f29520d8f36b55b8c7d566625db98d88b9e66cfccdb3e3d4d7e8faef63727",
@@ -1625,7 +1625,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:42835a4bbffe89b2eacb0bf51fab891c65f91731806fe7db805321cc24fa450b",
+      "bundle_digest": "sha256:2c15d7315cdf30988431bb5e2388de0846d92107213e35f29708021c7883db72",
       "comparison_exclusions": {},
       "coverage": [
         "keyed-physical-identity-column-missing",
@@ -1668,9 +1668,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "851ece56e5207037cac73d4aa9a706520c912ac763cd9172f3462bdcfb861534",
-        "manifest.json": "3977f6678f6df3085fc73333d41917d0a48be8d6f10442f57d843e038bac8048",
-        "pairs/initial_to_modified/comparison-surface.json": "be3fb268e3d23effe0161bf80f4ffd5e19da558be3207c43124944242aeea499",
+        "artifact-closure.json": "19016492f36f3150cda4448510f3eb975d1b225da238aae9db1240dd97c12b5a",
+        "manifest.json": "757f8c1e55083bf35bcf43f22fb1122636512705fc39986128cae9a92725e338",
+        "pairs/initial_to_modified/comparison-surface.json": "1e1c51e2b63a7bcadc9cda13034ed9e21b8183f5ae7125f64584e44e818d4e98",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/records/closure.json": "1bc6684ed27d3d01493f54b333cebfd0ad8c507ae4216fce4a08bd4ec4247fb3",
         "pairs/initial_to_modified/comparison/records/device/manifest.json": "655f29520d8f36b55b8c7d566625db98d88b9e66cfccdb3e3d4d7e8faef63727",
@@ -1694,7 +1694,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:cafbf86b2dffa091f3998131d879a57158672a7e922acdeb6196e3cddc6e942e",
+      "bundle_digest": "sha256:3a51efa77544051018d1721417d89843c0ee0098e975c84a7795bd310f2fd0cd",
       "comparison_exclusions": {},
       "coverage": [
         "all-empty-navigation-discovery"
@@ -1725,9 +1725,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "7193ad96dd747253e7c51d1c39fdfb3a0a805c3858e977d72fc4c8b86f93be4a",
-        "manifest.json": "8bfdf20182432b5782d3da6109717debf8cb23945b056455d9bff2fdff3131cb",
-        "pairs/initial_to_modified/comparison-surface.json": "181c9c257597cd66f364f571045f1e605b5847ead4fba7f0525853f770331de6",
+        "artifact-closure.json": "42ecbf28056b1c2001de7bc2671f9a272346125712b3745f3d6a98c7526df72c",
+        "manifest.json": "6872c24084636357dfd2f2f323531d3a87f15074ee1e6b7b4651cabc4f768ceb",
+        "pairs/initial_to_modified/comparison-surface.json": "2f1e8018632f5acd0377a0a38abe21f068b4a5c274079719c5eac7e633d0b2f4",
         "pairs/initial_to_modified/comparison/records/closure.json": "7fb5252fb9af5d29fd18c718c2cb809f539d3f458b574839c483b05ad09a745c",
         "pairs/initial_to_modified/identity/assessment.json": "dc03b32e30a8c0cfc55f2dac76c7f1dfe16d7cd329745becffbc3a271387caf3",
         "pairs/initial_to_modified/projections/business_navigation.json": "2a6b42ba6b5cdb04601f3d2f7233933dc34a42fece13541638081d0b304a6b2c",
@@ -1740,41 +1740,41 @@
     }
   ],
   "files": {
-    "bundle/comment-only.json": "0dec8766a30346428d99e239d7ccd5f4a6194ca0d740c62d2483390a02af2224",
-    "bundle/digest-cross-implementation.json": "d4cf575089cae3b607e25c1dbee42fc6738fdbca47ab7287703a862f6803fec9",
-    "bundle/duplicates-orphans.json": "9dd06691f404d08ad66b77bcc05a4bcf7328587e56250994988374ee872d309f",
-    "bundle/empty-tabs.json": "77238b98bb91cfb5f7131423a6aaf93a64a2030d179da48d73ba19aeb3c67b6c",
-    "bundle/excluded-identity.json": "12ab78fa20957d90c0394da5d724291bc03ec865de5c5c697f30eb13801ee8a8",
-    "bundle/formula-unchanged-device.json": "4e425bd88da3689fa57cfb71f7437d4ae6f9e23d06274bf4ed14b4146a7014a7",
-    "bundle/history-three-nodes.json": "c3e4bec51e661c80f76e0ef89197ac6a8d859d619773673a949ebb83ba191e79",
-    "bundle/identity-changes.json": "c15457c7921c0eb4501513e60d02e7a0dd636e4789ff237047b8a49ba8dfe4ff",
-    "bundle/identity-unrecorded-exact.json": "e2242ede8a0a74ab99a8b124839c25105daed9a4580b89754a7ea1b2af42579f",
-    "bundle/integer-boundary.json": "980d3933571f7343b721ea493a2d1cc643b8ea8d8c3b96ffb2c65cc83f4e7b6f",
-    "bundle/missing-identity-column.json": "d4036508835475f2b8355c641ef71040a8010c834cec16b7e58aa41331142682",
-    "bundle/preview-full.json": "5148c8321f39800283ed606455e7f43d73e8b2a538246e941239a208be6d092f",
-    "bundle/preview-modified-only.json": "1d18937913875d910829e4ecdbd66a9de8a168a1e1a34bdb4840820f1ae0bed2",
-    "bundle/preview-replacement.json": "3bf9a18eea4995e19445a204061d18b0b52bd564698e47547776b7db6c5236bc",
-    "bundle/preview-workbench-normal.json": "9b85c205466d79d6396ccb45dd512a94b8d5fbfaf4cf0cfb02e054ed93017386",
-    "bundle/schema-keyless.json": "f1a4d7a617f54e787267e89e7669062de565d7ab131dfb942a30b0359f52cb23",
-    "bundle/table-addition.json": "cadd38439d4f80c5c72bcad6c0fa6f506730010c1c01534ee8a4e3b4624aff80",
-    "bundle/text-identities.json": "aeea818a2b4dace4422bb572fc4386de415d0afb3ee0876906ef99cb31280b04",
+    "bundle/comment-only.json": "eb683dafae52a0940e0ab30b86d5951a6fcaa699b94859be8e4a933029a5a890",
+    "bundle/digest-cross-implementation.json": "e13df0bfb439e82791c0d670d8601584c5371ac5883759b1ada5cd9d2dcfc40b",
+    "bundle/duplicates-orphans.json": "8ec84b8148181e4983233f0f4e4183df5d6932c3e6541dc8e5f0fff47dee0d8f",
+    "bundle/empty-tabs.json": "9eb1e84c20e0125c6093c711931cd669eeb6bc471ee429b02566e7987294b1a3",
+    "bundle/excluded-identity.json": "a1755a32aed92cd9452e99907f8e884f5f71a4437e9e95eb864b1bfd3bc77a4b",
+    "bundle/formula-unchanged-device.json": "6989b00e2044db4b2cef7b645c6ea098c82acf6959b95ab27b080876fd171cbc",
+    "bundle/history-three-nodes.json": "23843bcfabf1b392f43badaaac5e1a2a2811d02fb3d9bd9469bc0bb10df3c021",
+    "bundle/identity-changes.json": "827e214717a5ccb6e7d691ce3018286e82ae0a332b5d2ef71f3b680b1bb6cb2e",
+    "bundle/identity-unrecorded-exact.json": "ae0eb57dbe0f541d7859a68a9101207a394764aca9176dc47aec1f7c252ce5a3",
+    "bundle/integer-boundary.json": "5ba1148faa585c46c266b35629eb54dd6757921bc555a2150676001eee893b01",
+    "bundle/missing-identity-column.json": "3b9c076f668f82c8265aae2d1e2b397a511b67f4de970a644d3d6d93163cb066",
+    "bundle/preview-full.json": "eef12de76f3548df54c716c9ec5be809fb65a5a9fbdf3448ac0b27b9bc118327",
+    "bundle/preview-modified-only.json": "ef7b919e01917022d68bc435d51842ef1656720033460040ff7967d4572a5ac3",
+    "bundle/preview-replacement.json": "b40d40540c5980c858460a1e1797b582de2241405d6ff464b1f0fb2e67412ea1",
+    "bundle/preview-workbench-normal.json": "cc4392a5e418c2c8efa2e0a1113b0be0fb07e4029499954c06d331186de0945d",
+    "bundle/schema-keyless.json": "e85fe69eb81ddccec63940dcc142186c44c15859020815f6675e83ef462525ca",
+    "bundle/table-addition.json": "8b0937f502aee8dda5245d29d538a2a20584bc1ca18d8bea721f75f401e6ea04",
+    "bundle/text-identities.json": "54d5a65fa92d9c1f5f2775952dad3be0f03faf62b099c7326a047c75b916aa0b",
     "navigation/comment-only.json": "5b3c426b0907fd7cba129ce25377cc847932928350a6713253497066434ed1c5",
-    "navigation/digest-cross-implementation.json": "771bcf5dfcbc69ed56f3ee096bdacc80daade65cf5a1721a52b4ea1776cb5311",
+    "navigation/digest-cross-implementation.json": "4686a7622b89f4657cbb7ec13c8d403dc7c0a6d1c611bea75898d475ea906fa2",
     "navigation/duplicates-orphans.json": "b6858ab40e77c028328b5741560e68b548fef336a1776a4a247a07eeade708bd",
     "navigation/empty-tabs.json": "14ecbd6187653063490e44e3092487fee640a746be91b50f82711cbaa02d46c9",
     "navigation/excluded-identity.json": "28a0dcc9ea565cda4cc8fc9d549605c4668ba285318c7a81a935405215be7846",
     "navigation/formula-unchanged-device.json": "32ecf9c0f907e6fa9c91e1f0596ffcbddb6d0a25cf621793c804a493b4ddc45d",
-    "navigation/history-three-nodes.json": "85a64460f213f17cbcc7230e74153741b8bba8c4a6179e606afc2f31645d8782",
+    "navigation/history-three-nodes.json": "97e2e9a0e03ba83ca58a89c682d14b216da8b1ee67a96ee4b39a6076f51972d5",
     "navigation/identity-changes.json": "496cab56b754e6de2ab97355133904671231a0f13e6b339bfe543fe7f1fbe6d8",
     "navigation/identity-unrecorded-exact.json": "6985be7d666b214841134cec60fb2831e169e949b6301dbe1cc08b6663615d2e",
     "navigation/integer-boundary.json": "83b9cd9d074b7c44aefe14b7fc41c31fa708852a6fa2874732fa6ec1921292ef",
     "navigation/missing-identity-column.json": "2bdced026bbb3a790ddf8149f9df862c3b3d413c4dbe43587f7c7ea95f7d2a07",
-    "navigation/preview-full.json": "245affe52edc0e23c5797154573434bf3835c983fb97a056f6625e109b72b7e2",
-    "navigation/preview-modified-only.json": "400d1749a94b839056af04a24490269b5392b86db6c3f73f21c2362c5db4d8d2",
+    "navigation/preview-full.json": "99935abb4b94b64d02bd78d46246c918c2e2bf911aaa6568f6049e420e96a162",
+    "navigation/preview-modified-only.json": "3bc4bf5f01e0f8bc821f4089dd1811d8c6316c8306410f60d42a0a921e3b6dfa",
     "navigation/preview-replacement.json": "5a8b2dd8a2599e78c70a230fceaaa80efc338174dc3fb163c2cc2da73d074b04",
     "navigation/preview-workbench-normal.json": "c51654b6fba6e73904df713023f45af15ddac0d2eddc8152a3b6561e49f1166b",
     "navigation/schema-keyless.json": "7927be5ad5cfabe72571e38f45a7ae80488e3700b1b2611a70dc766fddf05dbc",
-    "navigation/table-addition.json": "d1650729e792c36670c0f16f7c576eca0b1faf9dbfcdbc165ae280455d32cd4a",
+    "navigation/table-addition.json": "c508be301b215bfd118fd76826d711805e3c0c18894c9e2ab7a7629d8ebb0e71",
     "navigation/text-identities.json": "f413911de65228c236d32c3559b418ff3b5cc4cd45e8f0325ab5be2d00b5d40f",
     "navigation-diagnostics/comment-only.json": "edda43f6ef1badf323010e7a2068d2fce0a498835906c6b2577db9f64b32469e",
     "navigation-diagnostics/digest-cross-implementation.json": "0e5d0b52f190126b1f8937cf4ee89753a4841b5c1e55b872ed86499f53ae8bc5",
@@ -1812,23 +1812,23 @@
     "row-location/schema-keyless.json": "715128c58b39e0019b31c79534ef57e596bf99641dd502434714fbabde65ca82",
     "row-location/table-addition.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "row-location/text-identities.json": "b34dc5f38d744834ac0412079df99f735df38ccdb9c1e8af3c7fe11659d6ad6d",
-    "surface/comment-only.json": "266fc94e5b3a0c5ff0afee1ceb2c2650d4fb5c17508a65441ac8c326eeaead6c",
-    "surface/digest-cross-implementation.json": "5d598746ef83fac5b84afabbf7c8896d7239602614ca5f9f1324aa3d00383ce1",
-    "surface/duplicates-orphans.json": "fb393a0eda33383e250140db474e5867a59ed5b322bda33d28886fbce09f8167",
-    "surface/empty-tabs.json": "118d895d4ed464ffd1470302e0d53d60bcd39696897b614a897c2c967e236ec5",
-    "surface/excluded-identity.json": "ad793ab4b2b590485cbc846c9b6953235a115e99f1ff08cadf78329ddd992b0a",
-    "surface/formula-unchanged-device.json": "b9d1b981d54dd165db056c5a9ee5b8898c66b2e4daad70afdb696f67f1a6062c",
-    "surface/history-three-nodes.json": "76e222e684b853fca5a60629340a958cc30ce7d18b71ec37d074083b1565a578",
-    "surface/identity-changes.json": "582ba519b3b353bfcd82605146b2595a93a09638112723a0d0cf266674023f92",
-    "surface/identity-unrecorded-exact.json": "a97a89dcb4f49e5d29cfb044a84d777dc265f68e6944cf28b4bc73e573d0e97a",
-    "surface/integer-boundary.json": "68431f58fb8779ea8eeb83d512561ab3988295f90221c09fbafc06ce414f67cb",
-    "surface/missing-identity-column.json": "537b60505a059cdcaf5771ecb338b7b54e5bce46e0b3bbc440c39f562f65a09f",
-    "surface/preview-full.json": "e5527db73ff11c3d53ece42d37bb7abf9319223d22a3595d58f290d7db17b933",
-    "surface/preview-modified-only.json": "f9815643aae9a0ca92c51f4959bc8b53ea67b15dbcfb26ea863be6fecd0b5b7e",
-    "surface/preview-replacement.json": "33654b0933ea8a2fcf3085ef13b6eb6cda71236f969ed9370370868aaf9eb598",
-    "surface/preview-workbench-normal.json": "7f82684efbee17ef3a7cb014898b18523db76c9f76e1ec3177993989289381a8",
-    "surface/schema-keyless.json": "7f3476e25d334c8504f16cd03c4b3b8ad80272b3967c16bedd55ed00f44ec995",
-    "surface/table-addition.json": "6e8412674ee454ad77bc4a04cb4bf280352ccea663e7fba0fae2e3c4601e5e8b",
-    "surface/text-identities.json": "e082c629bdf24f534aeb21fa7246f8a3518fd110251f7c62627ff82ba7ee0b2a"
+    "surface/comment-only.json": "67f58e172b31ca740c3c1147d6600bd2e782f367e7614485698d702ab9a6ddc3",
+    "surface/digest-cross-implementation.json": "b65d899514a0b5e7206ef071f0a4895a00100c524097cf2582559f53d269da7c",
+    "surface/duplicates-orphans.json": "43c39dbd601e2757f75edbf0e73adf761909a89853e92da08a289f863d4f8807",
+    "surface/empty-tabs.json": "4bc452b2a20350e84c5eff065ecc7ebdc36361ae07fe8c730e7d424c71bc22f4",
+    "surface/excluded-identity.json": "0759083308092bec630f9a74adf22fde821372c2ee9e69604fa1e257206fcda4",
+    "surface/formula-unchanged-device.json": "f946d12187c0d4f700fbfe88b29a1212a2203144c02c54571f3e333de86c8b58",
+    "surface/history-three-nodes.json": "1ffb910a822dfef41233793dfd340fce6c480d14dda51acf1419cdd31238ae11",
+    "surface/identity-changes.json": "6e143eac3959c5fb152f8f0941b5c71609c14b8d2826a9cf60582a79fba184c0",
+    "surface/identity-unrecorded-exact.json": "cc2c67ebb8c3d8f161273aa29472ec34c2f49646d53ecae2c5177516aa507c59",
+    "surface/integer-boundary.json": "c223309f5e3d4892304f272627b098c0430659c9903813e7120a3b19363a5821",
+    "surface/missing-identity-column.json": "0f3022037693c8dc9b8236a174d348aec789abaf365c06b7046d32139043e670",
+    "surface/preview-full.json": "2d7d2ee5c2f9269062ed095134f870824cd1d83322a0561426588d2f19207b81",
+    "surface/preview-modified-only.json": "d19776b5a24421c1a4220a6917470ea3a09b3014a8f4e1214e04f24dddf9c6b3",
+    "surface/preview-replacement.json": "93421f8ba796f45d5d40c3a3c48e0c9c744beb9d81c3c514fc6b8cd0daf0b345",
+    "surface/preview-workbench-normal.json": "d1e6537093b90a7e425d88ffce55e8a164b0a0acd8aec4d530fd2087a0b103b7",
+    "surface/schema-keyless.json": "302a7368a13ee0fa788fa6dd4b05902b33aee8ef0fe8ad924dc1cc66559e802b",
+    "surface/table-addition.json": "98dcc1a8e4a024d052b355d7286067f3557c1e49136677169f1d2c43db014831",
+    "surface/text-identities.json": "14ddf105ca9e2404a21e8a8ac9208bb44122d201ef5c1cf5284ef96797b263e2"
   }
 }

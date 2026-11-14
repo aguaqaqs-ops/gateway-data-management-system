@@ -36,7 +36,7 @@ interface ReviewActionsProps {
   submissionId: string;
   facts: SafeReviewFacts;
   bundleReady: boolean;
-  /** Only a server /result failure can authorize releasing an unreadable submission. */
+  /** Only a server /result or /result/bundle failure can authorize releasing an unreadable submission. */
   resultErrorCode?: string;
   onFactsChanged: (facts: SafeReviewFacts) => void;
   /**

@@ -78,6 +78,7 @@ async function installFixtureRoutes(page: Page, options: {
   reviewForbidden?: boolean;
   reviewFixture?: string;
   reviewResultError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
+  reviewBundleError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
   reviewResultHold?: Promise<void>;
   reviewVersion?: number;
   reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "BASELINE_VERSION_CONFLICT" | "ARCHIVE_CLOSED";
@@ -624,6 +625,11 @@ async function installFixtureRoutes(page: Page, options: {
   await page.route("**/v1/submissions/*/result/bundle", async (route) => {
     const request = route.request();
     apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    if (options.reviewBundleError) {
+      const body = { code: options.reviewBundleError, message: "提交绑定的比较结果下载失败" };
+      const status = options.reviewBundleError === "SCOPE_FORBIDDEN" ? 403 : 503;
+      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    }
     return routeBundle(route, options.reviewFixture ?? "preview-full");
   });
   return { requests, apiRequests, apiResponses };
@@ -2928,10 +2934,11 @@ test("D review MODIFIED_ONLY exposes its one fixed pair", async ({ page }) => {
 });
 
 for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE", "SCOPE_FORBIDDEN"] as const) {
-  for (const firstOpen of [false, true]) {
-    test(`D review ${firstOpen ? "first open" : "cached result"} preserves server ${code} and offers re-read`, async ({ page }) => {
-      const options: { reviewResultError?: typeof code; reviewVersion?: number } = {
-        reviewResultError: firstOpen ? code : undefined, reviewVersion: firstOpen ? 9 : 5,
+  for (const { firstOpen, download } of [{ firstOpen: false, download: false }, { firstOpen: true, download: false }, { firstOpen: true, download: true }]) {
+    test(`D review ${download ? "first download" : firstOpen ? "first open" : "cached result"} preserves server ${code} and offers re-read`, async ({ page }) => {
+      const options: { reviewResultError?: typeof code; reviewBundleError?: typeof code; reviewVersion?: number } = {
+        reviewResultError: firstOpen && !download ? code : undefined,
+        reviewBundleError: download ? code : undefined, reviewVersion: firstOpen ? 9 : 5,
       };
       const observed = await installFixtureRoutes(page, options);
       await page.goto(browseUrl("REVIEW", "preview-full"));
@@ -2952,14 +2959,14 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
       const title = code === "SUBMISSION_RESULT_UNAVAILABLE" ? "提交绑定的比较结果不可用"
         : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE" ? "提交绑定的比较结果完整性校验失败" : "当前身份没有该操作的权限";
       await expect(page.locator(".compare-error").getByRole("heading", { name: title, exact: true })).toBeVisible();
-      for (const width of [1920, 1280]) await screenshot(page, `d-review-${firstOpen ? "first" : "cached"}-error-${code.toLowerCase()}`, width);
+      for (const width of [1920, 1280]) await screenshot(page, `d-review-${download ? "download" : firstOpen ? "first" : "cached"}-error-${code.toLowerCase()}`, width);
       if (allowed) {
         await page.getByRole("button", { name: "退回", exact: true }).click();
         const reject = page.getByRole("dialog", { name: "退回提交" });
         await expect(reject).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}），退回后提交人需重新上传`);
         await expect(reject.getByRole("button", { name: "确认退回" })).toBeDisabled();
         await reject.getByRole("textbox", { name: "退回理由" }).fill(`结果无法读取：${code}，请重新上传`);
-        for (const width of [1920, 1280]) await screenshot(page, `d-review-${firstOpen ? "first" : "cached"}-reject-${code.toLowerCase()}`, width);
+        for (const width of [1920, 1280]) await screenshot(page, `d-review-${download ? "download" : firstOpen ? "first" : "cached"}-reject-${code.toLowerCase()}`, width);
         if (firstOpen && !ownWithdraw) {
           await reject.getByRole("button", { name: "确认退回" }).click();
           await expect(page.getByText("审核：已退回", { exact: true })).toBeVisible();
@@ -2985,6 +2992,7 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
         }
       }
       options.reviewResultError = undefined;
+      options.reviewBundleError = undefined;
       await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
       await waitForBrowse(page);
       expect(observed.requests.get("preview-full")).toBe(1);

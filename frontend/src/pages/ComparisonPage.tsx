@@ -42,6 +42,12 @@ function bundleErrorState(cause: unknown, details: string): { code: string; deta
   return { code: bundleLoadErrorCode(cause), details };
 }
 
+function serverResultReleaseCode(cause: unknown): string | undefined {
+  return cause instanceof ApiError && cause.status === 503
+    && (cause.code === "SUBMISSION_RESULT_UNAVAILABLE" || cause.code === "SUBMISSION_RESULT_INTEGRITY_FAILURE")
+    ? cause.code : undefined;
+}
+
 type PairSummary = { pair_id: string; summary?: Record<string, string> };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
@@ -431,7 +437,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   useEffect(() => { try { window.localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths)); } catch { /* widths remain in memory */ } }, [columnWidths]);
 
   // Facts remain authoritative even when the separately authorized result is unreadable.
-  // Only failures from the server summary request can enable reject/withdraw;
+  // Only failures from server summary/download requests can enable reject/withdraw;
   // local bundle identity and download failures never supply this permission.
   const readReviewContext = useCallback(async (submissionId: string) => {
     const [review, result] = await Promise.allSettled([
@@ -449,10 +455,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     if (review.status === "rejected") throw review.reason;
     if (result.status === "rejected") {
       const cause: unknown = result.reason;
-      if (runtime.snapshot.state.submissionId === submissionId && cause instanceof ApiError && cause.status === 503
-        && (cause.code === "SUBMISSION_RESULT_UNAVAILABLE" || cause.code === "SUBMISSION_RESULT_INTEGRITY_FAILURE")) {
-        setReviewResultErrorCode(cause.code);
-      }
+      if (runtime.snapshot.state.submissionId === submissionId) setReviewResultErrorCode(serverResultReleaseCode(cause));
       throw cause;
     }
     return result.value;
@@ -507,7 +510,15 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       }
       setBundle(null); setPairs([]);
       const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest,
-        fetchBundle: () => fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }),
+        fetchBundle: async () => {
+          try { return await fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }); }
+          catch (cause) {
+            if (current.mode === "REVIEW" && runtime.snapshot.state.submissionId === current.submissionId) {
+              setReviewResultErrorCode(serverResultReleaseCode(cause));
+            }
+            throw cause;
+          }
+        },
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
       gatewayApi.assertSession?.();
       loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest, bundle: loaded };

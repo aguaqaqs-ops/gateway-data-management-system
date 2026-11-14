@@ -1,8 +1,8 @@
 {
   "format": "backend-presentation-golden/v1",
-  "generator_commit": "5a62bc7745c78515199f4f1c0a97fb3f992f83b8",
-  "generator_vnext_tree": "9093c3ea452ca0985120b8d501c1c4da3d8ad5f8",
-  "input_manifest_sha256": "debbe82838064b06ec90ddf31744269fd7d424c5b1d93b2cabe6f0ee1c6ebb04",
+  "generator_commit": "4c8cdf16c24a7b4f4114b0ef59b35db2a629e88f",
+  "generator_vnext_tree": "bebef7f488337117148d3087d0eda5745b22faf2",
+  "input_manifest_sha256": "b12e64d40a952378761823a746590210887eb1984bb7b6a74fcaa6356f88b501",
   "scenarios": [
     {
       "assertions": {},
@@ -1690,12 +1690,60 @@
       "output": "backend/scenarios/missing-identity-column",
       "scenario": "missing-identity-column",
       "submit_result": null
+    },
+    {
+      "assertions": {},
+      "assertions_result": "PASS",
+      "bundle_digest": "sha256:07bb610998f7a167043e49d33cf065ab1aaf1e7c53e866c695f84a3ce7dab8ad",
+      "comparison_exclusions": {},
+      "coverage": [
+        "all-empty-navigation-discovery"
+      ],
+      "flow": "PREVIEW",
+      "inputs": {
+        "empty.sql": "0293c803c55f377d5b7a703f2cacab67b68f3cc2acabfcaf5780908530c14719",
+        "empty.xml": "d516d86b8b1c8a21cd10943bc105f8b149cd7d372ced9ce65fe7ee9538c328eb"
+      },
+      "logical_paths": [
+        "pairs/initial_to_modified/comparison-surface.json",
+        "pairs/initial_to_modified/comparison/records/closure.json",
+        "pairs/initial_to_modified/identity/assessment.json",
+        "pairs/initial_to_modified/projections/business_navigation.json",
+        "shared/snapshot-tables/316d1b5d165e8672b0e9e802ba23bd382acf35a0878dbcf86a15af5083d52f2e.parquet"
+      ],
+      "manifest_fields": [
+        "bundle_contract_version",
+        "bundle_digest",
+        "bundle_profile",
+        "closure",
+        "closure_entries",
+        "closure_manifest_digest",
+        "diagnostics",
+        "failed_pairs",
+        "inputs",
+        "pairs",
+        "status"
+      ],
+      "members": {
+        "artifact-closure.json": "a642de183fb705ac5253140eca1bc543bd0e11630f7d6139e212c0d30f3a02d3",
+        "manifest.json": "379927c420b1b3d54fc6b41dad05b83f122269a2461785c11cb892d98c2ac2fb",
+        "pairs/initial_to_modified/comparison-surface.json": "70c6eba65800872aef6be34bcc4621d840b1dcaab727f5a2f70b17b171d9f64e",
+        "pairs/initial_to_modified/comparison/records/closure.json": "7fb5252fb9af5d29fd18c718c2cb809f539d3f458b574839c483b05ad09a745c",
+        "pairs/initial_to_modified/identity/assessment.json": "dc03b32e30a8c0cfc55f2dac76c7f1dfe16d7cd329745becffbc3a271387caf3",
+        "pairs/initial_to_modified/projections/business_navigation.json": "2a6b42ba6b5cdb04601f3d2f7233933dc34a42fece13541638081d0b304a6b2c",
+        "shared/snapshot-tables/316d1b5d165e8672b0e9e802ba23bd382acf35a0878dbcf86a15af5083d52f2e.parquet": "316d1b5d165e8672b0e9e802ba23bd382acf35a0878dbcf86a15af5083d52f2e"
+      },
+      "operation_result": "READY",
+      "output": "backend/scenarios/empty-tabs",
+      "scenario": "empty-tabs",
+      "submit_result": null
     }
   ],
   "files": {
     "bundle/comment-only.json": "7ec28ef3132de1f646bcf074caf0a1848af85cd8969d02319ce52d76d1634060",
     "bundle/digest-cross-implementation.json": "832e803279fcb76516503865b9400da5155af06ff1d413a3f3fd1f31b163e2d8",
     "bundle/duplicates-orphans.json": "461eaefd09f6d0ad2867ab719bae2dc71d4b825e5eb6e0bb6d13a90809b648ca",
+    "bundle/empty-tabs.json": "b1639a92744fb7b1aae342bdda743d9e1e04b54197c1724878b2685890cc1254",
     "bundle/excluded-identity.json": "74377e6f0eb054daf885bca19761e3b8e9bbc4a3421552c17244bbf4cf14f08f",
     "bundle/formula-unchanged-device.json": "3166e5eca226a5517592ad7829b7755325c2b4b4c4fd9411bc452546bdbbdd62",
     "bundle/history-three-nodes.json": "3f5be955ae877992c156de9047817106061a113da6047e989e1c59c8b628c4bd",
@@ -1713,6 +1761,7 @@
     "navigation/comment-only.json": "5b3c426b0907fd7cba129ce25377cc847932928350a6713253497066434ed1c5",
     "navigation/digest-cross-implementation.json": "771bcf5dfcbc69ed56f3ee096bdacc80daade65cf5a1721a52b4ea1776cb5311",
     "navigation/duplicates-orphans.json": "b6858ab40e77c028328b5741560e68b548fef336a1776a4a247a07eeade708bd",
+    "navigation/empty-tabs.json": "14ecbd6187653063490e44e3092487fee640a746be91b50f82711cbaa02d46c9",
     "navigation/excluded-identity.json": "28a0dcc9ea565cda4cc8fc9d549605c4668ba285318c7a81a935405215be7846",
     "navigation/formula-unchanged-device.json": "32ecf9c0f907e6fa9c91e1f0596ffcbddb6d0a25cf621793c804a493b4ddc45d",
     "navigation/history-three-nodes.json": "85a64460f213f17cbcc7230e74153741b8bba8c4a6179e606afc2f31645d8782",
@@ -1730,6 +1779,7 @@
     "navigation-diagnostics/comment-only.json": "edda43f6ef1badf323010e7a2068d2fce0a498835906c6b2577db9f64b32469e",
     "navigation-diagnostics/digest-cross-implementation.json": "0e5d0b52f190126b1f8937cf4ee89753a4841b5c1e55b872ed86499f53ae8bc5",
     "navigation-diagnostics/duplicates-orphans.json": "f3c665c443da3fc65218333a8aa1109da4b69335aa96c8fdbaedaac3781af37b",
+    "navigation-diagnostics/empty-tabs.json": "954412eabf580a8e9cc717aaab1d84d294fdce84ca2ba223c741141252a2ef59",
     "navigation-diagnostics/excluded-identity.json": "f8e49e44d609de159d0daa110f03f0fce734f603ad7245eb9f10276c134dc577",
     "navigation-diagnostics/formula-unchanged-device.json": "ba52614ef99df261f6aaa4efd03cd0ef5d16095ea199e007d5dc4c75ae1d356e",
     "navigation-diagnostics/history-three-nodes.json": "ed8f7d5edcf9d86177068dba36d2928b6d5224641455cb03d4c96668553220bb",
@@ -1747,6 +1797,7 @@
     "row-location/comment-only.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "row-location/digest-cross-implementation.json": "648298455e8e6c1a34bafcc48c60b65cd6e90d4e251c327c2b6e93f04a000471",
     "row-location/duplicates-orphans.json": "e799ce30c0c482c46122bdc42603da25cfd75b5f6d34967846a111562e538584",
+    "row-location/empty-tabs.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "row-location/excluded-identity.json": "9bb57d9fce12f371fc0c49bf9b940920847e838847574636f469109f1a57eb7a",
     "row-location/formula-unchanged-device.json": "c2abf28cd5a4180760b3279eb20f3fbb3ad49113444bc28fa8556637fa71abb1",
     "row-location/history-three-nodes.json": "bcc2d888caa4b60437e0e9efdff78e0a7b38956e13889d4e489ce800efab8d57",
@@ -1764,6 +1815,7 @@
     "surface/comment-only.json": "266fc94e5b3a0c5ff0afee1ceb2c2650d4fb5c17508a65441ac8c326eeaead6c",
     "surface/digest-cross-implementation.json": "5d598746ef83fac5b84afabbf7c8896d7239602614ca5f9f1324aa3d00383ce1",
     "surface/duplicates-orphans.json": "fb393a0eda33383e250140db474e5867a59ed5b322bda33d28886fbce09f8167",
+    "surface/empty-tabs.json": "118d895d4ed464ffd1470302e0d53d60bcd39696897b614a897c2c967e236ec5",
     "surface/excluded-identity.json": "ad793ab4b2b590485cbc846c9b6953235a115e99f1ff08cadf78329ddd992b0a",
     "surface/formula-unchanged-device.json": "b9d1b981d54dd165db056c5a9ee5b8898c66b2e4daad70afdb696f67f1a6062c",
     "surface/history-three-nodes.json": "76e222e684b853fca5a60629340a958cc30ce7d18b71ec37d074083b1565a578",

@@ -2899,8 +2899,11 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
   }
   await waitForBrowse(page);
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeEnabled();
+  const beforeIdentityChange = observed.apiRequests.filter((request) => request.path.endsWith("/result")).length;
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
+  await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThan(beforeIdentityChange);
   await waitForBrowse(page);
+  expect(observed.apiRequests.filter((request) => request.path.endsWith("/result")).at(-1)?.token).toBe("Bearer dev-token-reviewer");
   const views = page.getByRole("tablist", { name: "比较视图" });
   const modified = views.getByRole("tab", { name: /^本次组态视图/ });
   const baseline = views.getByRole("tab", { name: /^原始组态视图/ });
@@ -3010,7 +3013,9 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
       }
       options.reviewResultError = undefined;
       options.reviewBundleError = undefined;
+      const beforeRetry = observed.apiRequests.filter((request) => request.path.endsWith("/result")).length;
       await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
+      await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThan(beforeRetry);
       await waitForBrowse(page);
       expect(observed.requests.get("preview-full")).toBe(1);
       expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);

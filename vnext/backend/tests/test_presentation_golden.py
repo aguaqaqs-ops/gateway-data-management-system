@@ -56,6 +56,12 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
         # Frozen actual producer outcomes bridge marker publication to bound
         # Surface/Bundle consumers; these are business scenarios, not a second
         # emptiness algorithm in the golden reader.
+        if scenario == "empty-tabs":
+            items = [item for group in navigation["groups"] for item in group["items"]]
+            tabs = [tab for item in items for tab in item["tabs"]]
+            assert tabs and all(tab["empty"] is True for tab in tabs)
+            assert all(item["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0} for item in items)
+            assert all(group["nonempty_item_count"] == 0 for group in navigation["groups"])
         if scenario == "table-addition":
             secondary = navigation["groups"][1]
             empty_device = next(i for i in secondary["items"] if i["item_key"] == "device:addr:49")

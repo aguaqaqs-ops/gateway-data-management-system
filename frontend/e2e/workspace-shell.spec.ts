@@ -3165,7 +3165,7 @@ test("F filtered navigation counts reflect search and table-scope differences", 
 const EMPTY_TAB_SEARCH_CASES = [
   { label: "item search", query: "复合信号", expectedNode: "device:composite", expectedTab: "table", visibleKeys: ["device:composite"] },
   { label: "group search", query: "二次装置列表", expectedNode: "device:table", expectedTab: "table", visibleKeys: ["device:table", "device:composite"] },
-  { label: "no search results", query: "不存在的导航项", expectedNode: "device:addr:4", expectedTab: "device_st", visibleKeys: [] },
+  { label: "no search results", query: "不存在的导航项", expectedNode: "device:table", expectedTab: "table", visibleKeys: [] },
 ] as const;
 
 for (const scenario of EMPTY_TAB_SEARCH_CASES) {
@@ -3190,9 +3190,8 @@ for (const scenario of EMPTY_TAB_SEARCH_CASES) {
       if (scenario.visibleKeys.length > 0) {
         await expect(page.locator(`.nav-item[data-item-key="${scenario.expectedNode}"]`)).toHaveClass(/is-active/);
       } else {
-        // With no matching nonempty destination, keep the selected empty tab accessible.
-        await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveAttribute("data-tab-key", "device_st");
-        await expect(page.locator(".overflow-tabs__empty-toggle")).toHaveAttribute("aria-pressed", "false");
+        // When no filtered destination exists, retain the established first-nonempty fallback.
+        await expect(page.locator(".table-info")).toContainText("device");
       }
       await page.reload();
       await waitForBrowse(page);

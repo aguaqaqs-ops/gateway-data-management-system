@@ -574,7 +574,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const toggleEmptyTabs = () => {
     if (showEmptyTabs && selectedEntry?.tab.empty && !wholeTable) {
       const next = visibleGroups.flatMap((group) => shownItems(group).flatMap((item) =>
-        shownTabs(item).map((tab) => ({ item, tab })))).find(({ tab }) => !tab.empty);
+        shownTabs(item).map((tab) => ({ item, tab })))).find(({ tab }) => !tab.empty)
+        ?? navigationEntries.find(({ tab }) => !tab.empty);
       if (next) {
         runtime.execute({ name: "select-node", nodeKey: next.item.itemKey });
         runtime.execute({ name: "select-tab", tabKey: next.tab.tabKey });

@@ -290,7 +290,15 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
   const visibleRows = useMemo(() => {
     const query = filter.trim().toLocaleLowerCase();
     const rowMap = new Map(rows.map((row) => [row.key, row]));
-    const matches = new Set(rows.filter((row) => (!currentBaselineOnly || row.isHead || row.kind === "workspace")
+    // "Current baseline only" keeps the head baseline's whole branch (its
+    // workspace and submissions), not just the head row.
+    const underHead = (row: WorkspaceTreeRow): boolean => {
+      for (let current: WorkspaceTreeRow | undefined = row; current; current = current.parentKey ? rowMap.get(current.parentKey) : undefined) {
+        if (current.isHead) return true;
+      }
+      return false;
+    };
+    const matches = new Set(rows.filter((row) => (!currentBaselineOnly || underHead(row) || row.kind === "workspace")
       && (!query || `${row.label} ${row.status} ${row.refId ?? ""}`.toLocaleLowerCase().includes(query))).map((row) => row.key));
     if (query) for (const key of [...matches]) {
       let parent = rowMap.get(key)?.parentKey ?? null;

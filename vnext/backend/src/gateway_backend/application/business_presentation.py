@@ -13,7 +13,7 @@ from gateway_backend.artifacts import ArtifactStorePort
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts.store import put_with_built_ref
 from gateway_backend.capabilities.business_navigation import (
-    NavigationEvidence, NavigationRow, NavigationSide, NavigationTable, build_navigation,
+    NavigationChangeKind, NavigationEvidence, NavigationRow, NavigationSide, NavigationTable, build_navigation,
     identity_excluded_sides, reduce_table_risks,
 )
 from gateway_backend.capabilities.business_navigation.contracts import FILTER_IDENTITY_COLUMNS, Scalar
@@ -224,7 +224,8 @@ def publish_business_presentation(
                 and (original_fact.status in {ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED}
                     or original_fact.schema_changes.change_source is not None
                     or original_fact.before_descriptor.business_schema_digest != original_fact.current_descriptor.business_schema_digest)),
-            change_kind=table_change_kind(original_fact, replacement=replacement), risk_level=risk_levels.get(name),
+            change_kind=NavigationChangeKind(table_change_kind(original_fact, replacement=replacement).value),
+            risk_level=risk_levels.get(name),
             unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
     navigation_started = perf_counter()
     navigation = build_navigation(tuple(tables), replacement=replacement,

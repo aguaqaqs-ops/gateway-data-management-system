@@ -124,3 +124,5 @@ F 的当前 producer/consumer golden 位于 `vnext/fixtures/golden/presentation/
 F 前端消费者（Owner 2026-11-13 直接授权）严格要求 v2 的 empty、summary 与组非空计数，缺失/错误类型/非中性全空摘要拒绝打开；不再按 Surface 行数或展示 change kind 推导空页签。默认隐藏及显式展开只影响可见项/页签，不改变服务端摘要或非空组计数；筛选未知计数显示“—”，不借整表行数。replacement 分侧解析后合并同名导航时仅按已发布标记做集合去重，仍保留每侧原文；后端绑定及审计不由前端重建。
 
 F 前端复审修复（2026-11-14）：URL 按 node+tab 精确恢复，包括默认隐藏的空页签；无效 tab 先留在原项，无效 node 不借其他项的同名 tab。全空 pair 保留首个页签与展开入口。用户显式隐藏当前空页签时切换到可见非空项；没有非空项时保留可访问的空页签。组头展示当前搜索/“仅差异”过滤后列表中的非空项数，展开空页签不增加该数；服务端 nonempty_item_count 仍描述完整组，消费者不改写它。
+
+F 能力边界修复（2026-11-14）：`change_kind` 的唯一语义词汇仍由 [Surface Contract](comparison-surface.md) 定义。导航的 `NavigationChangeKind` 仅为自身 typed 输入与严格 summary 校验所需的局部契约表示，不引入独立状态或词汇来源；Application 将 Surface owner 的已归并值显式转换后传给导航。导航不得反向依赖 Surface Assembly，也不将有业务归属的类型移入 Shared Kernel。导航测试同时核对双方完整值集相等、逐个 Surface kind 的非空汇总 wire 值不变及未知值拒绝；新增/删除 Surface kind 时必须同步该边界表示，不能单独扩展导航词汇。本次不改文档版本、wire 值、摘要预像、cache 或 golden。

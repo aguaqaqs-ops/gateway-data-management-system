@@ -169,7 +169,8 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
             db_path=None if previous is None else previous.db_path, artifact_store=store,
             node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ("bn-observed-" + name, right)),
             custom_providers=providers, idempotency_key="observed-" + name)
-        factory = lambda: ControlDbUnitOfWork(current.db_path)
+        def factory() -> ControlDbUnitOfWork:
+            return ControlDbUnitOfWork(current.db_path)
         cache_type = ControlDbSnapshotTableExportCache if name == "seed" else supplement.observed_cache_type(targets)
         deps = replace(current.deps, snapshot_export_cache=cache_type(factory))
         _, handlers, _, bound = compare_jobs.history_compare_composition_bundle(deps)

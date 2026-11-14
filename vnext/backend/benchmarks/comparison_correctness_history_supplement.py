@@ -377,6 +377,8 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
         source_config = StorageLayoutConfig.from_bytes((source_root / "storage-layout.json").read_bytes())
         clone_config = StorageLayoutConfig.from_bytes((clone / "storage-layout.json").read_bytes())
         a._check(set(source_config.roots) == set(clone_config.roots)
+                 and all(Path(value.source).resolve() == (clone / "roots" / slot).resolve()
+                         for slot, value in clone_config.roots.items())
                  and all(Path(value.source).resolve() == (source_root / "roots" / slot).resolve()
                          for slot, value in source_config.roots.items()), "source storage uses an external root")
         clone_roots(source_root / "roots", clone / "roots")

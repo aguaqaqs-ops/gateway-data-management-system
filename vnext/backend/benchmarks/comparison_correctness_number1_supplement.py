@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+import socket
 import sys
 from typing import Any, Literal
 
@@ -220,7 +221,7 @@ def load_source(input_root: Path, source_run: Path, source_root: Path, source_he
         a._check(preview.repository_id == submission.repository_id and preview.workspace_id == submission.workspace_id
                  and preview.upload_revision_id == submission.upload_revision_id and preview.generation == submission.generation
                  and preview.business_baseline_commit_id == submission.business_baseline_commit_id
-                 and preview.digests.bundle_digest.value == manifest["bundle_digest"], "source Preview binding differs")
+                 and preview.digests.bundle_digest == manifest["bundle_digest"], "source Preview binding differs")
         a._check([p.pair_id for p in preview.comparison_pairs] == ["baseline_to_initial", "initial_to_modified"],
                  "source Preview is not FULL")
         for pair, expected in zip(preview.comparison_pairs, manifest["pairs"], strict=True):
@@ -261,6 +262,7 @@ def load_source(input_root: Path, source_run: Path, source_root: Path, source_he
 
 
 def run_replay(input_root: Path, output: Path, source_run: Path, source_root: Path, source_head: str) -> None:
+    a._check(socket.gethostname() == "gw-dms-test-05", "number1 supplement must remain on source node05")
     separate(output, source_run.resolve(), source_root.resolve())
     source = load_source(input_root, source_run, source_root, source_head)
     a._write(output / "source.json", source.proof.model_dump(mode="json"))
@@ -276,7 +278,7 @@ def require_replay(path: Path, source: Source) -> None:
     check_files(path)
     finish = h.SourceFinish.model_validate_json((path / "finish.json").read_bytes())
     start = h.SourceStart.model_validate_json((path / "start.json").read_bytes())
-    complete = ReplayComplete.model_validate_json((path / "complete.json").read_bytes())
+    complete = ReplayComplete.model_validate_json((path / "complete.json").read_bytes(), strict=True)
     a._check(finish.exit_code == 0 and start.head == finish.head == complete.head == a._git("rev-parse", "HEAD")
              and start.hostname == "gw-dms-test-05" and start.purpose == "comparison correctness number1-replay"
              and complete.source == source.proof, "successful same-HEAD result replay is required")
@@ -381,6 +383,7 @@ def complete_review(client: httpx.Client, source: Source, env: dict[str, str], o
 
 def run_terminal(input_root: Path, output: Path, session: str, state: a._RunState, *,
                  source_run: Path, source_root: Path, source_head: str, replay_run: Path) -> None:
+    a._check(socket.gethostname() == "gw-dms-test-05", "number1 supplement must remain on source node05")
     separate(output, source_run.resolve(), source_root.resolve(), replay_run.resolve())
     source = load_source(input_root, source_run, source_root, source_head)
     replay_run = replay_run.resolve(strict=True)

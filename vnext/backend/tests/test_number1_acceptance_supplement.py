@@ -15,6 +15,7 @@ import pytest
 from benchmarks import comparison_correctness_acceptance as a
 from benchmarks import comparison_correctness_number1_supplement as n
 from benchmarks import comparison_correctness_history_supplement as h
+from benchmarks import real_dump_journey as journey
 from benchmarks.real_dump_journey import JourneyFailure
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -47,8 +48,8 @@ def source(tmp_path: Path) -> n.Source:
     raw = store.locate(result.bundle.manifest_ref)
     metadata = read_bundle_transport_metadata(raw)
     directory, fixture, inputs = (tmp_path / name for name in ("source", "fixture", "inputs"))
-    for path in (directory, fixture, inputs):
-        path.mkdir()
+    for folder in (directory, fixture, inputs):
+        folder.mkdir()
     tar = directory / "preview.tar"
     with tarfile.open(tar, "w") as archive:
         for path, payload in (("manifest.json", raw), ("artifact-closure.json", metadata.expected_closure_bytes),
@@ -193,6 +194,7 @@ def test_replay_calls_all_existing_result_assertions_and_preserves_sources(
     source: n.Source, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(n, "load_source", lambda *_args: source)
+    monkeypatch.setattr(n.socket, "gethostname", lambda: "gw-dms-test-05")
     monkeypatch.setattr(n, "input_records", lambda *_args: source.proof.inputs)
     monkeypatch.setattr(a, "_git", lambda *_args: "b" * 40)
     calls = []
@@ -243,7 +245,7 @@ def test_actor_binding_is_distinct_scoped_authorized_and_never_emits_tokens(
     submitter = n.Actor(token=harness.SESSION_TOKEN, actor_id=source.proof.submission.created_by,
         gateway_device_external_key=source.proof.device_key, business_project_id=source.proof.project_id,
         permissions=["workspace_read", "review_submission"])
-    reviewer = submitter.model_copy(update={"token": n.journey.ARCHIVER_TOKEN, "actor_id": "reviewer"})
+    reviewer = submitter.model_copy(update={"token": journey.ARCHIVER_TOKEN, "actor_id": "reviewer"})
     if fault == "same-actor":
         reviewer = reviewer.model_copy(update={"actor_id": submitter.actor_id})
     elif fault == "scope":
@@ -269,7 +271,7 @@ def test_terminal_prepare_only_clones_into_owned_fixture_with_original_numeric_p
         before = h.tree_manifest(original)
         proof = source.proof.model_copy(update={"source_root": str(original), "fixture": before})
         restored = n.Source(proof, source.manifest, source.tar)
-        env = n.journey._compose_environment(tmp_path / "new-secrets", "terminal-new-fixture")
+        env = journey._compose_environment(tmp_path / "new-secrets", "terminal-new-fixture")
         output = tmp_path / "new-output"
         output.mkdir()
         clone = n.prepare_clone(env, restored, output, tmp_path / "replay")

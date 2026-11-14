@@ -10,7 +10,7 @@ import pytest
 from gateway_shared_kernel import raw_blob_digest
 
 from benchmarks import comparison_correctness_history_supplement as supplement
-from benchmarks import comparison_correctness_acceptance as acceptance
+from benchmarks.comparison_correctness_cache_probe import Reference
 from benchmarks.real_dump_journey import JourneyFailure
 from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -31,7 +31,7 @@ def _targets() -> list[supplement.Target]:
                           "application/vnd.apache.parquet", len(raw), raw_blob_digest(raw))
         result.append(supplement.Target(table_name=name, repository_id="repository-test",
             row_layout_digest=raw_blob_digest(raw + b"layout").value, writer_version=1,
-            cache_ref=acceptance._ArtifactReference.model_validate(artifact_ref_to_dict(ref)), row_count=1))
+            cache_ref=Reference.model_validate(artifact_ref_to_dict(ref)), row_count=1))
     return result
 
 
@@ -185,7 +185,7 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
                 row = uow.connection.execute("SELECT repository_id,row_layout_digest,parquet_writer_contract_version,artifact_id,media_type,size_bytes,raw_sha256 FROM snapshot_table_export_cache").fetchone()
                 assert row is not None
                 repository, layout, version, artifact, media, size, sha = row
-                ref = acceptance._ArtifactReference(artifact_id=artifact, media_type=media, size_bytes=size, raw_sha256=sha)
+                ref = Reference(artifact_id=artifact, media_type=media, size_bytes=size, raw_sha256=sha)
                 targets = [supplement.Target(table_name=table.table_name, repository_id=repository,
                     row_layout_digest=layout, writer_version=version, cache_ref=ref, row_count=1)]
                 key = SnapshotTableArtifactCacheKey(DigestRef(layout), repository, version)
@@ -204,3 +204,16 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
     assert warm and all(event.ref == targets[0].cache_ref for event in warm)
     assert not any(event.phase == 2 and event.event == "store" for event in events)
     assert snapshots[0] == snapshots[1]
+
+
+def test_worker_probe_loads_by_file_without_benchmark_import_path(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+    import benchmarks.comparison_correctness_cache_probe as probe
+    source = Path(probe.__file__)
+    result = subprocess.run([sys.executable, str(source), "--help"], cwd=tmp_path,
+        env=dict(os.environ, PYTHONPATH=str(source.parents[1] / "src")),
+        capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert "worker" in result.stdout and "cache" in result.stdout

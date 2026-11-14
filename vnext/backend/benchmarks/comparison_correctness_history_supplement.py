@@ -6,12 +6,8 @@ port. The worker observer forwards real calls and records their real results.
 """
 from __future__ import annotations
 
-import argparse
-from collections.abc import Callable, Iterator
-from contextvars import ContextVar
+from collections.abc import Iterator
 from contextlib import contextmanager
-from functools import wraps
-import hashlib
 import json
 import os
 import socket
@@ -20,49 +16,24 @@ import re
 import shutil
 import sqlite3
 import sys
-from typing import Any, Literal
+from typing import Any
 
 import httpx
-import pyarrow as pa
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
-from gateway_shared_kernel import DigestRef
 from pydantic import TypeAdapter
 
 from benchmarks import comparison_correctness_acceptance as a
 from benchmarks import real_dump_journey as journey
-from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
-from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
+from benchmarks.comparison_correctness_cache_probe import (
+    Event as Event, Target as Target, Reference, _PREFIX as TRACE_PREFIX,
+    observed_cache_type as observed_cache_type, observe_history as observe_history,
+)
 from gateway_backend.capabilities.bundle_assembly import BundleArtifactKind, BundleTableSide, read_bundle_transport_metadata
 from gateway_backend.capabilities.snapshot_materialization.client_parquet import _LAYOUT, _REPOSITORY
 from gateway_backend.deployment_config import StorageLayoutConfig
 from gateway_backend.http.schemas.submit import SubmissionResponse
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
 from tests.support import compose_gate_harness as harness
 from tests.support.container_input_files import write_container_readable_text
-
-
-class Target(a._Document):
-    table_name: str
-    repository_id: str
-    row_layout_digest: str
-    writer_version: int
-    cache_ref: a._ArtifactReference
-    row_count: int
-
-    def key(self) -> SnapshotTableArtifactCacheKey:
-        return SnapshotTableArtifactCacheKey(DigestRef(self.row_layout_digest), self.repository_id, self.writer_version)
-
-
-class Event(a._Document):
-    event: Literal["begin", "end", "lookup", "store"]
-    phase: int
-    repository_id: str
-    commits: list[str]
-    table_name: str | None = None
-    row_layout_digest: str | None = None
-    writer_version: int | None = None
-    ref: a._ArtifactReference | None = None
 
 
 class FileRecord(a._Document):
@@ -101,65 +72,7 @@ class FixtureOwner(a._Document):
 
 TARGETS = TypeAdapter(list[Target])
 FILES = TypeAdapter(list[FileRecord])
-_PREFIX = "e_history_cache "
-_phase: ContextVar[tuple[int, str, tuple[str, ...]] | None] = ContextVar("e_history_cache_phase", default=None)
-
-
-def _emit(event: Literal["begin", "end", "lookup", "store"], target: Target | None = None, ref: ArtifactRef | None = None) -> None:
-    phase = _phase.get()
-    if phase is None:
-        return
-    index, repository, commits = phase
-    value = Event(event=event, phase=index, repository_id=repository, commits=list(commits),
-        table_name=None if target is None else target.table_name,
-        row_layout_digest=None if target is None else target.row_layout_digest,
-        writer_version=None if target is None else target.writer_version,
-        ref=None if ref is None else a._ArtifactReference.model_validate(artifact_ref_to_dict(ref)))
-    print(_PREFIX + value.model_dump_json(), flush=True)
-
-
-def observed_cache_type(targets: list[Target]) -> type[ControlDbSnapshotTableExportCache]:
-    by_key = {target.key(): target for target in targets}
-    a._check(len(by_key) == len(targets), "representative cache keys are not distinct")
-
-    class ObservedCache(ControlDbSnapshotTableExportCache):
-        def lookup_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
-            result = super().lookup_many(keys)
-            for key in keys:
-                if key in by_key:
-                    _emit("lookup", by_key[key], result.get(key))
-            return result
-
-        def store_many(self, entries: tuple[tuple[SnapshotTableArtifactCacheKey, ArtifactRef], ...]) -> None:
-            super().store_many(entries)
-            for key, ref in entries:
-                if key in by_key:
-                    _emit("store", by_key[key], ref)
-
-    return ObservedCache
-
-
-def observe_history[**P, R](function: Callable[P, R]) -> Callable[P, R]:
-    count = 0
-
-    @wraps(function)
-    def invoke(*args: P.args, **kwargs: P.kwargs) -> R:
-        nonlocal count
-        # This is the actual History demand function's existing positional
-        # payload/sides, not a synthesized operation or cache response.
-        payload: Any = args[0]
-        sides: Any = args[2]
-        count += 1
-        token = _phase.set((count, payload.repository_id, tuple(sorted(sides))))
-        try:
-            _emit("begin")
-            result = function(*args, **kwargs)
-            _emit("end")
-            return result
-        finally:
-            _phase.reset(token)
-
-    return invoke
+_PREFIX = TRACE_PREFIX
 
 
 def validate_trace(raw: str, targets: list[Target], operations: list[str], commits: list[str]) -> list[dict[str, Any]]:
@@ -306,7 +219,7 @@ def source_targets(source: Path, source_root: Path, repository: Repository) -> l
                 (repository.repository_id, layout)).fetchall()
             a._check(len(cache) == 1, "source representative cache key is missing or ambiguous")
             row = cache[0]
-            cache_ref = a._ArtifactReference(artifact_id=row["artifact_id"], media_type=row["media_type"],
+            cache_ref = Reference(artifact_id=row["artifact_id"], media_type=row["media_type"],
                                             size_bytes=row["size_bytes"], raw_sha256=row["raw_sha256"])
             a._check(cache_ref.to_ref().integrity_identity == ref.integrity_identity
                      and cache_ref.media_type == ref.media_type, "source cache ref differs from bundle payload")
@@ -316,39 +229,8 @@ def source_targets(source: Path, source_root: Path, repository: Repository) -> l
     return targets
 
 
-def cache_action(targets: list[Target], *, discard: bool) -> list[dict[str, Any]]:
-    from gateway_backend.bootstrap.storage_layout import local_store_from_config
-    from gateway_backend.settings import BackendSettings
-    settings = BackendSettings()  # type: ignore[call-arg]  # Required fields come from the container environment.
-    store = local_store_from_config(settings.deployment_config)
-    result = []
-    for target in targets:
-        key, expected = target.key(), target.cache_ref.to_ref()
-        # Eviction affects only this clone's exact derived row and its cache
-        # protection owner. READY/submission payloads and protections stay put.
-        with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as uow:
-            actual = uow.snapshot_table_export_cache.lookup_many((key,)).get(key)
-            a._check(actual == expected, "clone cache ref differs from frozen source")
-        if discard:
-            with ControlDbUnitOfWork(settings.control_db_path) as uow:
-                a._check(uow.snapshot_table_export_cache.discard_if_same(key, expected), "exact-key discard lost its expected ref")
-            with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as uow:
-                a._check(key not in uow.snapshot_table_export_cache.lookup_many((key,)), "cold key remains registered")
-        raw = store.locate(expected)
-        a._check(len(raw) == expected.size_bytes and "sha256:" + hashlib.sha256(raw).hexdigest() == expected.raw_sha256.value,
-                 "cache payload integrity mismatch")
-        file = pq.ParquetFile(pa.BufferReader(raw))
-        footer = file.schema_arrow.metadata or {}
-        a._check(footer[_LAYOUT].decode() == key.row_layout_digest.value
-                 and footer[_REPOSITORY].decode() == key.repository_id and file.metadata.num_rows == target.row_count,
-                 "cache payload footer binding mismatch")
-        result.append({"target": target.model_dump(mode="json"), "registered": not discard,
-                       "payload_retained_and_verified": True})
-    return result
-
-
 def _cache_command(env: dict[str, str], output: Path, name: str, *, discard: bool) -> None:
-    command = ["exec", "-T", "backend", "python", "-m", __name__, "cache", "/run/gateway/history-targets.json"]
+    command = ["exec", "-T", "backend", "python", "/run/gateway/history-cache-probe.py", "cache", "/run/gateway/history-targets.json"]
     if discard:
         command.append("--discard")
     result = a._logged_compose(env, output, name, *command)
@@ -396,17 +278,24 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
         targets_path = clone / "history-targets.json"
         targets_path.write_bytes(TARGETS.dump_json(targets))
         targets_path.chmod(0o444)
+        probe_path = clone / "history-cache-probe.py"
+        probe_source = Path(__file__).with_name("comparison_correctness_cache_probe.py")
+        probe_path.write_bytes(probe_source.read_bytes())
+        probe_path.chmod(0o444)
+        a._check(a._file_sha(probe_path) == a._file_sha(probe_source), "mounted probe differs from committed source")
         compose = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
         for service in ("backend", "worker"):
-            compose["services"][service].setdefault("volumes", []).append({"type": "bind", "source": str(targets_path),
-                "target": "/run/gateway/history-targets.json", "read_only": True, "bind": {"create_host_path": False}})
-        compose["services"]["worker"]["command"] = ["python", "-m", __name__, "worker", "/run/gateway/history-targets.json"]
+            for host_path, container_path in ((targets_path, "/run/gateway/history-targets.json"),
+                                               (probe_path, "/run/gateway/history-cache-probe.py")):
+                compose["services"][service].setdefault("volumes", []).append({"type": "bind", "source": str(host_path),
+                    "target": container_path, "read_only": True, "bind": {"create_host_path": False}})
+        compose["services"]["worker"]["command"] = ["python", "/run/gateway/history-cache-probe.py", "worker", "/run/gateway/history-targets.json"]
         a._check(str(source_root) not in json.dumps(compose) and str(source_run) not in json.dumps(compose),
                  "supplement Compose still mounts a source path")
         a._write(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]), compose)
         a._write(output / "clone.json", {"root": str(clone), "targets": [target.model_dump() for target in targets],
             "source_storage_sha256": a._file_sha(source_root / "storage-layout.json"),
-            "clone_storage_sha256": a._file_sha(clone / "storage-layout.json"), "owner_sha256": a._file_sha(clone / ".gateway-runtime-fixture-owner.json")})
+            "clone_storage_sha256": a._file_sha(clone / "storage-layout.json"), "probe_sha256": a._file_sha(probe_path), "owner_sha256": a._file_sha(clone / ".gateway-runtime-fixture-owner.json")})
         harness._assert_port_8000_available_for_gate(env["COMPOSE_PROJECT_NAME"])
         harness.build_compose_stack_images(env)
         up = a._logged_compose(env, output, "stack-up", "up", "-d", "--no-build", "repository-service", "backend", "worker")
@@ -446,25 +335,3 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
             a._check(tree_manifest(source_root / "roots") == original, "source fixture changed during supplement")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("worker", "cache"))
-    parser.add_argument("targets", type=Path)
-    parser.add_argument("--discard", action="store_true")
-    args = parser.parse_args()
-    targets = TARGETS.validate_json(args.targets.read_bytes(), strict=True)
-    a._check(len(targets) == 2 and {target.table_name for target in targets} == {"iec104_cfg", "b1_n11_iec104_syx_list"}
-             and len({target.key() for target in targets}) == 2, "exactly two distinct authorized targets required")
-    if args.mode == "cache":
-        print(json.dumps(cache_action(targets, discard=args.discard), ensure_ascii=False))
-        return
-    a._check(not args.discard, "worker cannot prepare cache state")
-    from gateway_backend.application.history import compare_jobs
-    from gateway_backend.bootstrap import operation_worker
-    setattr(operation_worker, "ControlDbSnapshotTableExportCache", observed_cache_type(targets))
-    compare_jobs._ensure_history_demands_once = observe_history(compare_jobs._ensure_history_demands_once)
-    raise SystemExit(operation_worker.main())
-
-
-if __name__ == "__main__":
-    main()

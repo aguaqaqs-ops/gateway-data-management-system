@@ -84,7 +84,7 @@ def test_cross_repository_bundle_compares_rows_and_bindings(tmp_path: Path) -> N
             media_type="application/vnd.apache.parquet")
         binding = BundleArtifactBinding(ref, f"pairs/pair/tables/{side}/device.parquet",
             BundleArtifactKind.SNAPSHOT_TABLE, pair_id="pair", table_name="device")
-        result = assemble_bundle(_request((BundlePairInput("pair", 0, 1, _surface_result(),
+        result = assemble_bundle(_request((BundlePairInput("pair", 0, 1, _surface_result(root_ref=ref),
             BundleArtifactClosure((binding,))),)), source_store=store)
         assert result.bundle is not None
         prepared = prepare_bundle_download(store, result.bundle.manifest_ref.artifact_id)
@@ -100,5 +100,6 @@ def test_cross_repository_bundle_compares_rows_and_bindings(tmp_path: Path) -> N
     changed = bundle("changed", "repo-right", 8)
     other_side = bundle("other-side", "repo-right", 7, "before")
     assert compare(left, right, left_repository="repo-left", right_repository="repo-right")["equal"] is True
+    assert compare(left, left, left_repository="repo-left", right_repository="repo-right")["equal"] is False
     assert compare(left, changed, left_repository="repo-left", right_repository="repo-right")["equal"] is False
     assert compare(left, other_side, left_repository="repo-left", right_repository="repo-right")["equal"] is False

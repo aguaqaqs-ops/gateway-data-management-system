@@ -96,6 +96,7 @@ def _compare_roles(roles: list[str], lentries: dict[str, BundleClosureEntry],
                    left: Path, right: Path, left_repository: str, right_repository: str,
                    lmanifest: dict[str, Any], rmanifest: dict[str, Any]) -> dict[str, Any]:
     equivalent: set[str] = set()
+    pending_json: dict[str, tuple[Any, Any]] = {}
     for role in roles:
         if role not in lentries or role not in rentries:
             differences.append({"role": role, "reason": "missing or changed pair/table/side binding"})
@@ -106,15 +107,17 @@ def _compare_roles(roles: list[str], lentries: dict[str, BundleClosureEntry],
         if le.artifact_ref.media_type != re.artifact_ref.media_type:
             differences.append({"role": role, "reason": "media type differs"})
             continue
-        if le.raw_sha256 == re.raw_sha256 and le.size_bytes == re.size_bytes:
-            equivalent.add(role)
-            continue
         if le.kind is BundleArtifactKind.SNAPSHOT_TABLE and le.artifact_ref.media_type == "application/vnd.apache.parquet":
             ls = left_tar.extractfile(le.logical_path)
             rs = right_tar.extractfile(re.logical_path)
             if ls is not None and rs is not None and _parquet_equal(ls, rs, left_repository, right_repository):
                 equivalent.add(role)
-                continue
+            else:
+                differences.append({"role": role, "reason": "snapshot content, metadata, or repository scope differs"})
+            continue
+        if le.raw_sha256 == re.raw_sha256 and le.size_bytes == re.size_bytes:
+            equivalent.add(role)
+            continue
         if ("json" in le.artifact_ref.media_type.casefold()
                 and le.size_bytes <= 16 * 1024**2 and re.size_bytes <= 16 * 1024**2):
             try:
@@ -127,10 +130,23 @@ def _compare_roles(roles: list[str], lentries: dict[str, BundleClosureEntry],
             except ValueError:
                 differences.append({"role": role, "reason": "JSON decoding failed"})
                 continue
-            if _map_value(lv, refs=lrefs, paths=lpaths) == _map_value(rv, refs=rrefs, paths=rpaths):
-                equivalent.add(role)
-                continue
+            pending_json[role] = (lv, rv)
+            continue
         differences.append({"role": role, "reason": "member content differs"})
+    # Propagate only from content already proven equivalent. Unresolved cycles or
+    # fields not covered by a complete exact ref stay unequal, not masked.
+    while pending_json:
+        newly_equivalent = {
+            role for role, (lv, rv) in pending_json.items()
+            if _map_proven_refs(lv, lentries, equivalent) == _map_proven_refs(rv, rentries, equivalent)
+        }
+        if not newly_equivalent:
+            break
+        equivalent.update(newly_equivalent)
+        for role in newly_equivalent:
+            del pending_json[role]
+    differences.extend({"role": role, "reason": "JSON content or unresolved child reference differs"}
+                       for role in sorted(pending_json))
     if (_manifest_roles(lmanifest, lentries, lrefs, lpaths, equivalent)
             != _manifest_roles(rmanifest, rentries, rrefs, rpaths, equivalent)):
         differences.append({"role": "manifest", "reason": "verified manifest differs after proven scope mapping"})
@@ -140,6 +156,22 @@ def _compare_roles(roles: list[str], lentries: dict[str, BundleClosureEntry],
         "scope_mapping": "only verified closure identities and integrity values of proven-equivalent members map to exact roles; snapshot footer repository mapped to supplied identities",
         "retained": "all business, risk, navigation, table, side, pair and time fields; non-closure digests compared strictly",
         "limitation": "scope-derived digest or binary differences remain unequal pending investigation"}
+
+
+def _map_proven_refs(value: Any, entries: dict[str, BundleClosureEntry], equivalent: set[str]) -> Any:
+    if isinstance(value, list):
+        return [_map_proven_refs(item, entries, equivalent) for item in value]
+    if isinstance(value, dict):
+        if set(value) == {"artifact_id", "media_type", "size_bytes", "raw_sha256"}:
+            matches = [role for role, entry in entries.items()
+                if value == {"artifact_id": entry.artifact_ref.artifact_id,
+                             "media_type": entry.artifact_ref.media_type,
+                             "size_bytes": entry.artifact_ref.size_bytes,
+                             "raw_sha256": entry.artifact_ref.raw_sha256.value}]
+            if matches and all(role in equivalent for role in matches):
+                return {"verified_equivalent_roles": sorted(matches), "media_type": value["media_type"]}
+        return {key: _map_proven_refs(item, entries, equivalent) for key, item in value.items()}
+    return value
 
 
 def _manifest_roles(manifest: dict[str, Any], entries: dict[str, BundleClosureEntry], refs: dict[str, str],
@@ -171,7 +203,7 @@ def _manifest_roles(manifest: dict[str, Any], entries: dict[str, BundleClosureEn
             if "integrity" in item:
                 item["integrity"]["raw_sha256"] = token
                 item["integrity"]["size_bytes"] = token
-    return _map_value(doc, refs=refs, paths=paths)
+    return _map_value(_map_proven_refs(doc, entries, equivalent), refs=refs, paths=paths)
 
 
 def _parquet_equal(left: Any, right: Any, left_repository: str, right_repository: str) -> bool:

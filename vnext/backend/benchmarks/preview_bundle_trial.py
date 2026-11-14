@@ -56,6 +56,32 @@ def _resource_snapshot(env: dict[str, str]) -> dict[str, Any]:
     return snapshot
 
 
+def _collect_bundle_metrics(output: Path) -> None:
+    operations: list[str] = []
+    for path in sorted((output / "journey" / "attempts").glob("attempt-*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(record.get("operation_id"), str):
+            operations.append(record["operation_id"])
+    matched: dict[str, list[dict[str, Any]]] = {key: [] for key in operations}
+    text = (output / "worker-observation-stdout.log").read_text(encoding="utf-8")
+    marker = "s3_preview_stage_metrics "
+    for line in text.splitlines():
+        if marker not in line:
+            continue
+        try:
+            item = json.loads(line.split(marker, 1)[1])
+        except json.JSONDecodeError:
+            continue
+        if item.get("stage") == "bundle_assembly" and item.get("operation_id") in matched:
+            matched[item["operation_id"]].append(item)
+    report = []
+    for operation in operations:
+        items = matched[operation]
+        report.append({"operation_id": operation, "observation": items[0] if len(items) == 1 else None,
+                       "status": "observed" if len(items) == 1 else "unknown", "matching_log_count": len(items)})
+    steps._write(output / "bundle-metrics.json", report)
+
+
 def _clean_expected(head: str) -> None:
     _check(re.fullmatch(r"[0-9a-f]{40}", head) is not None and _git("rev-parse", "HEAD") == head,
            "expected committed HEAD is required")
@@ -125,6 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         steps._write(output / "resources-end.json", _resource_snapshot(env))
         logs = _logged_compose(env, output, "worker-observation", "logs", "--no-color", "worker", timeout=120)
         _check(logs.returncode == 0, "worker metrics log capture failed")
+        _collect_bundle_metrics(output)
         _clean_expected(args.expected_head)
         _finish_stack(env, output, _RunState(), None)
         _idle()

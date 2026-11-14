@@ -2928,29 +2928,69 @@ test("D review MODIFIED_ONLY exposes its one fixed pair", async ({ page }) => {
 });
 
 for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE", "SCOPE_FORBIDDEN"] as const) {
-  test(`D review cached result preserves server ${code} and offers re-read`, async ({ page }) => {
-    const options: { reviewResultError?: typeof code } = {};
-    const observed = await installFixtureRoutes(page, options);
-    await page.goto(browseUrl("REVIEW", "preview-full"));
-    await waitForBrowse(page);
-    await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
-    await waitForBrowse(page);
-    options.reviewResultError = code;
-    await page.reload();
-    await expect(page.locator(".compare-error")).toContainText(code);
-    await expect(page.locator(".compare-workspace")).toHaveCount(0);
-    await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
-    const title = code === "SUBMISSION_RESULT_UNAVAILABLE" ? "提交绑定的比较结果不可用"
-      : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE" ? "提交绑定的比较结果完整性校验失败" : "当前身份没有该操作的权限";
-    await expect(page.locator(".compare-error").getByRole("heading", { name: title, exact: true })).toBeVisible();
-    await screenshot(page, `d-review-error-${code.toLowerCase()}`, 1920);
-    await screenshot(page, `d-review-error-${code.toLowerCase()}`, 1280);
-    options.reviewResultError = undefined;
-    await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
-    await waitForBrowse(page);
-    expect(observed.requests.get("preview-full")).toBe(1);
-    expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
-  });
+  for (const firstOpen of [false, true]) {
+    test(`D review ${firstOpen ? "first open" : "cached result"} preserves server ${code} and offers re-read`, async ({ page }) => {
+      const options: { reviewResultError?: typeof code; reviewVersion?: number } = {
+        reviewResultError: firstOpen ? code : undefined, reviewVersion: firstOpen ? 9 : 5,
+      };
+      const observed = await installFixtureRoutes(page, options);
+      await page.goto(browseUrl("REVIEW", "preview-full"));
+      if (!firstOpen) await waitForBrowse(page);
+      const ownWithdraw = firstOpen && code === "SUBMISSION_RESULT_INTEGRITY_FAILURE";
+      await page.getByRole("combobox", { name: "模拟身份" }).selectOption(ownWithdraw ? "submitter" : "reviewer");
+      if (!firstOpen) {
+        await waitForBrowse(page);
+        options.reviewResultError = code;
+        await page.reload();
+      }
+      await expect(page.locator(".compare-error")).toContainText(code);
+      await expect(page.locator(".compare-workspace")).toHaveCount(0);
+      const allowed = code !== "SCOPE_FORBIDDEN";
+      await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
+      if (allowed) await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
+      else await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
+      const title = code === "SUBMISSION_RESULT_UNAVAILABLE" ? "提交绑定的比较结果不可用"
+        : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE" ? "提交绑定的比较结果完整性校验失败" : "当前身份没有该操作的权限";
+      await expect(page.locator(".compare-error").getByRole("heading", { name: title, exact: true })).toBeVisible();
+      for (const width of [1920, 1280]) await screenshot(page, `d-review-${firstOpen ? "first" : "cached"}-error-${code.toLowerCase()}`, width);
+      if (allowed) {
+        await page.getByRole("button", { name: "退回", exact: true }).click();
+        const reject = page.getByRole("dialog", { name: "退回提交" });
+        await expect(reject).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}），退回后提交人需重新上传`);
+        await expect(reject.getByRole("button", { name: "确认退回" })).toBeDisabled();
+        await reject.getByRole("textbox", { name: "退回理由" }).fill(`结果无法读取：${code}，请重新上传`);
+        for (const width of [1920, 1280]) await screenshot(page, `d-review-${firstOpen ? "first" : "cached"}-reject-${code.toLowerCase()}`, width);
+        if (firstOpen && !ownWithdraw) {
+          await reject.getByRole("button", { name: "确认退回" }).click();
+          await expect(page.getByText("审核：已退回", { exact: true })).toBeVisible();
+        } else await reject.getByRole("button", { name: "取消" }).click();
+        if (ownWithdraw) {
+          await page.getByRole("button", { name: "撤回", exact: true }).click();
+          const withdraw = page.getByRole("dialog", { name: "撤回提交" });
+          await expect(withdraw).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}）`);
+          await expect(withdraw.getByRole("button", { name: "确认撤回" })).toBeDisabled();
+          await withdraw.getByRole("checkbox").check();
+          await withdraw.getByRole("button", { name: "确认撤回" }).click();
+          await expect(page.getByText("审核：已撤回", { exact: true })).toBeVisible();
+        }
+        if (firstOpen) {
+          const posts = observed.apiRequests.filter((request) => request.path.endsWith("/review-events"));
+          expect(posts).toHaveLength(1);
+          const body = JSON.parse(posts[0]!.body);
+          expect(body.action).toBe(ownWithdraw ? "WITHDRAW" : "REJECT");
+          expect(body.expected_review_version).toBe(9);
+          if (!ownWithdraw) expect(body.reason.trim()).not.toBe("");
+          if (ownWithdraw) expect(posts[0]!.token).toBe("Bearer dev-token-submitter");
+          await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
+        }
+      }
+      options.reviewResultError = undefined;
+      await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
+      await waitForBrowse(page);
+      expect(observed.requests.get("preview-full")).toBe(1);
+      expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+    });
+  }
 }
 
 
@@ -3006,7 +3046,8 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     } finally { hold.resolve(); }
     await expect(page.locator(".compare-error")).toContainText(code);
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
     expect(observed.apiRequests.filter((request) => request.path.endsWith("/review-events"))).toHaveLength(1);
     await screenshot(page, `d-p2-conflict-${code.toLowerCase()}`, 1920);
     await screenshot(page, `d-p2-conflict-${code.toLowerCase()}`, 1280);

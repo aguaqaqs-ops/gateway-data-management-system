@@ -123,7 +123,11 @@ def _gateway_data(root: Path) -> tuple[Path, Path, Path]:
 
 def test_production_fixture_clone_is_usable_by_gateway_uid_gid(monkeypatch: pytest.MonkeyPatch) -> None:
     assert os.geteuid() == 0, "the gateway uid100/gid101 vector requires the dedicated root executor"
-    with tempfile.TemporaryDirectory(prefix="e-cs2-", dir=os.environ["TMPDIR"]) as directory:
+    # The host test TMPDIR is root-only (0700). Container bind mounts do not
+    # expose that ancestor, and SQLite resolves relative names to absolute
+    # paths. Use only our own directory on the same filesystem under its
+    # traversable parent; do not chmod the shared TMPDIR or any source path.
+    with tempfile.TemporaryDirectory(prefix="gdds-e-cs2-", dir=Path(os.environ["TMPDIR"]).parent) as directory:
         base = Path(directory)
         base.chmod(0o755)
         with _runtime_fixture(base, monkeypatch) as (_source_env, source), _runtime_fixture(base, monkeypatch) as (_clone_env, clone):

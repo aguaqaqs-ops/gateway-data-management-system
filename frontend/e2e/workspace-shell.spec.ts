@@ -2990,7 +2990,8 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
         if (ownWithdraw) {
           await page.getByRole("button", { name: "撤回", exact: true }).click();
           const withdraw = page.getByRole("dialog", { name: "撤回提交" });
-          await expect(withdraw).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}）`);
+          await expect(withdraw).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}），撤回后提交人需重新上传`);
+          for (const width of [1920, 1280]) await screenshot(page, `d-review-${download ? "download" : "first"}-withdraw-${code.toLowerCase()}`, width);
           await expect(withdraw.getByRole("button", { name: "确认撤回" })).toBeDisabled();
           await withdraw.getByRole("checkbox").check();
           await withdraw.getByRole("button", { name: "确认撤回" }).click();

@@ -261,6 +261,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [error, setError] = useState<{ code: string; details: string } | null>(null);
   const [historyCompareStatus, setHistoryCompareStatus] = useState<components["schemas"]["HistoryCompareResultResponse"]["status"] | null>(null);
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
+  const [reviewResultChecking, setReviewResultChecking] = useState(false);
   const [reviewResultErrorCode, setReviewResultErrorCode] = useState<string>();
   const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
@@ -472,7 +473,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     if (loadingKey.current === requestKey) return;
     loadingKey.current = requestKey;
     setError(null); setReviewResultErrorCode(undefined); setHistoryCompareStatus(null);
-    if (current.mode === "REVIEW") setBundle(null);
+    if (current.mode === "REVIEW") setReviewResultChecking(true);
     if (loadedRequest.current?.requestPath !== requestPath) { setBundle(null); setPairs([]); }
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
@@ -541,7 +542,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       setBundle(null); setPairs([]);
       setError(bundleErrorState(cause, details));
     } finally {
-      if (loadingKey.current === requestKey) loadingKey.current = null;
+      if (loadingKey.current === requestKey) {
+        loadingKey.current = null;
+        if (current.mode === "REVIEW") setReviewResultChecking(false);
+      }
     }
   }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime, sessionState.kind, readReviewContext]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
@@ -858,7 +862,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             onRetry={() => void refreshUploadMode()}
             onSubmit={() => { clearResumeNotice(); setSubmitOpen(true); }}
           />}
-          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} resultErrorCode={reviewResultErrorCode} onFactsChanged={setReviewFacts} onReviewSettled={reloadReviewContext} errorNoticeHost={reviewNoticeRef} />}
+          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle) && !reviewResultChecking} resultErrorCode={reviewResultErrorCode} onFactsChanged={setReviewFacts} onReviewSettled={reloadReviewContext} errorNoticeHost={reviewNoticeRef} />}
         </div>
         <details className="compare-more">
           <summary aria-label="更多" title="更多"><MoreHorizontal size={17} /></summary>

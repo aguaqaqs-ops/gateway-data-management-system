@@ -142,7 +142,10 @@ def test_production_fixture_clone_is_usable_by_gateway_uid_gid(monkeypatch: pyte
                 "conn.execute(\"INSERT INTO ownership_probe VALUES ('clone')\"); conn.commit(); "
                 "assert conn.execute('SELECT count(*) FROM ownership_probe').fetchone()[0]==2; conn.close()"
             )
-            args = [str(clone / path.relative_to(source)) for path in (manifest, lock, database)]
+            # A container bind exposes the fixture inode, not the host's
+            # root-only TMPDIR ancestors. Enter our fixture before dropping
+            # identity and resolve only paths inside that view.
+            args = [str((clone / path.relative_to(source)).relative_to(base)) for path in (manifest, lock, database)]
             completed = subprocess.run(["/usr/bin/python3", "-I", "-c", script, *args],
                 cwd=base, user=100, group=101, extra_groups=[], capture_output=True, text=True, check=False)
             assert completed.returncode == 0, completed.stderr

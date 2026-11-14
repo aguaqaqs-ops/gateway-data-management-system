@@ -15,8 +15,9 @@ from pathlib import Path
 import re
 import shutil
 import sqlite3
+import stat
 import sys
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -40,6 +41,16 @@ class FileRecord(a._Document):
     path: str
     sha256: str
     bytes: int
+
+
+class TreeEntry(a._Document):
+    path: str
+    kind: Literal["file", "directory"]
+    uid: int
+    gid: int
+    mode: int
+    bytes: int | None = None
+    sha256: str | None = None
 
 
 class SourceStart(a._Document):
@@ -116,32 +127,96 @@ def validate_trace(raw: str, targets: list[Target], operations: list[str], commi
     return [event.model_dump(mode="json") for event in events]
 
 
-def tree_manifest(root: Path) -> list[FileRecord]:
+def tree_manifest(root: Path) -> list[TreeEntry]:
     result = []
     a._check(root.is_dir() and not root.is_symlink(), "source root is not an ordinary directory")
-    for path in sorted(root.rglob("*")):
-        a._check(not path.is_symlink(), "fixture source contains a symlink")
-        if path.is_file():
-            result.append(FileRecord(path=str(path.relative_to(root)), bytes=path.stat().st_size, sha256=a._file_sha(path)))
-        else:
-            a._check(path.is_dir(), "fixture source contains a special file")
+    for path in (root, *sorted(root.rglob("*"))):
+        info = path.lstat()
+        a._check(stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode),
+                 "fixture source contains a symlink or special file")
+        entry = TreeEntry(path=str(path.relative_to(root)),
+            kind="file" if stat.S_ISREG(info.st_mode) else "directory",
+            uid=info.st_uid, gid=info.st_gid, mode=stat.S_IMODE(info.st_mode))
+        if entry.kind == "file":
+            entry.bytes, entry.sha256 = info.st_size, a._file_sha(path)
+        result.append(entry)
     return result
 
 
-def clone_roots(source: Path, destination: Path) -> list[FileRecord]:
+def clone_roots(source: Path, destination: Path) -> list[TreeEntry]:
     a._check(not source.resolve().is_relative_to(destination.resolve())
              and not destination.resolve().is_relative_to(source.resolve()), "fixture clone overlaps source")
     before = tree_manifest(source)
     existing = tree_manifest(destination)
     source_by_path = {item.path: item for item in before}
-    a._check(all(Path(item.path).name == ".gateway-storage.json" and len(Path(item.path).parts) == 2
-                 and source_by_path.get(item.path) == item for item in existing),
-             "fixture clone destination contains prior data or different storage identities")
+    for item in existing:
+        original = source_by_path.get(item.path)
+        a._check(original is not None and item.kind == original.kind, "fixture clone destination has foreign paths")
+        if item.kind == "file":
+            a._check(Path(item.path).name == ".gateway-storage.json" and len(Path(item.path).parts) == 2
+                     and original is not None and item.bytes == original.bytes and item.sha256 == original.sha256,
+                     "fixture clone destination contains prior data or different storage identities")
     shutil.copytree(source, destination, dirs_exist_ok=True,
         ignore=lambda directory, names: [".gateway-storage.json"] if Path(directory).parent == source else [])
+    # copy2/copytree do not preserve ownership. Apply it only to this new clone,
+    # descendants first so final directory modes may be restrictive. chown may
+    # clear mode bits, therefore restore the exact source mode afterwards.
+    for item in sorted(before, key=lambda entry: len(Path(entry.path).parts), reverse=True):
+        target = destination / item.path
+        os.chown(target, item.uid, item.gid, follow_symlinks=False)
+        os.chmod(target, item.mode, follow_symlinks=False)
     a._check(tree_manifest(destination) == before and tree_manifest(source) == before,
-             "fixture clone bytes differ or source changed")
+             "fixture clone data/ownership/mode differ or source changed")
     return before
+
+
+def update_fixture_override(env: dict[str, str], targets_path: Path, probe_path: Path,
+                            source_root: Path, source_run: Path) -> None:
+    fixture = harness._runtime_fixtures.get(env["COMPOSE_PROJECT_NAME"])
+    a._check(fixture is not None, "override has no current fixture owner")
+    assert fixture is not None
+    directory, expected_owner = fixture
+    path = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"])
+    a._check(directory.resolve(strict=True) == directory.absolute()
+             and path == directory / "compose-runtime.json", "override is outside the current fixture")
+    owner_path = directory / ".gateway-runtime-fixture-owner.json"
+    a._check(not owner_path.is_symlink(), "fixture owner record is redirected")
+    owner_raw = owner_path.read_bytes()
+    owner = FixtureOwner.model_validate_json(owner_raw)
+    info = directory.stat()
+    a._check(owner.owner == expected_owner and owner.directory == str(directory)
+             and owner.device == info.st_dev and owner.inode == info.st_ino and owner.schema_version == 1,
+             "override fixture owner identity mismatch")
+    for mounted in (targets_path, probe_path):
+        a._check(mounted.parent == directory and mounted.is_file() and not mounted.is_symlink(),
+                 "supplement mount is outside the current fixture")
+    descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(descriptor)
+        a._check(stat.S_ISREG(opened.st_mode) and opened.st_uid == os.geteuid() and opened.st_nlink == 1,
+                 "override is not an owned ordinary file")
+        with os.fdopen(os.dup(descriptor), "r+", encoding="utf-8") as stream:
+            compose = json.load(stream)
+            for service in ("backend", "worker"):
+                for host_path, container_path in ((targets_path, "/run/gateway/history-targets.json"),
+                                                   (probe_path, "/run/gateway/history-cache-probe.py")):
+                    compose["services"][service].setdefault("volumes", []).append({"type": "bind", "source": str(host_path),
+                        "target": container_path, "read_only": True, "bind": {"create_host_path": False}})
+            compose["services"]["worker"]["command"] = ["python", "/run/gateway/history-cache-probe.py", "worker", "/run/gateway/history-targets.json"]
+            raw = json.dumps(compose, ensure_ascii=False, indent=2) + "\n"
+            a._check(str(source_root) not in raw and str(source_run) not in raw,
+                     "supplement Compose still mounts a source path")
+            a._check(owner_path.read_bytes() == owner_raw, "fixture ownership changed before override update")
+            stream.seek(0)
+            stream.write(raw)
+            stream.truncate()
+            stream.flush()
+            os.fsync(stream.fileno())
+        after = path.lstat()
+        a._check((after.st_dev, after.st_ino) == (opened.st_dev, opened.st_ino)
+                 and owner_path.read_bytes() == owner_raw, "fixture override identity changed")
+    finally:
+        os.close(descriptor)
 
 
 def _source(source: Path, source_root: Path, head: str) -> tuple[SourceStart, Repository, SubmissionResponse]:
@@ -283,16 +358,7 @@ def run_supplement(root: Path, output: Path, session: str, state: a._RunState,
         probe_path.write_bytes(probe_source.read_bytes())
         probe_path.chmod(0o444)
         a._check(a._file_sha(probe_path) == a._file_sha(probe_source), "mounted probe differs from committed source")
-        compose = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
-        for service in ("backend", "worker"):
-            for host_path, container_path in ((targets_path, "/run/gateway/history-targets.json"),
-                                               (probe_path, "/run/gateway/history-cache-probe.py")):
-                compose["services"][service].setdefault("volumes", []).append({"type": "bind", "source": str(host_path),
-                    "target": container_path, "read_only": True, "bind": {"create_host_path": False}})
-        compose["services"]["worker"]["command"] = ["python", "/run/gateway/history-cache-probe.py", "worker", "/run/gateway/history-targets.json"]
-        a._check(str(source_root) not in json.dumps(compose) and str(source_run) not in json.dumps(compose),
-                 "supplement Compose still mounts a source path")
-        a._write(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]), compose)
+        update_fixture_override(env, targets_path, probe_path, source_root, source_run)
         a._write(output / "clone.json", {"root": str(clone), "targets": [target.model_dump() for target in targets],
             "source_storage_sha256": a._file_sha(source_root / "storage-layout.json"),
             "clone_storage_sha256": a._file_sha(clone / "storage-layout.json"), "probe_sha256": a._file_sha(probe_path), "owner_sha256": a._file_sha(clone / ".gateway-runtime-fixture-owner.json")})

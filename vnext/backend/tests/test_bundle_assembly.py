@@ -76,7 +76,7 @@ class _TamperStore(InMemoryArtifactStore):
 
     def locate(self, ref: ArtifactRef) -> bytes:
         raw = super().locate(ref)
-        return raw + b"tampered" if ref.artifact_id == self._tamper_id else raw
+        return bytes([raw[0] ^ 1]) + raw[1:] if ref.artifact_id == self._tamper_id and raw else raw
 
 
 class _FailingDestinationStore(InMemoryArtifactStore):
@@ -96,10 +96,15 @@ class _RecordingStore(InMemoryArtifactStore):
     def __init__(self) -> None:
         super().__init__()
         self.put_refs: list[ArtifactRef] = []
+        self.locate_refs: list[ArtifactRef] = []
 
     def put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
         self.put_refs.append(ref)
         return super().put(raw_bytes, ref)
+
+    def locate(self, ref: ArtifactRef) -> bytes:
+        self.locate_refs.append(ref)
+        return super().locate(ref)
 
 
 def _raw_ref(
@@ -217,11 +222,40 @@ def test_unchanged_members_retain_exact_refs_and_only_same_store_skips_writes(
     assert result.status is BundleAssemblyStatus.READY
     assert result.bundle is not None
     assert ref in result.referenced_artifacts
+    assert source.locate_refs.count(ref) == (1 if independent_destination else 2)
+    if independent_destination:
+        assert target.locate_refs.count(ref) == 2
     assert target.locate(ref) == raw
     assert len(target.put_refs) == (5 if independent_destination else 3)
     assert (ref in target.put_refs) is independent_destination
     assert (NAVIGATION_REF in target.put_refs) is independent_destination
     validate_bundle(result.bundle, target)
+
+
+def test_final_validation_rejects_same_size_corrupt_member_from_adapter() -> None:
+    source = seed_navigation(_TamperStore(""))
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)), source_store=source,
+    )
+    assert result.bundle is not None
+    source._tamper_id = NAVIGATION_REF.artifact_id
+
+    with pytest.raises(ValueError, match="ARTIFACT_INTEGRITY_MISMATCH"):
+        validate_bundle(result.bundle, source)
+
+
+def test_independent_destination_rejects_corrupt_write_readback() -> None:
+    source = seed_navigation(InMemoryArtifactStore())
+    target = _TamperStore(NAVIGATION_REF.artifact_id)
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
+        source_store=source,
+        destination_store=target,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.bundle is None
+    assert result.diagnostics == ("ARTIFACT_CHANGED_DURING_PUBLICATION",)
 
 
 def test_reused_member_corrupted_during_publication_is_rejected_before_ready(

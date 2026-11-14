@@ -228,7 +228,7 @@ def assemble_bundle(
         ]
         for raw_bytes, ref in final_artifacts:
             target_store.put(raw_bytes, ref)
-            _verify_store_bytes(target_store, ref, raw_bytes)
+            _verify_written_bytes(target_store, ref, raw_bytes)
         closure_ref = put_with_built_ref(
             target_store,
             closure_raw,
@@ -241,8 +241,8 @@ def assemble_bundle(
             artifact_id=_bundle_artifact_id("manifest", manifest_raw),
             media_type=BUNDLE_MANIFEST_MEDIA_TYPE,
         )
-        _verify_store_bytes(target_store, closure_ref, closure_raw)
-        _verify_store_bytes(target_store, manifest_ref, manifest_raw)
+        _verify_written_bytes(target_store, closure_ref, closure_raw)
+        _verify_written_bytes(target_store, manifest_ref, manifest_raw)
         checkpoint()
 
         summary = BundleSummary(
@@ -359,7 +359,7 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
     for entry in entries:
         validate_bundle_ref(entry.artifact_ref, label="final closure artifact ref")
         raw = store.locate(entry.artifact_ref)
-        _verify_store_bytes(store, entry.artifact_ref, raw)
+        _verify_bytes(entry.artifact_ref, raw)
     expected_closure_digest = closure_digest(closure)
     if manifest.get("closure_manifest_digest") != expected_closure_digest.value:
         raise BundleAssemblyError("BUNDLE_CLOSURE_MANIFEST_DIGEST_MISMATCH")
@@ -594,7 +594,7 @@ def _plan_artifacts(
             raise
         except Exception as exc:
             raise BundleAssemblyError("SOURCE_ARTIFACT_NOT_FOUND") from exc
-        _verify_store_bytes(store, source_ref, raw)
+        _verify_bytes(source_ref, raw)
         rewritten = raw
         if _is_json_ref_bearing(source_ref):
             value = _json_object_or_value(raw)
@@ -809,9 +809,13 @@ def _bundle_id(bundle_digest: DigestRef) -> str:
     return f"bundle-{bundle_digest.value.removeprefix('sha256:')}"
 
 
-def _verify_store_bytes(store: ArtifactStorePort, ref: ArtifactRef, raw: bytes) -> None:
+def _verify_bytes(ref: ArtifactRef, raw: bytes) -> None:
     if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
         raise BundleAssemblyError("ARTIFACT_INTEGRITY_MISMATCH")
+
+
+def _verify_written_bytes(store: ArtifactStorePort, ref: ArtifactRef, raw: bytes) -> None:
+    _verify_bytes(ref, raw)
     located = store.locate(ref)
     if located != raw:
         raise BundleAssemblyError("ARTIFACT_CHANGED_DURING_PUBLICATION")

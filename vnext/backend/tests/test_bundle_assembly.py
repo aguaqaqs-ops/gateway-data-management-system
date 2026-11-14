@@ -31,6 +31,8 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
+    BundleTableBinding,
+    BundleTableSide,
     assemble_bundle,
     validate_bundle,
 )
@@ -354,6 +356,40 @@ def test_snapshot_table_reference_shared_between_sides_keeps_both_bindings() -> 
         {"pair_id": "pair", "side": "before", "table_name": "items"},
         {"pair_id": "pair", "side": "current", "table_name": "items"},
     ]
+
+
+def test_snapshot_shared_path_collision_cannot_alias_different_content() -> None:
+    source = seed_navigation(InMemoryArtifactStore())
+    parquet = "application/vnd.apache.parquet"
+    shared_raw = b"shared rows"
+    other_raw = b"different rows"
+    shared_refs = (_raw_ref("shared-one", shared_raw, parquet),
+                   _raw_ref("shared-two", shared_raw, parquet))
+    other_ref = _raw_ref("other-snapshot", other_raw, parquet)
+    for ref in shared_refs:
+        source.put(shared_raw, ref)
+    source.put(other_raw, other_ref)
+    pair_closure = BundleArtifactClosure(tuple(
+        BundleArtifactBinding(ref, f"pairs/pair/tables/current/table{index}.parquet",
+                              BundleArtifactKind.SNAPSHOT_TABLE, pair_id="pair",
+                              table_name=f"table{index}")
+        for index, ref in enumerate(shared_refs)
+    ))
+    conflicting_shared = BundleArtifactBinding(
+        other_ref,
+        f"shared/snapshot-tables/{shared_refs[0].raw_sha256.value.removeprefix('sha256:')}.parquet",
+        BundleArtifactKind.SNAPSHOT_TABLE, shared=True,
+        table_bindings=(BundleTableBinding("pair", "different", BundleTableSide.CURRENT),),
+    )
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result(), pair_closure),),
+                 shared=BundleArtifactClosure((conflicting_shared,))),
+        source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.bundle is None
+    assert result.diagnostics == ("DUPLICATE_FINAL_LOGICAL_PATH",)
 
 
 def test_multi_pair_identical_artifact_refs_are_shared() -> None:

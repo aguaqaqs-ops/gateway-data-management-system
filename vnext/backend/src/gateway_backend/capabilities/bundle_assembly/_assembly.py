@@ -595,16 +595,19 @@ def _plan_artifacts(
     checkpoint: Any,
 ) -> dict[ArtifactRef, _PlannedArtifact]:
     binding_by_source = {item.source_ref: item for item in bindings}
-    snapshot_sources: dict[str, list[ArtifactRef]] = {}
+    snapshot_sources: dict[tuple[str, str, int, str], list[ArtifactRef]] = {}
     for binding in binding_by_source.values():
         if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE:
-            snapshot_sources.setdefault(binding.logical_path, []).append(binding.source_ref)
+            ref = binding.source_ref
+            key = (binding.logical_path, ref.media_type, ref.size_bytes, ref.raw_sha256.value)
+            snapshot_sources.setdefault(key, []).append(ref)
     snapshot_representatives = {
-        path: min(refs, key=lambda ref: (
+        source_ref: min(refs, key=lambda ref: (
             parse_artifact_id(ref.artifact_id) is ArtifactLocation.CANONICAL,
             ref.artifact_id,
         ))
-        for path, refs in snapshot_sources.items()
+        for refs in snapshot_sources.values()
+        for source_ref in refs
     }
     planned: dict[ArtifactRef, _PlannedArtifact] = {}
     visiting: set[ArtifactRef] = set()
@@ -644,7 +647,7 @@ def _plan_artifacts(
             and parse_artifact_id(source_ref.artifact_id) is not ArtifactLocation.CANONICAL
         )
         final_ref = source_ref if reuse_source else _build_final_ref(source_ref, rewritten)
-        representative = snapshot_representatives.get(binding.logical_path)
+        representative = snapshot_representatives.get(source_ref)
         if representative is not None and representative != source_ref:
             representative_item = plan(representative)
             final_ref = representative_item.final_ref

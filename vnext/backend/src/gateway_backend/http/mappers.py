@@ -34,6 +34,7 @@ def workspace_to_response(result: CreateOrGetWorkspaceResult) -> WorkspaceRespon
         generation=workspace.generation,
         current_upload_revision_id=workspace.current_upload_revision_id,
         current_preview_result_id=workspace.current_preview_result_id,
+        active_preview_operation_id=result.active_preview_operation_id,
         active_submit_attempt_id=occupancy.active_submit_attempt_id if occupancy else None,
         active_submission_id=occupancy.active_submission_id if occupancy else None,
         optimistic_version=workspace.optimistic_version,

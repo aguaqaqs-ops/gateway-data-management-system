@@ -65,6 +65,9 @@ class WorkspaceRepository(Protocol):
     ) -> PreviewAcceptanceRecord | None:
         """Return a prior preview acceptance for the same workspace idempotency key."""
 
+    def find_active_preview_operation(self, workspace: Workspace) -> str | None:
+        """Recommend the newest active Preview for the current input."""
+
     def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
         """Return preview acceptances recorded for one workspace."""
 

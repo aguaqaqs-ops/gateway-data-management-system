@@ -153,6 +153,10 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_preview_idempotency(workspace_id, idempotency_key)
 
+    def find_active_preview_operation(self, workspace: Workspace) -> str | None:
+        with self._read_uow() as unit_of_work:
+            return unit_of_work.workspace.find_active_preview_operation(workspace)
+
     def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.list_preview_acceptances(workspace_id)

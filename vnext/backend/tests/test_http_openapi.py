@@ -195,7 +195,7 @@ def test_openapi_create_statuses_response_models_and_workspace_occupancy(client:
         for status in statuses:
             assert responses[status]["content"]["application/json"]["schema"] == {"$ref": f"#/components/schemas/{model}"}
     workspace = schema["components"]["schemas"]["WorkspaceResponse"]
-    for field in ("active_submit_attempt_id", "active_submission_id"):
+    for field in ("active_preview_operation_id", "active_submit_attempt_id", "active_submission_id"):
         assert field in workspace["required"]
         assert workspace["properties"][field]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert "RETURN_FOR_REVISION" not in str(schema)

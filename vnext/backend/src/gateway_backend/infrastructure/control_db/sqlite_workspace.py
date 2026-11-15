@@ -158,6 +158,24 @@ class SQLiteWorkspaceRepository:
             return None
         return _preview_acceptance_from_mapping(_row_mapping(row))
 
+    def find_active_preview_operation(self, workspace: Workspace) -> str | None:
+        if workspace.current_upload_revision_id is None:
+            return None
+        row = self._connection.execute(
+            """
+            SELECT o.operation_id
+            FROM preview_idempotency_records AS p
+            JOIN operation_records AS o ON o.operation_id = p.operation_id
+            WHERE p.workspace_id = ? AND p.generation = ? AND p.upload_revision_id = ?
+              AND o.job_kind = 'backend-vnext/preview' AND o.status IN ('QUEUED', 'RUNNING')
+              AND o.cancel_requested = 0
+            ORDER BY o.created_at_us DESC, o.operation_id DESC
+            LIMIT 1
+            """,
+            (workspace.workspace_id, workspace.generation, workspace.current_upload_revision_id),
+        ).fetchone()
+        return None if row is None else str(row[0])
+
     def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
         rows = self._connection.execute(
             f"""

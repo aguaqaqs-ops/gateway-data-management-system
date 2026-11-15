@@ -224,3 +224,46 @@ def test_start_preview_replays_after_new_upload_generation(
     )
     assert conflict.status_code == 409
     assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_workspace_recommends_latest_active_preview_for_current_input(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    workspace_url = "/v1/workspaces"
+    scope = {"gateway_device_external_key": "device-1", "business_project_id": "project-1"}
+
+    def recommendation() -> str | None:
+        response = env.client.post(workspace_url, headers=env.auth_headers(), json=scope)
+        assert response.status_code == 200
+        return response.json()["active_preview_operation_id"]  # type: ignore[no-any-return]
+
+    assert recommendation() is None
+    url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    ids = []
+    for key in ("preview-first", "preview-second"):
+        response = env.client.post(url, headers=env.auth_headers(idempotency_key=key),
+                                   json=_preview_body(workspace, upload))
+        assert response.status_code == 202, response.text
+        ids.append(response.json()["operation_id"])
+    # Equal acceptance times are ordered by operation ID, not insertion order.
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET created_at_us = 42 WHERE operation_id IN (?, ?)", ids)
+    newest, older = sorted(ids, reverse=True)
+    assert recommendation() == newest
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET cancel_requested = 1 WHERE operation_id = ?", (newest,))
+        uow.connection.execute("UPDATE operation_records SET status = 'RUNNING' WHERE operation_id = ?", (older,))
+    assert recommendation() == older
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET status = 'FAILED', completed_at_us = updated_at_us WHERE operation_id = ?", (older,))
+    assert recommendation() is None
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET cancel_requested = 0 WHERE operation_id = ?", (newest,))
+    assert recommendation() == newest
+    replacement = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-replacement"), files=upload_files(),
+    )
+    assert replacement.status_code == 201, replacement.text
+    assert recommendation() is None

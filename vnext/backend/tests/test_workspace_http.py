@@ -37,6 +37,7 @@ def test_create_workspace_returns_201(env: WorkspaceHttpTestEnvironment) -> None
     assert body["state"] == "OPEN"
     assert body["generation"] == 0
     assert body["optimistic_version"] == 0
+    assert body["active_preview_operation_id"] is None
     assert body["active_submit_attempt_id"] is None
     assert body["active_submission_id"] is None
 

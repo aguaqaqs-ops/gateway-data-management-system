@@ -22,7 +22,7 @@
     },
     {
       "path": "diagnostic-codes.json",
-      "sha256": "a1717d5da0cb7acd13747a737dea11599c12befe959b6fa7255799a249f31691",
+      "sha256": "5a9796515e4408e844d99693f237533748990c23933351babd8469c013e9f162",
       "source": "Business Navigation validator params and current owning diagnostic emit mapping"
     },
     {
@@ -904,27 +904,27 @@
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
-  "rejected_source_inputs": [
+  "retained_source_inputs": [
     {
       "sql": "sql-baseline.sql",
       "xml": "logics-1.xml",
-      "expected_code": "KEY_MISSING",
       "expected_table": "b1_n1_iec104_yc_list",
-      "replacement": "sql-baseline-canonical.sql"
+      "missing_column": "gid",
+      "comparison_source": "sql-baseline-canonical.sql"
     },
     {
       "sql": "sql-initial.sql",
       "xml": "logics-2.xml",
-      "expected_code": "KEY_MISSING",
       "expected_table": "b1_n1_iec104_yc_list",
-      "replacement": "sql-initial-canonical.sql"
+      "missing_column": "gid",
+      "comparison_source": "sql-initial-canonical.sql"
     },
     {
       "sql": "sql-modified.sql",
       "xml": "logics-3.xml",
-      "expected_code": "KEY_MISSING",
       "expected_table": "b1_n1_iec104_yc_list",
-      "replacement": "sql-modified-canonical.sql"
+      "missing_column": "gid",
+      "comparison_source": "sql-modified-canonical.sql"
     }
   ]
 }

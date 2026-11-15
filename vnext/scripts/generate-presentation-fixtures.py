@@ -362,21 +362,23 @@ def generate(input_root: Path, output_root: Path) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     _init_kernel_native(1)
     records = []
-    rejected_sources = []
+    retained_sources = []
     with fixed_fixture_inputs(), tempfile.TemporaryDirectory(prefix="presentation-fixtures-") as temporary:
         scratch = ScratchSpace(Path(temporary), max_bytes=2 * 1024**3)
-        for source in manifest.get("rejected_source_inputs", []):
+        for source in manifest.get("retained_source_inputs", []):
             with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
-                with scratch.session(owner="operation:presentation-fixture-rejection") as session, scratch_scope(session):
-                    try:
-                        materialize(inputs[source["sql"]], inputs[source["xml"]], InMemoryArtifactStore())
-                    except ValueError as exc:
-                        message = str(exc)
-                        if source["expected_code"] not in message or source["expected_table"] not in message:
-                            raise
-                        rejected_sources.append({**source, "actual_result": "FAILED", "actual_message": message})
-                    else:
-                        raise ValueError("frozen source no longer reproduces its documented projection rejection")
+                with scratch.session(owner="operation:presentation-fixture-retained") as session, scratch_scope(session):
+                    result = materialize(inputs[source["sql"]], inputs[source["xml"]], InMemoryArtifactStore())
+                    assert result.bound.table_set is not None
+                    table = next(t for t in result.bound.table_set.tables
+                                 if t.descriptor.table_name == source["expected_table"])
+                    if source["missing_column"] in {c.name for c in table.descriptor.columns}:
+                        raise ValueError("frozen source no longer retains its missing column")
+                    facts = next(f for f in result.bound.storage_facts
+                                 if f.storage_rule_view.canonical_table == source["expected_table"])
+                    if facts.storage_rule_view.ordered_policy.value != "NONE":
+                        raise ValueError("frozen source unexpectedly has ordered storage")
+                    retained_sources.append({**source, "actual_result": "COMPLETE"})
         for scenario in manifest["scenarios"]:
             print("scenario=" + scenario["id"], flush=True)
             with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
@@ -403,7 +405,7 @@ def generate(input_root: Path, output_root: Path) -> None:
             "history_node_ref_ids": "fixture-history-ref-<node-index>; roles match History producer",
             "bundle_inputs": "Preview role/English label; History ref_id/node-i; snapshot_digest=null in both",
             "kernel_threads": 1, "memory_budget_bytes": 8 * 1024**3},
-        "rejected_frozen_sources": rejected_sources, "scenarios": records}
+        "retained_frozen_sources": retained_sources, "scenarios": records}
     write_member(output_root, "index.json", canonicalize_json_value(index))
     print(json.dumps({"generator_commit": commit, "scenario_count": len(records), "index_sha256":
         hashlib.sha256((output_root / "index.json").read_bytes()).hexdigest()}, sort_keys=True))

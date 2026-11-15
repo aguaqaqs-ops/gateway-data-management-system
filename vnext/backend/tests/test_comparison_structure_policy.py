@@ -186,7 +186,7 @@ def test_native_ordered_changes_are_not_hidden(change: str) -> None:
     before = "CREATE TABLE t(gid BIGINT,no INT,v INT,old TEXT); INSERT INTO t VALUES(1,1,10,'x'),(2,2,20,'x');"
     inserts = {
         "moved": "(2,1,20),(1,2,10)",
-        "position": "(1,2,10),(2,3,20)",
+        "position": "(3,1,30),(1,2,10),(2,3,20)",
         "blank": "(1,1,10),(NULL,2,NULL),(2,3,20)",
         "retained": "(1,1,11),(2,2,20)",
     }
@@ -194,6 +194,9 @@ def test_native_ordered_changes_are_not_hidden(change: str) -> None:
     with closing(native_product(before, current, ordered=True, compare_excluded_columns=("v",) if change == "retained" else ())) as product:
         assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
         table, = product.result.facts.tables
+        if change == "position":
+            assert table.ordered_extension is not None
+            assert table.ordered_extension.ordered_summary.position_changed_count > 0
         assert not structure_change_is_audit_only(table)
 
 

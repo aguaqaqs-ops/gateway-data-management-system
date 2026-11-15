@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from tests.support.native_projection import project_storage, project_canonical_fixture
+from tests.support.native_projection import project_storage
+from tests.support.snapshot_materialization import snapshot_table_as_arrow
 
 import struct
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -48,6 +50,7 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionRequest,
     ProjectionStatus,
     ProjectionTableInput,
+    project_canonical_arrow_table_set,
     STORAGE_PROJECTION_VERSION,
     build_repository_import_package,
     render_repository_import_schema_replay_sql,
@@ -57,6 +60,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
     SqlSetValue,
 )
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.capabilities.table_access.contracts import PARSER_VERSION
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
@@ -252,8 +256,16 @@ def test_canonical_snapshot_identity(
             SnapshotTable(descriptor=composite_binding.descriptor, reader=composite_reader),
         ),
     )
-    canonical = project_canonical_fixture(raw_table_set, _RULESET)
+    table_comments = {"b1_n1_iec104_syx_list": "遥信引用表"}
+    canonical = project_canonical_arrow_table_set(
+        replace(raw_table_set, tables=tuple(snapshot_table_as_arrow(table) for table in raw_table_set.tables)),
+        _RULESET,
+        presentation=PresentationMetadata((TablePresentation("b1_n1_iec104_syx_list", "遥信引用表", ()),)),
+    )
     assert canonical.manifest is not None
+    ordered_facts = next(table for table in canonical.manifest.tables if table.name == "b1_n1_iec104_syx_list")
+    assert ordered_facts.gid_real_count == 1
+    assert ordered_facts.gid_pseudo_count == 1
     assert len(canonical.tables) == 4
     projection_inputs = (
         ProjectionTableInput(
@@ -283,7 +295,8 @@ def test_canonical_snapshot_identity(
             storage_projection_version=STORAGE_PROJECTION_VERSION,
             tables=projection_inputs,
             context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
-        )
+        ),
+        table_comments=table_comments,
     )
     assert projection.status is ProjectionStatus.COMPLETE
     assert projection.import_input is not None

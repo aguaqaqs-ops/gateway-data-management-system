@@ -11,6 +11,16 @@
       "source": "BE-b bounded presentation scenario"
     },
     {
+      "path": "channel-before.sql",
+      "sha256": "781c9451c165d97752d7cadb2f26c0039254f619d710aae2f70fe3089346ff06",
+      "source": "GW08 channel rule presentation scenario"
+    },
+    {
+      "path": "channel-current.sql",
+      "sha256": "7356992cb25b99702481f8a9daf6084f7edeab327a014029124a8aaf9be94c9b",
+      "source": "GW08 channel rule presentation scenario"
+    },
+    {
       "path": "comment-before.sql",
       "sha256": "f8e264a940e003f630d20adaaff489aa5f50d7e8e2c39805aaa6646544b2c228",
       "source": "BE-b bounded presentation scenario"
@@ -180,12 +190,12 @@
     },
     {
       "path": "workbench-before.sql",
-      "sha256": "7efeabbe22d67a7501a84cad0278ddcfe94d1dc172e7eb4232eaa2f27204c39c",
+      "sha256": "9bed16d5b2680be8d7dd0d6630db2606a00c625c147d42f783bdab3f49d89eb7",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "workbench-current.sql",
-      "sha256": "3e09fa0c00ddd4a5408e9913a13af9732e133331b71a2366b42e113bb96a86c3",
+      "sha256": "1cb152de0c97b49b940f8a6199f1de81bedda563ca7cd0fd134d2a007d702d35",
       "source": "BE-b bounded presentation scenario"
     }
   ],
@@ -208,7 +218,8 @@
     "backend/scenarios/identity-unrecorded-exact",
     "backend/scenarios/excluded-identity",
     "backend/scenarios/missing-identity-column",
-    "backend/scenarios/empty-tabs"
+    "backend/scenarios/empty-tabs",
+    "backend/scenarios/channel-rules"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -397,7 +408,11 @@
       "coverage": [
         "ordered-normal"
       ],
-      "assertions": {}
+      "assertions": {
+        "ordered_modified_tables": [
+          "b1_n1_iec104_yc_list"
+        ]
+      }
     },
     {
       "id": "digest-cross-implementation",
@@ -903,6 +918,138 @@
         "all-empty-navigation-discovery"
       ],
       "assertions": {}
+    },
+    {
+      "id": "channel-rules",
+      "output": "backend/scenarios/channel-rules",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "channel-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "channel-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "network-serial-mixed",
+        "dll-prefixes",
+        "ordered-classification-flip",
+        "serial-orphan",
+        "serial-missing-protocol-prefix",
+        "ordered-missing-column"
+      ],
+      "assertions": {
+        "whole_tabs": [
+          {
+            "group": "FORWARD_CHANNELS",
+            "item": "channel:b1_n2",
+            "table": "b1_n2_flip",
+            "label": "翻转"
+          },
+          {
+            "group": "FORWARD_CHANNELS",
+            "item": "channel:b1_c2",
+            "table": "b1_c2_ref",
+            "label": "串口遥信"
+          },
+          {
+            "group": "FORWARD_CHANNELS",
+            "item": "channel:b1_c2",
+            "table": "b1_c2_short",
+            "label": "缺列"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:com_cfg",
+            "table": "com_cfg",
+            "label": "串口配置"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:b1_n2",
+            "table": "b1_n2_dll3xx_extra",
+            "label": "网络三"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:b1_n2",
+            "table": "b1_n2_dll495_extra",
+            "label": "网络四"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:b1_c2",
+            "table": "b1_c2_stdmds_extra",
+            "label": "串口普通表"
+          },
+          {
+            "group": "OTHER_TABLES",
+            "item": "table:b7_c9_orphan",
+            "table": "b7_c9_orphan",
+            "label": "孤儿引用表"
+          }
+        ],
+        "channel_diagnostics": [
+          {
+            "code": "CHANNEL_TABLE_UNCLAIMED",
+            "side": "BEFORE",
+            "params": {
+              "channel_prefix": "b7_c9",
+              "registry_table": "com_cfg"
+            }
+          },
+          {
+            "code": "PROTOCOL_TABLE_NOT_FOUND",
+            "side": "BEFORE",
+            "params": {
+              "channel_prefix": "b1_c3",
+              "registry_table": "com_cfg",
+              "protocol": "unknown",
+              "expected_prefixes": [
+                "b1_c3_unknown"
+              ]
+            }
+          },
+          {
+            "code": "CHANNEL_TABLE_UNCLAIMED",
+            "side": "CURRENT",
+            "params": {
+              "channel_prefix": "b7_c9",
+              "registry_table": "com_cfg"
+            }
+          },
+          {
+            "code": "PROTOCOL_TABLE_NOT_FOUND",
+            "side": "CURRENT",
+            "params": {
+              "channel_prefix": "b1_c3",
+              "registry_table": "com_cfg",
+              "protocol": "unknown",
+              "expected_prefixes": [
+                "b1_c3_unknown"
+              ]
+            }
+          }
+        ],
+        "table_diagnostics": {
+          "b1_n2_flip": "ORDERED_INPUT_NOT_CANONICAL",
+          "b1_c2_short": "ORDERED_REQUIRED_COLUMN_MISSING"
+        }
+      }
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",

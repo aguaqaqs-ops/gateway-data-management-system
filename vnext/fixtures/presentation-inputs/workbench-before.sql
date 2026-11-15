@@ -1,4 +1,4 @@
-CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL,no INT NOT NULL,point_name VARCHAR(64) NOT NULL,value BIGINT NOT NULL);
+CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL PRIMARY KEY,no INT NOT NULL,point_name VARCHAR(64) NOT NULL,value BIGINT NOT NULL) COMMENT='遥测引用表';
 INSERT INTO b1_n1_iec104_yc_list VALUES
 (1,1,'测点-001',137),
 (2,2,'测点-002',274),

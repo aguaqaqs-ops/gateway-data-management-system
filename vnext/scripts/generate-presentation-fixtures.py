@@ -171,7 +171,26 @@ def validate_scenario_assertions(surface: Any, store: InMemoryArtifactStore, exp
             facts = [tab["facts"] for tab in tabs if tab["table_id"] == table and tab["row_filter"] is not None]
             if not facts or any(fact is None or fact["basis"] != basis for fact in facts):
                 raise AssertionError(f"scenario {table} did not publish {basis} facts")
+    for wanted in expected.get("whole_tabs", []):
+        matches = [tab for group in navigation["groups"] if group["group_key"] == wanted["group"]
+                   for item in group["items"] if item["item_key"] == wanted["item"]
+                   for tab in item["tabs"] if tab["table_id"] == wanted["table"]]
+        if len(matches) != 1 or matches[0]["label"] != wanted["label"] or matches[0]["row_filter"] is not None:
+            raise AssertionError(f"missing unique whole-table navigation: {wanted}")
+        if sum(tab["table_id"] == wanted["table"] for tab in tabs) != 1:
+            raise AssertionError(f"table claimed more than once: {wanted}")
+    for wanted in expected.get("channel_diagnostics", []):
+        if not any(d["code"] == wanted["code"] and d["side"] == wanted["side"]
+                   and d["params"] == wanted["params"] for d in diagnostics):
+            raise AssertionError(f"missing channel diagnostic: {wanted}")
     tables = {t.table_id: t for t in surface.tables}
+    for name in expected.get("ordered_modified_tables", []):
+        table = tables[name]
+        if table.ordered_extension is None or table.row_change_stats.row_modified_count <= 0:
+            raise AssertionError(f"ordered modified rows missing: {name}")
+    for name, code in expected.get("table_diagnostics", {}).items():
+        if code not in tables[name].diagnostics.diagnostics_summary:
+            raise AssertionError(f"missing table diagnostic {code}: {name}")
     for name in expected.get("before_alias_tables", []):
         refs = tables[name].table_refs
         if refs.before_table_ref is None or refs.before_table_ref != refs.current_table_ref:

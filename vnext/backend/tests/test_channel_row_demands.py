@@ -12,7 +12,7 @@ import pytest
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history import compare_jobs
 from gateway_backend.application.history.compare_jobs import history_compare_step_id
-from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
+from gateway_backend.application.pair_pipeline import _same_complete_table_identity, run_history_pair_pipeline
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
 from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -98,6 +98,7 @@ def test_history_loads_serial_registry_rows_for_navigation_on_metadata_and_cache
         for side in sides.values():
             assert side.table_set is not None
             assert all(table.reader is None for table in side.table_set.tables)
+        assert _same_complete_table_identity(sides[before_commit], sides[current_commit], "com_cfg")
         pair_comparison_metrics.clear()
         run_through_step(harness, compare_jobs.HISTORY_COMPARE_ASSEMBLE_HANDLER)
         run_through_step(harness, compare_jobs.HISTORY_COMPARE_PUBLISH_HANDLER)

@@ -294,6 +294,13 @@ export function missingSideMarker(side: "before" | "current" | null, presentIn: 
   return null;
 }
 
+const ORDERED_POSITION_COLUMN = "no";
+
+function scalarPosition(value: unknown): number | null {
+  const text = value && typeof value === "object" ? (value as { text?: unknown }).text : value;
+  return positionNumber(text);
+}
+
 /** Rows that exist on both sides and keep their before-side order. */
 const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modified-after", "ordered"]);
 
@@ -493,9 +500,12 @@ export function buildBrowseRows(input: {
         const beforeIndex = entry?.beforeRowIndex ?? null;
         const hasContext = entry?.beforeFilterContext != null;
         const source = hasBeforeSnapshot && beforeIndex !== null ? input.beforeRows[beforeIndex] : hasContext ? { ...entry?.beforeFilterContext } : recordValues(record.before_values);
+        // Preview has no before snapshot; an ordered table's deleted record still carries its before `no`.
+        const orderedBefore = !hasBeforeSnapshot && input.table.ordered_extension
+          ? scalarPosition(recordValues(record.before_values)[ORDERED_POSITION_COLUMN]) : null;
         rows.push(makeRow({ key: `deleted:${identity ?? insertion}`, kind: "deleted", side: "before", source, values: source,
-          rowNumber: hasBeforeSnapshot && beforeIndex !== null ? beforeIndex + 1 : null,
-          rowNumberTitle: hasBeforeSnapshot ? undefined : hasContext ? "改前值不在本 bundle 中" : "改前值不可得", identity, record }));
+          rowNumber: hasBeforeSnapshot && beforeIndex !== null ? beforeIndex + 1 : orderedBefore,
+          rowNumberTitle: hasBeforeSnapshot || orderedBefore !== null ? undefined : hasContext ? "改前值不在本 bundle 中" : "改前值不可得", identity, record }));
         insertion += 1;
         consumed.add(record);
       } else if (kind.startsWith("BLANK_")) {
@@ -521,7 +531,7 @@ export function buildBrowseRows(input: {
       };
       return position(left) - position(right);
     });
-    if (hasBeforeSnapshot && hasCurrentSnapshot) placeDeletedRowsInline(rows);
+    if (hasCurrentSnapshot) placeDeletedRowsInline(rows);
   }
 
   let visible = rows;

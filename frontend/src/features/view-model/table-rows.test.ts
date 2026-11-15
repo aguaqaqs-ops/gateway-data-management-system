@@ -205,6 +205,21 @@ describe("browse rows from published locators", () => {
       .toEqual([" 1", "-2", "+2", "-3", "+3", " 4", "-5", "+5", "+6"]);
   });
 
+  it("places Preview deletions of an ordered table by their recorded before position", () => {
+    const current = [1, 21, 31, 4].map((n) => ({ dev_addr: n, description: `新${n}` }));
+    const locator = parseRowLocator([locatorRow(0x12, null, null), locatorRow(0x13, null, null), locatorRow(0x21, null, 1), locatorRow(0x31, null, 2)]);
+    const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 4 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
+      records: [record("ROW_DELETED", 0x13, { before_values: no(3) }), record("ROW_DELETED", 0x12, { before_values: no(2) }),
+        record("ROW_ADDED", 0x21), record("ROW_ADDED", 0x31)],
+      annotations: [], locator,
+    });
+    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
+      .toEqual([" 1", "-2", "+2", "-3", "+3", " 4"]);
+  });
+
   it("matches either half of the per-side filter", () => {
     const locator = parseRowLocator([locatorRow(0x11, 0, 0)]);
     const result = buildBrowseRows({

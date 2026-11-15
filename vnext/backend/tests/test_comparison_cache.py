@@ -472,7 +472,7 @@ def test_cache_identity_rejects_a_reader_without_canonical_owner_verification() 
 
 
 def test_optional_cache_row_bound_keeps_the_completed_business_result() -> None:
-    from gateway_backend.capabilities.comparison.production import _InputCharge, _stream
+    from gateway_backend.capabilities.comparison.production import _InputCharge, comparison_input_stream
     from gateway_backend.capabilities.comparison.row_encoding import _schema_view
     planned = _planned()
     identity = _identity(planned)
@@ -483,8 +483,8 @@ def test_optional_cache_row_bound_keeps_the_completed_business_result() -> None:
     assert context is not None
     operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
         cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
-    before, before_owner = _stream(task.before_table)
-    current, current_owner = _stream(task.current_table)
+    before, before_owner = comparison_input_stream(task.before_table)
+    current, current_owner = comparison_input_stream(task.current_table)
     handle = None
     try:
         handle = native.compare_records_batches(operation, kind=identity.task_input.native_kind,

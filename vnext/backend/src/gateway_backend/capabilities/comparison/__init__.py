@@ -87,6 +87,7 @@ from gateway_backend.capabilities.comparison.production import (
     NativeComparison,
     compare_plan_native,
     comparison_row_demands,
+    comparison_input_stream,
 )
 from gateway_backend.capabilities.comparison.standard import (
     COMPARISON_DIRECTION,
@@ -102,6 +103,7 @@ from gateway_backend.capabilities.comparison.fact_document import (
 
 
 __all__ = [
+    "comparison_input_stream",
     "BLANK_COMPARISON_CONTRACT_VERSION",
     "BLANK_RECORDS_SCHEMA_VERSION",
     "COMPARISON_BATCH_PORT_VERSION",

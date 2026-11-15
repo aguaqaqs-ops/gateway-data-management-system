@@ -34,7 +34,7 @@ from gateway_backend.capabilities.comparison.artifacts import (
     publish_records_closure_arrow,
 )
 from gateway_backend.capabilities.comparison.production import (
-    ComparisonTaskSession, NativeComparison, _stream,
+    ComparisonTaskSession, NativeComparison, comparison_input_stream,
     compare_plan_native,
 )
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
@@ -320,7 +320,7 @@ def test_fresh_profile_metadata_admission_releases_failed_reader() -> None:
     with context.memory.reserve(context.memory.available_bytes - 8192):
         retained = context.memory.used_bytes
         with pytest.raises(MemoryError):
-            _stream(table)
+            comparison_input_stream(table)
         # The new reader wrapper's 512-byte metadata stays with the operation;
         # the failed profile allocation and Arrow backing borrower do not.
         assert context.memory.used_bytes == retained + 512

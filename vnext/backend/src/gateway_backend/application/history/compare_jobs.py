@@ -593,7 +593,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 envelope.job_state,
                 deps.artifact_store,
             )
-            ready_closure_ref = _history_compare_ready_ref(envelope.job_state)
+            ready_closure_ref = history_compare_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_history_bundle_binding(envelope.job_state, closure.artifact_refs())
             verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs(), _assemble_state.get("pair_ids"))
@@ -612,7 +612,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
         else:
             assert assembled_result is not None
             assemble_state, bundle_manifest_ref, bundle_digest = assembled_result
-            ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
+            ready_refs = ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
             verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs, assemble_state.get("pair_ids"))
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
@@ -722,7 +722,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 "assemble checkpoint does not match the history compare JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        ready_closure_ref = _history_compare_ready_ref(assemble_envelope.job_state)
+        ready_closure_ref = history_compare_ready_ref(assemble_envelope.job_state)
         try:
             deps.artifact_store.locate(ready_closure_ref)
         except ManifestVerificationError as exc:
@@ -1330,7 +1330,7 @@ def _required_ready_refs(
     return _unique_refs(tuple(refs))
 
 
-def _ready_closure_refs_from_assemble(
+def ready_closure_refs_from_assemble(
     assemble_state: dict[str, object],
     bundle_manifest_ref: ArtifactRef,
 ) -> tuple[ArtifactRef, ...]:
@@ -1413,7 +1413,7 @@ def _assert_history_bundle_binding(job_state: Mapping[str, object], refs: tuple[
             code="CHECKPOINT_JOB_STATE_MISMATCH")
 
 
-def _history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
+def history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
     try:
         ready_id = job_state.get(_JOB_STATE_READY_CLOSURE)
         bundle_id = job_state.get(_JOB_STATE_BUNDLE_ARTIFACT)
@@ -1447,7 +1447,7 @@ def history_compare_assemble_state_from_checkpoint(
             "history compare assemble checkpoint fields are invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    _history_compare_ready_ref(job_state)
+    history_compare_ready_ref(job_state)
     raw_ref = job_state.get(_JOB_STATE_ASSEMBLE_REF)
     if type(raw_ref) is not dict:
         raise CheckpointDecodeError(

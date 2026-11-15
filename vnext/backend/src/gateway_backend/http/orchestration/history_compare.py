@@ -29,8 +29,8 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HistoryCompareJobError,
     decode_history_compare_payload,
-    _history_compare_ready_ref,
-    _ready_closure_refs_from_assemble,
+    history_compare_ready_ref,
+    ready_closure_refs_from_assemble,
     history_compare_assemble_state_from_checkpoint,
     history_compare_step_id,
 )
@@ -47,8 +47,7 @@ from gateway_backend.application.history.errors import HistoryComparePreflightFa
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
-from gateway_backend.capabilities.bundle_assembly import read_bundle_transport_metadata
-from gateway_backend.capabilities.bundle_assembly.contracts import BUNDLE_MANIFEST_MEDIA_TYPE, MAX_BUNDLE_MANIFEST_JSON_BYTES
+from gateway_backend.application.bundle_download import decode_bundle_manifest
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.http.dependencies import AdmissionGatePort, BundleReaderPort, acquire_new_work
@@ -158,7 +157,7 @@ def preflight_history_result(
             envelope = _load_checkpoint_envelope_from_store(artifact_store, step.checkpoint_ref)
             state_ref, _ = history_compare_assemble_state_from_checkpoint(
                 envelope.job_state, cast(BoundedArtifactStorePort, artifact_store))
-            ready_ref = _history_compare_ready_ref(envelope.job_state)
+            ready_ref = history_compare_ready_ref(envelope.job_state)
             closure = ReadyClosureDocument.from_canonical_bytes(_read_metadata_from_store(artifact_store, ready_ref))
             prepared = read_compare_bundle(operation=operation, bundle_reader=bundle_reader,
                                            unit_of_work_factory=unit_of_work_factory, artifact_store=artifact_store)
@@ -415,7 +414,7 @@ def _load_success_result(
     except (ValueError, ValidationError) as exc:
         raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
     try:
-        ready_ref = _history_compare_ready_ref(envelope.job_state)
+        ready_ref = history_compare_ready_ref(envelope.job_state)
         if operation.ready_closure_ref != ready_ref:
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY binding disagrees", status_code=503)
         closure = ReadyClosureDocument.from_canonical_bytes(_read_metadata_from_store(artifact_store, ready_ref))
@@ -425,7 +424,7 @@ def _load_success_result(
         bundle_ref = next((ref for ref in closure.artifact_refs() if ref.artifact_id == bundle_id), None)
         if bundle_ref is None:
             raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle is outside history READY", status_code=503)
-        if set(_ready_closure_refs_from_assemble(assemble_state, bundle_ref)) != set(closure.artifact_refs()):
+        if set(ready_closure_refs_from_assemble(assemble_state, bundle_ref)) != set(closure.artifact_refs()):
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY outputs disagree", status_code=503)
     except (CheckpointDecodeError, ManifestVerificationError) as exc:
         raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
@@ -463,9 +462,9 @@ def _load_success_result(
         except (ValueError, TypeError, ValidationError) as exc:
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history structure audit disagrees", status_code=503) from exc
         try:
-            if bundle_ref.media_type != BUNDLE_MANIFEST_MEDIA_TYPE or bundle_ref.size_bytes > MAX_BUNDLE_MANIFEST_JSON_BYTES:
-                raise BundleIntegrityError("invalid history bundle manifest")
-            bundle_metadata = read_bundle_transport_metadata(_read_metadata_from_store(artifact_store, bundle_ref, bundle_manifest=True))
+            bundle_metadata = decode_bundle_manifest(
+                bundle_ref, lambda: _read_metadata_from_store(artifact_store, bundle_ref, bundle_manifest=True)
+            )
         except BundleIntegrityError as exc:
             raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle failed integrity verification", status_code=503) from exc
         expected_input_roles = tuple((index, node.ref_id) for index, node in enumerate(acceptance.nodes))

@@ -1460,7 +1460,7 @@ def test_history_rejects_bundle_with_wrong_ordered_input_binding(
     db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
 ) -> None:
     import json
-    import gateway_backend.http.orchestration.history_compare as history_reader
+    import gateway_backend.application.bundle_download as bundle_download
     from gateway_shared_kernel import raw_blob_digest
     from gateway_shared_kernel.jcs import canonicalize_json_value
     from gateway_backend.application.history.compare_jobs import (
@@ -1497,7 +1497,7 @@ def test_history_rejects_bundle_with_wrong_ordered_input_binding(
         document["bundle_digest"] = raw_blob_digest(canonicalize_json_value({key: document[key] for key in semantic_keys})).value
         return real_reader(canonicalize_json_value(document))
 
-    monkeypatch.setattr(history_reader, "read_bundle_transport_metadata", altered_metadata)
+    monkeypatch.setattr(bundle_download, "read_bundle_transport_metadata", altered_metadata)
     for suffix in ("", "/bundle"):
         result = env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers())
         assert result.status_code == 503

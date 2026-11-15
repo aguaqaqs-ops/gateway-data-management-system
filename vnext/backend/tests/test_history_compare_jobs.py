@@ -1659,7 +1659,7 @@ def test_history_pipeline_failure_keeps_its_original_runtime_boundary(
 @pytest.mark.parametrize("artifact_id", ["old-closure", "a1:unknown:" + "a" * 64,
     "00000000-0000-4000-8000-000000000001"])
 def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: str, artifact_id: str) -> None:
-    from gateway_backend.application.history.compare_jobs import _history_compare_ready_ref
+    from gateway_backend.application.history.compare_jobs import history_compare_ready_ref
     from gateway_backend.application.payloads import CheckpointDecodeError
     ready_id = "a1:durable:" + "0" * 64
     state: dict[str, object] = {"ready_closure_artifact_id": ready_id,
@@ -1668,7 +1668,7 @@ def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: s
             "size_bytes": 0, "raw_sha256": "sha256:" + "0" * 64}}
     state[field_name] = artifact_id
     with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
-        _history_compare_ready_ref(state)
+        history_compare_ready_ref(state)
 
 
 @pytest.mark.parametrize('damaged_side', ('same-commit-later-table', 'later-commit'))

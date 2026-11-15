@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 
 from gateway_backend.artifacts.bundle_download import BundleIntegrityError, PreparedBundleDownload
@@ -23,6 +23,13 @@ from gateway_backend.capabilities.bundle_assembly import (
     read_bundle_transport_metadata,
     validate_bundle_member_metadata,
 )
+
+
+def decode_bundle_manifest(ref: ArtifactRef, read: Callable[[], bytes]) -> BundleTransportMetadata:
+    """Check manifest transport bounds and decode its verified bytes."""
+    if ref.media_type != BUNDLE_MANIFEST_MEDIA_TYPE or ref.size_bytes > MAX_BUNDLE_MANIFEST_JSON_BYTES:
+        raise BundleIntegrityError("invalid bundle manifest")
+    return read_bundle_transport_metadata(read())
 
 
 @contextmanager

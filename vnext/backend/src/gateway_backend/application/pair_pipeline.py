@@ -31,6 +31,7 @@ from gateway_backend.capabilities.snapshot_materialization import export_snapsho
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
+    comparison_input_stream,
     ComparisonRequest,
     ComparisonPlan,
     DetailedFactsResult,
@@ -49,7 +50,6 @@ from gateway_backend.capabilities.comparison import (
     RecordsPublicationPolicy,
     RecordsDetailPolicy,
 )
-from gateway_backend.capabilities.comparison.production import _stream
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
     PersistentRiskCandidates,
@@ -557,7 +557,7 @@ def _ordered_position_maxima(
         for table in (task.before_table, task.current_table):
             if table is None or table.reader is None:
                 break
-            stream, owner = _stream(table)
+            stream, owner = comparison_input_stream(table)
             maximum: int | None = None
             try:
                 with closing(stream):

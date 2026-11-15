@@ -771,7 +771,7 @@ class NativeComparison:
             self.operation = None
 
 
-def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
+def comparison_input_stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
@@ -807,9 +807,9 @@ def _compare_native(
     if (task.before_table is None or task.current_table is None
             or task.before_table.reader is None or task.current_table.reader is None):
         raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
-    before, before_charge = _stream(task.before_table)
+    before, before_charge = comparison_input_stream(task.before_table)
     try:
-        current, current_charge = _stream(task.current_table)
+        current, current_charge = comparison_input_stream(task.current_table)
     except BaseException:
         before.close()
         before_charge.close()
@@ -861,7 +861,7 @@ def _scan_keyless_degrade_inputs(
             or task.before_table.reader is None or task.current_table.reader is None):
         raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
     for table in (task.before_table, task.current_table):
-        stream, owner = _stream(table)
+        stream, owner = comparison_input_stream(table)
         try:
             metrics.input_reads += 1
             if session is not None:
@@ -991,7 +991,7 @@ def _ordered_unchanged_native(
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("comparison operation context was lost")
-    stream, charge = _stream(table)
+    stream, charge = comparison_input_stream(table)
     try:
         metrics.native_calls += 1
         metrics.ordered_single_side_calls += 1

@@ -298,12 +298,14 @@ def test_history_compare_replay_releases_admission_slot(tmp_path: Path) -> None:
     )
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
+    assert replay.json()["operation_id"] == first.json()["operation_id"]
     second = env.client.post(
         "/v1/history-compares",
         headers={**AUTH, "Idempotency-Key": "compare-admission-second"},
-        json=nodes,
+        json={"nodes": list(reversed(nodes["nodes"]))},
     )
     assert second.status_code == 202
+    assert second.json()["operation_id"] != first.json()["operation_id"]
     assert gate.allows_new_work() is True
 
 

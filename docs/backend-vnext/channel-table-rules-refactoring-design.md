@@ -63,11 +63,26 @@ tab 取实际表 COMMENT，无则表名。点击通过 table_id 打开原整表�
 
 ### 1.5 双侧与认领
 
-普通比较使用当前侧存在的同名表的 COMMENT 决定该 pair 的有序属性与分组；当前表不存在才用前侧。当前 COMMENT 缺失不借前侧补成引用表。通道关联须在该表实际存在的侧验证；普通表可从前后注册行取得归属，前后协议改变时合并两侧候选，表只发布一次。同一表当前侧可归属时优先当前，只有前侧可归属时允许前侧。不得把本侧不存在的表当作匹配成功。
+普通比较使用当前侧存在的同名表的 COMMENT 决定该 pair 的有序属性与分组；当前表不存在才用前侧。当前 COMMENT 缺失不借前侧补成引用表。此约束针对语义分类；固定注册整表的纯显示名沿用 current COMMENT→before COMMENT→表名回退，引用tab使用分类选定侧的COMMENT，普通tab同样使用当前存在侧COMMENT（缺注释回退表名）。通道关联须在该表实际存在的侧验证；普通表可从前后注册行取得归属，前后协议改变时合并两侧候选，表只发布一次。同一表当前侧可归属时优先当前，只有前侧可归属时允许前侧。不得把本侧不存在的表当作匹配成功。
 
 引用→普通、普通→引用使用当前模式；不同时向转发和规约组发布同一表。先确定 pair 有序属性，再做对应组归属，不能让前侧旧分类抢占当前新分类。DATASET_REPLACEMENT 每侧完全独立执行上述规则，标签/COMMENT/注册行不跨侧借用。
 
 认领优先级沿用既有跳过/只快照/只浏览约束，再是注册表固定项、有序转发通道、装置分组、普通通讯规约、全局参数、OTHER_TABLES。通道表不会与现有装置精确表名相交；已认领表不再由 app_cfg 生成重复入口。未认领表保持唯一整表入口，不丢表。通道零 tab 时沿用现有后端空 item/前端隐藏语义。
+
+### 1.6 通道诊断与前端契约
+
+现前端诊断文案硬编码网口、`_n` 和 IEC104/tab_num 条件，必须同步替换，不能只改后端 producer。
+
+| 诊断 | 目标 params（精确键集） | 发布语义 |
+| --- | --- | --- |
+| CHANNEL_TABLE_UNCLAIMED | channel_prefix, registry_table | 引用表存在但其实际侧没有有效注册行；示例 b1_c2 / com_cfg。文案说明缺少对应配置或 exe 为空，移除 IEC104/tab_num 条件 |
+| PROTOCOL_TABLE_NOT_FOUND | channel_prefix, registry_table, protocol, expected_prefixes | 本侧有效配置行的普通协议片段没有任何匹配表；expected_prefixes 是实际通道前缀加映射片段的有界字符串数组，明确作为前缀展示，不伪装成完整表名 |
+
+channel_prefix 是按合法数值键生成的 b{board}_n{link_no} / b{board}_c{com_no}；registry_table 严格限 net_cfg/com_cfg。不向诊断附带任意配置行原文。side 沿用既有 target 逻辑侧。普通 pair 的孤儿诊断按实际存在侧生成，replacement 必填本侧。
+
+exe 空行既不生成子对象，也不再发布 PROTOCOL_EXE_MISSING；删除该被替代的 producer/参数规则/前端文案与对应旧断言。缺表诊断只核普通非引用表匹配，找到任意一张即成功，引用表本身不能代替普通配置表匹配。诊断仍挂已有通道 item；零tab在前端被隐藏时保持既有组级提示可达性。
+
+同步 `business_navigation/contracts.py::_DIAGNOSTIC_PARAMS`、`presentation-diagnostic-codes.md`、`frontend/src/features/view-model/diagnostics.ts` 及其 focused 测试/fixture。Navigation contract 升至 v3，后端 strict decoder 与前端 decoder 同时只接受新版本及新参数；不兼容旧link_no诊断载荷。该版本防止旧消费者把串口诊断解释成网口，由双方 decoder 核对。
 
 ## 2. 比较、规范化与 COMMENT 边界
 
@@ -96,17 +111,17 @@ pair 普通→有序时，旧侧可能不是 canonical ordered；只有两侧（
 必须逐点绑定：
 
 1. Upload：解析得到 presentation 后才能分类/投影；`storage_projection/arrow.py` 传入同侧 comment，storage view 按列决定可用存储策略。
-2. Repository：catalog 尚无 comment 时不能用名字猜。`application/canonical_metadata/table_access.py` 的 committed manifest exact loader 提供同 commit presentation 与 storage facts；缺元数据不能借最新版本或联网查表。`_runtime_binding_from_provider` 等 name-only 调用全部收口到 manifest 事实或在 metadata 可得后解析。
+2. Repository：catalog 尚无 comment 时不能用名字猜。复用 `application/canonical_metadata/binding.py` 已有 `presentation_for_commit` / `canonical_binding_for_commit`，由 exact metadata resolver 提供同 commit presentation 与 storage facts，`table_access.py` 核对 catalog/manifest 事实；缺元数据不能借最新版本或联网查表。`_runtime_binding_from_provider` 等 name-only 调用全部收口到 manifest 事实或在 metadata 可得后解析，不另建 loader。
 3. BoundSnapshotInput / plan 增加完整 frozen presentation（若沿用 side manifest ref，则 materialize 时解出），pair planner 明确 descriptor 不存在返回 None，不再为缺失侧生成虚拟 rule view。resolved policy 把有序分类、所选侧与每侧实际 storage/provenance绑定进现有 per-table semantic projection。
 4. Preview compare-binding 和 History materialize 后的 compare-binding 保存实际解析后的规则；accept 短事务只冻结版本，不在事务内读 Repository/COMMENT。checkpoint 恢复核对当前规则/载荷版本与 manifest 引用，不能仅从表名重算。
-5. `comparison/task_input.py` semantic_jcs、operation 内去重、持久 table cache、canonical table cache、metadata early-exit 都核对 resolved 规则及实际 storage view/provenance。身份相同才可命中；canonical cache 还须绑定当前 presentation 的 manifest 身份，不能返回旧 COMMENT。有序判定翻转必须 miss/重算；只改标签允许复用纯比较，但 assemble 必须用当前 frozen metadata 重建导航。
-6. Submit 的 no-change/复用路径必须包含 manifest/presentation 是否变化：COMMENT 改变有序判定时不得因 raw rows 相同跳过；仅标签变化也必须保存新 COMMENT，History 才能还原。提交导出/replay 必须保留新表 COMMENT，existing submit idempotency/事务/CAS不变。
+5. `comparison/task_input.py` semantic_jcs、operation 内去重、持久 table cache、canonical table cache、metadata early-exit 都核对 resolved 规则及实际 storage view/provenance。身份相同才可命中；canonical cache 可以复用行产物，但必须重新附着本次 presentation，缓存完整 manifest 时必须核完整 ArtifactRef 的 raw_sha256（现有 `compute_manifest_digest` 明确排除 presentation，不能单独作注释身份）。有序判定翻转必须 miss/重算；只改标签允许复用纯比较，但 assemble 必须用当前 frozen metadata 重建导航。
+6. Submit 的 no-change 判据改为两者同时相等：canonical_state_digest、resolved per-table storage/comparison 语义（含每侧引用属性，即使缺列使用普通存储也不能丢掉分类变化）。raw rows 相同不是充分条件。仅措辞/标签变化不改变上述语义时，沿用 Snapshot Contract 的 NO_CANONICAL_CHANGE：本次 Preview 显示新标签，但不产生新 Submission/History；不得借本任务扩大纯展示改动的提交范围。原始 manifest SHA 不直接比较业务等价（其中还含来源/产物身份），只用来绑定不可变文档。Preview materialize 后算出该等价结论，纳入现有 PreviewResult 与 READY closure；`submission/accept.py` 三处检查消费同一个已绑定结论，不在 accept 事务内读取 artifact/Repository。PreviewResult 解码/READY 验证核字段和 raw ref，Submit fingerprint 继续包含被核对的 Preview/READY 身份；防止旧 digest-only preview 被当新结论。成功 Submit 必须关联本次完整 manifest/presentation，后续 History 通过 exact commit metadata resolver 还原；Repository catalog 当前不提供 COMMENT，无需仅为此新增 RS DTO 或修改 Rust schema SQL renderer。原 export/bundle 使用 frozen metadata，existing submit idempotency/事务/CAS不变。引用属性变化允许提交但不假装行值变化，Surface 可仍显示行数零变化。
 
 不新增独立 COMMENT digest 或导航缓存。利用现有 manifest digest、ruleset digest、storage_rule_digest、comparison_rule_digest、semantic task key 与 artifact closure；实施中有现成同义绑定时复用。
 
 ### 2.4 版本与解码
 
-实施提交统一升级现有规则文档 contract（新增 selector 字段，解码器核对）、ruleset 内容版本（resolver/runtime binding 核对）、storage projection 版本（防止旧规范化结果复用，manifest loader 核对），以及 Preview/History 对应 materialize/assemble checkpoint 格式（state decoder 核对）。目标数字由实施基线当前值递增，不在设计中新建轴。Comparison/Navigation wire 形状无需变化时不升它们的版本；新增诊断码加入既有诊断表与前端通用显示核对。
+实施提交统一升级现有规则文档 contract（新增 selector 字段，解码器核对）、ruleset 内容版本及冻结的 TABLE_RULESET_VERSION（resolver/runtime binding 与恢复核对）、storage projection 版本（防止旧规范化结果复用，manifest loader 核对），以及 Preview/History 对应 materialize/assemble checkpoint 格式和承载新 no-change 结论的 PreviewResult 格式（state/result decoder 核对）。目标数字由实施基线当前值递增，不在设计中新建轴；Navigation 明确按 §1.6 升 v3。Comparison wire 形状不变则不单为本功能升版；新增 ordered 诊断码加入既有诊断表与前端显示核对。
 
 所有受影响文档字段从字节解码用 pydantic strict、extra=forbid；逐行对象仍用静态类型。全新项目直接更新目标 schema、golden 与 fixture，不建迁移、旧 selector alias、旧缓存兼容或双读。旧数据重建/重新上传，既有证据保留。
 
@@ -119,11 +134,11 @@ pair 普通→有序时，旧侧可能不是 canonical ordered；只有两侧（
 | A 语义与 materialize | table_rules/{contracts,registry,resolver}.py；storage_projection/{arrow,view,contracts}.py；snapshot materialize 与 canonical metadata exact loader | 条件唯一解析、缺列策略、注释传递、manifest/版本/严格解码；同步 table presentation、storage、snapshot、comparison Contracts |
 | B pair/恢复/缓存/提交 | comparison/{contracts,pair_planning,task_input}.py；application/{preview_jobs,pair_pipeline,history/*}；canonical table cache；submit_jobs 与 import/export | 当前侧规则、provenance guard、真实绑定、cache miss/early-exit、重启/Submit 保留 COMMENT |
 | C 导航与产物 | business_navigation/{contracts,producer}.py；application/business_presentation.py；pair row demands；presentation fixture generator | com_cfg 行/最小列需求、统一归属/映射/顺序、诊断、覆盖全部表；保持预算/cancel/deadline |
-| D 集中核收 | Contracts、golden、fixture、必要前端核对 | Preview/History/Submit→History贯通、实际页面核对、门禁/总结 |
+| D 前端消费与集中核收 | frontend/src/features/view-model/{diagnostics,model}.ts 及 backend/bundle decoder、对应focused/golden/fixture、Contracts | v3版本/精确参数拒绝旧载荷、串口诊断文案；Preview/History/Submit→History贯通、实际页面核对、门禁/总结 |
 
 包 A/B 的函数签名与文档同步落地，不保留缺少 comment 的默认参数让生产路径静默走旧规则。每包新实施上下文；A/B 可以合为一个内聚提交避免不可运行的中间状态。实现前先做调用点枚举，特别覆盖 History、Repo-ref、upload、compose、cache hit、submit no-change，作为包交付清单。
 
-前端预计不改 wire 和产品代码，页签显示消费后端标签即可；如 fixture/scripts/源码需要修改 frontend/，按 AGENTS 先告知前端设计会话目的与范围，再由前端安排审核。本轮不发送未经授权的外部消息。
+前端产品改动限 Navigation v3 decoder 与通道诊断文案，页签显示继续消费后端标签；不扩展UI布局。实施修改 frontend/（含fixture）之前按 AGENTS 先告知前端设计会话目的与范围，再由前端安排审核；本轮仅设计，不发送未经授权的外部消息。
 
 ## 4. 验证方案
 
@@ -136,8 +151,8 @@ pair 普通→有序时，旧侧可能不是 canonical ordered；只有两侧（
 | pair 与缓存 | pair planning/task cache tests：双侧属性翻转、当前 COMMENT 空/表删除、单侧有序、相同行不同有序属性 miss、标签变化复用比较却重建导航、非 canonical 旧侧降级、无效 provenance 禁止 metadata early-exit |
 | 归属与标签 | business_navigation 参数表：net/com 固定项、com 全空/混合、exe 空白、重复配置、n/c 同号隔离、引用优先、任意非 cfg 后缀、COMMENT 回退、仅一侧存在/协议变更、无通道引用表、不重复认领及集合覆盖、sg_cfg 新规则 |
 | 行需求接线 | pair pipeline focused：com_cfg 必须真实读到 board/com_no/exe/channel_desc/protocol_name，metadata/未变化/缓存命中路径不漏读；ordered rows 需求不因导航零读取 shortcut 消失 |
-| 恢复与持久化 | Preview/History focused：materialize 后重启使用同 frozen metadata；旧 checkpoint 拒绝；Submit 行不变但 COMMENT 更新后 Repo-ref/History 可还原，raw rows 相同不能误判无变化；现有 CAS/idempotency 仍成立 |
-| 产物与消费 | 真实 producer golden、bundle decode：net/com混合、DLL、属性翻转、replacement、空组、缺列降级；前端显示 COMMENT tab、串口固定项、点击对应真实表与诊断 |
+| 恢复与持久化 | Preview/History focused：materialize 后重启使用同 frozen metadata；旧 checkpoint 拒绝；Submit 行不变但引用属性更新后 Repo-ref/History 可还原，raw rows 相同不能误判无变化；纯措辞变化仍 NO_CANONICAL_CHANGE；现有 CAS/idempotency 仍成立 |
+| 产物与消费 | 真实 producer golden、bundle decode：net/com混合、DLL、属性翻转、replacement、空组、缺列降级；前端v3及精确诊断参数、旧v2拒绝；c孤儿/缺表提示不可显示成n或IEC104/tab_num指导；显示 COMMENT tab、串口固定项、点击对应真实表 |
 
 focused 调试收敛后，在 clean 已提交最终候选上用 `scripts/run-stage-gate.py` 按实际 backend/shared/contracts 依赖闭包选包，容器结果由脚本绑定到 HEAD；不默认六包 fresh。Rust 改动才加 fmt/clippy/扩展重装。代码提交按 AGENTS 在专用节点完成五 Python 包 ruff/mypy；所有测试/构建/截图均在节点池原子占用后执行。
 

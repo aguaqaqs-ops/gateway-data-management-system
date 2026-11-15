@@ -5,6 +5,7 @@ import {
   buildBrowseRows,
   canReuseUnrecordedIdentity,
   collapseUnchangedRows,
+  formatFloatBits,
   missingSideMarker,
   normalizeDisplayScalar,
   parseRowLocator,
@@ -173,8 +174,22 @@ describe("browse rows from published locators", () => {
       annotations: [], locator, hasBeforeSnapshot: false,
     });
     const before = result.rows.find((row) => row.kind === "modified-before");
-    expect(before?.rowNumberTitle).toBe("改前值不在本 bundle 中");
+    expect(before?.rowNumberTitle).toMatch(/^改前快照不在本 bundle 中/);
     expect(before?.values.gid).toBe(8);
+    // Columns the record does not list as changed are equal on both sides.
+    expect(before?.values.description).toBe("一改");
+  });
+
+  it("shows a FLOAT column's bit pattern as its number", () => {
+    expect(formatFloatBits("3f800000")).toBe("1");
+    expect(formatFloatBits("3ba3d70a")).toBe("0.005");
+    expect(formatFloatBits("00000000")).toBe("0");
+    expect(formatFloatBits("3ff0000000000000")).toBe("1");
+    expect(formatFloatBits("7f800000")).toBeNull();
+    const column = { name: "k", display_name: "系数", scalar_type: "FLOAT", nullable: true, present_in: "BOTH", display_order: 0, pinned: false } as const;
+    expect(normalizeDisplayScalar("3f800000", column)).toBe("1");
+    expect(normalizeDisplayScalar("3f800000")).toBe("3f800000");
+    expect(normalizeDisplayScalar({ kind: "float32", text: "3f800000" })).toBe("1");
   });
 
   it("marks a keyless deleted row whose before value is unavailable", () => {

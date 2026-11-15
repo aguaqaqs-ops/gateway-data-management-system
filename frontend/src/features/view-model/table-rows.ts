@@ -234,8 +234,36 @@ function rowRiskMap(annotations: RiskAnnotation[]): Map<string, RiskLevel> {
   return risks;
 }
 
-function displayValue(value: unknown): string {
+const FLOAT_SQL_TYPE = /^(float|double|real)/i;
+
+/** Shortest decimal that reads back to the same IEEE-754 value, from big-endian bit hex. */
+export function formatFloatBits(bits: string): string | null {
+  if (!/^([0-9a-f]{8}|[0-9a-f]{16})$/i.test(bits)) return null;
+  const view = new DataView(new ArrayBuffer(8));
+  if (bits.length === 8) {
+    view.setUint32(0, Number.parseInt(bits, 16));
+    const value = view.getFloat32(0);
+    if (!Number.isFinite(value)) return null;
+    for (let digits = 1; digits <= 9; digits += 1) {
+      const text = value.toPrecision(digits);
+      if (Math.fround(Number(text)) === value) return String(Number(text));
+    }
+    return String(value);
+  }
+  view.setUint32(0, Number.parseInt(bits.slice(0, 8), 16)); view.setUint32(4, Number.parseInt(bits.slice(8), 16));
+  const value = view.getFloat64(0);
+  return Number.isFinite(value) ? String(value) : null;
+}
+
+function displayValue(value: unknown, column?: SurfaceColumn): string {
   if (value === null || value === undefined) return "—";
+  // Snapshots carry FLOAT/DOUBLE as their exact bit pattern; show the number.
+  if (typeof value === "string" && column && FLOAT_SQL_TYPE.test(column.scalar_type ?? "")) return formatFloatBits(value) ?? value;
+  if (value && typeof value === "object" && ((value as { kind?: unknown }).kind === "float32" || (value as { kind?: unknown }).kind === "float64")
+    && typeof (value as { text?: unknown }).text === "string") {
+    const text = (value as { text: string }).text;
+    return formatFloatBits(text) ?? text;
+  }
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return "二进制值";
@@ -255,7 +283,7 @@ function isBinaryColumn(column: SurfaceColumn): boolean {
 export function displayRowSearchText(row: BrowseRow, columns: SurfaceColumn[]): string {
   return columns.filter((column) => !isBinaryColumn(column) && !(row.values[column.name] instanceof ArrayBuffer)
     && !ArrayBuffer.isView(row.values[column.name]))
-    .map((column) => displayValue(row.values[column.name])).join(" ").toLocaleLowerCase();
+    .map((column) => displayValue(row.values[column.name], column)).join(" ").toLocaleLowerCase();
 }
 
 export function collapseUnchangedRows(rows: BrowseRow[], expandedKeys: ReadonlySet<string>): BrowseRow[] {
@@ -477,17 +505,19 @@ export function buildBrowseRows(input: {
         if (hasBeforeSnapshot && beforeIndex !== null) {
           beforeValues = input.beforeRows[beforeIndex] ?? oldRecordValues;
           beforeNumber = beforeIndex + 1;
-        } else if (entry?.beforeFilterContext) {
-          beforeValues = { ...entry.beforeFilterContext };
-          beforeNumber = null;
-          title = "改前值不在本 bundle 中";
         } else {
-          const keys = new Set(input.table.compare?.compare_key_columns ?? []);
+          // A modified record lists every compared column that differs, so the
+          // other compared columns hold the same value on both sides.
+          const ignored = new Set(input.table.compare?.ignored_columns ?? []);
+          const effective = input.table.compare?.effective_columns ?? [];
           beforeValues = {};
-          for (const key of keys) if (key in source) beforeValues[key] = source[key];
+          for (const [name, value] of Object.entries(source)) {
+            if (!ignored.has(name) && (!effective.length || effective.includes(name))) beforeValues[name] = value;
+          }
           for (const column of changedColumns) if (column in oldRecordValues) beforeValues[column] = oldRecordValues[column];
+          Object.assign(beforeValues, entry?.beforeFilterContext ?? {}); // raw identity values that row filters match
           beforeNumber = null;
-          title = "改前值不可得";
+          title = "改前快照不在本 bundle 中：改前值由改后行与修改记录推出" + (ignored.size ? "，不参与比较的列不可得" : "") + "；改前行号不可得";
         }
         const pairKey = `pair:${identity ?? index + 1}`;
         rows.push(makeRow({ key: `${pairKey}:before`, kind: "modified-before", side: "before", source: beforeValues, rowNumber: beforeNumber,
@@ -596,4 +626,4 @@ export function buildBrowseRows(input: {
   return { rows: visible };
 }
 
-export function normalizeDisplayScalar(value: unknown): string { return displayValue(value); }
+export function normalizeDisplayScalar(value: unknown, column?: SurfaceColumn): string { return displayValue(value, column); }

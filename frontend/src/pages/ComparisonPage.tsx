@@ -174,7 +174,8 @@ function rowLabel(row: BrowseRow): string {
   if (row.kind === "added") return "+ 新增";
   if (row.kind === "deleted") return "− 删除";
   if (row.recordKind === "ORDERED_ROW_MOVED" || row.kind === "ordered") return "↕ 移动 · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—");
-  if (row.kind === "modified-before" || row.kind === "modified-after") return "↔ 修改";
+  // Leading space keeps room for the line drawn between a modified pair.
+  if (row.kind === "modified-before" || row.kind === "modified-after") return "\u2002\u2002修改";
   if (row.kind === "blank") return "空行区间";
   return "";
 }
@@ -1163,7 +1164,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const measureCell = useMemo(() => createTextMeasure(`${theme.baseFontStyle} ${theme.fontFamily}`), [theme.baseFontStyle, theme.fontFamily]);
   const measureHeader = useMemo(() => createTextMeasure(`${theme.headerFontStyle} ${theme.fontFamily}`), [theme.headerFontStyle, theme.fontFamily]);
   // Text the grid shows for a sizable column (row labels for 变更, values otherwise).
-  const columnText = useCallback((row: BrowseRow, columnId: string): string => columnId === "__diff" ? rowLabel(row) : row.kind === "collapsed" ? "" : normalizeDisplayScalar(row.values[columnId]), []);
+  const columnText = useCallback((row: BrowseRow, columnId: string): string => columnId === "__diff" ? rowLabel(row) : row.kind === "collapsed" ? ""
+    : normalizeDisplayScalar(row.values[columnId], orderedColumns.find((column) => column.name === columnId)), [orderedColumns]);
   const fitColumn = useCallback((columnId: string, title: string, sourceRows: readonly BrowseRow[], mode: "auto" | "fit") =>
     fitWidth(measureHeader(title), sourceRows.map((row) => measureCell(columnText(row, columnId))), mode), [columnText, measureCell, measureHeader]);
   // Automatic widths are worked out once per table view (when its rows first
@@ -1226,6 +1228,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const beforePairRow = pair?.map((index) => rows[index]).find((candidate) => candidate?.kind === "modified-before");
     const formulaChanged = row.kind === "modified-after"
       && (beforePairRow ? beforePairRow.values.formula_digest !== row.values.formula_digest : row.formulaChanged === true);
+    const columnShape = orderedColumns.find((item) => item.name === columnId);
     let value: unknown;
     if (columnId === "__number") value = row.rowNumber ?? "";
     else if (columnId === "__diff") value = row.kind === "collapsed" ? rowLabel(row) : rowLabel(row) + (detached ? " ↔" : "");
@@ -1235,7 +1238,6 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     else if (columnId === "formula_ast_json" && table.table_name === "composite_signal_point") {
       value = "查看公式" + (formulaChanged ? " · 公式已改" : "");
     } else {
-      const columnShape = orderedColumns.find((item) => item.name === columnId);
       value = missingSideMarker(row.side, columnShape?.present_in) ?? row.values[columnId];
     }
     const risk = row.riskLevel ? riskTokens(row.riskLevel) : null;
@@ -1244,7 +1246,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const cellTheme = risk
       ? { bgCell: changed ? risk.cell : risk.bg, textDark: row.kind === "modified-before" || row.kind === "deleted" ? "#535D69" : risk.text, ...(boldStyle ? { baseFontStyle: boldStyle } : {}) }
       : changed ? { bgCell: "#E6E9ED", textDark: "#1B2229", ...(boldStyle ? { baseFontStyle: boldStyle } : {}) } : undefined;
-    return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value), displayData: normalizeDisplayScalar(value), allowOverlay: false,
+    return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value, columnShape), displayData: normalizeDisplayScalar(value, columnShape), allowOverlay: false,
       style: row.kind === "modified-before" || row.kind === "deleted" ? "faded" : "normal",
       ...(columnId === "__number" ? { contentAlign: "right" as const } : {}),
       themeOverride: columnId === "__number" ? numberTheme : cellTheme };
@@ -1299,13 +1301,14 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const hoverAnnotation = hoverRow?.rowIdentity ? annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(hoverRow.rowIdentity as string)) : undefined;
   const missingSnapshotHint = hoverRow?.rowNumberTitle ?? (hoverRow?.kind === "modified-before" && hoverRow.rowNumber === null ? "改前值不在本 bundle 中" : null);
   const showHoverDetail = Boolean(hoverRow && (hoverChanged || hoverRow.riskLevel || missingSnapshotHint));
-  const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
+  const hoverShape = table.columns?.find((column) => column.name === hoverColumn?.id);
+  const fieldTitle = hoverShape?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
   return <div ref={frameRef} className="grid-frame" aria-label="比较表格" onDoubleClick={fitEdgeColumn} onMouseMove={trackPointer} data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
     {showHoverDetail && hoverRow && <div ref={hoverDetailRef} className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
-      {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}
+      {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId], hoverShape)}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId], hoverShape)}</code></div></section>}
       {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}
     </div>}
   </div>;
@@ -1331,13 +1334,13 @@ function ReplacementSide({ title, rows, columns, active }: { title: string; rows
     const sample = sampleRows(rows, 600);
     return columns.map((column) => {
       const title = column.display_name || column.name;
-      return { id: column.name, title, width: fitWidth(measureHeader(title), sample.map((row) => measureCell(normalizeDisplayScalar(row[column.name]))), "auto") };
+      return { id: column.name, title, width: fitWidth(measureHeader(title), sample.map((row) => measureCell(normalizeDisplayScalar(row[column.name], column))), "auto") };
     });
   }, [columns, rows, theme]);
   const getCellContent = useCallback(([column, row]: readonly [number, number]): GridCell => {
     const key = gridColumns[column]?.id; const item = rows[row]; if (!key || !item) return { kind: GridCellKind.Loading, allowOverlay: false };
-    const value = normalizeDisplayScalar(item[key]); return { kind: GridCellKind.Text, data: value, displayData: value, allowOverlay: false };
-  }, [gridColumns, rows]);
+    const value = normalizeDisplayScalar(item[key], columns[column]); return { kind: GridCellKind.Text, data: value, displayData: value, allowOverlay: false };
+  }, [columns, gridColumns, rows]);
   return <section className={active ? "replacement-side" : "replacement-side is-inactive"}><h3>{title} <small>{rows.length} 行</small></h3><div className="grid-frame"><DataEditor columns={gridColumns} rows={rows.length} getCellContent={getCellContent} rowMarkers={{ kind: "number", width: 44 }} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={420} verticalBorder={false} /></div></section>;
 }
 

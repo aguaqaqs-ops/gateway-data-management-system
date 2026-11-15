@@ -324,12 +324,13 @@ class _Builder:
                 tab_label = comment.replace("引用表", "").strip() or name
                 forward_tabs[key].append(self.tab(table, name, tab_label))
                 claimed.add(name)
-            else:
-                for label, source in (("BEFORE", table.before), ("CURRENT", table.current)):
-                    if source is not None and label not in owners:
-                        self.diagnostic("CHANNEL_TABLE_UNCLAIMED", "OTHER_TABLES", table=table,
-                            item=f"table:{name}", side=label, channel_prefix=prefix(key),
-                            registry_table="net_cfg" if info.kind == "n" else "com_cfg")
+            for label, source in (("BEFORE", table.before), ("CURRENT", table.current)):
+                if source is not None and label not in owners:
+                    group = "FORWARD_CHANNELS" if actual_owners else "OTHER_TABLES"
+                    item = f"channel:{prefix(key)}" if actual_owners else f"table:{name}"
+                    self.diagnostic("CHANNEL_TABLE_UNCLAIMED", group, table=table,
+                        item=item, side=label, channel_prefix=prefix(key),
+                        registry_table="net_cfg" if info.kind == "n" else "com_cfg")
         for key in ordered_keys():
             if not forward_tabs[key]:
                 continue
@@ -381,7 +382,8 @@ class _Builder:
             tabs = [tabs_by_name[name] for name in sorted(tabs_by_name, key=lambda value: value.encode("utf-8"))]
             groups[2]["items"].append(self.item(f"protocol:{prefix(key)}", "PROTOCOL_CHANNEL",
                 (label + " " + protocol_name).strip(), tabs, **attrs(key), protocol=exe))
-        self.globals(groups[3]["items"], names, claimed, ordered)
+        self.globals(groups[3]["items"], names, claimed,
+                     ordered | ({"com_cfg"} if not com_has_exe else set()))
         for name, table in sorted(names.items()):
             if name not in claimed:
                 groups[4]["items"].append(self.item(f"table:{name}", "TABLE", table.display_name, [self.tab(table)]))

@@ -22,7 +22,7 @@
     },
     {
       "path": "diagnostic-codes.json",
-      "sha256": "5a9796515e4408e844d99693f237533748990c23933351babd8469c013e9f162",
+      "sha256": "3e592f5089b35f9d0f68fa9523ba236c4622f4add0b02a31f177a42eb4fda4c9",
       "source": "Business Navigation validator params and current owning diagnostic emit mapping"
     },
     {
@@ -53,12 +53,12 @@
     },
     {
       "path": "identity-before.sql",
-      "sha256": "d107f832bb79077d3941d3ba11c519a9975257284b388f0226cc1071b42bf91d",
+      "sha256": "2ee3bc9bf51e38f2dc2f62fca86eba4195033c4f956f425fe7fcc943648be81f",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "identity-current.sql",
-      "sha256": "0a518f8c15704b89ba328dbffd28fc7b5fae4b181e49a06291c1dda9f4c671e1",
+      "sha256": "a8d5811728797a366cce9d62eec1acea0cfe91bb60f666b8fa7e9ca63ca4081b",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -468,8 +468,10 @@
           "DEVICE_ROWS_UNASSIGNED"
         ],
         "fallback_tables": [
-          "device_cfg",
           "device_st"
+        ],
+        "exact_tables": [
+          "device_cfg"
         ]
       }
     },

@@ -770,3 +770,29 @@ def test_reference_without_registration_cannot_be_claimed_by_app_cfg() -> None:
     assert result.document["groups"][4]["items"][0]["item_key"] == "table:b2_c3_any"
     assert len(tabs(result, reference.table_id)) == 1
     assert diagnostics(result, "CHANNEL_TABLE_UNCLAIMED")[0]["side"] == "CURRENT"
+
+
+@pytest.mark.parametrize("kind,missing", [("n", "CURRENT"), ("n", "BEFORE"), ("c", "CURRENT"), ("c", "BEFORE")])
+def test_reference_diagnostic_reports_unregistered_side_when_other_side_claims(kind: str, missing: str) -> None:
+    registry_name = "net_cfg" if kind == "n" else "com_cfg"
+    column = "link_no" if kind == "n" else "com_no"
+    active = side(({"board": 1, column: 2, "exe": "x"},))
+    empty = side(({"board": 1, column: 2, "exe": " "},))
+    registry = table(registry_name, empty if missing == "BEFORE" else active,
+                     empty if missing == "CURRENT" else active)
+    name = f"b1_{kind}2_ref"
+    result = build(registry, table(name, side(comment="引用表"), side(comment="引用表")))
+    assert len(tabs(result, name)) == 1
+    diagnostic, = diagnostics(result, "CHANNEL_TABLE_UNCLAIMED")
+    assert diagnostic["side"] == missing
+    assert diagnostic["target"] == {"group_key": "FORWARD_CHANNELS", "item_key": f"channel:b1_{kind}2",
+                                    "tab_key": None, "table_id": name}
+    assert diagnostic["params"] == {"channel_prefix": f"b1_{kind}2", "registry_table": registry_name}
+
+
+def test_empty_serial_registry_stays_in_other_tables_when_referenced_by_app() -> None:
+    registry = table("com_cfg", None, side(({"board": 1, "com_no": 2, "exe": " "},)))
+    app = table("app_cfg", None, side(({"app_name": "应用", "table_cfg": "com_cfg"},)))
+    result = build(registry, app)
+    assert any(item["item_key"] == "table:com_cfg" for item in result.document["groups"][4]["items"])
+    assert len(tabs(result, "com_cfg")) == 1

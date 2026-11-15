@@ -65,6 +65,7 @@ def _read_finalize_versions(
 
 def _request(db_path: Path, seed: SubmitSeed, attempt: SubmitAttempt) -> FinalizeSubmitTransactionRequest:
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
+    assert attempt.prepared_canonicalization_manifest_ref is not None
     facts = MatchingFinalizeFacts(
         repository_id=seed.workspace.repository_id,
         repository_operation_id="repo-op-1",
@@ -72,7 +73,7 @@ def _request(db_path: Path, seed: SubmitSeed, attempt: SubmitAttempt) -> Finaliz
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256="sha256:" + "e" * 64,
-        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        canonicalization_manifest_ref=attempt.prepared_canonicalization_manifest_ref,
         canonicalization_manifest_digest="sha256:" + "f" * 64,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,

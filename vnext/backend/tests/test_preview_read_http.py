@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from tests.support.configuration_fact_faults import (
     CONFIGURATION_BODY_FAULTS, corrupt_configuration_body, forbid_configuration_object_reads,
 )
@@ -70,7 +72,7 @@ def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
         baseline_head_version=BASELINE_HEAD.baseline_head_version,
         ruleset_version="v1",
-        contract_version="v1",
+        contract_version="backend-vnext/preview/v4",
         provider_versions={},
         digests=PreviewResultDigests(
             source_digest="d1",
@@ -84,8 +86,8 @@ def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation
         canonical=make_preview_canonical_bindings(),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id="a1:durable:ff70ce3b60f1f4d566a551dd80763be3f32e52cbd0cbb3703ab401954c7903ad",
-        ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ff70ce3b60f1f4d566a551dd80763be3f32e52cbd0cbb3703ab401954c7903ad"),
+        ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
         operation_id=operation_id,
         created_at=datetime(2024, 6, 1, 12, 0, tzinfo=UTC),
     )
@@ -149,7 +151,7 @@ def test_read_preview_bundle_streams_logical_bytes(env: WorkspaceHttpTestEnviron
     assert response.status_code == 200
     assert response.content == BUNDLE_BYTES
     assert "preview.tar" in response.headers["content-disposition"]
-    assert "a1:durable:ff70ce3b60f1f4d566a551dd80763be3f32e52cbd0cbb3703ab401954c7903ad" not in response.text
+    assert build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ff70ce3b60f1f4d566a551dd80763be3f32e52cbd0cbb3703ab401954c7903ad") not in response.text
     assert str(env.db_path) not in response.text
 
 

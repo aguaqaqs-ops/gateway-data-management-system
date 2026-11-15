@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import replace
 
-from gateway_backend.artifacts import ArtifactStorePort
+from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput, ComparisonPlan, ComparisonRequest, DetailedFactsResult,
     RecordsDetailPolicy, plan_comparison,
@@ -18,7 +18,7 @@ from gateway_backend.capabilities.snapshot_materialization import snapshot_table
 from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.table_rules.contracts import TableArtifactScope
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream
-from tests.support.table_rules import comparison_ruleset_for, ordered_record, standard_rule_record
+from tests.support.table_rules import comparison_ruleset_for, fallback_record, ordered_record, snapshot_from_records, standard_rule_record
 
 
 def canonical_bound(sql: str) -> BoundSnapshotInput:
@@ -36,6 +36,27 @@ def canonical_bound(sql: str) -> BoundSnapshotInput:
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
 
 
+
+def ordered_canonical_bound(sql: str) -> BoundSnapshotInput:
+    from gateway_backend.application.preview_jobs import _comparison_storage_facts
+    from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
+    from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
+    from gateway_backend.capabilities.table_access import NeverCancel, ParserInvocationContext
+
+    source = bound(sql)
+    assert source.table_set is not None and source.presentation is not None
+    ruleset = snapshot_from_records(ordered_record(r"^t$"), fallback_record())
+    projected = project_canonical_arrow_table_set(source.table_set, ruleset, presentation=source.presentation)
+    if projected.manifest is None:
+        raise ValueError(f"ordered projection failed: {projected.diagnostics}")
+    result = materialize_canonical_snapshot(
+        source.snapshot, projected.tables, artifact_store=InMemoryArtifactStore(),
+        context=ParserInvocationContext(NeverCancel()), repository_id="ordered-live-fixture",
+    )
+    assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
+        _comparison_storage_facts(projected.manifest), presentation=projected.manifest.presentation)
+
 def native_product(
     before_sql: str,
     current_sql: str,
@@ -45,7 +66,8 @@ def native_product(
     artifact_scope: TableArtifactScope = TableArtifactScope.ALL_CHANGES,
     detail_policy: RecordsDetailPolicy = RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
 ) -> NativeComparison:
-    before, current = canonical_bound(before_sql), canonical_bound(current_sql)
+    build = ordered_canonical_bound if ordered else canonical_bound
+    before, current = build(before_sql), build(current_sql)
     rule = (
         ordered_record(r"^t$", compare_excluded_columns=compare_excluded_columns)
         if ordered else standard_rule_record(

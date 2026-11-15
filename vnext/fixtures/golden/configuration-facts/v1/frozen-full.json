@@ -15,14 +15,14 @@
     "baseline_content_identity": {
       "canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
       "storage_projection_ruleset_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
-      "storage_projection_version": "3",
+      "storage_projection_version": "4",
       "scalar_encoding_version": 1
     },
     "initial": {
       "content_identity": {
         "canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
         "storage_projection_ruleset_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
-        "storage_projection_version": "3",
+        "storage_projection_version": "4",
         "scalar_encoding_version": 1
       },
       "generated_time": {
@@ -44,7 +44,7 @@
       "content_identity": {
         "canonical_state_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
         "storage_projection_ruleset_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
-        "storage_projection_version": "3",
+        "storage_projection_version": "4",
         "scalar_encoding_version": 1
       },
       "generated_time": {
@@ -63,5 +63,5 @@
       "sql_source_digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
     }
   },
-  "facts_digest": "sha256:1045dfaa851ddd848fcab28cd0277ebfa3ea4572e4c799b8265d3da7ef4b9aef"
+  "facts_digest": "sha256:2c0fb1bac45c535fe21235509093adee683b208d147e593059002b399b5a976d"
 }

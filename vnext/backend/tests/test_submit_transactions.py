@@ -345,7 +345,7 @@ def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> Preview
             surface_digest="d-surface",
             bundle_digest="sha256:preview-canonical",
         ),
-        canonical=make_preview_canonical_bindings(repository_id),
+        canonical=make_preview_canonical_bindings(repository_id, generated_source_ids=True),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
         bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),

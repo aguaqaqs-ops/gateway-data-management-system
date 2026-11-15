@@ -1005,7 +1005,9 @@ print(json.dumps(json.loads(row[0])['canonical']))
                         document = json.loads(stream.read())
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         continue
-                    if isinstance(document, dict) and document.get("contract_version") == "backend-vnext/business-navigation/v3":
+                    if (isinstance(document, dict)
+                            and document.get("contract_version") == "backend-vnext/business-navigation/v3"
+                            and "groups" in document):
                         documents.append(document)
             assert len(documents) == 1
             forward = next(g for g in documents[0]["groups"] if g["group_key"] == "FORWARD_CHANNELS")

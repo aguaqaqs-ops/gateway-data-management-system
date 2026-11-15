@@ -195,7 +195,8 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
     catalog = make_catalog((target, selected))
     rows = {target.table_name: target_rows, selected.table_name: ((9,),)}
     full_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
-    binding = canonical_binding_for_catalog(catalog, ruleset=ruleset)
+    binding = canonical_binding_for_catalog(catalog, ruleset=ruleset,
+        table_comments={target.table_name: "引用表"} if case == "ordered" else None)
     full = materialize_ref(
         full_provider,
         policy=MaterializationPolicy.READERS_REQUIRED,

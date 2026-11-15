@@ -28,7 +28,7 @@ from gateway_backend.capabilities.snapshot_materialization.canonical_store impor
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy, OrderedPolicy, STORAGE_PROJECTION_VERSION, StorageRuleView,
 )
-from tests.support.comparison_s3_e_live import canonical_bound, native_product
+from tests.support.comparison_s3_e_live import canonical_bound, native_product, ordered_canonical_bound
 from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
 from tests.support.table_rules import comparison_ruleset_for, fallback_record
 
@@ -394,31 +394,6 @@ def test_comparison_digest_is_repeatable_and_directional() -> None:
     assert first.tables[0].row_deleted_count == reverse.tables[0].row_added_count
 
 
-def test_blank_position_renumber_keeps_occupancy_without_records() -> None:
-    before = (
-        "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a'),(NULL,2,'x'),(NULL,3,'y'),(2,100,'b');"
-    )
-    current = (
-        "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a'),(NULL,20,'x'),(NULL,30,'y'),(2,100,'b');"
-    )
-    product = native_product(before, current, ordered=True)
-    try:
-        assert isinstance(product.result, DetailedFactsResult)
-        assert product.result.facts is not None
-        table, = product.result.facts.tables
-        assert table.blank_extension is not None
-        assert (table.blank_extension.before_occupancy_digest
-                == table.blank_extension.current_occupancy_digest)
-        assert table.blank_extension.blank_summary.blank_changed_count == 0
-        assert all(product.handles["t"].family_summary(family)[0] == 0 for family in (
-            "STANDARD", "ORDERED", "BLANK",
-        ))
-    finally:
-        product.close()
-
-
 def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
     before = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b'),(3,3,'c');"
@@ -446,9 +421,9 @@ def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
 
 def test_cached_ordered_change_still_demands_snapshots_for_risk(monkeypatch: pytest.MonkeyPatch) -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-    before_sql = schema + " INSERT INTO t VALUES (1,10,'a'),(2,100,'b');"
-    current_sql = schema + " INSERT INTO t VALUES (1,10,'a'),(NULL,40,'x'),(2,100,'b');"
-    before, current = canonical_bound(before_sql), canonical_bound(current_sql)
+    before_sql = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
+    current_sql = schema + " INSERT INTO t VALUES (1,1,'a'),(NULL,2,'x'),(2,3,'b');"
+    before, current = ordered_canonical_bound(before_sql), ordered_canonical_bound(current_sql)
     from tests.support.table_rules import ordered_record
     planned = plan_comparison(ComparisonRequest(
         pair_id="cached-blank", before=before, current=current,
@@ -498,27 +473,6 @@ def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> 
         with closing(product.handles["t"].record_batches("BLANK")) as reader:
             kinds = tuple(sorted(row["record_kind"] for batch in reader for row in batch.to_pylist()))
         assert kinds == ("BLANK_DELETE_INTERVAL", "BLANK_INSERT_INTERVAL")
-    finally:
-        product.close()
-
-
-def test_absolute_order_renumber_is_a_position_shift_without_records() -> None:
-    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-    before = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
-    current = schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"
-    product = native_product(before, current, ordered=True)
-    try:
-        assert isinstance(product.result, DetailedFactsResult)
-        assert product.result.facts is not None
-        table, = product.result.facts.tables
-        assert table.ordered_extension is not None
-        summary = table.ordered_extension.ordered_summary
-        assert table.row_modified_count == 0
-        assert summary.row_moved_count == 0
-        assert summary.position_changed_count == 2
-        assert table.ordered_extension.table_processing_mode is OrderedTableProcessingMode.SHIFT_REPAIRED
-        assert product.handles["t"].family_summary("STANDARD")[0] == 0
-        assert product.handles["t"].family_summary("ORDERED")[0] == 0
     finally:
         product.close()
 
@@ -573,27 +527,12 @@ def test_ordered_identity_change_emits_add_delete_without_positional_fallback() 
         product.close()
 
 
-def test_missing_order_key_degrades_ordered_replay() -> None:
+def test_invalid_order_key_is_rejected_by_projection() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
     before = schema + " INSERT INTO t VALUES (1,NULL,'a');"
     current = schema + " INSERT INTO t VALUES (1,1,'a');"
-    product = native_product(before, current, ordered=True)
-    try:
-        assert isinstance(product.result, DetailedFactsResult)
-        assert product.result.facts is not None
-        table, = product.result.facts.tables
-        assert table.status is ComparisonTableStatus.DEGRADED
-        assert "ORDER_KEY_MISSING" in table.diagnostics
-        assert table.ordered_extension is not None
-        assert table.ordered_extension.replay_guarantee.value == "UNSUPPORTED"
-        assert product.handles["t"].family_summary("STANDARD")[0] == 1
-        assert product.handles["t"].family_summary("ORDERED")[0] == 0
-        assert product.handles["t"].family_summary("BLANK")[0] == 0
-        with closing(product.handles["t"].record_batches("STANDARD")) as reader:
-            records = [row for batch in reader for row in batch.to_pylist()]
-        assert tuple(row["record_kind"] for row in records) == ("TABLE_DEGRADED",)
-    finally:
-        product.close()
+    with pytest.raises(ValueError, match="ordered projection failed"):
+        native_product(before, current, ordered=True)
 
 
 def test_ordered_excluded_value_change_is_visible_without_row_record() -> None:

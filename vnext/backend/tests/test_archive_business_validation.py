@@ -36,7 +36,7 @@ def _time(hour: int | None = 12, *, invalid: int = 0, maximum: int | None = None
 
 
 def _side(label: str, *, hour: int | None = 12, rules: str = "A") -> ConfigurationSideFacts:
-    return ConfigurationSideFacts(CanonicalContentIdentity(_digest(label), _digest(rules), "3", 1),
+    return ConfigurationSideFacts(CanonicalContentIdentity(_digest(label), _digest(rules), "4", 1),
         _time(hour), build_artifact_id(ArtifactLocation.DURABLE, "archive-business-fixture", label), _digest("sql-" + label))
 
 

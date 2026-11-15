@@ -263,7 +263,8 @@ def test_workspace_recommends_latest_active_preview_for_current_input(
     assert recommendation() == newest
     replacement = env.client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
-        headers=env.auth_headers(idempotency_key="upload-replacement"), files=upload_files(),
+        headers=env.auth_headers(idempotency_key="upload-replacement"),
+        files=upload_files(expected_version=upload["optimistic_version"]),
     )
     assert replacement.status_code == 201, replacement.text
     assert recommendation() is None

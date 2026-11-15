@@ -183,3 +183,21 @@ class HistoryCompareResultResponse(BaseModel):
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
     diagnostic: HistoryCompareDiagnosticResponse | None = None
     result: HistoryCompareResultInputResponse | None = None
+
+
+class HistoryCompareListItemResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str
+    nodes: list[HistoryNodeRefResponse]
+    status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
+    created_at: datetime
+    completed_at: datetime | None
+    result_expires_at: datetime | None
+
+
+class HistoryCompareListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[HistoryCompareListItemResponse]
+    next_cursor: str | None = None

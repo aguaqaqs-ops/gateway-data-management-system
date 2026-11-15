@@ -18,7 +18,7 @@ import logging
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import TracebackType
 from typing import ContextManager, cast
 
@@ -41,6 +41,7 @@ from gateway_backend.application.checkpoints import (
 )
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
+    HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     HISTORY_COMPARE_JOB_KIND,
     HistoryCompareDiagnosticCode,
     HistoryCompareNodeBinding,
@@ -740,12 +741,12 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 ready_closure_ref,
             ).artifact_refs()
             _assert_history_bundle_binding(assemble_envelope.job_state, closure_output_refs)
-            _, assemble_state = history_compare_assemble_state_from_checkpoint(assemble_envelope.job_state, deps.artifact_store)
+            assemble_state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(assemble_envelope.job_state, deps.artifact_store)
             verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), closure_output_refs, assemble_state.get("pair_ids"))
-            _release_history_compare_step_protection(
-                transaction,
-                operation_id=current_operation.operation_id,
-            )
+            acceptance = transaction.history_compare.get_acceptance_by_operation_id(current_operation.operation_id)
+            if acceptance is None:
+                raise HistoryCompareJobError("history compare acceptance is missing")
+            expires_at = transaction_now + timedelta(seconds=acceptance.result_retention_seconds)
             terminal_step = _terminal_step(current_step, transaction_now, status=StepStatus.SUCCEEDED)
             terminal_operation = dataclasses.replace(
                 current_operation,
@@ -760,12 +761,17 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                     (
                         ready_closure_ref,
                         assemble_checkpoint_ref,
+                        assemble_state_ref,
                         *closure_output_refs,
                     )
                 ),
                 owner_kind="history-compare-operation",
                 owner_id=current_operation.operation_id,
                 intent="history-compare-result",
+                expires_at=expires_at,
+            )
+            _release_history_compare_checkpoint_protection(
+                transaction, operation_id=current_operation.operation_id
             )
             return terminal_step, terminal_operation
 
@@ -826,6 +832,8 @@ def _materialize_distinct_commits(
 
 
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
+    if payload.comparison_contract_version != HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION:
+        raise HistoryCompareRulesetVersionMismatch("frozen comparison contract does not match runtime")
     active_rules = comparison_rule_set(migrated_table_ruleset_snapshot())
     digest = active_rules.ruleset_digest
     if digest is None:
@@ -1655,7 +1663,7 @@ def _pin_history_compare_refs(
         )
 
 
-def _release_history_compare_step_protection(
+def _release_history_compare_checkpoint_protection(
     unit_of_work: HistoryCompareControlTransaction,
     *,
     operation_id: str,
@@ -1669,6 +1677,12 @@ def _release_history_compare_step_protection(
             owner_kind="history-compare-checkpoint",
             owner_id=history_compare_step_id(operation_id, step_name),
         )
+
+
+def _release_history_compare_step_protection(
+    unit_of_work: HistoryCompareControlTransaction, *, operation_id: str
+) -> None:
+    _release_history_compare_checkpoint_protection(unit_of_work, operation_id=operation_id)
     unit_of_work.clear_artifact_protection(
         owner_kind="history-compare-operation",
         owner_id=operation_id,

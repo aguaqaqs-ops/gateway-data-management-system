@@ -140,6 +140,14 @@ nonempty unmarked root or mismatched marker is refused without deletion.
 schema_version/environment_id/group_id/slot/storage_id. The backend maintenance
 CLI exposes the same explicit `init-layout` and `check-layout` host operations.
 
+Schedule the backend `storage_admin` `cleanup` command for each group at least
+hourly, with the group's storage-layout and resource-profile paths. Each call
+first releases up to 32 expired History result owners and aliases, then performs
+one bounded artifact scan. Repeat calls while `history_released` is 32, and use
+the returned artifact `cursor` to continue the scan for the same layout. Alert
+on failure and retry the command; a failed maintenance call does not extend
+History result visibility. Preserve the command output for diagnosis.
+
 `render` validates document structure and writes a new external Compose JSON
 override, which supplies every root/config bind with `create_host_path: false`,
 role-specific memory/CPU/swap and one replica per fixed service. It neither checks a remote host nor

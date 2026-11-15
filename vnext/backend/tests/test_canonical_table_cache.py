@@ -54,6 +54,31 @@ def test_preview_to_attempt_shared_release_and_expiry_are_transactional(db_path:
         assert not uow.protection.is_protected(ref.artifact_id)
 
 
+
+def test_finite_owner_keeps_shared_canonical_until_release(db_path: Path) -> None:
+    key, ref = cached_entry()
+    expires = NOW + timedelta(days=2)
+    with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
+        uow.canonical_tables.register(key, ref)
+        uow.set_artifact_protection((ref,), owner_kind="history-compare-operation",
+                                    owner_id="history", intent="result", expires_at=expires)
+        uow.set_artifact_protection((ref,), owner_kind="preview", owner_id="preview", intent="pin")
+        uow.clear_artifact_protection(owner_kind="preview", owner_id="preview")
+    later = NOW + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS + 1)
+    with ControlDbUnitOfWork(db_path, now=lambda: later) as uow:
+        assert uow.canonical_tables.lookup(key) == ref
+        # Idempotent writes must update the expiry as well as the intent.
+        extended = expires + timedelta(days=1)
+        assert uow.set_artifact_protection((ref,), owner_kind="history-compare-operation",
+                                           owner_id="history", intent="result", expires_at=extended)
+        assert not uow.set_artifact_protection((ref,), owner_kind="history-compare-operation",
+                                               owner_id="history", intent="result", expires_at=extended)
+    with ControlDbUnitOfWork(db_path, now=lambda: extended) as uow:
+        uow.clear_artifact_protection(owner_kind="history-compare-operation", owner_id="history")
+        assert uow.canonical_tables.lookup(key) == ref
+    with ControlDbUnitOfWork(db_path, now=lambda: extended + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS)) as uow:
+        assert uow.canonical_tables.lookup(key) is None
+
 def test_cache_hit_touches_protection_before_file_check_and_readonly_does_not_touch(db_path: Path) -> None:
     key, ref = cached_entry()
     with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:

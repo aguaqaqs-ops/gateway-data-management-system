@@ -82,6 +82,7 @@ def accept_start_preview(
     comparison_ruleset_digest: str,
     now: datetime,
     options: Mapping[str, object] | None = None,
+    operation_queue_limit: int = 32,
 ) -> StartPreviewAcceptanceResult:
     assert_preview_job_registered(job_registry)
     resolved_options = dict(options or {})
@@ -187,6 +188,9 @@ def accept_start_preview(
             completed_at=None,
             optimistic_version=0,
         )
+        if unit_of_work.count_queued_operations() >= operation_queue_limit:
+            from gateway_backend.operations.store import OperationQueueFull
+            raise OperationQueueFull
         unit_of_work.operations.insert_operation_with_initial_step(operation, step)
         unit_of_work.workspace.save_preview_acceptance(
             PreviewAcceptanceRecord(

@@ -40,6 +40,7 @@ class SQLiteArtifactProtectionStore:
         owner_id: str,
         intent: str,
         recorded_at: datetime,
+        expires_at: datetime | None = None,
     ) -> bool:
         if self._read_only:
             raise RuntimeError("artifact protection store is read-only in this transaction")
@@ -47,26 +48,30 @@ class SQLiteArtifactProtectionStore:
             validate_artifact_ref_model(ref)
         applied = False
         recorded_at_us = _datetime_to_epoch_us(recorded_at)
+        expires_at_us = None if expires_at is None else _datetime_to_epoch_us(expires_at)
+        if expires_at_us is not None and expires_at_us <= recorded_at_us:
+            raise ValueError("protection expiry must be after recording time")
         for ref in refs:
             existing = self._connection.execute(
                 """
-                SELECT intent FROM artifact_protection_intents
+                SELECT intent, expires_at_us FROM artifact_protection_intents
                 WHERE artifact_id = ? AND owner_kind = ? AND owner_id = ?
                 """,
                 (ref.artifact_id, owner_kind, owner_id),
             ).fetchone()
-            if existing is not None and existing[0] == intent:
+            if existing is not None and existing[0] == intent and existing[1] == expires_at_us:
                 continue
             self._connection.execute(
                 """
                 INSERT INTO artifact_protection_intents (
-                    artifact_id, owner_kind, owner_id, intent, recorded_at_us
-                ) VALUES (?, ?, ?, ?, ?)
+                    artifact_id, owner_kind, owner_id, intent, recorded_at_us, expires_at_us
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(artifact_id, owner_kind, owner_id) DO UPDATE SET
                     intent = excluded.intent,
-                    recorded_at_us = excluded.recorded_at_us
+                    recorded_at_us = excluded.recorded_at_us,
+                    expires_at_us = excluded.expires_at_us
                 """,
-                (ref.artifact_id, owner_kind, owner_id, intent, recorded_at_us),
+                (ref.artifact_id, owner_kind, owner_id, intent, recorded_at_us, expires_at_us),
             )
             self._connection.execute(
                 "UPDATE canonical_table_cache SET expires_at_us = NULL WHERE artifact_id = ?",
@@ -107,8 +112,9 @@ class SQLiteArtifactProtectionStore:
         for artifact_id in artifact_ids:
             strong = self._connection.execute(
                 """SELECT 1 FROM artifact_protection_intents WHERE artifact_id = ?
-                   AND owner_kind != 'canonical-table-cache' AND expires_at_us IS NULL LIMIT 1""",
-                (artifact_id,),
+                   AND owner_kind != 'canonical-table-cache'
+                   AND (expires_at_us IS NULL OR expires_at_us > ?) LIMIT 1""",
+                (artifact_id, now_us),
             ).fetchone()
             if strong is not None:
                 self._connection.execute(

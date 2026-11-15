@@ -33,3 +33,25 @@ class HistoryCompareJobNotRegistered(HistoryApplicationError):
 
 class HistoryCompareAcceptanceUnavailable(HistoryApplicationError):
     """History compare acceptance could not be formed from validated bindings."""
+
+
+class HistoryCompareRequestExpired(HistoryApplicationError):
+    """An original key or still-recorded alias refers to an expired success."""
+
+
+class HistoryCompareAliasLimit(HistoryApplicationError):
+    def __init__(self, operation_id: str) -> None:
+        super().__init__("history compare alias limit reached")
+        self.operation_id = operation_id
+
+
+class HistoryComparePreflightFailure(HistoryApplicationError):
+    def __init__(self, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+
+
+class HistoryCompareScopeLimit(HistoryApplicationError):
+    def __init__(self, operation_ids: tuple[str, ...]) -> None:
+        super().__init__("history compare scope limit reached")
+        self.operation_ids = operation_ids

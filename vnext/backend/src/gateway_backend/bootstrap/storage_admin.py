@@ -9,7 +9,7 @@ import sqlite3
 from contextlib import contextmanager
 from collections.abc import Iterator
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from gateway_backend.deployment_config import DeploymentConfig
@@ -38,6 +38,31 @@ def _database_file_identity(database: Path, metadata: Path) -> tuple[int, int]:
         return info.st_dev, info.st_ino
     finally:
         os.close(descriptor)
+
+
+def release_expired_history_results(uow: ControlDbUnitOfWork, *, limit: int = 32) -> int:
+    """Release one bounded batch of terminal History owners and aliases."""
+    now = uow.transaction_now.astimezone(UTC)
+    delta = now - datetime(1970, 1, 1, tzinfo=UTC)
+    now_us = (delta.days * 86_400 + delta.seconds) * 1_000_000 + delta.microseconds
+    rows = uow.connection.execute(
+        """SELECT a.operation_id
+           FROM history_compare_acceptance_records a
+           JOIN operation_records o ON o.operation_id = a.operation_id
+           WHERE o.completed_at_us IS NOT NULL
+             AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
+             AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
+             AND (EXISTS (SELECT 1 FROM artifact_protection_intents p
+                          WHERE p.owner_kind = 'history-compare-operation' AND p.owner_id = a.operation_id)
+                  OR EXISTS (SELECT 1 FROM history_compare_aliases h WHERE h.operation_id = a.operation_id))
+           ORDER BY o.completed_at_us, a.operation_id LIMIT ?""",
+        (now_us, limit),
+    ).fetchall()
+    for row in rows:
+        operation_id = row[0]
+        uow.clear_artifact_protection(owner_kind="history-compare-operation", owner_id=operation_id)
+        uow.connection.execute("DELETE FROM history_compare_aliases WHERE operation_id = ?", (operation_id,))
+    return len(rows)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,13 +129,16 @@ def main(argv: list[str] | None = None) -> int:
                     return False
                 return not operation.status.is_final_terminal()
 
+        with transaction() as uow:
+            history_released = release_expired_history_results(uow)
+
         bounded = BoundedArtifactStore(local, protection_uow=transaction)
         maintenance = ArtifactMaintenance(local, bounded,
             scratch_root=Path(deployment.storage.roots['be-scratch'].path), owner_active=active,
             grace=timedelta(seconds=args.orphan_grace_seconds),
             scratch_validator=lambda: check_configured_root(deployment.storage, "be-scratch"))
         result = maintenance.run(max_candidates=args.max_candidates, cursor=args.cursor)
-        print(json.dumps(asdict(result), sort_keys=True))
+        print(json.dumps({**asdict(result), "history_released": history_released}, sort_keys=True))
         return 0
     except (OSError, ValueError, RuntimeError, sqlite3.DatabaseError, StoreBusy, UnsupportedSchemaVersion, CorruptPersistedRecord) as exc:
         parser.exit(2, f'backend storage maintenance refused: {exc}\n')

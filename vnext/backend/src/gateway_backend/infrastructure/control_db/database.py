@@ -270,6 +270,10 @@ class ControlDbUnitOfWork:
 
         return SQLiteCommitCanonicalMetadataPort(self.connection, manifest_reader=reader)
 
+    def count_queued_operations(self) -> int:
+        row = self.connection.execute("SELECT COUNT(*) FROM operation_records WHERE status = 'QUEUED'").fetchone()
+        return int(row[0])
+
     def set_artifact_protection(
         self,
         refs: tuple[ArtifactRef, ...],
@@ -277,6 +281,7 @@ class ControlDbUnitOfWork:
         owner_kind: str,
         owner_id: str,
         intent: str,
+        expires_at: datetime | None = None,
     ) -> bool:
         """Record protection intents in the current transaction."""
 
@@ -286,6 +291,7 @@ class ControlDbUnitOfWork:
             owner_id=owner_id,
             intent=intent,
             recorded_at=self.transaction_now,
+            expires_at=expires_at,
         )
 
     def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int:

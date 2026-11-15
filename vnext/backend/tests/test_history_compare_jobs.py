@@ -952,6 +952,12 @@ def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: 
         ) == frozenset()
     assert step_protected == frozenset()
     assert assemble_ref.artifact_id in protected
+    from gateway_backend.application.checkpoints import load_checkpoint_envelope
+    from gateway_backend.application.history.compare_jobs import history_compare_assemble_state_from_checkpoint
+
+    envelope = load_checkpoint_envelope(harness.artifact_store, assemble_ref)
+    state_ref, _ = history_compare_assemble_state_from_checkpoint(envelope.job_state, harness.artifact_store)
+    assert state_ref.artifact_id in protected
     cast(InMemoryArtifactStore, harness.artifact_store)._artifacts.pop(assemble_ref.artifact_id, None)  # noqa: SLF001
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
@@ -1046,6 +1052,30 @@ def test_f1_policy_binding_integration_cases(
     pair = pairs[0]
     assert isinstance(pair, dict)
     assert pair["comparison_digest"] == local_digest
+
+
+def test_expired_history_maintenance_releases_result_owner_once(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    from gateway_backend.bootstrap.storage_admin import release_expired_history_results
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="maintenance-history")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        assert acceptance is not None and operation.completed_at is not None
+        uow.history_compare.save_alias(record=acceptance, idempotency_key="alias")
+        expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry - timedelta(microseconds=1)) as uow:
+        assert release_expired_history_results(uow) == 0
+        assert uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 1
+        assert not uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+        assert uow.history_compare.count_aliases(harness.operation_id) == 0
+        assert release_expired_history_results(uow) == 0
+        assert uow.history_compare.get_acceptance_by_operation_id(harness.operation_id) is not None
 
 
 def test_history_compares_canonical_net_cfg_without_dropped_column(tmp_path: Path) -> None:
@@ -1806,3 +1836,51 @@ def test_single_side_history_missing_export_source_keeps_real_error(
     assert operation.status is OperationStatus.FAILED
     assert operation.diagnostic is not None and operation.diagnostic.code == "REPOSITORY_TABLE_NOT_FOUND"
     assert operation.ready_closure_ref is None
+
+
+def test_history_reuse_rechecks_session_after_preflight(tmp_path: Path) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.domain.workspace.errors import PermissionDenied
+    from gateway_backend.operations.contracts import OperationRecord
+    from gateway_backend.application.history.contracts import HistoryCompareAcceptanceRecord
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="session-before")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        protected = uow.list_artifact_protection_for_owner(
+            owner_kind="history-compare-operation", owner_id=harness.operation_id)
+    assert acceptance is not None
+    allowed = make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY}))
+    revoked = make_identity()
+    preflight_done = False
+
+    @contextmanager
+    def preflight(_operation: OperationRecord, _acceptance: HistoryCompareAcceptanceRecord) -> Iterator[frozenset[str]]:
+        nonlocal preflight_done
+        preflight_done = True
+        yield protected
+
+    with pytest.raises(PermissionDenied):
+        accept_history_compare(
+            command=HistoryCompareAcceptCommand(
+                context=allowed, idempotency_key="session-after",
+                node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+            ),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(harness.db_path, read_only=read_only),
+            job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+            comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC),
+            preflight=preflight, resolve_current_identity=lambda: revoked if preflight_done else allowed,
+        )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.history_compare.count_aliases(harness.operation_id) == 0

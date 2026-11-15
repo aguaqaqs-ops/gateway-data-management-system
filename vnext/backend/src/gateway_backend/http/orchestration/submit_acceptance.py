@@ -188,6 +188,7 @@ def accept_submit_operation(
     main_resolve: RepositoryMainResolvePort,
     current_storage_projection_ruleset_digest: str,
     now: datetime,
+    operation_queue_limit: int = 32,
 ) -> SubmitAcceptanceResult:
     try:
         assert_submit_job_registered(job_registry)
@@ -291,6 +292,7 @@ def accept_submit_operation(
         main_resolve=main_resolve,
         preflight=preflight,
         now=now,
+        operation_queue_limit=operation_queue_limit,
     )
 
     with unit_of_work_factory(read_only=True) as unit_of_work:

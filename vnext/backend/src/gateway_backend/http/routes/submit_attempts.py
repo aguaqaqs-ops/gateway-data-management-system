@@ -101,6 +101,7 @@ def accept_submit_route(
             main_resolve=deps.main_resolve,
             current_storage_projection_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
+            operation_queue_limit=deps.operation_queue_limit,
         )
     return result.response
 

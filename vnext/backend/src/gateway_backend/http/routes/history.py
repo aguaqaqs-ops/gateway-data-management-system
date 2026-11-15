@@ -6,7 +6,7 @@ from gateway_backend.http.bundle_response import BundleStreamingResponse
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from gateway_backend.application.history.contracts import (
@@ -19,20 +19,23 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import HistoryHttpDependencies, get_history_http
+from gateway_backend.http.dependencies import HistoryHttpDependencies, get_history_http, get_workspace_http
 from gateway_backend.http.orchestration.history_compare import (
     accept_compare_operation,
+    assert_history_result_not_expired,
     build_history_compare_accept_command,
     get_compare_result,
     read_compare_bundle,
 )
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.history_read import list_history_operation
+from gateway_backend.http.orchestration.history_compare_list import list_compare_operations
 from gateway_backend.http.orchestration.operation_scope import authorize_history_compare_operation_read
 from gateway_backend.http.schemas.history import (
     HistoryCompareAcceptRequest,
     HistoryCompareAcceptResponse,
     HistoryCompareResultResponse,
+    HistoryCompareListResponse,
     HistoryListResponse,
 )
 
@@ -81,6 +84,21 @@ def list_history_route(
     )
 
 
+@router.get(
+    "/v1/history-compares", response_model=HistoryCompareListResponse,
+    responses={401: {"description": "AUTHENTICATION_REQUIRED"},
+               403: {"description": "SCOPE_FORBIDDEN"},
+               422: {"description": "REQUEST_VALIDATION_FAILED"}},
+)
+def list_history_compares_route(
+    deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
+    context: Annotated[IdentityContext, Depends(require_identity)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(max_length=1024)] = None,
+) -> HistoryCompareListResponse:
+    return list_compare_operations(context=context, deps=deps, limit=limit, cursor=cursor)
+
+
 @router.post(
     "/v1/history-compares",
     response_model=HistoryCompareAcceptResponse,
@@ -100,6 +118,7 @@ def list_history_route(
 def accept_history_compare_route(
     body: HistoryCompareAcceptRequest,
     response: Response,
+    request: Request,
     deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
@@ -120,6 +139,12 @@ def accept_history_compare_route(
         admission_gate=deps.admission_gate,
         comparison_ruleset_digest=deps.comparison_ruleset_digest,
         now=deps.now(),
+        result_retention_seconds=deps.history_result_retention_seconds,
+        history_scope_active_limit=deps.history_scope_active_limit,
+        operation_queue_limit=deps.operation_queue_limit,
+        artifact_store=deps.artifact_store,
+        bundle_reader=deps.bundle_reader,
+        resolve_current_identity=lambda: get_workspace_http(request).session_port.resolve(request),
     )
     response.status_code = 200 if result.replay else 202
     return result.response
@@ -132,6 +157,7 @@ def accept_history_compare_route(
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"},
+        410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED"},
         503: {"description": "HISTORY_INTEGRITY_FAILURE"},
     },
 )
@@ -147,6 +173,7 @@ def get_history_compare_route(
         operation=operation,
         unit_of_work_factory=deps.unit_of_work_factory,
     )
+    assert_history_result_not_expired(operation=operation, acceptance=acceptance, now=deps.now())
     return get_compare_result(
         operation=operation,
         acceptance=acceptance,
@@ -171,6 +198,7 @@ def get_history_compare_route(
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"},
+        410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED"},
         503: {"description": "BUNDLE_INTEGRITY_FAILURE"},
     },
 )
@@ -181,11 +209,12 @@ def get_history_compare_bundle_route(
 ) -> StreamingResponse:
     assert_permission(context, PERMISSION_READ_PROJECT_HISTORY)
     operation = deps.operation_reader.get_operation(operation_id)
-    authorize_history_compare_operation_read(
+    acceptance = authorize_history_compare_operation_read(
         context=context,
         operation=operation,
         unit_of_work_factory=deps.unit_of_work_factory,
     )
+    assert_history_result_not_expired(operation=operation, acceptance=acceptance, now=deps.now())
     prepared = read_compare_bundle(
         operation=operation,
         bundle_reader=deps.bundle_reader,

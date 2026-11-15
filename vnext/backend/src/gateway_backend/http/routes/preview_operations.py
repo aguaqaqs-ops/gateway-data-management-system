@@ -80,6 +80,7 @@ def start_preview_route(
             comparison_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
             options=options,
+            operation_queue_limit=deps.operation_queue_limit,
         )
     return OperationAcceptedResponse(
         operation_id=result.operation_id,

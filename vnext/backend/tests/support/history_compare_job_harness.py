@@ -407,7 +407,7 @@ def history_compare_operation_document(
 ) -> dict[str, object]:
     return {
         "artifact_refs": [],
-        "business_refs": [],
+        "business_refs": [{"kind": "history_compare", "value": payload_object["acceptance_id"]}],
         "cancel_requested": False,
         "checkpoint_ref": None,
         "completed_at": None,

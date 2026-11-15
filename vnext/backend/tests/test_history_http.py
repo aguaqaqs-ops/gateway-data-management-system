@@ -1138,6 +1138,14 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     assert response.headers["content-type"] == "application/x-tar"
     assert response.headers["content-disposition"].endswith('.tar"')
     assert len(response.content) == int(response.headers["content-length"])
+    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
+                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    for key in ("compare-local-bundle", "compare-local-bundle-alias", "compare-local-bundle-alias"):
+        replay = history_env.client.post("/v1/history-compares",
+                                        headers=history_env.auth_headers(idempotency_key=key), json=body)
+        assert replay.status_code == 200
+        assert replay.json()["operation_id"] == operation_id
+        assert replay.json()["replayed"] is True
 
 
 def test_accept_history_compare_is_read_only(db_path: Path, tmp_path: Path) -> None:
@@ -1209,3 +1217,27 @@ def test_history_pages_and_full_snapshot_expose_both_terminal_sources_without_ch
     assert by_ref[dual.target_submission_id]["disposition_source_kind"] == "MANUAL_CLOSE"
     assert by_ref[dual.target_submission_id]["closure"]["reason"] == manual.manual_closure.reason  # type: ignore[union-attr]
     assert by_ref[primary.submission_id]["disposition_source_kind"] == "ARCHIVE"
+
+
+def test_history_compare_list_is_paginated_and_scope_bound(db_path: Path, tmp_path: Path) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-list"))
+    node_a, node_b = _seed_compare_nodes(db_path)
+    env = _history_env(tmp_path / "list", db_path=db_path)
+    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
+                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    first = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="list-a"), json=body)
+    body["nodes"].reverse()
+    second = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="list-b"), json=body)
+    assert first.status_code == second.status_code == 202
+    page1 = env.client.get("/v1/history-compares?limit=1", headers=env.auth_headers())
+    assert page1.status_code == 200
+    cursor = page1.json()["next_cursor"]
+    assert cursor is not None
+    page2 = env.client.get("/v1/history-compares", params={"limit": 1, "cursor": cursor}, headers=env.auth_headers())
+    assert page2.status_code == 200
+    assert {page1.json()["items"][0]["operation_id"], page2.json()["items"][0]["operation_id"]} == {
+        first.json()["operation_id"], second.json()["operation_id"]
+    }
+    assert page2.json()["next_cursor"] is None
+    assert env.client.get("/v1/history-compares?cursor=garbage", headers=env.auth_headers()).status_code == 422

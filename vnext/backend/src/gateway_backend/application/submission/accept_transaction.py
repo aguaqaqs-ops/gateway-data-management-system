@@ -112,6 +112,7 @@ def accept_submit_transaction(
     main_resolve: RepositoryMainResolvePort,
     preflight: AcceptSubmitPreflight,
     now: datetime,
+    operation_queue_limit: int = 32,
 ) -> AcceptSubmitTransactionResult:
     assert_submit_job_registered(job_registry)
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
@@ -159,6 +160,7 @@ def accept_submit_transaction(
             preflight_baseline_head=resolved.baseline_head,
             preflight=frozen,
             now=now,
+            operation_queue_limit=operation_queue_limit,
         )
 
 
@@ -169,6 +171,7 @@ def _accept_submit_in_transaction(
     preflight_baseline_head: BaselineHead,
     preflight: AcceptSubmitPreflight,
     now: datetime,
+    operation_queue_limit: int,
 ) -> AcceptSubmitTransactionResult:
     prior_record = unit_of_work.submission.find_submit_idempotency(
         command.workspace_id,
@@ -273,6 +276,9 @@ def _accept_submit_in_transaction(
         completed_at=None,
         optimistic_version=0,
     )
+    if unit_of_work.count_queued_operations() >= operation_queue_limit:
+        from gateway_backend.operations.store import OperationQueueFull
+        raise OperationQueueFull
     unit_of_work.operations.insert_operation_with_initial_step(operation, step)
     unit_of_work.submission.insert_attempt_prepared(attempt)
     unit_of_work.submission.insert_idempotency(

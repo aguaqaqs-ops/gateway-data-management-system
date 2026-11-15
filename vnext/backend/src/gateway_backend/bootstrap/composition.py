@@ -417,6 +417,7 @@ def prepare_backend_runtime(
         ),
         operator_recovery_port=operator_recovery_port,
         now=lambda: datetime.now(UTC),
+        operation_queue_limit=settings.operation_queue_limit,
     )
     history_http = HistoryHttpDependencies(
         unit_of_work_factory=unit_of_work_factory,
@@ -429,6 +430,9 @@ def prepare_backend_runtime(
         bundle_reader=LocalArtifactBundleReader(local_store),
         comparison_ruleset_digest=comparison_ruleset_digest,
         now=lambda: datetime.now(UTC),
+        history_result_retention_seconds=settings.history_result_retention_seconds,
+        history_scope_active_limit=settings.history_scope_active_limit,
+        operation_queue_limit=settings.operation_queue_limit,
     )
     statistics: BackendStatistics | None = None
     try:

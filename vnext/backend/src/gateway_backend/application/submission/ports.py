@@ -34,6 +34,8 @@ from gateway_backend.operations import OperationStore
 
 
 class SubmitControlTransaction(ControlTransaction, Protocol):
+    def count_queued_operations(self) -> int: ...
+
     @property
     def submission(self) -> SubmitTransactionRepository: ...
 

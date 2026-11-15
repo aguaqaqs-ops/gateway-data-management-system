@@ -228,6 +228,79 @@ fn replacement_slots_ignore_blank_rows_before_a_patch() -> Result<(), Box<dyn Er
 }
 
 #[test]
+fn replacement_slots_require_equal_counts_and_unmoved_anchors() -> Result<(), Box<dyn Error>> {
+    let before = batch(
+        &[Some(1), Some(2), Some(3), Some(4), Some(5)],
+        &[1, 2, 3, 4, 5],
+        &[Some("a"), Some("b"), Some("c"), Some("d"), Some("e")],
+    )?;
+    let unequal = batch(
+        &[
+            Some(1),
+            None,
+            Some(2),
+            Some(13),
+            Some(14),
+            Some(15),
+            Some(5),
+        ],
+        &[1, 2, 3, 4, 5, 6, 7],
+        &[
+            Some("a"),
+            None,
+            Some("b"),
+            Some("x"),
+            Some("y"),
+            Some("z"),
+            Some("e"),
+        ],
+    )?;
+    let result = compare(&before, &unequal, &options())?;
+    assert!(
+        result
+            .ordered_records
+            .iter()
+            .filter(|record| record.kind == "ORDERED_ROW_ADDED")
+            .all(|record| record.replacement_before.is_none())
+    );
+
+    let before_move = batch(
+        &[Some(1), Some(2), Some(3), Some(4), Some(5), Some(6)],
+        &[1, 2, 3, 4, 5, 6],
+        &[
+            Some("a"),
+            Some("b"),
+            Some("c"),
+            Some("d"),
+            Some("e"),
+            Some("f"),
+        ],
+    )?;
+    let moved = batch(
+        &[Some(1), Some(4), Some(2), Some(13), Some(14), Some(6)],
+        &[1, 2, 3, 4, 5, 6],
+        &[
+            Some("a"),
+            Some("d"),
+            Some("b"),
+            Some("x"),
+            Some("y"),
+            Some("f"),
+        ],
+    )?;
+    let result = compare(&before_move, &moved, &options())?;
+    assert_eq!(result.ordered_extension.summary.row_moved_count, 1);
+    assert!(
+        result
+            .ordered_records
+            .iter()
+            .filter(|record| record.kind == "ORDERED_ROW_ADDED")
+            .all(|record| record.replacement_before.is_none())
+    );
+    Ok(())
+}
+
+#[test]
 fn combines_insert_delete_modify_and_absolute_position_shift() -> Result<(), Box<dyn Error>> {
     let before = batch(
         &[Some(1), Some(2), Some(3)],

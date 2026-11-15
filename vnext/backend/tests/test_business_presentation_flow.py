@@ -124,6 +124,28 @@ def test_ordered_replacements_after_blank_insert_keep_each_pair(blank_count: int
         13 + blank_count, 14 + blank_count, 15 + blank_count]
 
 
+def test_blank_shift_does_not_pair_unequal_changed_runs_by_absolute_position() -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
+    before = complete_canonical_bound(canonical_bound(schema +
+        " INSERT INTO t VALUES (10,10,'p'),(11,11,'p'),(12,12,'p'),"
+        "(13,13,'p'),(14,14,'p'),(15,15,'p'),(16,16,'p');"))
+    current = complete_canonical_bound(canonical_bound(schema +
+        " INSERT INTO t VALUES (10,10,'p'),(11,11,'p'),(NULL,12,'p'),"
+        "(12,13,'p'),(113,14,'p'),(114,15,'p'),(115,16,'p'),(116,17,'p'),(16,18,'p');"))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(
+        pair_id="initial_to_modified", before=before, current=current, store=store,
+        control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        assess_identity=False, repository_id="replacement-fixture",
+    )
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert "ORDERED_REPLACEMENT" not in table.risk_refs.reason_codes
+    assert "ORDERED_MIDDLE_INSERT_DELETE" in table.risk_refs.reason_codes
+
+
 def test_ordered_name_change_and_movement_keep_both_risks() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
     before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"))

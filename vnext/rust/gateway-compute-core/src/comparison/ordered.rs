@@ -771,7 +771,14 @@ fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, Ordered
                 .iter()
                 .chain(&record.changed_columns)
                 .try_fold(
-                    total.checked_add(record.row_identity.capacity())?,
+                    total
+                        .checked_add(record.row_identity.capacity())?
+                        .checked_add(
+                            record
+                                .replacement_before
+                                .as_ref()
+                                .map_or(0, |(identity, _)| identity.capacity()),
+                        )?,
                     |sum, text| sum.checked_add(text.capacity()),
                 )?
                 .checked_add(

@@ -329,21 +329,26 @@ const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modifi
  * where k is the number of non-deleted rows before b. Deleted rows sharing an
  * anchor interleave with the added rows right after it, so replacing rows
  * 14-16 reads -14 +14 -15 +15 -16 +16. Blank rows have no stable key and are
- * published only as blank intervals: inserted ones are not survivors, deleted
- * ones count as deleted before rows. Moves make this approximate.
+ * published only as blank intervals; they count exactly like ordinary inserts
+ * and deletes, and a blank-delete marker is placed like a deleted row.
+ * Moves make this approximate.
  */
 function placeDeletedRowsInline(rows: BrowseRow[], blanks: { insertedCurrent: ReadonlySet<number>; deletedBefore: readonly number[] }): void {
-  const deleted = rows.filter((row) => row.kind === "deleted" && row.rowNumber !== null)
-    .sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0));
-  if (!deleted.length) return;
-  const base = rows.filter((row) => row.kind !== "deleted");
+  const beforeOf = (row: BrowseRow): number | null => row.kind === "deleted" ? row.rowNumber
+    : row.kind === "blank" && row.recordKind === "BLANK_DELETE_INTERVAL" ? row.beforePosition : null;
+  const movable = rows.filter((row) => beforeOf(row) !== null)
+    .sort((left, right) => (beforeOf(left) ?? 0) - (beforeOf(right) ?? 0));
+  if (!movable.length) return;
+  const moved = new Set(movable);
+  const base = rows.filter((row) => !moved.has(row) && row.kind !== "deleted");
+  const deletedPositions = [...rows.filter((row) => row.kind === "deleted" && row.rowNumber !== null).map((row) => row.rowNumber as number),
+    ...blanks.deletedBefore];
   const groups = new Map<number, BrowseRow[]>();
-  deleted.forEach((row, order) => {
-    const position = row.rowNumber ?? 1;
-    const blanksBefore = blanks.deletedBefore.filter((blank) => blank < position).length;
-    const anchor = position - 1 - order - blanksBefore;
+  for (const row of movable) {
+    const position = beforeOf(row) as number;
+    const anchor = position - 1 - deletedPositions.filter((deleted) => deleted < position).length;
     groups.set(anchor, [...(groups.get(anchor) ?? []), row]);
-  });
+  }
   const isSurvivor = (row: BrowseRow) => SURVIVOR_KINDS.has(row.kind)
     && !(row.kind === "unchanged" && row.side === "current" && row.rowNumber !== null && blanks.insertedCurrent.has(row.rowNumber));
   const output: BrowseRow[] = [];

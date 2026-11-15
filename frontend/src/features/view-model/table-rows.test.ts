@@ -208,7 +208,6 @@ describe("browse rows from published locators", () => {
   it("places Preview deletions of an ordered table by their recorded before position", () => {
     const current = [1, 21, 31, 4].map((n) => ({ dev_addr: n, description: `新${n}` }));
     const locator = parseRowLocator([locatorRow(0x12, null, null), locatorRow(0x13, null, null), locatorRow(0x21, null, 1), locatorRow(0x31, null, 2)]);
-    const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
     const result = buildBrowseRows({
       table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 4 } }),
       beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
@@ -230,7 +229,6 @@ describe("browse rows from published locators", () => {
     const current = [1, 0, 2, 31, 41, 5].map((n) => ({ dev_addr: n, description: `新${n}` }));
     const locator = parseRowLocator([...insertLocator, locatorRow(0x13, null, null), locatorRow(0x14, null, null),
       locatorRow(0x31, null, 3), locatorRow(0x41, null, 4)]);
-    const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
     const result = buildBrowseRows({
       table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 6 } }),
       beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
@@ -240,6 +238,29 @@ describe("browse rows from published locators", () => {
     });
     expect(result.rows.filter((row) => row.kind !== "blank").map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
       .toEqual([" 1", insertRecords[0]?.record_kind === "ROW_ADDED" ? "+2" : " 2", " 3", "-3", "+4", "-4", "+5", " 6"]);
+  });
+
+  // An earlier deletion shifts later rows up by one; deleting a blank row must count and display like any delete.
+  const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
+  const DELETED_ROW_SHAPES: Array<[string, RowDiffRecord[], Array<Record<string, unknown>>]> = [
+    ["an ordinary row", [record("ROW_DELETED", 0x02, { before_values: no(2) })], [locatorRow(0x02, null, null)]],
+    ["a blank row", [{ table_name: "device", record_kind: "BLANK_DELETE_INTERVAL",
+      interval: { before_start: 2, before_end: 2, current_start: null, current_end: null, row_count: 1 } } as RowDiffRecord], []],
+  ];
+  it.each(DELETED_ROW_SHAPES)("pairs shifted replacements after deleting %s above them", (_, deleteRecords, deleteLocator) => {
+    const current = [1, 3, 41, 51, 6].map((n) => ({ dev_addr: n, description: `新${n}` }));
+    const locator = parseRowLocator([...deleteLocator, locatorRow(0x14, null, null), locatorRow(0x15, null, null),
+      locatorRow(0x41, null, 2), locatorRow(0x51, null, 3)]);
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 5 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
+      records: [...deleteRecords, record("ROW_DELETED", 0x14, { before_values: no(4) }), record("ROW_DELETED", 0x15, { before_values: no(5) }),
+        record("ROW_ADDED", 0x41), record("ROW_ADDED", 0x51)],
+      annotations: [], locator,
+    });
+    const label = (row: BrowseRow) => row.kind === "deleted" ? `-${row.rowNumber}` : row.kind === "blank" ? `-${row.beforePosition}`
+      : `${row.kind === "added" ? "+" : " "}${row.rowNumber}`;
+    expect(result.rows.map(label)).toEqual([" 1", "-2", " 2", "-4", "+3", "-5", "+4", " 5"]);
   });
 
   it("matches either half of the per-side filter", () => {

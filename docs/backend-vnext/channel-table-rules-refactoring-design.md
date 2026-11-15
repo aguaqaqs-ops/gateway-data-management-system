@@ -1,6 +1,6 @@
 # 网络/串口通道表规则重构设计
 
-状态：设计候选，待独立审核；本轮仅设计，不授权产品实现或测试执行。
+状态：READY_FOR_IMPLEMENTATION；已完成 gpt-6.1-sol / xhigh 独立审核和原审复审，三项阻塞均关闭。本轮仅设计，尚未执行产品实现或测试。
 
 适用分支：`gw08-dual-env`。Owner 来源：本会话确认的四项规则及后续澄清；最后澄清为 `dev103_9150 → nrts103`。
 本设计是下一次代码实现的目标规格；当前生产行为仍以现行 Contract 与源码为准。实施时同步修改 owning Contracts，不保留旧路径。
@@ -161,3 +161,5 @@ focused 调试收敛后，在 clean 已提交最终候选上用 `scripts/run-sta
 ## 5. 设计就绪标准
 
 规则、边界、绑定、失败、包依赖和验证 owner 可直接转为任务；独立审核所有阻塞 finding 由原审复审关闭；不存在待 Owner 决定的核心语义。设计审核通过仅表示具备代码实施条件，产品通过仍以实施独审、门禁和集中验收为准。
+
+本轮就绪条件已满足。审核原件及机器记录位于 `/home/dev/gdds-stage-exchange/gw08-channel-rules-design/`，首轮 `review-1.md` 与原审复审 `review-2.md`；设计阶段交接见[阶段日志与总结](channel-table-rules-design-stage-log.md)。

@@ -294,6 +294,53 @@ export function missingSideMarker(side: "before" | "current" | null, presentIn: 
   return null;
 }
 
+/** Rows that exist on both sides and keep their before-side order. */
+const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modified-after", "ordered"]);
+
+/**
+ * Moves deleted rows (sorted last, numbered by before-side row) back to where
+ * they stood. A deleted row at before row b goes after the k-th surviving row,
+ * where k is the number of non-deleted rows before b. Deleted rows sharing an
+ * anchor interleave with the added rows right after it, so replacing rows
+ * 14-16 reads -14 +14 -15 +15 -16 +16. Moves make this approximate.
+ */
+function placeDeletedRowsInline(rows: BrowseRow[]): void {
+  const deleted = rows.filter((row) => row.kind === "deleted" && row.rowNumber !== null)
+    .sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0));
+  if (!deleted.length) return;
+  const base = rows.filter((row) => row.kind !== "deleted");
+  const groups = new Map<number, BrowseRow[]>();
+  deleted.forEach((row, order) => {
+    const anchor = (row.rowNumber ?? 1) - 1 - order;
+    groups.set(anchor, [...(groups.get(anchor) ?? []), row]);
+  });
+  const output: BrowseRow[] = [];
+  const flush = (group: BrowseRow[] | undefined, start: number): number => {
+    let index = start;
+    for (const row of group ?? []) {
+      output.push(row);
+      if (base[index]?.kind === "added") { output.push(base[index] as BrowseRow); index += 1; }
+    }
+    return index;
+  };
+  let survivors = 0;
+  let index = flush(groups.get(0), 0);
+  groups.delete(0);
+  for (; index < base.length; index += 1) {
+    const row = base[index] as BrowseRow;
+    output.push(row);
+    if (!SURVIVOR_KINDS.has(row.kind)) continue;
+    survivors += 1;
+    const group = groups.get(survivors);
+    if (!group) continue;
+    groups.delete(survivors);
+    index = flush(group, index + 1) - 1;
+  }
+  for (const group of [...groups.entries()].sort(([left], [right]) => left - right)) output.push(...group[1]);
+  output.push(...rows.filter((row) => row.kind === "deleted" && row.rowNumber === null));
+  rows.splice(0, rows.length, ...output);
+}
+
 export function buildBrowseRows(input: {
   table: SurfaceTable;
   beforeRows: Record<string, unknown>[];
@@ -474,6 +521,7 @@ export function buildBrowseRows(input: {
       };
       return position(left) - position(right);
     });
+    if (hasBeforeSnapshot && hasCurrentSnapshot) placeDeletedRowsInline(rows);
   }
 
   let visible = rows;

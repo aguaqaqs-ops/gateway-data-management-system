@@ -188,6 +188,23 @@ describe("browse rows from published locators", () => {
     expect(deleted?.rowNumberTitle).toBe("改前值不可得");
   });
 
+  it("interleaves replaced rows where they stood instead of listing deletions last", () => {
+    const before = [1, 2, 3, 4, 5].map((n) => ({ dev_addr: n, description: `旧${n}` }));
+    const current = [1, 21, 31, 4, 51, 6].map((n) => ({ dev_addr: n, description: `新${n}` }));
+    const locator = parseRowLocator([
+      locatorRow(0x12, 1, null), locatorRow(0x13, 2, null), locatorRow(0x21, null, 1), locatorRow(0x31, null, 2),
+      locatorRow(0x05, 4, null), locatorRow(0x51, null, 4), locatorRow(0x06, null, 5),
+    ]);
+    const result = buildBrowseRows({
+      table: table(), beforeRows: before, currentRows: current,
+      records: [record("ROW_DELETED", 0x12), record("ROW_DELETED", 0x13), record("ROW_ADDED", 0x21), record("ROW_ADDED", 0x31),
+        record("ROW_DELETED", 0x05), record("ROW_ADDED", 0x51), record("ROW_ADDED", 0x06)],
+      annotations: [], locator,
+    });
+    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
+      .toEqual([" 1", "-2", "+2", "-3", "+3", " 4", "-5", "+5", "+6"]);
+  });
+
   it("matches either half of the per-side filter", () => {
     const locator = parseRowLocator([locatorRow(0x11, 0, 0)]);
     const result = buildBrowseRows({

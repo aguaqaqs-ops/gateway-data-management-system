@@ -301,6 +301,25 @@ function scalarPosition(value: unknown): number | null {
   return positionNumber(text);
 }
 
+/** Row numbers covered by blank insert (current side) and blank delete (before side) intervals. */
+function blankIntervalRows(records: RowDiffRecord[]): { insertedCurrent: Set<number>; deletedBefore: number[] } {
+  const insertedCurrent = new Set<number>();
+  const deletedBefore: number[] = [];
+  for (const record of records) {
+    const interval = record.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : null;
+    if (!interval) continue;
+    const side = record.record_kind === "BLANK_INSERT_INTERVAL" ? "current" : record.record_kind === "BLANK_DELETE_INTERVAL" ? "before" : null;
+    if (!side) continue;
+    const start = positionNumber(interval[`${side}_start`]);
+    const end = positionNumber(interval[`${side}_end`]) ?? start;
+    if (start === null || end === null) continue;
+    for (let position = start; position <= end; position += 1) {
+      if (side === "current") insertedCurrent.add(position); else deletedBefore.push(position);
+    }
+  }
+  return { insertedCurrent, deletedBefore };
+}
+
 /** Rows that exist on both sides and keep their before-side order. */
 const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modified-after", "ordered"]);
 
@@ -309,18 +328,24 @@ const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modifi
  * they stood. A deleted row at before row b goes after the k-th surviving row,
  * where k is the number of non-deleted rows before b. Deleted rows sharing an
  * anchor interleave with the added rows right after it, so replacing rows
- * 14-16 reads -14 +14 -15 +15 -16 +16. Moves make this approximate.
+ * 14-16 reads -14 +14 -15 +15 -16 +16. Blank rows have no stable key and are
+ * published only as blank intervals: inserted ones are not survivors, deleted
+ * ones count as deleted before rows. Moves make this approximate.
  */
-function placeDeletedRowsInline(rows: BrowseRow[]): void {
+function placeDeletedRowsInline(rows: BrowseRow[], blanks: { insertedCurrent: ReadonlySet<number>; deletedBefore: readonly number[] }): void {
   const deleted = rows.filter((row) => row.kind === "deleted" && row.rowNumber !== null)
     .sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0));
   if (!deleted.length) return;
   const base = rows.filter((row) => row.kind !== "deleted");
   const groups = new Map<number, BrowseRow[]>();
   deleted.forEach((row, order) => {
-    const anchor = (row.rowNumber ?? 1) - 1 - order;
+    const position = row.rowNumber ?? 1;
+    const blanksBefore = blanks.deletedBefore.filter((blank) => blank < position).length;
+    const anchor = position - 1 - order - blanksBefore;
     groups.set(anchor, [...(groups.get(anchor) ?? []), row]);
   });
+  const isSurvivor = (row: BrowseRow) => SURVIVOR_KINDS.has(row.kind)
+    && !(row.kind === "unchanged" && row.side === "current" && row.rowNumber !== null && blanks.insertedCurrent.has(row.rowNumber));
   const output: BrowseRow[] = [];
   const flush = (group: BrowseRow[] | undefined, start: number): number => {
     let index = start;
@@ -336,7 +361,7 @@ function placeDeletedRowsInline(rows: BrowseRow[]): void {
   for (; index < base.length; index += 1) {
     const row = base[index] as BrowseRow;
     output.push(row);
-    if (!SURVIVOR_KINDS.has(row.kind)) continue;
+    if (!isSurvivor(row)) continue;
     survivors += 1;
     const group = groups.get(survivors);
     if (!group) continue;
@@ -531,7 +556,7 @@ export function buildBrowseRows(input: {
       };
       return position(left) - position(right);
     });
-    if (hasCurrentSnapshot) placeDeletedRowsInline(rows);
+    if (hasCurrentSnapshot) placeDeletedRowsInline(rows, blankIntervalRows(records));
   }
 
   let visible = rows;

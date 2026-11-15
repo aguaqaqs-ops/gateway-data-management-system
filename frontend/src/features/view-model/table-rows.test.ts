@@ -220,6 +220,28 @@ describe("browse rows from published locators", () => {
       .toEqual([" 1", "-2", "+2", "-3", "+3", " 4"]);
   });
 
+  // An earlier insertion shifts later rows by one; a blank row (published only as a blank interval) must count like any insert.
+  const INSERTED_ROW_SHAPES: Array<[string, RowDiffRecord[], Array<Record<string, unknown>>]> = [
+    ["an ordinary row", [record("ROW_ADDED", 0x0b)], [locatorRow(0x0b, null, 1)]],
+    ["a blank row", [{ table_name: "device", record_kind: "BLANK_INSERT_INTERVAL",
+      interval: { before_start: null, before_end: null, current_start: 2, current_end: 2, row_count: 1 } } as RowDiffRecord], []],
+  ];
+  it.each(INSERTED_ROW_SHAPES)("pairs shifted replacements after inserting %s above them", (_, insertRecords, insertLocator) => {
+    const current = [1, 0, 2, 31, 41, 5].map((n) => ({ dev_addr: n, description: `新${n}` }));
+    const locator = parseRowLocator([...insertLocator, locatorRow(0x13, null, null), locatorRow(0x14, null, null),
+      locatorRow(0x31, null, 3), locatorRow(0x41, null, 4)]);
+    const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 6 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
+      records: [...insertRecords, record("ROW_DELETED", 0x13, { before_values: no(3) }), record("ROW_DELETED", 0x14, { before_values: no(4) }),
+        record("ROW_ADDED", 0x31), record("ROW_ADDED", 0x41)],
+      annotations: [], locator,
+    });
+    expect(result.rows.filter((row) => row.kind !== "blank").map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
+      .toEqual([" 1", insertRecords[0]?.record_kind === "ROW_ADDED" ? "+2" : " 2", " 3", "-3", "+4", "-4", "+5", " 6"]);
+  });
+
   it("matches either half of the per-side filter", () => {
     const locator = parseRowLocator([locatorRow(0x11, 0, 0)]);
     const result = buildBrowseRows({

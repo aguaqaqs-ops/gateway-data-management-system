@@ -47,6 +47,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
     SqlSnapshotMaterializationRequest, materialize_business_snapshot, materialize_canonical_snapshot,
 )
 from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set, publish_canonicalization_manifest
+from gateway_backend.capabilities.storage_projection.package import canonicalization_manifest_from_bytes
 from gateway_backend.capabilities.table_access import (
     KernelExecutionContext, NeverCancel, OperationMemoryBudget, PARSER_INPUT_CONTRACT_VERSION,
     ParserInvocationContext, SqlParseRequest, SqlSourceInput, XmlParseRequest, XmlSourceInput,
@@ -241,6 +242,24 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
         if surface is None or len([p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION"]) != 1:
             raise ValueError("production pair did not publish exactly one navigation")
         validate_scenario_assertions(surface, store, scenario.get("assertions", {}))
+        pair_assertions = scenario.get("pair_assertions", {}).get(pair["id"], {})
+        for name, families in pair_assertions.get("record_kinds", {}).items():
+            if result.records_closure is None:
+                raise AssertionError(f"missing comparison records closure: {name}")
+            for family, required in families.items():
+                entry = next((e for e in result.records_closure.records
+                              if e.table_name == name and e.family.value == family), None)
+                if entry is None:
+                    raise AssertionError(f"missing {family} records: {name}")
+                rows = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
+                if not set(required) <= {row["record_kind"] for row in rows}:
+                    raise AssertionError(f"missing {family} record kinds: {name}")
+        for name in pair_assertions.get("pseudo_gid_tables", []):
+            for source in (before, current):
+                document = canonicalization_manifest_from_bytes(store.locate(source.canonicalization_manifest_ref))
+                entry = next(t for t in document.tables if t.name == name)
+                if entry.gid_pseudo_count is None or entry.gid_pseudo_count < 1:
+                    raise AssertionError(f"missing canonical pseudo gid: {name}")
         label = {"scenario": scenario["id"], "pair_id": pair["id"]}
         for projection in surface.projections:
             if projection.projection_kind == "BUSINESS_NAVIGATION":

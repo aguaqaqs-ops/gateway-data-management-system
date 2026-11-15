@@ -57,7 +57,7 @@
     },
     {
       "path": "formula-unchanged-device.sql",
-      "sha256": "9112d1c6b31593f99b3345fb853a5433fa3dc425b05ae5a8b91e502b8ccd4237",
+      "sha256": "d26a52c0f2b147a28ee9b8202803a75cb9f6fc205f75b31bc4b62f707f3ab39f",
       "source": "BE-b same valid canonical SQL sides; changed XML only",
       "derived_from": "sql-initial-canonical.sql"
     },
@@ -111,7 +111,7 @@
     },
     {
       "path": "sql-baseline-canonical.sql",
-      "sha256": "901d7343188ede482fb16314ce89af820ed38386f4b69d03d101d2dc1e7aa1cf",
+      "sha256": "42aad4ab3aee56d032a2de0c533ea3135e2a897dfef88bd04b6615aecb24dc8d",
       "source": "BE-b production-valid derivative",
       "derived_from": {
         "path": "sql-baseline.sql",
@@ -130,7 +130,7 @@
     },
     {
       "path": "sql-initial-canonical.sql",
-      "sha256": "9112d1c6b31593f99b3345fb853a5433fa3dc425b05ae5a8b91e502b8ccd4237",
+      "sha256": "d26a52c0f2b147a28ee9b8202803a75cb9f6fc205f75b31bc4b62f707f3ab39f",
       "source": "BE-b production-valid derivative",
       "derived_from": {
         "path": "sql-initial.sql",
@@ -149,7 +149,7 @@
     },
     {
       "path": "sql-modified-canonical.sql",
-      "sha256": "a8c4d43954b1ee3339b73e34cc2600dea3a306a76deb9ad8e639374fddb77120",
+      "sha256": "3d15cfd3202a2f7de39046a01e9230db32d68c5095cb7dda1ef0c0b9b5593f1f",
       "source": "BE-b production-valid derivative",
       "derived_from": {
         "path": "sql-modified.sql",
@@ -273,7 +273,24 @@
         "keyless",
         "before-only-columns"
       ],
-      "assertions": {}
+      "assertions": {},
+      "pair_assertions": {
+        "baseline_to_initial": {
+          "record_kinds": {
+            "b1_n1_iec104_syx_list": {
+              "ORDERED": [
+                "ORDERED_ROW_MOVED"
+              ],
+              "BLANK": [
+                "BLANK_DELETE_INTERVAL"
+              ]
+            }
+          },
+          "pseudo_gid_tables": [
+            "b1_n1_iec104_syx_list"
+          ]
+        }
+      }
     },
     {
       "id": "preview-modified-only",
@@ -305,7 +322,24 @@
         "missing-snapshot-context",
         "before-formula"
       ],
-      "assertions": {}
+      "assertions": {},
+      "pair_assertions": {
+        "initial_to_modified": {
+          "record_kinds": {
+            "b1_n1_iec104_syx_list": {
+              "ORDERED": [
+                "ORDERED_ROW_MOVED"
+              ],
+              "BLANK": [
+                "BLANK_DELETE_INTERVAL"
+              ]
+            }
+          },
+          "pseudo_gid_tables": [
+            "b1_n1_iec104_syx_list"
+          ]
+        }
+      }
     },
     {
       "id": "preview-replacement",
@@ -378,7 +412,24 @@
         "history-three-nodes",
         "both-side-tables"
       ],
-      "assertions": {}
+      "assertions": {},
+      "pair_assertions": {
+        "left_to_middle": {
+          "record_kinds": {
+            "b1_n1_iec104_syx_list": {
+              "ORDERED": [
+                "ORDERED_ROW_MOVED"
+              ],
+              "BLANK": [
+                "BLANK_DELETE_INTERVAL"
+              ]
+            }
+          },
+          "pseudo_gid_tables": [
+            "b1_n1_iec104_syx_list"
+          ]
+        }
+      }
     },
     {
       "id": "preview-workbench-normal",

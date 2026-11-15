@@ -13,7 +13,7 @@ CREATE TABLE retired_table (id INT NOT NULL PRIMARY KEY, label VARCHAR(32));
 INSERT INTO retired_table VALUES (1, '旧表');
 CREATE TABLE schema_demo (id INT NOT NULL PRIMARY KEY, label VARCHAR(16));
 INSERT INTO schema_demo VALUES (1, '原值');
-CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
+CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL) COMMENT='遥信引用表';
 INSERT INTO b1_n1_iec104_syx_list VALUES (1, 1, '遥信 A'), (NULL, 2, NULL), (2, 3, '遥信 B'), (NULL, 4, NULL);
 CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
 INSERT INTO b1_n1_iec104_yc_list VALUES (1, 1, '稳定 gid');

@@ -656,6 +656,12 @@ fn ordered_risk_schema(blank: bool) -> SchemaRef {
                 DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
                 false,
             ),
+            Field::new(
+                "replacement_before_identity",
+                DataType::FixedSizeBinary(32),
+                true,
+            ),
+            Field::new("replacement_before_position", DataType::Int64, true),
         ]);
     }
     Arc::new(Schema::new(fields))
@@ -702,6 +708,8 @@ fn build_ordered_risk(
             .map(|_| Int64Builder::new())
             .collect();
         let mut changes = ListBuilder::new(StringBuilder::new());
+        let mut replacement_identities = FixedSizeBinaryBuilder::with_capacity(chunk.len(), 32);
+        let mut replacement_positions = Int64Builder::new();
         for index in chunk {
             if blank {
                 let record = &result.blank_records[*index];
@@ -730,6 +738,15 @@ fn build_ordered_risk(
                     changes.values().append_value(column);
                 }
                 changes.append(true);
+                if let Some((identity, position)) = &record.replacement_before {
+                    replacement_identities
+                        .append_value(digest_bytes(identity)?)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    replacement_positions.append_value(*position);
+                } else {
+                    replacement_identities.append_null();
+                    replacement_positions.append_null();
+                }
             }
         }
         let mut arrays: Vec<Arc<dyn Array>> = vec![Arc::new(kinds.finish())];
@@ -741,6 +758,8 @@ fn build_ordered_risk(
         }
         if !blank {
             arrays.push(Arc::new(changes.finish()));
+            arrays.push(Arc::new(replacement_identities.finish()));
+            arrays.push(Arc::new(replacement_positions.finish()));
         }
         batches.push(
             RecordBatch::try_new(schema.clone(), arrays)

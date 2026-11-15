@@ -37,8 +37,8 @@ RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
-RISK_RULESET_VERSION = "v6"
-RISK_RULE_VERSION = "v6"
+RISK_RULESET_VERSION = "v7"
+RISK_RULE_VERSION = "v7"
 
 
 RiskOptionValue: TypeAlias = str | int | bool | None

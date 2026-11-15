@@ -36,7 +36,7 @@ from gateway_backend.capabilities.comparison.standard import STANDARD_COMPARISON
 from gateway_backend.capabilities.comparison.native import comparison_format_versions
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
 
-TABLE_CACHE_FORMAT = "comparison-table-cache/v2"
+TABLE_CACHE_FORMAT = "comparison-table-cache/v3"
 TASK_INPUT_VERSION = "comparison-table-task/v1"
 MAX_TASK_INPUT_BYTES = 16 * 1024**2
 _TASK_FIELDS = frozenset({
@@ -333,4 +333,4 @@ def build_table_task_identity(
     if len(payload) * 8 + 4096 > MAX_TASK_INPUT_BYTES:
         return NotCacheable("metadata-budget")
     return TableTaskIdentity(repository_id, artifact_scope,
-        raw_blob_digest(b"comparison-table-cache/v2\x00" + payload), value)
+        raw_blob_digest(b"comparison-table-cache/v3\x00" + payload), value)

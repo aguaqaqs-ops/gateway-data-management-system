@@ -92,6 +92,38 @@ def test_preview_ordered_row_risk_rules(
         assert annotation["target"]["current_row_identity"] is not None
 
 
+@pytest.mark.parametrize("blank_count", (1, 2, 3))
+def test_ordered_replacements_after_blank_insert_keep_each_pair(blank_count: int) -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
+    before_rows = ",".join(f"({gid},{gid},'p')" for gid in range(10, 17))
+    current_rows: list[tuple[int | None, int]] = [(10, 10), (11, 11)]
+    current_rows.extend((None, position) for position in range(12, 12 + blank_count))
+    current_rows.extend((gid, position + blank_count) for gid, position in (
+        (12, 12), (113, 13), (114, 14), (115, 15), (16, 16)))
+    current_sql = ",".join(
+        f"({'NULL' if gid is None else gid},{position},'p')" for gid, position in current_rows)
+    before = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"))
+    current = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_sql};"))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(
+        pair_id="initial_to_modified", before=before, current=current, store=store,
+        control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        assess_identity=False, repository_id="replacement-fixture",
+    )
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert set(table.risk_refs.reason_codes) == {
+        "ORDERED_REPLACEMENT", "ORDERED_MIDDLE_BLANK_INTERVAL"}
+    assert table.risk_refs.annotation_count == 4
+    assert table.risk_refs.annotation_ref is not None
+    annotations = json.loads(store.locate(table.risk_refs.annotation_ref))["annotations"]
+    pairs = [item["target"] for item in annotations if item["target"]["target_type"] == "ROW_PAIR"]
+    assert sorted(pair["position"] for pair in pairs) == [
+        13 + blank_count, 14 + blank_count, 15 + blank_count]
+
+
 def test_ordered_name_change_and_movement_keep_both_risks() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
     before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"))

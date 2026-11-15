@@ -712,11 +712,12 @@ def _emit_ordered_rows(
         return
     name = item.table_fact.table_name
     counts = {"ORDERED_ROW_ADDED": 0, "ORDERED_ROW_DELETED": 0, "ORDERED_ROW_MODIFIED": 0}
-    added: dict[int, DigestRef] = {}
+    added: dict[int, tuple[DigestRef, DigestRef | None, int | None]] = {}
     deleted: dict[int, DigestRef] = {}
 
     def consume(kind: str, identity: DigestRef | None, before: int | None,
-                current: int | None, columns: tuple[str, ...]) -> None:
+                current: int | None, columns: tuple[str, ...],
+                replacement_identity: DigestRef | None, replacement_position: int | None) -> None:
         if kind not in counts:
             return
         counts[kind] += 1
@@ -732,10 +733,14 @@ def _emit_ordered_rows(
         position = current if kind == "ORDERED_ROW_ADDED" else before
         if position is None or position < 1:
             raise _PairFailure("ordered row missing position")
-        rows = added if kind == "ORDERED_ROW_ADDED" else deleted
-        if position in rows:
-            raise _PairFailure("duplicate ordered row position")
-        rows[position] = identity
+        if kind == "ORDERED_ROW_ADDED":
+            if position in added or ((replacement_identity is None) != (replacement_position is None)):
+                raise _PairFailure("invalid ordered replacement evidence")
+            added[position] = (identity, replacement_identity, replacement_position)
+        else:
+            if position in deleted:
+                raise _PairFailure("duplicate ordered row position")
+            deleted[position] = identity
 
     with ExitStack() as charges:
         if context.operation is not None:
@@ -750,29 +755,47 @@ def _emit_ordered_rows(
                         context.operation.checkpoint()
                     scratch = (nullcontext() if context.operation is None else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512))
                     with scratch:
-                        names = ("record_kind", "row_identity", "before_position", "current_position", "changed_columns")
+                        names = ("record_kind", "row_identity", "before_position", "current_position",
+                                 "changed_columns", "replacement_before_identity", "replacement_before_position")
                         values = [batch.column(batch.schema.get_field_index(key)).to_pylist() for key in names]
-                        for kind, identity, before, current, columns in zip(*values, strict=True):
+                        for kind, identity, before, current, columns, partner, partner_position in zip(*values, strict=True):
                             consume(kind, None if identity is None else DigestRef("sha256:" + identity.hex()),
-                                    before, current, tuple(columns or ()))
+                                    before, current, tuple(columns or ()),
+                                    None if partner is None else DigestRef("sha256:" + partner.hex()), partner_position)
         else:
             records = extension.records
             if not records and evaluation_input.records_access is not None:
                 records = evaluation_input.records_access.get_ordered_records(name)
             for record in records:
+                partner = record.replacement_before
                 consume(record.record_kind.value, record.row_identity, record.before_position,
-                        record.current_position, record.changed_columns)
+                        record.current_position, record.changed_columns,
+                        None if partner is None else partner[0], None if partner is None else partner[1])
         if (counts["ORDERED_ROW_ADDED"] != summary.row_added_count
                 or counts["ORDERED_ROW_DELETED"] != summary.row_deleted_count
                 or counts["ORDERED_ROW_MODIFIED"] != summary.row_modified_count):
             emit(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskTarget(target_type=RiskTargetType.TABLE, table_name=name))
-        for position in sorted(added.keys() & deleted.keys()):
+        for position, (current_identity, partner_identity, partner_position) in sorted(added.items()):
+            if partner_identity is None:
+                continue
+            if partner_position is None or deleted.get(partner_position) != partner_identity:
+                raise _PairFailure("ordered replacement partner does not match deleted row")
             emit(RiskRuleId.ORDERED_REPLACEMENT, RiskTarget(
                 target_type=RiskTargetType.ROW_PAIR, table_name=name, position=position,
-                before_row_identity=deleted.pop(position), current_row_identity=added.pop(position)))
+                before_row_identity=partner_identity, current_row_identity=current_identity))
+            deleted.pop(partner_position)
+            added.pop(position)
+        blank = item.table_fact.blank_extension
+        fallback_positions = (added.keys() & deleted.keys()) if (
+            blank is None or blank.blank_summary.blank_changed_count == 0) else ()
+        for position in sorted(fallback_positions):
+            emit(RiskRuleId.ORDERED_REPLACEMENT, RiskTarget(
+                target_type=RiskTargetType.ROW_PAIR, table_name=name, position=position,
+                before_row_identity=deleted.pop(position), current_row_identity=added.pop(position)[0]))
         maxima_map = evaluation_input.ordered_position_maxima
         maxima = None if maxima_map is None else maxima_map.get(name)
-        for rows, side in ((added, "current"), (deleted, "before")):
+        for rows, side in (({position: value[0] for position, value in added.items()}, "current"),
+                           (deleted, "before")):
             opposite_max = None if maxima is None else maxima[0 if side == "current" else 1]
             for position, identity in sorted(rows.items()):
                 if maxima is None:

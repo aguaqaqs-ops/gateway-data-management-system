@@ -209,6 +209,7 @@ OrderedInterval:
 - records 输出必须 canonical order。
 - Canonical order 第一版建议为 `record_kind` priority、position tuple、row identity。
 - `semantic_kind` 必须保留旧 ordered semantic kind，供 risk/surface/bundle 恢复旧行为。
+- 有序比较器可在 operation 内的 ORDERED 风险投影上给新增实测点附带旧侧替换伙伴的身份和 `no`。配对以共同骨架锚点划分区间，忽略空点并按区间内非空行相对顺序一对一核对；含移动或两侧变更行数不等的区间不推断新配对。该证据由 risk 消费并与删除记录交叉核对，不改变公开 ordered records 的增删事实与 replay 语义。
 - `entity_key_kind=PSEUDO_BLANK` 表示由缺失/空 stable key 派生的 blank row。
 - 如果同一事件可表达为 move 或 delete+add，由 `move_policy` 决定；不能在同一 policy 下不稳定输出。
 - row values 只包含 projection selected/value columns，不包含 ignored columns。

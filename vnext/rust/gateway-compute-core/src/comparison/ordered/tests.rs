@@ -145,6 +145,7 @@ fn compare<'a>(
     Ok(TestedComparison {
         standard_count: result.standard_records.len(),
         ordered_count: result.ordered_records.len(),
+        ordered_records: result.ordered_records,
         blank_records: result.blank_records,
         facts: result.facts_metadata,
     })
@@ -154,6 +155,7 @@ struct TestedComparison {
     facts: OrderedCompareResult,
     standard_count: usize,
     ordered_count: usize,
+    ordered_records: Vec<OrderedRecordRef>,
     blank_records: Vec<BlankRecordRef>,
 }
 
@@ -163,6 +165,66 @@ impl Deref for TestedComparison {
     fn deref(&self) -> &Self::Target {
         &self.facts
     }
+}
+
+#[test]
+fn replacement_slots_ignore_blank_rows_before_a_patch() -> Result<(), Box<dyn Error>> {
+    let before = batch(
+        &[
+            Some(10),
+            Some(11),
+            Some(12),
+            Some(13),
+            Some(14),
+            Some(15),
+            Some(16),
+        ],
+        &[10, 11, 12, 13, 14, 15, 16],
+        &[
+            Some("a"),
+            Some("b"),
+            Some("c"),
+            Some("d"),
+            Some("e"),
+            Some("f"),
+            Some("g"),
+        ],
+    )?;
+    for blanks in 1..=3 {
+        let mut gids = vec![Some(10), Some(11)];
+        let mut names = vec![Some("a"), Some("b")];
+        gids.extend(std::iter::repeat_n(None, blanks));
+        names.extend(std::iter::repeat_n(Some("blank"), blanks));
+        gids.extend([Some(12), Some(113), Some(114), Some(115), Some(16)]);
+        names.extend([Some("c"), Some("x"), Some("y"), Some("z"), Some("g")]);
+        let positions: Vec<i64> = (10..10 + i64::try_from(gids.len())?).collect();
+        let current = batch(&gids, &positions, &names)?;
+        let result = compare(&before, &current, &options())?;
+        let mut deleted: Vec<_> = result
+            .ordered_records
+            .iter()
+            .filter(|record| record.kind == "ORDERED_ROW_DELETED")
+            .collect();
+        let mut added: Vec<_> = result
+            .ordered_records
+            .iter()
+            .filter(|record| record.kind == "ORDERED_ROW_ADDED")
+            .collect();
+        deleted.sort_by_key(|record| record.before_position);
+        added.sort_by_key(|record| record.current_position);
+        assert_eq!(added.len(), 3);
+        assert_eq!(deleted.len(), 3);
+        for (old, new) in deleted.iter().zip(added) {
+            let old_position = old
+                .before_position
+                .ok_or_else(|| std::io::Error::other("deleted record has no before position"))?;
+            assert_eq!(
+                new.replacement_before.as_ref(),
+                Some(&(old.row_identity.clone(), old_position))
+            );
+        }
+    }
+    Ok(())
 }
 
 #[test]

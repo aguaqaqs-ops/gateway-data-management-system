@@ -442,6 +442,7 @@ class OrderedRecord:
     row_identity: DigestRef | None = None
     before_position: int | None = None
     current_position: int | None = None
+    replacement_before: tuple[DigestRef, int] | None = None
     before_values: tuple[tuple[str, object], ...] = ()
     current_values: tuple[tuple[str, object], ...] = ()
     changed_columns: tuple[str, ...] = ()

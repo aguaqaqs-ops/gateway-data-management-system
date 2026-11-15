@@ -51,6 +51,40 @@ def _rows(handle: Any, family: str, *, facts: bool = False) -> list[dict[str, An
     return [json.loads(row['row_jcs']) for row in rows] if facts else rows
 
 
+def test_replacement_partner_projection_survives_cache_restore() -> None:
+    ddl = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name TEXT); INSERT INTO t VALUES "
+    before = complete_canonical_bound(canonical_bound(
+        ddl + "(1,1,'a'),(2,2,'b'),(3,3,'c'),(4,4,'d');"), ordered=True)
+    current = complete_canonical_bound(canonical_bound(
+        ddl + "(1,1,'a'),(NULL,2,NULL),(2,3,'b'),(13,4,'x'),(14,5,'y');"), ordered=True)
+    planned = plan(before, current, ordered=True)
+    identity = _identity(planned)
+    context = current_kernel_context()
+    assert context is not None
+    product = compare_plan_native(planned, retain_cache_candidates=True)
+    try:
+        cold = _rows(product.handles['t'], 'ORDERED')
+        partners = [row for row in cold if row['replacement_before_identity'] is not None]
+        assert [(row['current_position'], row['replacement_before_position']) for row in partners] == [
+            (4, 3), (5, 4)]
+        payload = product.encode_cache_candidate('t', identity, context)
+    finally:
+        product.close()
+    operation = native.begin_records_operation(native_budget_bytes=context.memory.available_bytes // 2,
+        cancel_probe=context.cancel_probe, deadline_monotonic=None)
+    handle = None
+    try:
+        _, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        assert handle is not None
+        operation.seal()
+        assert _rows(handle, 'ORDERED') == cold
+    finally:
+        if handle is not None:
+            handle.close()
+        operation.close()
+        payload.close()
+
+
 @pytest.mark.parametrize('counts_only', (False, True))
 def test_ordered_facts_projection_and_risk_replay_preserve_order_digest_and_caps(
     counts_only: bool, tmp_path: Path, db_path: Path,
@@ -70,6 +104,8 @@ def test_ordered_facts_projection_and_risk_replay_preserve_order_digest_and_caps
         assert len(rows) > 1
         for row, fact in zip(rows, expected[family], strict=True):
             for key, value in row.items():
+                if key.startswith('replacement_before_'):
+                    continue  # risk-only pairing evidence is absent from public records
                 reference = fact['interval'][key] if family == 'BLANK' and key != 'record_kind' else fact[key]
                 assert ('sha256:' + value.hex() if isinstance(value, bytes) else value) == reference
         with closing(cold.record_batches(family)) as reader:

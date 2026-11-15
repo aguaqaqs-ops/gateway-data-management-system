@@ -11,7 +11,7 @@ import { deriveChangeLocations, deriveFormulaDisplays, navigationTabHasDifferenc
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
-import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, rowMove, validateRowLocations, type BrowseRow, type DeletionLayout } from "../features/view-model/table-rows";
+import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, rowMove, rowRiskAnnotation, validateRowLocations, type BrowseRow, type DeletionLayout } from "../features/view-model/table-rows";
 import { formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
@@ -1305,7 +1305,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const hoverAfter = hoverPair?.length === 2 ? rows[hoverPair.find((index) => rows[index]?.kind === "modified-after") ?? -1] : undefined;
   const hoverColumnId = typeof hoverColumn?.id === "string" ? hoverColumn.id : null;
   const hoverChanged = Boolean(hoverRow && hoverColumnId && hoverRow.changedColumns.includes(hoverColumnId));
-  const hoverAnnotation = hoverRow?.rowIdentity ? annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(hoverRow.rowIdentity as string)) : undefined;
+  const hoverAnnotation = hoverRow ? rowRiskAnnotation(hoverRow, annotations) : undefined;
   const missingSnapshotHint = hoverRow?.rowNumberTitle ?? (hoverRow?.kind === "modified-before" && hoverRow.rowNumber === null ? "改前值不在本 bundle 中" : null);
   const hoverMove = hoverRow && hoverRow.kind !== "collapsed" ? rowMove(hoverRow) : null;
   const showHoverDetail = Boolean(hoverRow && (hoverChanged || hoverRow.riskLevel || missingSnapshotHint || hoverMove));
@@ -1318,7 +1318,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId], hoverShape)}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId], hoverShape)}</code></div></section>}
       {hoverMove && <section><strong>位置</strong><span>第 {hoverMove.from} 行 → 第 {hoverMove.to} 行</span></section>}
-      {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}
+      {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code, reason.evidence)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}
     </div>}
   </div>;
 }

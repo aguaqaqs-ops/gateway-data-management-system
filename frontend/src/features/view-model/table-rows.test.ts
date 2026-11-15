@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveChangeLocations, type RowDiffRecord, type SurfaceTable } from "./model";
+import { deriveChangeLocations, type RiskAnnotation, type RowDiffRecord, type SurfaceTable } from "./model";
 import {
   type BrowseRow,
   buildBrowseRows,
@@ -10,6 +10,7 @@ import {
   normalizeDisplayScalar,
   parseRowLocator,
   rowMove,
+  rowRiskAnnotation,
   validateRowLocations,
 } from "./table-rows";
 import { loadTableCase } from "../../test/helpers";
@@ -208,6 +209,29 @@ describe("browse rows from published locators", () => {
       .toEqual(["unchanged:1:>", "ordered:2:4>2", "unchanged:3:>", "modified-before:2:2>4", "modified-after:4:2>4"]);
     // The jump list counts that row once.
     expect(deriveChangeLocations(records).map((location) => location.position)).toEqual([4, 2]);
+  });
+
+  it("maps blank-interval risks to the blank rows of the named side by position", () => {
+    const current = [1, 0, 2, 3].map((n, index) => ({ dev_addr: n, description: n ? `点${n}` : "空点", no: String(index + 1) }));
+    const interval = (side: "CURRENT" | "BEFORE", start: number, end: number, level: RiskAnnotation["risk_level"]): RiskAnnotation => ({
+      annotation_id: side + start, risk_level: level, diagnostics: [],
+      reasons: [{ reason_code: "ORDERED_MIDDLE_BLANK_INTERVAL", message: "", rule_id: "ORDERED_MIDDLE_BLANK_INTERVAL", evidence: [["count", end - start + 1], ["side", side]] }],
+      target: { target_type: "ROW_INTERVAL", table_name: "device", row_identity: null, before_row_identity: null, current_row_identity: null,
+        changed_columns: [], coverage: null, position: null, position_range: [start, end] },
+    });
+    const blank = (kind: string, side: "current" | "before", position: number) => ({ table_name: "device", record_kind: kind,
+      interval: { before_start: side === "before" ? position : null, before_end: side === "before" ? position : null,
+        current_start: side === "current" ? position : null, current_end: side === "current" ? position : null, row_count: 1 } }) as RowDiffRecord;
+    const annotations = [interval("CURRENT", 2, 2, "MEDIUM_HIGH"), interval("BEFORE", 4, 4, "LOW")];
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 4 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations,
+      records: [blank("BLANK_INSERT_INTERVAL", "current", 2), blank("BLANK_DELETE_INTERVAL", "before", 4)],
+    });
+    expect(result.rows.map((row) => `${row.kind}:${row.rowNumber}:${row.riskLevel ?? "-"}`))
+      .toEqual(["unchanged:1:-", "added:2:MEDIUM_HIGH", "unchanged:3:-", "unchanged:4:-", "deleted:4:LOW"]);
+    const inserted = result.rows.find((row) => row.kind === "added");
+    expect(inserted && rowRiskAnnotation(inserted, annotations)?.annotation_id).toBe("CURRENT2");
   });
 
   it("shows a FLOAT column's bit pattern as its number", () => {

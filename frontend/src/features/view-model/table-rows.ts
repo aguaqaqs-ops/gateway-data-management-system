@@ -631,6 +631,12 @@ export function buildBrowseRows(input: {
     if (hasCurrentSnapshot) placeDeletedRowsInline(rows, input.deletionLayout ?? "interleave");
   }
 
+  for (const row of rows) {
+    if (row.riskLevel) continue;
+    const annotation = intervalRiskAnnotation(row, input.annotations);
+    if (annotation) row.riskLevel = annotation.risk_level;
+  }
+
   let visible = rows;
   const filter = input.degraded === true ? null : input.rowFilter ?? null;
   if (filter) {
@@ -655,6 +661,32 @@ export function buildBrowseRows(input: {
   visible = visible.filter((row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query));
   if (input.onlyInteresting) visible = collapseUnchangedRows(visible, input.expandedRuns ?? new Set());
   return { rows: visible };
+}
+
+/**
+ * ROW_INTERVAL annotations (blank intervals in ordered tables) carry no row
+ * identity: they cover the `no` range of one side, named by the CURRENT or
+ * BEFORE `side` evidence. Inserted blanks are added rows, deleted blanks are
+ * deleted rows.
+ */
+function intervalRiskAnnotation(row: BrowseRow, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
+  if (row.kind !== "added" && row.kind !== "deleted") return undefined;
+  const side = row.kind === "added" ? "CURRENT" : "BEFORE";
+  const position = scalarPosition(row.values[ORDERED_POSITION_COLUMN]) ?? row.rowNumber;
+  if (position === null) return undefined;
+  return annotations.find((annotation) => {
+    if (annotation.target.target_type !== "ROW_INTERVAL" || !annotation.target.position_range) return false;
+    const [start, end] = annotation.target.position_range;
+    const annotationSide = annotation.reasons.flatMap((reason) => reason.evidence).find(([name]) => name === "side")?.[1];
+    return annotationSide === side && position >= start && position <= end;
+  });
+}
+
+/** The annotation behind a row's risk: by row identity, or by blank interval position. */
+export function rowRiskAnnotation(row: BrowseRow, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
+  const identity = row.rowIdentity;
+  return (identity ? annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(identity)) : undefined)
+    ?? intervalRiskAnnotation(row, annotations);
 }
 
 /** Before → current position when the row changed position, else null. */

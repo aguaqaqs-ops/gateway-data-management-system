@@ -6,6 +6,15 @@ export const RISK_REASON_CODES = [
   "ROW_ADDED",
   "ROW_DELETED",
   "ROW_MODIFIED",
+  "ORDERED_MOVE",
+  "ORDERED_REPLACEMENT",
+  "ORDERED_MIDDLE_INSERT_DELETE",
+  "ORDERED_TAIL_INSERT_DELETE",
+  "ORDERED_NAME_UPDATE",
+  "ORDERED_CONTENT_UPDATE",
+  "ORDERED_RISK_UNKNOWN",
+  "ORDERED_MIDDLE_BLANK_INTERVAL",
+  "ORDERED_TAIL_BLANK_INTERVAL",
   "KEY_DEGRADED",
   "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED",
   "COMPARISON_FAILED",
@@ -21,6 +30,15 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
   ROW_ADDED: "新增了数据行。",
   ROW_DELETED: "删除了数据行。",
   ROW_MODIFIED: "修改了数据行。",
+  ORDERED_MOVE: "测点在有序表中换了位置，转发顺序随之改变，需要复核。",
+  ORDERED_REPLACEMENT: "有序表同一位置的测点被替换。",
+  ORDERED_MIDDLE_INSERT_DELETE: "在有序表中间新增或删除了测点，其后测点的序号整体偏移，需要复核。",
+  ORDERED_TAIL_INSERT_DELETE: "在有序表末尾新增或删除了测点。",
+  ORDERED_NAME_UPDATE: "只修改了测点名称。",
+  ORDERED_CONTENT_UPDATE: "修改了测点名称以外的内容。",
+  ORDERED_RISK_UNKNOWN: "有序表的变化无法可靠判定风险，需要复核。",
+  ORDERED_MIDDLE_BLANK_INTERVAL: "在有序表中间插入或删除了空点，其后测点的序号整体偏移，需要复核。",
+  ORDERED_TAIL_BLANK_INTERVAL: "在有序表末尾插入或删除了空点。",
   KEY_DEGRADED: "比较键降级，建议复核。",
   ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED: "有序表差异无法可靠比较，建议复核。",
   COMPARISON_FAILED: "比较失败，结果需要复核。",
@@ -28,7 +46,26 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
   UNKNOWN_CHANGE_TARGET: "变化目标无法识别，需要复核。",
 };
 
-export function describeRiskReason(code: string): string {
+/**
+ * Blank-interval reasons carry the side (CURRENT = inserted, BEFORE = deleted)
+ * and the net count as evidence; say which when it is known.
+ */
+function describeBlankInterval(code: string, evidence: ReadonlyArray<readonly [string, unknown]>): string | null {
+  const value = (key: string) => evidence.find(([name]) => name === key)?.[1];
+  const side = value("side");
+  const count = value("count");
+  if (side !== "CURRENT" && side !== "BEFORE") return null;
+  const action = (side === "CURRENT" ? "插入了 " : "删除了 ") + (typeof count === "number" ? count + " 个" : "") + "空点";
+  return code === "ORDERED_TAIL_BLANK_INTERVAL"
+    ? "在有序表末尾" + action + "。"
+    : "在有序表中间" + action + "，其后测点的序号整体偏移，需要复核。";
+}
+
+export function describeRiskReason(code: string, evidence: ReadonlyArray<readonly [string, unknown]> = []): string {
+  if (code === "ORDERED_MIDDLE_BLANK_INTERVAL" || code === "ORDERED_TAIL_BLANK_INTERVAL") {
+    const specific = describeBlankInterval(code, evidence);
+    if (specific) return specific;
+  }
   return code in RISK_REASON_COPY
     ? RISK_REASON_COPY[code as (typeof RISK_REASON_CODES)[number]]
     : "风险原因待说明。";

@@ -47,6 +47,8 @@ from gateway_backend.application.history.errors import HistoryComparePreflightFa
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.capabilities.bundle_assembly import read_bundle_transport_metadata
+from gateway_backend.capabilities.bundle_assembly.contracts import BUNDLE_MANIFEST_MEDIA_TYPE, MAX_BUNDLE_MANIFEST_JSON_BYTES
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.http.dependencies import AdmissionGatePort, BundleReaderPort, acquire_new_work
@@ -452,6 +454,21 @@ def _load_success_result(
                         raise ValueError("structure audit document binding disagrees")
         except (ValueError, TypeError, ValidationError) as exc:
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history structure audit disagrees", status_code=503) from exc
+        try:
+            if bundle_ref.media_type != BUNDLE_MANIFEST_MEDIA_TYPE or bundle_ref.size_bytes > MAX_BUNDLE_MANIFEST_JSON_BYTES:
+                raise BundleIntegrityError("invalid history bundle manifest")
+            bundle_metadata = read_bundle_transport_metadata(_read_metadata_from_store(artifact_store, bundle_ref))
+        except BundleIntegrityError as exc:
+            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle failed integrity verification", status_code=503) from exc
+        ready_by_id = {ref.artifact_id: ref for ref in closure.artifact_refs()}
+        bundle_refs = (bundle_metadata.closure_ref, *(entry.artifact_ref for entry in bundle_metadata.entries))
+        if any(ready_by_id.get(ref.artifact_id) != ref for ref in bundle_refs):
+            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY omits bundle members", status_code=503)
+        expected_pair_digests = tuple((pair.pair_id, pair.surface_digest, pair.comparison_digest) for pair in pairs)
+        expected_risk_digests = tuple((pair.pair_id, pair.risk_digest) for pair in pairs)
+        if (bundle_metadata.pair_digests != expected_pair_digests
+                or bundle_metadata.pair_risk_digests != expected_risk_digests):
+            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history pair and bundle digests disagree", status_code=503)
         bundle_digest = state.bundle_digest
         result = HistoryCompareResultInputResponse(
             input={
@@ -469,6 +486,8 @@ def _load_success_result(
             bundle_digest=bundle_digest,
             completed_at=operation.completed_at,
         )
+        if bundle_metadata.bundle_digest != bundle_digest:
+            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle digest disagrees", status_code=503)
         if bundle_digest != envelope.job_state.get("bundle_digest"):
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history bundle binding disagrees", status_code=503)
         if operation.completed_at is None:

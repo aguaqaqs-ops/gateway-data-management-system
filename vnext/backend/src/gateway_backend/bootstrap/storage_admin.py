@@ -45,24 +45,39 @@ def release_expired_history_results(uow: ControlDbUnitOfWork, *, limit: int = 32
     now = uow.transaction_now.astimezone(UTC)
     delta = now - datetime(1970, 1, 1, tzinfo=UTC)
     now_us = (delta.days * 86_400 + delta.seconds) * 1_000_000 + delta.microseconds
-    rows = uow.connection.execute(
-        """SELECT a.operation_id
-           FROM history_compare_acceptance_records a
-           JOIN operation_records o ON o.operation_id = a.operation_id
-           WHERE o.completed_at_us IS NOT NULL
-             AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
+    # Start with extant owners/aliases, not the permanently retained acceptance
+    # history. CROSS JOIN preserves this indexed driving order in SQLite.
+    owner_rows = uow.connection.execute(
+        """SELECT DISTINCT p.owner_id FROM artifact_protection_intents p INDEXED BY artifact_protection_owner
+           CROSS JOIN history_compare_acceptance_records a ON a.operation_id = p.owner_id
+           CROSS JOIN operation_records o ON o.operation_id = a.operation_id
+           WHERE p.owner_kind = 'history-compare-operation'
+             AND o.completed_at_us IS NOT NULL AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
              AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
-             AND (EXISTS (SELECT 1 FROM artifact_protection_intents p
-                          WHERE p.owner_kind = 'history-compare-operation' AND p.owner_id = a.operation_id)
-                  OR EXISTS (SELECT 1 FROM history_compare_aliases h WHERE h.operation_id = a.operation_id))
-           ORDER BY o.completed_at_us, a.operation_id LIMIT ?""",
-        (now_us, limit),
+           LIMIT ?""", (now_us, limit),
     ).fetchall()
-    for row in rows:
-        operation_id = row[0]
+    alias_rows = uow.connection.execute(
+        """SELECT DISTINCT h.operation_id FROM history_compare_aliases h INDEXED BY history_compare_aliases_operation
+           CROSS JOIN history_compare_acceptance_records a ON a.operation_id = h.operation_id
+           CROSS JOIN operation_records o ON o.operation_id = a.operation_id
+           WHERE o.completed_at_us IS NOT NULL AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
+             AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
+           LIMIT ?""", (now_us, limit),
+    ).fetchall()
+    # Alternate the two sources so an owner backlog cannot starve alias-only jobs.
+    candidates: dict[str, None] = {}
+    for index in range(max(len(owner_rows), len(alias_rows))):
+        for rows in (owner_rows, alias_rows):
+            if index < len(rows):
+                candidates[str(rows[index][0])] = None
+            if len(candidates) == limit:
+                break
+        if len(candidates) == limit:
+            break
+    for operation_id in candidates:
         uow.clear_artifact_protection(owner_kind="history-compare-operation", owner_id=operation_id)
         uow.connection.execute("DELETE FROM history_compare_aliases WHERE operation_id = ?", (operation_id,))
-    return len(rows)
+    return len(candidates)
 
 
 def main(argv: list[str] | None = None) -> int:

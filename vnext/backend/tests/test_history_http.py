@@ -1332,3 +1332,64 @@ def test_unreadable_success_replays_error_and_new_key_rebuilds(db_path: Path, tm
     assert rebuilt.json()["operation_id"] != operation_id
     result = env.client.get(f"/v1/history-compares/{operation_id}", headers=env.auth_headers())
     assert result.status_code == 404
+
+
+HISTORY_PAIR_DIGEST_FIELDS = ("surface_digest", "risk_digest")
+
+
+@pytest.mark.parametrize("field", HISTORY_PAIR_DIGEST_FIELDS)
+def test_history_rejects_result_pair_digest_disagreeing_with_bundle(
+    db_path: Path, tmp_path: Path, field: str,
+) -> None:
+    from gateway_backend.application.checkpoints import load_checkpoint_envelope
+    from gateway_backend.application.history.compare_jobs import (
+        HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER, HISTORY_COMPARE_STEP_ASSEMBLE,
+        history_compare_assemble_state_from_checkpoint, history_compare_step_id,
+    )
+    from tests.support.history_compare_checkpoint_tamper import rebind_tampered_assemble_checkpoint
+    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from tests.support.http_workspace_harness import InMemoryBoundedArtifactStore
+
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-pair-{field}"))
+    node_a, node_b = _seed_compare_nodes(db_path)
+    store = InMemoryBoundedArtifactStore()
+    env = _history_env(tmp_path / f"pair-{field}", db_path=db_path, artifact_store=store)
+    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
+                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    original_key = f"pair-original-{field}"
+    accepted = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=original_key), json=body)
+    operation_id = accepted.json()["operation_id"]
+    harness = build_history_compare_harness(
+        tmp_path / f"pair-harness-{field}", db_path=db_path, artifact_store=store._store,
+        idempotency_key=original_key, seed_acceptance=False, existing_operation_id=operation_id,
+    )
+    for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+        run_through_step(harness, handler)
+    step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(operation_id)
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(operation_id)
+        step = uow.operations.get_step(step_id)
+    assert step.checkpoint_ref is not None and operation.completed_at is not None and acceptance is not None
+    new_ref = rebind_tampered_assemble_checkpoint(store._store, step.checkpoint_ref,
+        db_path=db_path, step_id=step_id, field=field, value="sha256:" + "0" * 64)
+    envelope = load_checkpoint_envelope(store._store, new_ref)
+    state_ref, _ = history_compare_assemble_state_from_checkpoint(envelope.job_state, store._store)
+    from datetime import timedelta
+    expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
+    with ControlDbUnitOfWork(db_path) as uow:
+        uow.set_artifact_protection((new_ref, state_ref), owner_kind="history-compare-operation",
+                                    owner_id=operation_id, intent="history-compare-result", expires_at=expiry)
+
+    for suffix in ("", "/bundle"):
+        result = env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers())
+        assert result.status_code == 503
+        assert result.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
+    replay = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=original_key), json=body)
+    assert replay.status_code == 503
+    assert replay.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
+    retry = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=f"pair-new-{field}"), json=body)
+    assert retry.status_code == 202
+    assert retry.json()["operation_id"] != operation_id

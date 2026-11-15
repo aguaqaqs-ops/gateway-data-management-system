@@ -1912,10 +1912,13 @@ def test_history_maintenance_continues_across_bounded_batches(tmp_path: Path) ->
                 placeholders = ",".join("?" for _ in columns)
                 uow.connection.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders})",
                                        tuple(values[column] for column in columns))
-        for index in range(32):
+        for index in range(1, 32):
             uow.set_artifact_protection((step.checkpoint_ref,), owner_kind="history-compare-operation",
                                         owner_id=f"batch-operation-{index}", intent="history-compare-result",
                                         expires_at=expiry)
+        alias_only = uow.history_compare.get_acceptance_by_operation_id("batch-operation-0")
+        assert alias_only is not None
+        uow.history_compare.save_alias(record=alias_only, idempotency_key="alias-only")
     with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
         assert release_expired_history_results(uow) == 32
     with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:

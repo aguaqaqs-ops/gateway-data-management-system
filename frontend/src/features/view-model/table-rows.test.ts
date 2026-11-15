@@ -180,6 +180,18 @@ describe("browse rows from published locators", () => {
     expect(before?.values.description).toBe("一改");
   });
 
+  it("marks swapped ordered rows by their position when no row locator is published", () => {
+    const current = [1, 4, 3, 2].map((n, index) => ({ dev_addr: n, description: `点${n}`, no: String(index + 1) }));
+    const moved = (byte: number, from: number, to: number) => record("ORDERED_ROW_MOVED", byte, { semantic_kind: "MOVE", before_position: from, current_position: to, changed_columns: [] });
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: 4, row_count_current: 4 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
+      records: [moved(0x02, 2, 4), moved(0x04, 4, 2)], annotations: [], locator: new Map(),
+    });
+    expect(result.rows.map((row) => `${row.kind}:${row.beforePosition ?? ""}>${row.currentPosition ?? ""}`))
+      .toEqual(["unchanged:>", "ordered:4>2", "unchanged:>", "ordered:2>4"]);
+  });
+
   it("shows a FLOAT column's bit pattern as its number", () => {
     expect(formatFloatBits("3f800000")).toBe("1");
     expect(formatFloatBits("3ba3d70a")).toBe("0.005");

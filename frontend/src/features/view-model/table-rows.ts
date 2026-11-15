@@ -46,6 +46,7 @@ const ADDED_KINDS = new Set(["ROW_ADDED", "ORDERED_ROW_ADDED"]);
 const DELETED_KINDS = new Set(["ROW_DELETED", "ORDERED_ROW_DELETED"]);
 const MODIFIED_KINDS = new Set(["ROW_MODIFIED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"]);
 const STANDARD_ORDINARY_KINDS = new Set(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
+const ORDERED_CURRENT_KINDS = new Set(["ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"]);
 
 /** One decoded five-column locator row, addressed by its published identity. */
 export interface RowLocatorRecord {
@@ -463,6 +464,20 @@ export function buildBrowseRows(input: {
     if (entry.currentRowIndex !== null) recordByCurrentIndex.set(entry.currentRowIndex, record);
     if (entry.beforeRowIndex !== null) recordByBeforeIndex.set(entry.beforeRowIndex, record);
   }
+  // Ordered records carry no row locator; their current position is the row's `no`.
+  if (hasCurrentSnapshot && input.table.ordered_extension) {
+    const indexByPosition = new Map<number, number>();
+    input.currentRows.forEach((row, index) => {
+      const position = scalarPosition(row[ORDERED_POSITION_COLUMN]);
+      if (position !== null && !indexByPosition.has(position)) indexByPosition.set(position, index);
+    });
+    for (const record of records) {
+      if (!ORDERED_CURRENT_KINDS.has(String(record.record_kind))) continue;
+      const position = positionNumber(record.current_position);
+      const index = position === null ? undefined : indexByPosition.get(position);
+      if (index !== undefined && !recordByCurrentIndex.has(index)) recordByCurrentIndex.set(index, record);
+    }
+  }
 
   const tableKind = input.table.change_kind ?? input.table.table_status;
   if (tableKind === "ADDED" || tableKind === "ADDED_TABLE") {
@@ -483,7 +498,7 @@ export function buildBrowseRows(input: {
       consumed.add(candidate);
       const kind = String(candidate.record_kind);
       const identity = locatorIdentity(candidate);
-      if (kind === "ORDERED_ROW_MOVED" && hasBeforeSnapshot && hasCurrentSnapshot) {
+      if (kind === "ORDERED_ROW_MOVED" && hasCurrentSnapshot) {
         rows.push(makeRow({ key: `record:moved:${index + 1}`, kind: "ordered", side: "current", source,
           rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate }));
         return;

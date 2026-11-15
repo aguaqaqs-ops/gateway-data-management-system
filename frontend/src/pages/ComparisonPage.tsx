@@ -162,6 +162,13 @@ function riskTokens(level: RiskLevel): { bg: string; rail: string; text: string;
     text: style.getPropertyValue("--" + name + "-text").trim(), cell: style.getPropertyValue("--" + name + "-cell").trim() };
 }
 
+/** Rows an ordered table moved; row_change_stats does not count moves. */
+function orderedMovedCount(table: SurfaceTable): number {
+  const summary = table.ordered_extension?.ordered_summary;
+  const moved = summary && typeof summary === "object" ? (summary as Record<string, unknown>).row_moved_count : null;
+  return typeof moved === "number" && moved > 0 ? moved : 0;
+}
+
 function rowLabel(row: BrowseRow): string {
   if (row.kind === "collapsed") return row.expanded ? "▴ 收起 " + (row.collapsedCount ?? 0) + " 行未变更" : "▾ " + (row.collapsedCount ?? 0) + " 行未变更 · 展开";
   if (row.recordKind === "BLANK_DELETE_INTERVAL" || row.recordKind === "BLANK_INSERT_INTERVAL") {
@@ -921,7 +928,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                 <span className={table.changeKind === "DEGRADED" ? "table-info__warn" : "table-info__muted"} title={[change.text, change.tooltip].filter(Boolean).join(" · ")}>{tableStatusText(table)}</span>
                 {filtered && <span className="table-info__counts">本页 {tabCount(selectedTab, "before") ?? "—"} → {tabCount(selectedTab, "current") ?? "—"} 行</span>}
                 <span className={filtered ? "table-info__muted table-info__counts" : "table-info__counts"}>{filtered ? "整表 " : ""}{table.rowCounts.before ?? "—"} → {table.rowCounts.current ?? "—"} 行</span>
-                {!wholeTableChange && <span className="table-info__muted table-info__counts" title="新增 / 删除 / 修改的行">+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}</span>}
+                {!wholeTableChange && (() => { const moved = orderedMovedCount(surfaceTable); return <span className="table-info__muted table-info__counts" title={moved ? "新增 / 删除 / 修改 / 移动的行" : "新增 / 删除 / 修改的行"}>+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}{moved ? " / ↕" + moved : ""}</span>; })()}
                 {rowRiskCounts.map(({ level, count }) => <span className="table-info__risk-count" key={level}><RiskBadge level={level} /><span>{count}</span></span>)}
                 {table.annotationCount > 0 && <span className="table-info__muted">{table.annotationCount} 条风险标注</span>}
                 {selectedTab.tabKey.startsWith("__whole__:") && <span className="table-info__muted">整表视图</span>}

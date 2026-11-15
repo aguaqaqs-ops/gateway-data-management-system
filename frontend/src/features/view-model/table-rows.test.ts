@@ -219,7 +219,7 @@ describe("browse rows from published locators", () => {
       .toEqual([" 1", "-2", "+2", "-3", "+3", " 4"]);
   });
 
-  // An earlier insertion shifts later rows by one; a blank row (published only as a blank interval) must count like any insert.
+  // A blank row (published only as a blank interval) displays and shifts later rows exactly like an ordinary insert.
   const INSERTED_ROW_SHAPES: Array<[string, RowDiffRecord[], Array<Record<string, unknown>>]> = [
     ["an ordinary row", [record("ROW_ADDED", 0x0b)], [locatorRow(0x0b, null, 1)]],
     ["a blank row", [{ table_name: "device", record_kind: "BLANK_INSERT_INTERVAL",
@@ -236,11 +236,11 @@ describe("browse rows from published locators", () => {
         record("ROW_ADDED", 0x31), record("ROW_ADDED", 0x41)],
       annotations: [], locator,
     });
-    expect(result.rows.filter((row) => row.kind !== "blank").map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
-      .toEqual([" 1", insertRecords[0]?.record_kind === "ROW_ADDED" ? "+2" : " 2", " 3", "-3", "+4", "-4", "+5", " 6"]);
+    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
+      .toEqual([" 1", "+2", " 3", "-3", "+4", "-4", "+5", " 6"]);
   });
 
-  // An earlier deletion shifts later rows up by one; deleting a blank row must count and display like any delete.
+  // Deleting a blank row displays and shifts later rows exactly like an ordinary delete.
   const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
   const DELETED_ROW_SHAPES: Array<[string, RowDiffRecord[], Array<Record<string, unknown>>]> = [
     ["an ordinary row", [record("ROW_DELETED", 0x02, { before_values: no(2) })], [locatorRow(0x02, null, null)]],
@@ -258,9 +258,7 @@ describe("browse rows from published locators", () => {
         record("ROW_ADDED", 0x41), record("ROW_ADDED", 0x51)],
       annotations: [], locator,
     });
-    const label = (row: BrowseRow) => row.kind === "deleted" ? `-${row.rowNumber}` : row.kind === "blank" ? `-${row.beforePosition}`
-      : `${row.kind === "added" ? "+" : " "}${row.rowNumber}`;
-    expect(result.rows.map(label)).toEqual([" 1", "-2", " 2", "-4", "+3", "-5", "+4", " 5"]);
+    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`)).toEqual([" 1", "-2", " 2", "-4", "+3", "-5", "+4", " 5"]);
   });
 
   it("matches either half of the per-side filter", () => {

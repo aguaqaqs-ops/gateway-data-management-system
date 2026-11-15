@@ -1,7 +1,7 @@
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, MoreHorizontal, Search, Table2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi, boundBundleFetch } from "../features/api/application-api";
 import { assertSubmissionReviewBundle, pollHistoryCompare } from "../features/api/journeys";
@@ -1121,6 +1121,21 @@ function CopyDebugValue({ label, value }: { label: string; value: string }) {
 function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, storedWidths, onWidthChange, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; storedWidths: Readonly<Record<string, number>>; onWidthChange: (columnId: string, width: number) => void; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: (pointKey: string | null) => void }) {
   const gridRef = useRef<DataEditorRef>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  // The hover detail follows the pointer and flips to stay inside the viewport.
+  const hoverDetailRef = useRef<HTMLDivElement>(null);
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const placeHoverDetail = useCallback(() => {
+    const element = hoverDetailRef.current; const at = pointer.current;
+    if (!element || !at) return;
+    const gap = 14; const margin = 8;
+    const width = element.offsetWidth; const height = element.offsetHeight;
+    const left = at.x + gap + width > window.innerWidth - margin ? at.x - gap - width : at.x + gap;
+    const top = at.y + gap + height > window.innerHeight - margin ? at.y - gap - height : at.y + gap;
+    element.style.left = Math.max(margin, Math.min(left, window.innerWidth - margin - width)) + "px";
+    element.style.top = Math.max(margin, Math.min(top, window.innerHeight - margin - height)) + "px";
+  }, []);
+  const trackPointer = useCallback((event: ReactMouseEvent) => { pointer.current = { x: event.clientX, y: event.clientY }; placeHoverDetail(); }, [placeHoverDetail]);
+  useLayoutEffect(() => { placeHoverDetail(); });
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [paintedToken, setPaintedToken] = useState<object | null>(null);
   const [hoveredCell, setHoveredCell] = useState<readonly [number, number] | null>(null);
@@ -1281,8 +1296,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
-  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" onDoubleClick={fitEdgeColumn} data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
-    {showHoverDetail && hoverRow && <div className="grid-hover-detail" role="tooltip">
+  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" onDoubleClick={fitEdgeColumn} onMouseMove={trackPointer} data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
+    {showHoverDetail && hoverRow && <div ref={hoverDetailRef} className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}
       {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}

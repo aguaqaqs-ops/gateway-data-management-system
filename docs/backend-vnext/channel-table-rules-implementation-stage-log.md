@@ -4,3 +4,14 @@
 - 2026-11-15：A/B 规则与工作流绑定、C 导航和 D 前端消费分包实施；逐包独审发现的两项导航问题及生成器问题均修订并由原审关闭，阶段末全范围代码独审通过。前端原审提出的有序 fixture 与 e2e 回归已修订，待原前端审核者复审。
 - 2026-11-15：两次后端门禁失败后针对性修复并复审；第三次候选的 backend 包及容器门禁通过。原始失败、复验和门禁结果见阶段交接区 `gate/index.md`。
 - 2026-11-15：指定两份真实 SQL 的 FULL Preview、一次 Submit 与空 baseline→提交的 exact-commit History 完成；真实 Preview bundle 的网络、串口页签及串口配置表在 mock API 页面核对。History 页面截图未覆盖。前端权威入口的构建与单测通过，mock e2e 仍有失败，原始结果与基线比较留前端交接，待原审核对。
+- 2026-11-15：前端原审复审通过，关闭 F1、F2、F3、F5 并核对门禁与真实旅程原件；F4、F6、F7 转前端设计会话。前端权威入口仍失败，既有失败与未运行项不记通过。
+
+## 阶段总结
+
+做了什么：按已审设计统一网络与串口通道表规则、引用表分类与比较降级，贯通 Preview、缓存、恢复、Submit 和 History；前端消费 Navigation v3 与对应诊断，并更新 Contract、fixture 和真实 producer golden。
+
+与设计的偏差：真实 History 以空 baseline 到本次提交的精确 commit 验证；两份真实输入的差异由 FULL Preview 覆盖。真实 Preview 页面使用原始 bundle、mock API 与合成身份核对，并非 live backend 浏览器旅程。
+
+遗留事项：前端权威 mock e2e 仍有既有失败和负载敏感项；F4 跨引用校验、F6 提示措辞与 F7 搜索时提示位置交前端设计会话。真实 History 页面截图和浏览器内旧 OPFS 缓存路径未测。前端功能改动在中期结束后按暂停记录重新评估并移植至 fe-vnext。
+
+验证：后端独审及前端原审复审通过；backend 与容器门禁、针对性测试和真实 Preview／Submit／History 产物核对通过。前端单测、构建及受影响场景通过，完整 mock e2e 未通过；限制及原始证据见阶段交接区 `gate/index.md`。

@@ -343,6 +343,13 @@ ArchiveComparisonEnvelope optional future
 - Envelope 不应改变 `ComparisonSurface` 或 `ComparisonBundle` core payload。
 - History compare 不伪装成 preview bundle；preview 的 submit/source binding 不进入 history bundle。
 
+GW08 提交结果重看读取 Submission 已保护的原 Preview bundle，保持 Preview 的 pair/side
+闭包与提交时冻结规则；它不转换成 History bundle，也不声称 FULL 两 pair 的净变化。
+相同有序节点、scope、规则和比较 Contract 的 History 结果在有效期内可返回原 operation
+及原 bundle，不重写 manifest、side binding 或 bundle digest。新 History pair 及缓存未命中
+仍遵守本 Contract 的每节点完整两侧和 cache/export 校验；提交不可变性不允许仅凭
+Preview bundle 地址或单个 content digest 补齐缺失的 History 侧。
+
 ## Artifact Closure
 
 Bundle READY 前必须闭合所有可读取 artifacts：

@@ -1241,3 +1241,46 @@ def test_history_compare_list_is_paginated_and_scope_bound(db_path: Path, tmp_pa
     }
     assert page2.json()["next_cursor"] is None
     assert env.client.get("/v1/history-compares?cursor=garbage", headers=env.auth_headers()).status_code == 422
+
+
+def test_unreadable_success_replays_error_and_new_key_rebuilds(db_path: Path, tmp_path: Path) -> None:
+    from gateway_backend.application.checkpoints import load_checkpoint_envelope
+    from gateway_backend.application.history.compare_jobs import (
+        HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER, HISTORY_COMPARE_STEP_ASSEMBLE,
+        history_compare_assemble_state_from_checkpoint, history_compare_step_id,
+    )
+    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from tests.support.http_workspace_harness import InMemoryBoundedArtifactStore
+
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-broken"))
+    node_a, node_b = _seed_compare_nodes(db_path)
+    store = InMemoryBoundedArtifactStore()
+    env = _history_env(tmp_path / "broken-candidate", db_path=db_path, artifact_store=store)
+    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
+                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    first = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-original"), json=body)
+    assert first.status_code == 202
+    operation_id = first.json()["operation_id"]
+    harness = build_history_compare_harness(
+        tmp_path / "broken-harness", db_path=db_path, artifact_store=store._store,
+        idempotency_key="broken-original", seed_acceptance=False, existing_operation_id=operation_id,
+    )
+    for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+        run_through_step(harness, handler)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        step = uow.operations.get_step(history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+    assert step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(store._store, step.checkpoint_ref)
+    state_ref, _ = history_compare_assemble_state_from_checkpoint(envelope.job_state, store._store)
+    store._store._artifacts.pop(state_ref.artifact_id)  # noqa: SLF001
+
+    replay = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-original"), json=body)
+    assert replay.status_code == 404
+    assert replay.json()["code"] == "ARTIFACT_UNAVAILABLE"
+    rebuilt = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-new"), json=body)
+    assert rebuilt.status_code == 202
+    assert rebuilt.json()["operation_id"] != operation_id
+    result = env.client.get(f"/v1/history-compares/{operation_id}", headers=env.auth_headers())
+    assert result.status_code == 404

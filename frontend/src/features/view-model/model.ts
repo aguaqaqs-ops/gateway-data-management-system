@@ -154,7 +154,7 @@ export interface ComparisonSurface {
   tables: SurfaceTable[];
 }
 
-export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v2";
+export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v3";
 
 export type NavigationBasis = "EXACT" | "TABLE_FALLBACK";
 

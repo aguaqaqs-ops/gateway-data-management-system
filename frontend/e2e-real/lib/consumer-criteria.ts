@@ -137,7 +137,7 @@ export interface BundleCriteriaSummary {
 }
 
 const SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v4";
-const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v2";
+const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v3";
 const FIXED_GROUPS = [
   "FORWARD_CHANNELS",
   "SECONDARY_DEVICES",

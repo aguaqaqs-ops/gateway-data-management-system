@@ -793,7 +793,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.locator(".view-tabs [role=tab]")).toHaveCount(2);
   await expect(page.locator(".view-tabs [role=tab]").first()).toHaveAttribute("title", /.+/);
   const firstPreviewView = page.locator(".view-tabs [role=tab]").first();
-  await expect(firstPreviewView).toHaveAttribute("title", /2 张表有比较提示/);
+  await expect(firstPreviewView).toHaveAttribute("title", /4 张表有比较提示/);
   await expect(firstPreviewView).not.toHaveAttribute("title", /降级比较/);
   await expect(page.locator(".mode-tag")).toHaveText("上传");
   await expect(page.getByRole("navigation", { name: "位置" })).toContainText("device");
@@ -1268,21 +1268,37 @@ test("查看差异超时后的重试复用同一幂等意图", async ({ page }) 
   ] });
 });
 
-test("FE2b 正常业务场景以普通页签打开主表且表无诊断（只有 1 条通道提示）", async ({ page }) => {
+test("混合通道保留串口诊断与降级表入口", async ({ page }) => {
+  await installFixtureRoutes(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto(browseUrl("PREVIEW", "channel-rules", { node: "channel:b1_c2", tab: "b1_c2_short" }));
+  await waitForBrowse(page);
+  const sidebar = page.locator(".navigation-sidebar");
+  await expect(sidebar).toContainText("串口配置表");
+  await expect(sidebar).toContainText("预期表名前缀：b1_c3_unknown");
+  await expect(sidebar).toContainText("串口配置");
+  await expect(page.locator(".table-info")).toContainText("缺列");
+  await page.locator(".table-info").getByRole("button", { name: /^提示 / }).click();
+  await expect(page.getByText("有序表缺少排序或行标识所需的列")).toBeVisible();
+  await sidebar.locator('[data-item-key="channel:b1_n2"] button').first().click();
+  await expect(page.locator(".table-info")).toContainText("翻转");
+  await page.locator(".table-info").getByRole("button", { name: /^提示 / }).click();
+  await expect(page.getByText("有序表的输入缺少可靠的规范化来源，建议打开整表核对")).toBeVisible();
+});
+
+test("FE2b 孤儿引用表可打开并保留通道提示", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "table:b1_n1_iec104_yc_list", tab: "table" }));
   await expect(page.locator(".task-indicator")).toHaveCount(0);
   await waitForBrowse(page);
   await expect(page.locator(".navigation-sidebar")).toContainText("其他表");
-  // BE-b v4 keeps the channel table that no network port claims in 其他表 and
-  // reports it as one navigation diagnostic; the tables themselves stay clean.
-  await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(1);
-  await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("1 条提示");
+  // Both sides lack the referenced channel registry.
+  await expect(page.locator(".nav-group__diagnostic-count")).toHaveText("2 条提示");
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(1);
   await expect(page.locator(".pair-diagnostic-strip")).toContainText("项目身份无法验证");
   await expect(page.locator(".table-info").getByRole("button", { name: /^提示 / })).toHaveCount(0);
-  await expect(page.locator(".table-info h2")).toHaveText("b1_n1_iec104_yc_list");
+  await expect(page.locator(".table-info h2")).toHaveText("遥测引用表");
   await screenshot(page, "s3-workbench-normal", 1920);
   await waitForGridPaint(page, "table");
   await screenshot(page, "s4-grid-normal-main", 1920);

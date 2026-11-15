@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, NAVIGATION_DIAGNOSTIC_CODES, navigationDiagnosticParamKeys, navigationDiagnosticTemplateParamKeys, pairSurfaceDiagnosticCodes, SURFACE_DIAGNOSTIC_CODES, type NavigationDiagnostic } from "./diagnostics";
+import { decodeNavigationDiagnostics, firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagnostic, groupNavigationDiagnostics, NAVIGATION_DIAGNOSTIC_CODES, navigationDiagnosticParamKeys, navigationDiagnosticTemplateParamKeys, pairSurfaceDiagnosticCodes, SURFACE_DIAGNOSTIC_CODES, type NavigationDiagnostic } from "./diagnostics";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { installedFixtureBundle } from "../../test/helpers";
 import { loadComparisonPresentation } from "../bundle/presentation";
+import { ComparisonDecodeError } from "./model";
 
 const BACKEND_CODES = join(process.cwd(), "..", "vnext/fixtures/presentation-inputs/diagnostic-codes.json");
 
@@ -91,4 +92,40 @@ describe("navigation and surface diagnostic copy", () => {
     expect(presentation.surface.projections?.find((projection) => projection.projection_kind === "BUSINESS_NAVIGATION")?.diagnostics_ref).toBeNull();
     expect(presentation.navigationDiagnostics).toEqual([]);
   });
+});
+
+
+describe("navigation diagnostic decoding", () => {
+  const target = { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null };
+  const document = (code: string, params: Record<string, unknown>) => ({ contract_version: "backend-vnext/business-navigation/v3", diagnostics: [{ code, target, side: "CURRENT", params }] });
+  const serial = { channel_prefix: "b12_c2", registry_table: "com_cfg" };
+  it("accepts and formats serial and network diagnostics with prefixes", () => {
+    const orphan = decodeNavigationDiagnostics(document("CHANNEL_TABLE_UNCLAIMED", serial)).diagnostics[0]!;
+    expect(formatNavigationDiagnostic(orphan, [])).toContain("串口配置表");
+    const missing = decodeNavigationDiagnostics(document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "规约", expected_prefixes: ["b12_c2_a", "b12_c2_b"] })).diagnostics[0]!;
+    expect(formatNavigationDiagnostic(missing, [])).toContain("预期表名前缀：b12_c2_a、b12_c2_b");
+    expect(formatNavigationDiagnostic(decodeNavigationDiagnostics(document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b1_n3", registry_table: "net_cfg" })).diagnostics[0]!, [])).toContain("网口配置表");
+  });
+  it.each([
+    ["old version", { ...document("CHANNEL_TABLE_UNCLAIMED", serial), contract_version: "backend-vnext/business-navigation/v2" }],
+    ["unknown code", document("PROTOCOL_EXE_MISSING", serial)],
+    ["extra key", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, link_no: 2 })],
+    ["missing key", document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b12_c2" })],
+    ["bad prefix", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, channel_prefix: "b01_c2" })],
+    ["unsafe prefix", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, channel_prefix: "b9007199254740992_c2" })],
+    ["wrong registry", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, registry_table: "net_cfg" })],
+    ["empty prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: [] })],
+    ["too many prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: ["b12_c2_a", "b12_c2_b", "b12_c2_c"] })],
+    ["wrong prefix", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: ["b12_n2_a"] })],
+  ])("rejects %s", (_name, value) => {
+    expect(() => decodeNavigationDiagnostics(value)).toThrowError(ComparisonDecodeError);
+  });
+});
+
+
+it("keeps a zero-tab channel diagnostic in its group while avoiding duplicate visible-item notes", () => {
+  const hidden = decodeNavigationDiagnostics({ contract_version: "backend-vnext/business-navigation/v3", diagnostics: [{ code: "PROTOCOL_TABLE_NOT_FOUND", target: { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null }, side: "CURRENT", params: { channel_prefix: "b1_c2", registry_table: "com_cfg", protocol: "规约", expected_prefixes: ["b1_c2_x"] } }] }).diagnostics;
+  expect(groupNavigationDiagnostics(hidden, "COMMUNICATION_PROTOCOLS", [])).toEqual(hidden);
+  expect(groupNavigationDiagnostics(hidden, "COMMUNICATION_PROTOCOLS", ["channel:c2"])).toEqual([]);
+  expect(groupNavigationDiagnostics(hidden, "OTHER_TABLES", [])).toEqual([]);
 });

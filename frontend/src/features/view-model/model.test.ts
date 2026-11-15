@@ -45,7 +45,7 @@ const exactFacts = { basis: "EXACT" as const, change_kind: "UPDATED" as const, r
 
 function navigation(overrides: Partial<BusinessNavigation> = {}): BusinessNavigation {
   return {
-    contract_version: "backend-vnext/business-navigation/v2",
+    contract_version: "backend-vnext/business-navigation/v3",
     groups: [{ nonempty_item_count: 1, group_key: "FUTURE_GROUP", label: "扩展业务组", items: [{
       summary: { change_kinds: ["UPDATED"], risk_level: "MEDIUM_LOW", nonempty_tab_count: 2 }, item_key: "future:one", item_kind: "FUTURE_ITEM", label: "扩展节点", tabs: [
         { empty: false, tab_key: "first", label: "一", table_id: "device", row_filter: { before: { column: "dev_addr", values: [1] }, current: null }, facts: exactFacts },
@@ -76,7 +76,7 @@ function tableRisk(tableName: string, riskLevel: RiskTableReport["risk_level"], 
 describe("business navigation decoding", () => {
   it("rejects an unsupported contract version and a missing navigation", () => {
     expect(() => decodeBusinessNavigation(null, surface())).toThrow(/不是对象|缺少/);
-    expect(() => decodeBusinessNavigation({ ...navigation(), contract_version: "backend-vnext/business-navigation/v0" }, surface())).toThrow(/不支持的 business navigation contract version/);
+    expect(() => decodeBusinessNavigation({ ...navigation(), contract_version: "backend-vnext/business-navigation/v2" }, surface())).toThrow(/不支持的 business navigation contract version/);
   });
 
   it("rejects duplicate keys, unpublished tables and whole-table/filter mixtures", () => {
@@ -121,7 +121,7 @@ describe("business navigation decoding", () => {
     (replacementSurface as unknown as { comparison_mode: string }).comparison_mode = "DATASET_REPLACEMENT";
     expect(() => decodeBusinessNavigation(navigation(), replacementSurface)).toThrow(/replacement_sides/);
     const replacement = decodeBusinessNavigation({
-      contract_version: "backend-vnext/business-navigation/v2",
+      contract_version: "backend-vnext/business-navigation/v3",
       groups: [],
       replacement_sides: {
         before: [{ nonempty_item_count: 1, group_key: "FUTURE_GROUP", label: "改前", items: [{ summary: { change_kinds: ["UPDATED"], risk_level: null, nonempty_tab_count: 1 }, item_key: "before:device", item_kind: "TABLE", label: "改前装置表", tabs: [{ empty: false, tab_key: "before", label: "改前", table_id: "device", row_filter: null, facts: null }] }] }],
@@ -148,7 +148,7 @@ const INVALID_NAVIGATION_METADATA: Array<[string, (doc: BusinessNavigation) => v
   ["string group count", (doc) => { Object.assign(doc.groups[0]!, { nonempty_item_count: "1" }); }],
 ];
 
-it.each(INVALID_NAVIGATION_METADATA)("rejects v2 navigation metadata: %s", (_name, mutate) => {
+it.each(INVALID_NAVIGATION_METADATA)("rejects v3 navigation metadata: %s", (_name, mutate) => {
   const doc = navigation();
   mutate(doc);
   expect(() => decodeBusinessNavigation(doc, surface())).toThrow();
@@ -221,7 +221,7 @@ it.each(SCOPE_VISIBILITY_CASES)("difference filtering retains %s", (_name, kind,
 });
 
 function sameKeyReplacement(): BusinessNavigation {
-  return { contract_version: "backend-vnext/business-navigation/v2", groups: [], replacement_sides: {
+  return { contract_version: "backend-vnext/business-navigation/v3", groups: [], replacement_sides: {
     before: [{ group_key: "SECONDARY_DEVICES", label: "装置", nonempty_item_count: 1, items: [{
       item_key: "same-device", item_kind: "DEVICE", label: "同一装置", summary: { change_kinds: ["ADDED"], risk_level: "LOW", nonempty_tab_count: 1 },
       tabs: [{ empty: false, tab_key: "table", label: "表", table_id: "device", row_filter: null, facts: null }],

@@ -27,6 +27,7 @@ const fixtureDirectories = {
   "excluded-identity": "scenarios/excluded-identity",
   "missing-identity-column": "scenarios/missing-identity-column",
   "empty-tabs": "scenarios/empty-tabs",
+  "channel-rules": "scenarios/channel-rules",
 };
 const fixtureNames = Object.keys(fixtureDirectories);
 

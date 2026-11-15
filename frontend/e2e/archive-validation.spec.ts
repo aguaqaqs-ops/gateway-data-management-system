@@ -140,6 +140,12 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
     if (route.request().method() !== "GET") return route.fallback();
     return json(route, route.request(), 200, scenario.history ?? vHistoryPage());
   });
+  // History compare tasks have a different response shape from History pages.
+  await page.route("**/v1/history-compares?*", async (route) => {
+    const request = route.request();
+    if (await rejectInvalid(route, request)) return;
+    return json(route, request, 200, { items: [], next_cursor: null });
+  });
   await page.route("**/v1/submissions/*/review", async (route) => {
     const path = new URL(route.request().url()).pathname;
     const submissionId = path.split("/")[3] ?? "";
@@ -265,7 +271,7 @@ async function openArchiveDialog(page: Page, submission: string) {
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: submission, exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible();
   return dialog;
@@ -937,7 +943,7 @@ test("B7 确认归档禁用原因截图", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" }).click();
   const loading = page.getByRole("dialog", { name: "归档主基线" });
   await expect(loading.getByText("正在预检").first()).toBeVisible();
   await screenshot(page, "fe3c-confirm-disabled-loading", 1280);

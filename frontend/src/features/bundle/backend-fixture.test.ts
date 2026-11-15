@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, loadComparisonPresentation } from "./presentation";
+import { formatNavigationDiagnostic } from "../view-model/diagnostics";
 import { MemoryBundleStore } from "./local-bundle";
 import { installBundleTar, verifyBundleMetadata, type BundleClosure, type BundleManifest } from "./posix-tar";
-import { bytesStream, readFixture } from "../../test/helpers";
+import { bytesStream, readFixture, installedFixtureBundle } from "../../test/helpers";
 
 const FIXTURE_NAMES = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-workbench-normal"];
 
@@ -39,8 +40,7 @@ describe("backend-generated FE2 bundle fixtures", () => {
       const pair = value as { pair_id: string };
       const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
       expect(presentation.surface.surface_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-      const expectedDiagnostics = { "preview-full": 2, "preview-modified-only": 2, "preview-replacement": 0, "history-three-nodes": 2, "preview-workbench-normal": 1 }[name];
-      expect(presentation.navigationDiagnostics.length).toBe(expectedDiagnostics);
+      expect(presentation.navigationDiagnostics.length).toBe(name === "preview-workbench-normal" ? 2 : 0);
       expect(presentation.navigation.groups.map((group) => group.group_key)).toEqual(name === "preview-replacement" ? [] : ["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"]);
     }
   });
@@ -51,7 +51,7 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const pair = manifest.pairs[0] as { pair_id: string; summary: Record<string, unknown> };
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     expect(presentation.navigation.groups.map((group) => group.label)).toEqual(["转发通道", "二次装置列表", "通讯规约列表", "全局参数", "其他表"]);
-    expect(presentation.navigationDiagnostics.map((diagnostic) => diagnostic.code)).toEqual(["CHANNEL_TABLE_UNCLAIMED"]);
+    expect(presentation.navigationDiagnostics.map((item) => item.code)).toEqual(["CHANNEL_TABLE_UNCLAIMED", "CHANNEL_TABLE_UNCLAIMED"]);
     const table = presentation.surface.tables.find((value) => value.table_name === "b1_n1_iec104_yc_list");
     expect(table?.diagnostics?.diagnostics_summary ?? []).toEqual([]);
     expect(table?.row_change_stats).toMatchObject({ row_count_before: 90, row_count_current: 90 });
@@ -77,7 +77,7 @@ describe("backend-generated FE2 bundle fixtures", () => {
     expect(new Set(records.map((record) => record.record_kind)).size).toBeGreaterThan(1);
   });
 
-  it("browses the Preview FULL row kinds, ordered moves, blank intervals, keyless fallback and formula records", async () => {
+  it("browses the Preview FULL row kinds, ordinary channel table, keyless fallback and formula records", async () => {
     const { manifest, bundle } = await installFixture("preview-full");
     expect((manifest.inputs as Array<{ role: string; display_name: string }>).map(({ role, display_name }) => [role, display_name]))
       .toEqual([["baseline", "Baseline"], ["initial", "Initial"], ["modified", "Modified"]]);
@@ -85,9 +85,8 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     const deviceRecords = await readLocalChangeRecords(bundle, presentation, "device");
     expect(deviceRecords.map((row) => row.record_kind).sort()).toEqual(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
-    const ordered = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
-    expect(ordered.some((row) => row.record_kind === "ORDERED_ROW_MOVED")).toBe(true);
-    expect(ordered.some((row) => row.record_kind === "BLANK_DELETE_INTERVAL" || row.record_kind === "BLANK_INSERT_INTERVAL")).toBe(true);
+    const channelRows = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
+    expect(channelRows.some((row) => row.record_kind?.startsWith("ROW_"))).toBe(true);
     expect(presentation.surface.tables.some((table) => table.table_name === "keyless_demo" && table.diagnostics?.diagnostics_summary?.includes("KEYLESS_FALLBACK"))).toBe(true);
     const formulas = await readLocalChangeRecords(bundle, presentation, "composite_signal_point");
     expect(formulas.some((row) => row.record_kind === "ROW_MODIFIED")).toBe(true);
@@ -117,4 +116,28 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const paths = bundle.closure.closure_entries.filter((entry) => entry.kind === "SURFACE");
     expect(paths).toHaveLength(2);
   });
+});
+
+
+it("consumes mixed channel producer output and retains both degraded tables for browsing", async () => {
+  const { bundle, manifest } = await installedFixtureBundle("channel-rules");
+  const presentation = await loadComparisonPresentation(bundle, (manifest.pairs[0] as { pair_id: string }).pair_id);
+  const groups = presentation.navigation.groups;
+  const forward = groups.find((group) => group.group_key === "FORWARD_CHANNELS")!;
+  expect(forward.items.flatMap((item) => item.tabs.map((tab) => [tab.label, tab.table_id]))).toEqual([
+    ["翻转", "b1_n2_flip"], ["串口遥信", "b1_c2_ref"], ["缺列", "b1_c2_short"],
+  ]);
+  const protocols = groups.find((group) => group.group_key === "COMMUNICATION_PROTOCOLS")!;
+  expect(protocols.items.find((item) => item.item_key === "protocol:com_cfg")?.label).toBe("串口配置");
+  expect(protocols.items.find((item) => item.item_key === "protocol:b1_n2")?.tabs.map((tab) => tab.table_id)).toEqual(["b1_n2_dll3xx_extra", "b1_n2_dll495_extra"]);
+  expect(protocols.items.find((item) => item.item_key === "protocol:b1_c3")?.tabs).toEqual([]);
+  for (const [table, code] of [["b1_c2_short", "ORDERED_REQUIRED_COLUMN_MISSING"], ["b1_n2_flip", "ORDERED_INPUT_NOT_CANONICAL"]]) {
+    expect(presentation.surface.tables.find((item) => item.table_name === table)?.diagnostics?.diagnostics_summary).toContain(code);
+    expect(presentation.view.groups.flatMap((group) => group.items.flatMap((item) => item.tabs)).some((tab) => tab.tableName === table)).toBe(true);
+    expect(await readLocalTable(bundle, presentation, table!, "current")).toBeDefined();
+  }
+  const orphan = presentation.navigationDiagnostics.find((item) => item.code === "CHANNEL_TABLE_UNCLAIMED")!;
+  const missing = presentation.navigationDiagnostics.find((item) => item.code === "PROTOCOL_TABLE_NOT_FOUND")!;
+  expect(formatNavigationDiagnostic(orphan, presentation.surface.tables)).toContain("串口配置表");
+  expect(formatNavigationDiagnostic(missing, presentation.surface.tables)).toContain("预期表名前缀：b1_c3_unknown");
 });

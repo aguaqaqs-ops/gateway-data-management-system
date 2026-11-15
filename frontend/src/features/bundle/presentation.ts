@@ -2,7 +2,7 @@ import type { InstalledBundle } from "./local-bundle";
 import { readJsonArtifact, readParquetTable, type ParquetReadRequest } from "./parquet-reader";
 import type { BundleArtifactEntry } from "./posix-tar";
 import { ComparisonDecodeError, decodeBusinessNavigation, deriveBundleView, type BusinessNavigation, type ComparisonSurface, type DerivedBundleView, type RiskAnnotation, type RiskAnnotationDocument, type RiskReport, type RowDiffRecord, type SurfaceTable } from "../view-model/model";
-import type { NavigationDiagnostic, NavigationDiagnosticsDocument } from "../view-model/diagnostics";
+import { decodeNavigationDiagnostics, type NavigationDiagnostic } from "../view-model/diagnostics";
 
 export type SnapshotSide = "before" | "current" | "browse";
 
@@ -141,7 +141,7 @@ export async function loadComparisonPresentation(bundle: InstalledBundle, pairId
   const navigation = decodeBusinessNavigation(await readJsonArtifact<unknown>(bundle, navigationPath), surface);
   const diagnosticsPath = entryPathByArtifactId(bundle, navigationProjection?.diagnostics_ref);
   const navigationDiagnosticsDocument = diagnosticsPath
-    ? await readJsonArtifact<NavigationDiagnosticsDocument>(bundle, diagnosticsPath)
+    ? decodeNavigationDiagnostics(await readJsonArtifact<unknown>(bundle, diagnosticsPath))
     : undefined;
   const viewDiagnostics = surface.view && typeof surface.view === "object"
     ? (surface.view as Record<string, unknown>).diagnostics_summary

@@ -1,4 +1,4 @@
-import type { ComparisonSurface, SurfaceTable } from "./model";
+import { ComparisonDecodeError, NAVIGATION_CONTRACT_VERSION, type ComparisonSurface, type SurfaceTable } from "./model";
 
 export type DiagnosticSide = "BEFORE" | "CURRENT" | null;
 
@@ -15,7 +15,7 @@ export interface NavigationDiagnostic {
 }
 
 export interface NavigationDiagnosticsDocument {
-  contract_version: "backend-vnext/business-navigation/v2";
+  contract_version: "backend-vnext/business-navigation/v3";
   diagnostics: NavigationDiagnostic[];
 }
 
@@ -33,9 +33,8 @@ const NAVIGATION_COPY: Readonly<Record<string, { template: string; params: reado
   DEVICE_GID_DUPLICATE: { template: "{side}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确", params: ["gid"] },
   DEVICE_TAB_COUNT_UNKNOWN: { template: "{side}{table}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空", params: ["identity_column"] },
   DEVICE_ROWS_UNASSIGNED: { template: "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表", params: ["identity_column", "row_count", "changed_row_count"] },
-  CHANNEL_TABLE_UNCLAIMED: { template: "{table}按名称属于通道 b{board}_n{link_no}，但网口配置表中没有该通道，或该通道不满足转发通道条件（规约为 IEC104 且 tab_num 大于 0），已放入“其他表”", params: ["board", "link_no"] },
-  PROTOCOL_EXE_MISSING: { template: "{side}通道 b{board}_n{link_no} 未配置规约，无法确定规约表", params: ["board", "link_no"] },
-  PROTOCOL_TABLE_NOT_FOUND: { template: "{side}通道 b{board}_n{link_no} 的规约 {protocol} 没有对应的规约表（{expected_tables}）", params: ["board", "link_no", "protocol", "expected_tables"] },
+  CHANNEL_TABLE_UNCLAIMED: { template: "{side}{table}属于通道 {channel_prefix}，但{registry_table}中没有对应配置或 exe 为空，已放入“其他表”", params: ["channel_prefix", "registry_table"] },
+  PROTOCOL_TABLE_NOT_FOUND: { template: "{side}通道 {channel_prefix} 的规约 {protocol} 没有匹配的表（{registry_table}；预期表名前缀：{expected_prefixes}）", params: ["channel_prefix", "registry_table", "protocol", "expected_prefixes"] },
   APP_TABLE_CFG_MISSING: { template: "{side}全局参数 {app_name} 未指定参数表", params: ["app_name"] },
   APP_TABLE_CFG_DUPLICATE: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次", params: ["app_name", "table_cfg"] },
   APP_TABLE_NOT_FOUND: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 不存在", params: ["app_name", "table_cfg"] },
@@ -47,11 +46,13 @@ export const NAVIGATION_DIAGNOSTIC_CODES = Object.keys(NAVIGATION_COPY);
 
 const SURFACE_COPY: Readonly<Record<string, string>> = {
   DEGRADE_NO_COMPARE_KEY: "本表没有可用的比较键",
+  EFFECTIVE_KEY_MISSING: "本表缺少比较键所需的列",
   EFFECTIVE_KEY_CHANGED: "两侧的比较键不同",
   DUPLICATE_EFFECTIVE_KEY: "比较键有重复值",
   EFFECTIVE_KEY_IGNORED: "比较键中有列被比较规则忽略",
   SOURCE_PRIMARY_KEY_CHANGED: "两侧的源表主键定义不同",
   ORDERED_REQUIRED_COLUMN_MISSING: "有序表缺少排序或行标识所需的列",
+  ORDERED_INPUT_NOT_CANONICAL: "有序表的输入缺少可靠的规范化来源，建议打开整表核对",
   ROW_IDENTITY_MISSING: "有序表缺少行标识列",
   ROW_IDENTITY_DUPLICATE: "有序表的行标识有重复值",
   ORDERED_PROVENANCE_MISSING: "有序表缺少空行来源信息，或该信息无效",
@@ -98,11 +99,13 @@ const SURFACE_COPY: Readonly<Record<string, string>> = {
 
 export const SURFACE_DIAGNOSTIC_CODES = [
   "DEGRADE_NO_COMPARE_KEY",
+  "EFFECTIVE_KEY_MISSING",
   "EFFECTIVE_KEY_CHANGED",
   "DUPLICATE_EFFECTIVE_KEY",
   "EFFECTIVE_KEY_IGNORED",
   "SOURCE_PRIMARY_KEY_CHANGED",
   "ORDERED_REQUIRED_COLUMN_MISSING",
+  "ORDERED_INPUT_NOT_CANONICAL",
   "ROW_IDENTITY_MISSING",
   "ROW_IDENTITY_DUPLICATE",
   "ORDERED_PROVENANCE_MISSING",
@@ -147,6 +150,50 @@ export const SURFACE_DIAGNOSTIC_CODES = [
   "COMPARISON_RULESET_DIGEST_MISSING",
 ] as const;
 
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+/** Decode the versioned diagnostics artifact before it reaches the UI. */
+export function decodeNavigationDiagnostics(input: unknown): NavigationDiagnosticsDocument {
+  const fail = (): never => { throw new ComparisonDecodeError("无效的业务导航诊断产物"); };
+  if (!record(input) || !exactKeys(input, ["contract_version", "diagnostics"]) || input.contract_version !== NAVIGATION_CONTRACT_VERSION || !Array.isArray(input.diagnostics) || input.diagnostics.length === 0) return fail();
+  const diagnostics: NavigationDiagnostic[] = input.diagnostics.map((raw: unknown) => {
+    if (!record(raw) || !exactKeys(raw, ["code", "target", "side", "params"]) || typeof raw.code !== "string" || !Object.hasOwn(NAVIGATION_COPY, raw.code) || !record(raw.params) || !record(raw.target)) return fail();
+    const keys = NAVIGATION_COPY[raw.code].params;
+    if (!exactKeys(raw.params, keys) || !exactKeys(raw.target, ["group_key", "item_key", "tab_key", "table_id"]) || !Object.values(raw.target).every((value) => value === null || typeof value === "string") || ![null, "BEFORE", "CURRENT"].includes(raw.side as null | string)) return fail();
+    if (raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" ? raw.side !== null : raw.side === null) return fail();
+    for (const [key, value] of Object.entries(raw.params)) {
+      if (key === "expected_prefixes") {
+        if (!Array.isArray(value) || value.length < 1 || value.length > 2 || !value.every((v: unknown) => typeof v === "string" && v.length > 0)) return fail();
+      } else if (["dev_addr", "gid", "row_count", "changed_row_count"].includes(key)) {
+        if (!(key === "changed_row_count" && value === null) && (typeof value !== "number" || !Number.isSafeInteger(value))) return fail();
+      } else if (!(key === "app_name" && value === null) && typeof value !== "string") return fail();
+    }
+    if (raw.code === "CHANNEL_TABLE_UNCLAIMED" || raw.code === "PROTOCOL_TABLE_NOT_FOUND") {
+      const prefix = raw.params.channel_prefix;
+      const registry = raw.params.registry_table;
+      const match = typeof prefix === "string" ? /^b(0|[1-9]\d*)_([nc])(0|[1-9]\d*)$/.exec(prefix) : null;
+      if (!match || !Number.isSafeInteger(Number(match[1])) || !Number.isSafeInteger(Number(match[3])) || (registry !== "net_cfg" && registry !== "com_cfg") || (match[2] === "n" ? registry !== "net_cfg" : registry !== "com_cfg")) return fail();
+      if (raw.code === "PROTOCOL_TABLE_NOT_FOUND" && !(raw.params.expected_prefixes as string[]).every((value) => value.startsWith((prefix as string) + "_"))) return fail();
+    }
+    if (raw.code === "DEVICE_FILTER_VALUE_UNSUPPORTED" && !["INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"].includes(raw.params.reason as string)) return fail();
+    if (raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" && !["RECORDS_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE", "TABLE_DEGRADED"].includes(raw.params.reason as string)) return fail();
+    return raw as unknown as NavigationDiagnostic;
+  });
+  return { contract_version: NAVIGATION_CONTRACT_VERSION, diagnostics };
+}
+
+/** Keep diagnostics for hidden or zero-tab items reachable in their group. */
+export function groupNavigationDiagnostics(diagnostics: readonly NavigationDiagnostic[], groupKey: string, visibleItemKeys: readonly string[]): NavigationDiagnostic[] {
+  return diagnostics.filter(({ target }) => target.group_key === groupKey && (!target.item_key || !visibleItemKeys.includes(target.item_key)));
+}
+
 function displayParam(value: NavigationDiagnostic["params"][string]): string {
   if (Array.isArray(value)) return value.join("、");
   if (value === null) return "未指定";
@@ -164,6 +211,8 @@ export function formatNavigationDiagnostic(
     ? "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中变化行数未知），可查看整表"
     : definition.template;
   const params = Object.fromEntries(definition.params.map((key) => [key, displayParam(diagnostic.params[key] ?? null)]));
+  if (diagnostic.params.registry_table === "net_cfg") params.registry_table = "网口配置表";
+  if (diagnostic.params.registry_table === "com_cfg") params.registry_table = "串口配置表";
   if (typeof diagnostic.params.reason === "string") {
     params.reason = REASON_COPY[diagnostic.params.reason] ?? "原因未提供";
   }

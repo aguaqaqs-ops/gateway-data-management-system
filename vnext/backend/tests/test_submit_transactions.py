@@ -2869,3 +2869,32 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
         assert head_row is not None
         assert head_row["commit_id"] == "commit-only-drift"
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
+
+
+def test_submit_queue_limit_counts_active_history_before_writing(db_path: Path) -> None:
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import HistoryCompareAcceptCommand, HistoryNodeRef, HistoryNodeRefKind
+    from gateway_backend.operations.store import OperationQueueFull
+    from tests.support.table_rules import _runtime_comparison_ruleset_digest
+
+    seed = seed_submit_ready_workspace(db_path)
+    node = HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, BASELINE_HEAD.business_baseline_node_id)
+    accept_history_compare(
+        command=HistoryCompareAcceptCommand(
+            context=make_identity(permissions=frozenset({"read_project_history"})),
+            idempotency_key="queue-history", node_refs=(node, node),
+        ),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(), now=TS0,
+    )
+    with pytest.raises(OperationQueueFull):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="queue-submit"),
+            scope_resolution=FixedScopeResolutionPort(repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD),
+            unit_of_work_factory=_uow_factory(seed.db_path), job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(), preflight=_preflight(seed), now=TS1,
+            operation_queue_limit=1,
+        )
+    _assert_t1_zero_writes(db_path, seed, idempotency_key="queue-submit")

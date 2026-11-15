@@ -1924,3 +1924,164 @@ def test_history_maintenance_continues_across_bounded_batches(tmp_path: Path) ->
     with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
         assert release_expired_history_results(uow) == 1
         assert release_expired_history_results(uow) == 0
+
+
+@pytest.mark.serial
+def test_history_rechecks_same_key_bound_during_success_preflight(tmp_path: Path) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager, nullcontext
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand, HistoryCompareAcceptanceRecord, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.operations.contracts import OperationRecord
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="preflight-original")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        protected = uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+    assert acceptance is not None
+    command = HistoryCompareAcceptCommand(
+        context=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+        idempotency_key="preflight-racing-alias",
+        node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+    )
+    def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path, read_only=read_only)
+
+    registry = JobDefinitionRegistry.build(history_compare_job_definitions())
+
+    @contextmanager
+    def racing_preflight(_operation: OperationRecord, _acceptance: HistoryCompareAcceptanceRecord) -> Iterator[frozenset[str]]:
+        # A second request commits the same alias while this one holds a read borrow.
+        peer = accept_history_compare(command=command, unit_of_work_factory=factory, job_registry=registry,
+            comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC),
+            preflight=lambda _op, _record: nullcontext(protected))
+        assert peer.operation_id == harness.operation_id and peer.replay
+        yield protected
+
+    result = accept_history_compare(command=command, unit_of_work_factory=factory, job_registry=registry,
+        comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC), preflight=racing_preflight)
+    assert result.operation_id == harness.operation_id and result.replay
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.history_compare.count_aliases(harness.operation_id) == 1
+
+
+def test_history_candidate_budget_returns_retryable_without_duplicate(tmp_path: Path) -> None:
+    from contextlib import contextmanager
+    from collections.abc import Iterator
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand, HistoryCompareAcceptanceRecord, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.history.errors import HistoryCompareAcceptanceUnavailable, HistoryComparePreflightFailure
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.operations.contracts import OperationRecord
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="candidate-original")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        assert acceptance is not None
+        for table in ("operation_records", "history_compare_acceptance_records"):
+            columns = [row[1] for row in uow.connection.execute(f"PRAGMA table_info({table})")]
+            original = uow.connection.execute(f"SELECT * FROM {table} WHERE operation_id = ?", (harness.operation_id,)).fetchone()
+            assert original is not None
+            for index in range(8):
+                values = dict(zip(columns, original, strict=True))
+                values["operation_id"] = f"candidate-operation-{index}"
+                if table == "history_compare_acceptance_records":
+                    values["acceptance_id"] = f"candidate-acceptance-{index}"
+                    values["idempotency_key"] = f"candidate-key-{index}"
+                placeholders = ",".join("?" for _ in columns)
+                uow.connection.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders})",
+                                       tuple(values[column] for column in columns))
+    attempts = 0
+
+    @contextmanager
+    def unavailable(_operation: OperationRecord, _acceptance: HistoryCompareAcceptanceRecord) -> Iterator[frozenset[str]]:
+        nonlocal attempts
+        attempts += 1
+        if attempts:
+            raise HistoryComparePreflightFailure(ApiError(code="ARTIFACT_UNAVAILABLE", message="missing", status_code=404))
+        yield frozenset()
+
+    with pytest.raises(HistoryCompareAcceptanceUnavailable):
+        accept_history_compare(
+            command=HistoryCompareAcceptCommand(
+                context=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+                idempotency_key="candidate-new",
+                node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+            ),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(harness.db_path, read_only=read_only),
+            job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+            comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC), preflight=unavailable,
+        )
+    assert attempts == 8
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM history_compare_acceptance_records").fetchone()[0] == 9
+
+
+HISTORY_WRITER_ENTRY_STATES = ("active", "not_yet_created")
+
+
+@pytest.mark.parametrize("initial_state", HISTORY_WRITER_ENTRY_STATES)
+def test_history_reuses_completion_before_writer_acquisition(tmp_path: Path, initial_state: str) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager, nullcontext
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import HistoryCompareAcceptCommand, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key=f"writer-{initial_state}")
+    if initial_state == "active":
+        insert_history_compare_operation(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+    assert acceptance is not None
+    first_entry = True
+
+    @contextmanager
+    def factory(*, read_only: bool = False) -> Iterator[ControlDbUnitOfWork]:
+        nonlocal first_entry
+        if first_entry:
+            first_entry = False
+            if initial_state == "not_yet_created":
+                insert_history_compare_operation(harness)
+            for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+                run_through_step(harness, handler)
+        with ControlDbUnitOfWork(harness.db_path, read_only=read_only) as uow:
+            yield uow
+
+    def preflight(_op: Any, _record: Any) -> Any:
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+            refs = uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+        return nullcontext(refs)
+
+    result = accept_history_compare(
+        command=HistoryCompareAcceptCommand(
+            context=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+            idempotency_key=f"writer-alias-{initial_state}",
+            node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+        ),
+        unit_of_work_factory=factory, job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+        comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC), preflight=preflight,
+    )
+    assert result.operation_id == harness.operation_id and result.replay
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.history_compare.count_aliases(harness.operation_id) == 1
+        assert uow.connection.execute("SELECT COUNT(*) FROM history_compare_acceptance_records").fetchone()[0] == 1

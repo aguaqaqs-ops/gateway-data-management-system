@@ -268,3 +268,38 @@ def test_workspace_recommends_latest_active_preview_for_current_input(
     )
     assert replacement.status_code == 201, replacement.text
     assert recommendation() is None
+
+
+@pytest.mark.parametrize("first_kind", ("preview", "history"))
+def test_history_and_preview_share_durable_queue_limit(tmp_path: Path, first_kind: str) -> None:
+    from dataclasses import replace
+    from typing import cast
+    from fastapi import FastAPI
+
+    env = create_workspace_http_environment(tmp_path, identity=make_identity(permissions=frozenset({
+        "workspace_read", "upload_submit_workspace", "preview_workspace", "read_project_history",
+    })))
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    app = cast(FastAPI, env.client.app)
+    app.state.workspace_http = replace(app.state.workspace_http, operation_queue_limit=1)
+    app.state.history_http = replace(app.state.history_http, operation_queue_limit=1)
+    preview_url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    preview_body = _preview_body(workspace, upload)
+    node = {"ref_kind": "baseline_node", "ref_id": BASELINE_HEAD.business_baseline_node_id}
+    history_body = {"nodes": [node, node]}
+
+    def preview() -> Any:
+        return env.client.post(preview_url, headers=env.auth_headers(idempotency_key="queue-preview"), json=preview_body)
+
+    def history() -> Any:
+        return env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="queue-history"), json=history_body)
+
+    first, second = (preview, history) if first_kind == "preview" else (history, preview)
+    accepted = first()
+    assert accepted.status_code == 202
+    rejected = second()
+    assert rejected.status_code == 429
+    assert rejected.json()["code"] == "OPERATION_QUEUE_FULL"
+    replay = first()
+    assert replay.status_code in (200, 202)
+    assert replay.json()["operation_id"] == accepted.json()["operation_id"]

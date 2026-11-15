@@ -27,12 +27,12 @@
     },
     {
       "path": "duplicate-before.sql",
-      "sha256": "7abe1c3a0058365c2e30227cc818ed25af2214bcfff1bb7e36a04e0b4ae99f8f",
+      "sha256": "25c5cff19dea5844e92abba391ced82bc99b07b9dd3192c316dcae57834cd7d8",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "duplicate-current.sql",
-      "sha256": "27ae372b16bad1d1c373576f79e2c26c2baeda4de5bca89420f9a3b08c8d33a9",
+      "sha256": "82656d5a492d3e1d8992bd4239a4b591c771550158a6c9494081c1a0f73a0490",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -63,7 +63,7 @@
     },
     {
       "path": "identity-unrecorded-current.sql",
-      "sha256": "5e4ba54a8e30002c06c9f1e87465e1c5fa77185c30e736941e254e233b368cbf",
+      "sha256": "4e153b9338f3a61fb5081b678e582e3392cbace87fa0b8652ed35181a7a1a50c",
       "source": "BE-b registry gid/address changes with all cfg/point rows unchanged"
     },
     {
@@ -86,7 +86,7 @@
     },
     {
       "path": "missing-identity-before.sql",
-      "sha256": "59f47abbc0cd46f658030d179186114cc2272770125e9959c1ac9fcfb86a9e0d",
+      "sha256": "7d2f8b4d1c4170cdaff15e56aa1b9fee404d8c5ec62bf5414627ba3ac0b596e3",
       "source": "BE-b keyed cfg side physically lacks identity column; not compare exclusion"
     },
     {

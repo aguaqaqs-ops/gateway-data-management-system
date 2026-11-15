@@ -793,7 +793,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.locator(".view-tabs [role=tab]")).toHaveCount(2);
   await expect(page.locator(".view-tabs [role=tab]").first()).toHaveAttribute("title", /.+/);
   const firstPreviewView = page.locator(".view-tabs [role=tab]").first();
-  await expect(firstPreviewView).toHaveAttribute("title", /4 张表有比较提示/);
+  await expect(firstPreviewView).toHaveAttribute("title", /3 张表有比较提示/);
   await expect(firstPreviewView).not.toHaveAttribute("title", /降级比较/);
   await expect(page.locator(".mode-tag")).toHaveText("上传");
   await expect(page.getByRole("navigation", { name: "位置" })).toContainText("device");
@@ -1276,7 +1276,11 @@ test("混合通道保留串口诊断与降级表入口", async ({ page }) => {
   const sidebar = page.locator(".navigation-sidebar");
   await expect(sidebar).toContainText("串口配置表");
   await expect(sidebar).toContainText("预期表名前缀：b1_c3_unknown");
-  await expect(sidebar).toContainText("串口配置");
+  await expect(sidebar.locator('[data-item-key="protocol:com_cfg"] .nav-item__label')).toHaveText("串口配置");
+  const serialNotes = sidebar.locator(".diagnostic-note--navigation");
+  for (const note of await serialNotes.allTextContents()) {
+    for (const forbidden of ["网口", "IEC104", "tab_num", "_n"]) expect(note).not.toContain(forbidden);
+  }
   await expect(page.locator(".table-info")).toContainText("缺列");
   await page.locator(".table-info").getByRole("button", { name: /^提示 / }).click();
   await expect(page.getByText("有序表缺少排序或行标识所需的列")).toBeVisible();
@@ -2540,8 +2544,8 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   await capture("fe4b-table-fallback", async () => {
     await openPreview("identity-changes");
     await openItem("device:addr:49");
-    await openTab("device_cfg");
-    await page.getByRole("button", { name: /^提示 / }).click();
+    await openTab("device_st");
+    await page.getByRole("button", { name: /^提示 / }).click({ timeout: 5000 });
     await expect(page.getByText("此页签的变化和风险按整表提示，不是本页签自己的。")).toBeVisible();
   });
   await capture("fe4b-table-scope", async () => {
@@ -3142,7 +3146,7 @@ for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
     await expect(page.locator(".table-info")).toBeVisible();
     if (mode !== "HISTORY") {
       await expect(page.locator(".table-info").getByText("新增", { exact: true })).toHaveCount(1);
-      await expect(page.locator('.table-info .risk-badge[aria-label="中低风险"]')).toHaveCount(1);
+      await expect(page.locator('.table-info .risk-badge[aria-label="低风险"]')).toHaveCount(1);
     }
     for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-expanded`, width);
     await page.locator(".compare-more > summary").click();

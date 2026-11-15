@@ -33,7 +33,7 @@ const NAVIGATION_COPY: Readonly<Record<string, { template: string; params: reado
   DEVICE_GID_DUPLICATE: { template: "{side}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确", params: ["gid"] },
   DEVICE_TAB_COUNT_UNKNOWN: { template: "{side}{table}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空", params: ["identity_column"] },
   DEVICE_ROWS_UNASSIGNED: { template: "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表", params: ["identity_column", "row_count", "changed_row_count"] },
-  CHANNEL_TABLE_UNCLAIMED: { template: "{side}{table}属于通道 {channel_prefix}，但{registry_table}中没有对应配置或 exe 为空，已放入“其他表”", params: ["channel_prefix", "registry_table"] },
+  CHANNEL_TABLE_UNCLAIMED: { template: "{side}{table}属于通道 {channel_prefix}，但{registry_table}中没有对应配置或 exe 为空", params: ["channel_prefix", "registry_table"] },
   PROTOCOL_TABLE_NOT_FOUND: { template: "{side}通道 {channel_prefix} 的规约 {protocol} 没有匹配的表（{registry_table}；预期表名前缀：{expected_prefixes}）", params: ["channel_prefix", "registry_table", "protocol", "expected_prefixes"] },
   APP_TABLE_CFG_MISSING: { template: "{side}全局参数 {app_name} 未指定参数表", params: ["app_name"] },
   APP_TABLE_CFG_DUPLICATE: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次", params: ["app_name", "table_cfg"] },
@@ -207,9 +207,10 @@ export function formatNavigationDiagnostic(
   const definition = NAVIGATION_COPY[diagnostic.code];
   if (!definition) return `导航提示（${diagnostic.code}）`;
   const changedRowCount = diagnostic.params.changed_row_count ?? null;
-  const template = diagnostic.code === "DEVICE_ROWS_UNASSIGNED" && changedRowCount === null
+  let template = diagnostic.code === "DEVICE_ROWS_UNASSIGNED" && changedRowCount === null
     ? "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中变化行数未知），可查看整表"
     : definition.template;
+  if (diagnostic.code === "CHANNEL_TABLE_UNCLAIMED" && diagnostic.target.group_key === "OTHER_TABLES") template += "，已放入“其他表”";
   const params = Object.fromEntries(definition.params.map((key) => [key, displayParam(diagnostic.params[key] ?? null)]));
   if (diagnostic.params.registry_table === "net_cfg") params.registry_table = "网口配置表";
   if (diagnostic.params.registry_table === "com_cfg") params.registry_table = "串口配置表";

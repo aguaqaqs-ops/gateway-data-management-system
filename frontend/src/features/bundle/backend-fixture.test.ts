@@ -40,7 +40,7 @@ describe("backend-generated FE2 bundle fixtures", () => {
       const pair = value as { pair_id: string };
       const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
       expect(presentation.surface.surface_digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-      expect(presentation.navigationDiagnostics.length).toBe(name === "preview-workbench-normal" ? 2 : 0);
+      expect(presentation.navigationDiagnostics.length).toBe(name === "preview-replacement" ? 0 : 2);
       expect(presentation.navigation.groups.map((group) => group.group_key)).toEqual(name === "preview-replacement" ? [] : ["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"]);
     }
   });
@@ -77,7 +77,7 @@ describe("backend-generated FE2 bundle fixtures", () => {
     expect(new Set(records.map((record) => record.record_kind)).size).toBeGreaterThan(1);
   });
 
-  it("browses the Preview FULL row kinds, ordinary channel table, keyless fallback and formula records", async () => {
+  it("browses the Preview FULL row kinds, ordered moves, blank intervals, keyless fallback and formula records", async () => {
     const { manifest, bundle } = await installFixture("preview-full");
     expect((manifest.inputs as Array<{ role: string; display_name: string }>).map(({ role, display_name }) => [role, display_name]))
       .toEqual([["baseline", "Baseline"], ["initial", "Initial"], ["modified", "Modified"]]);
@@ -85,8 +85,12 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     const deviceRecords = await readLocalChangeRecords(bundle, presentation, "device");
     expect(deviceRecords.map((row) => row.record_kind).sort()).toEqual(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
-    const channelRows = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
-    expect(channelRows.some((row) => row.record_kind?.startsWith("ROW_"))).toBe(true);
+    const ordered = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
+    expect(ordered.some((row) => row.record_kind === "ORDERED_ROW_MOVED")).toBe(true);
+    expect(ordered.some((row) => row.record_kind === "BLANK_DELETE_INTERVAL")).toBe(true);
+    const rows = await readLocalTable(bundle, presentation, "b1_n1_iec104_syx_list", "current");
+    expect(rows.some((row) => String(row.gid) === "4000000000" && row.value === null)).toBe(true);
+    expect(presentation.surface.tables.find((table) => table.table_name === "b1_n1_iec104_syx_list")?.risk_refs?.reason_codes).toContain("ORDERED_MOVE");
     expect(presentation.surface.tables.some((table) => table.table_name === "keyless_demo" && table.diagnostics?.diagnostics_summary?.includes("KEYLESS_FALLBACK"))).toBe(true);
     const formulas = await readLocalChangeRecords(bundle, presentation, "composite_signal_point");
     expect(formulas.some((row) => row.record_kind === "ROW_MODIFIED")).toBe(true);
@@ -140,4 +144,18 @@ it("consumes mixed channel producer output and retains both degraded tables for 
   const missing = presentation.navigationDiagnostics.find((item) => item.code === "PROTOCOL_TABLE_NOT_FOUND")!;
   expect(formatNavigationDiagnostic(orphan, presentation.surface.tables)).toContain("串口配置表");
   expect(formatNavigationDiagnostic(missing, presentation.surface.tables)).toContain("预期表名前缀：b1_c3_unknown");
+});
+
+
+it.each([
+  ["preview-modified-only", "initial_to_modified"],
+  ["history-three-nodes", "left_to_middle"],
+])("consumes ordered moves and blank intervals from %s", async (fixture, pairId) => {
+  const { bundle } = await installFixture(fixture);
+  const presentation = await loadComparisonPresentation(bundle, pairId);
+  const records = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
+  expect(records.some((row) => row.record_kind === "ORDERED_ROW_MOVED")).toBe(true);
+  expect(records.some((row) => row.record_kind === "BLANK_DELETE_INTERVAL")).toBe(true);
+  const rows = await readLocalTable(bundle, presentation, "b1_n1_iec104_syx_list", "current");
+  expect(rows.some((row) => String(row.gid) === "4000000000" && row.value === null)).toBe(true);
 });

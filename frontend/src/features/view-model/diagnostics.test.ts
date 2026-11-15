@@ -101,9 +101,17 @@ describe("navigation diagnostic decoding", () => {
   const serial = { channel_prefix: "b12_c2", registry_table: "com_cfg" };
   it("accepts and formats serial and network diagnostics with prefixes", () => {
     const orphan = decodeNavigationDiagnostics(document("CHANNEL_TABLE_UNCLAIMED", serial)).diagnostics[0]!;
-    expect(formatNavigationDiagnostic(orphan, [])).toContain("串口配置表");
+    const orphanText = formatNavigationDiagnostic(orphan, []);
+    expect(orphanText).toContain("串口配置表");
+    for (const forbidden of ["网口", "IEC104", "tab_num", "_n"]) expect(orphanText).not.toContain(forbidden);
+    const other = { ...orphan, target: { ...orphan.target, group_key: "OTHER_TABLES" } };
+    const forward = { ...orphan, target: { ...orphan.target, group_key: "FORWARD_CHANNELS" } };
+    expect(formatNavigationDiagnostic(other, [])).toContain("已放入“其他表”");
+    expect(formatNavigationDiagnostic(forward, [])).not.toContain("其他表");
     const missing = decodeNavigationDiagnostics(document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "规约", expected_prefixes: ["b12_c2_a", "b12_c2_b"] })).diagnostics[0]!;
-    expect(formatNavigationDiagnostic(missing, [])).toContain("预期表名前缀：b12_c2_a、b12_c2_b");
+    const missingText = formatNavigationDiagnostic(missing, []);
+    expect(missingText).toContain("预期表名前缀：b12_c2_a、b12_c2_b");
+    for (const forbidden of ["网口", "IEC104", "tab_num", "_n"]) expect(missingText).not.toContain(forbidden);
     expect(formatNavigationDiagnostic(decodeNavigationDiagnostics(document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b1_n3", registry_table: "net_cfg" })).diagnostics[0]!, [])).toContain("网口配置表");
   });
   it.each([
@@ -114,6 +122,11 @@ describe("navigation diagnostic decoding", () => {
     ["bad prefix", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, channel_prefix: "b01_c2" })],
     ["unsafe prefix", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, channel_prefix: "b9007199254740992_c2" })],
     ["wrong registry", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, registry_table: "net_cfg" })],
+    ["network with serial registry", document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b1_n2", registry_table: "com_cfg" })],
+    ["missing actual side", { ...document("CHANNEL_TABLE_UNCLAIMED", serial), diagnostics: [{ ...document("CHANNEL_TABLE_UNCLAIMED", serial).diagnostics[0], side: null }] }],
+    ["local facts with actual side", document("DEVICE_TAB_FACTS_UNAVAILABLE", { identity_column: "gid", reason: "TABLE_DEGRADED" })],
+    ["empty diagnostics", { contract_version: "backend-vnext/business-navigation/v3", diagnostics: [] }],
+    ["unknown reason", document("DEVICE_FILTER_VALUE_UNSUPPORTED", { identity_column: "gid", reason: "UNKNOWN" })],
     ["empty prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: [] })],
     ["too many prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: ["b12_c2_a", "b12_c2_b", "b12_c2_c"] })],
     ["wrong prefix", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: ["b12_n2_a"] })],

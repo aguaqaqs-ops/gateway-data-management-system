@@ -1884,3 +1884,40 @@ def test_history_reuse_rechecks_session_after_preflight(tmp_path: Path) -> None:
         )
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
         assert uow.history_compare.count_aliases(harness.operation_id) == 0
+
+
+def test_history_maintenance_continues_across_bounded_batches(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    from gateway_backend.bootstrap.storage_admin import release_expired_history_results
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="maintenance-batch")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        step = uow.operations.get_step(history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+        assert acceptance is not None and operation.completed_at is not None and step.checkpoint_ref is not None
+        expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
+        for table in ("operation_records", "history_compare_acceptance_records"):
+            columns = [row[1] for row in uow.connection.execute(f"PRAGMA table_info({table})")]
+            original = uow.connection.execute(f"SELECT * FROM {table} WHERE operation_id = ?", (harness.operation_id,)).fetchone()
+            assert original is not None
+            for index in range(32):
+                values = dict(zip(columns, original, strict=True))
+                values["operation_id"] = f"batch-operation-{index}"
+                if table == "history_compare_acceptance_records":
+                    values["acceptance_id"] = f"batch-acceptance-{index}"
+                    values["idempotency_key"] = f"batch-key-{index}"
+                placeholders = ",".join("?" for _ in columns)
+                uow.connection.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders})",
+                                       tuple(values[column] for column in columns))
+        for index in range(32):
+            uow.set_artifact_protection((step.checkpoint_ref,), owner_kind="history-compare-operation",
+                                        owner_id=f"batch-operation-{index}", intent="history-compare-result",
+                                        expires_at=expiry)
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 32
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 1
+        assert release_expired_history_results(uow) == 0

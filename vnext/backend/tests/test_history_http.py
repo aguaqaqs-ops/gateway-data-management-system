@@ -1147,6 +1147,54 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
         assert replay.json()["operation_id"] == operation_id
         assert replay.json()["replayed"] is True
 
+    # Move the request and transaction clocks to the exact durable expiry.
+    from dataclasses import replace
+    from datetime import timedelta
+    from fastapi import FastAPI
+
+    app = cast(FastAPI, history_env.client.app)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(operation_id)
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(operation_id)
+    assert operation.completed_at is not None and acceptance is not None and operation.ready_closure_ref is not None
+    from gateway_backend.bootstrap.storage_admin import release_expired_history_results
+    from gateway_backend.http.orchestration.history_compare import read_compare_bundle
+
+    prepared = read_compare_bundle(
+        operation=operation, bundle_reader=LocalArtifactBundleReader(local_store),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        artifact_store=bounded_store,
+    )
+    expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
+    app.state.history_http = replace(
+        app.state.history_http, now=lambda: expiry,
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only, now=lambda: expiry),
+    )
+    for suffix in ("", "/bundle"):
+        expired = history_env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=history_env.auth_headers())
+        assert expired.status_code == 410
+        assert expired.json()["code"] == "HISTORY_COMPARE_RESULT_EXPIRED"
+    expired_key = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle"), json=body)
+    assert expired_key.status_code == 409
+    assert expired_key.json()["code"] == "HISTORY_COMPARE_REQUEST_EXPIRED"
+    expired_alias = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle-alias"), json=body)
+    assert expired_alias.status_code == 409
+    with ControlDbUnitOfWork(db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 1
+    with local_store.cleanup_session(operation.ready_closure_ref.artifact_id) as acquired:
+        assert not acquired
+    assert b"".join(prepared.stream) == response.content
+    prepared.close()
+    with local_store.cleanup_session(operation.ready_closure_ref.artifact_id) as acquired:
+        assert acquired
+    reused_key = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle-alias"), json=body)
+    assert reused_key.status_code == 202
+    new_request = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle-after-expiry"), json=body)
+    assert new_request.status_code == 200
+    assert new_request.json()["operation_id"] == reused_key.json()["operation_id"]
+    assert new_request.json()["operation_id"] != operation_id
+
 
 def test_accept_history_compare_is_read_only(db_path: Path, tmp_path: Path) -> None:
     del tmp_path

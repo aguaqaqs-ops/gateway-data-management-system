@@ -1,6 +1,6 @@
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, MoreHorizontal, Search, Table2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, MoreHorizontal, Rows2, Rows4, Search, Table2, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi, boundBundleFetch } from "../features/api/application-api";
@@ -11,7 +11,7 @@ import { deriveChangeLocations, deriveFormulaDisplays, navigationTabHasDifferenc
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
-import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow } from "../features/view-model/table-rows";
+import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow, type DeletionLayout } from "../features/view-model/table-rows";
 import { formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
@@ -51,11 +51,11 @@ function serverResultReleaseCode(cause: unknown): string | undefined {
 type PairSummary = { pair_id: string; summary?: Record<string, string> };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
-type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
+type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[]; deletionLayout: DeletionLayout };
 const SETTINGS_KEY = "gateway-comparison-sidebar-v2";
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 520;
-const DEFAULT_SETTINGS: Settings = { sidebarWidth: 220, sidebarCollapsed: false, collapsedGroups: [] };
+const DEFAULT_SETTINGS: Settings = { sidebarWidth: 220, sidebarCollapsed: false, collapsedGroups: [], deletionLayout: "interleave" };
 const clampSidebar = (width: number) => Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width));
 
 function reviewStatusLabel(status: string): string {
@@ -70,7 +70,8 @@ function readSettings(): Settings {
     const value = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<Settings> | null;
     return { sidebarWidth: typeof value?.sidebarWidth === "number" ? clampSidebar(value.sidebarWidth) : DEFAULT_SETTINGS.sidebarWidth,
       sidebarCollapsed: typeof value?.sidebarCollapsed === "boolean" ? value.sidebarCollapsed : false,
-      collapsedGroups: Array.isArray(value?.collapsedGroups) ? value.collapsedGroups.filter((item): item is string => typeof item === "string") : [] };
+      collapsedGroups: Array.isArray(value?.collapsedGroups) ? value.collapsedGroups.filter((item): item is string => typeof item === "string") : [],
+      deletionLayout: value?.deletionLayout === "group" ? "group" : "interleave" };
   } catch { return DEFAULT_SETTINGS; }
 }
 
@@ -693,12 +694,12 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
         rowFilter: selectedTab.rowFilter, beforeEncodings, currentEncodings, degraded,
         reuseUnrecordedBefore: canReuseUnrecordedIdentity(surfaceTable, filterTabs, Boolean(paths?.before), Boolean(paths?.current)),
-        onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns });
+        onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns, deletionLayout: settings.deletionLayout });
       setRows(built.rows);
     } catch (cause) {
       setError({ code: "TABLE_READ_FAILED", details: cause instanceof Error ? cause.message : String(cause) });
     } finally { setTableLoading(false); }
-  }, [browse.onlyInteresting, browse.search, bundle, expandedRuns, filterTabsForTable, presentation, replacement, selectedTab, surfaceTable]);
+  }, [browse.onlyInteresting, browse.search, bundle, expandedRuns, filterTabsForTable, presentation, replacement, selectedTab, settings.deletionLayout, surfaceTable]);
   useEffect(() => { void loadTable(); }, [loadTable]);
 
   const locations = useMemo(() => deriveChangeLocations(records, annotations), [annotations, records]);
@@ -943,7 +944,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
               {tableLoading ? <LoadingSkeleton label="正在读取本地表格" /> : <div className={`table-grid-area${locations.length || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null) ? " has-distribution" : ""}`}>
                 <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={(pointKey) => void openFormula(pointKey)} />
-                {(locations.length > 0 || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null)) && <ChangeNavigator locations={locations} riskRows={rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null && row.rowNumber !== null)} rowCount={Math.max(table.rowCounts.before ?? 0, table.rowCounts.current ?? 0)} visibleRows={visibleRows} currentIndex={currentIndex} onJump={(index) => runtime.execute({ name: "jump-to-change", index })} />}
+                {(locations.length > 0 || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null)) && <ChangeNavigator locations={locations} riskRows={rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null && row.rowNumber !== null)} rowCount={Math.max(table.rowCounts.before ?? 0, table.rowCounts.current ?? 0)} visibleRows={visibleRows} currentIndex={currentIndex} onJump={(index) => runtime.execute({ name: "jump-to-change", index })}
+                  deletionLayout={settings.deletionLayout} onDeletionLayout={(deletionLayout) => setSettings((state) => ({ ...state, deletionLayout }))} />}
               </div>}
             </>}</> : <div className="empty-table">请选择一个导航页签。</div>}
       </section>
@@ -1049,15 +1051,19 @@ function PreviewHeaderActions({ withdrawEnabled, withdrawReason, withdrawRetry, 
   </span>;
 }
 
-function ChangeNavigator({ locations, riskRows, rowCount, visibleRows, currentIndex, onJump }: {
+function ChangeNavigator({ locations, riskRows, rowCount, visibleRows, currentIndex, onJump, deletionLayout, onDeletionLayout }: {
   locations: ReturnType<typeof deriveChangeLocations>;
   riskRows: BrowseRow[];
   rowCount: number;
   visibleRows: { start: number; end: number };
   currentIndex: number;
   onJump: (index: number) => void;
+  deletionLayout: DeletionLayout;
+  onDeletionLayout: (layout: DeletionLayout) => void;
 }) {
-  if (!locations.length && !riskRows.length) return <div className="change-navigator"><span>没有行级变化</span></div>;
+  if (!locations.length && !riskRows.length) return <div className="change-navigator"><span title="没有行级变化">—</span></div>;
+  const grouped = deletionLayout === "group";
+  const layoutTitle = grouped ? "删除与新增：合并显示（点击改为逐行交替）" : "删除与新增：逐行交替（点击改为合并显示）";
   const index = Math.min(currentIndex, Math.max(0, locations.length - 1));
   const range = Math.max(rowCount, 1);
   const toPercent = (position: number) => Math.max(0, Math.min(100, (position - .5) / range * 100));
@@ -1066,7 +1072,7 @@ function ChangeNavigator({ locations, riskRows, rowCount, visibleRows, currentIn
   const visibleEnd = Math.max(visibleStart, visibleRows.end);
   const visibleTop = toPercent(visibleStart);
   const visibleBottom = Math.min(100, (visibleEnd / range) * 100);
-  return <div className="change-navigator"><div className="change-navigator__controls">{locations.length ? <><span>变更 <strong>{index + 1}</strong> / {locations.length}</span><button aria-label="上一个变更" onClick={() => onJump(Math.max(0, index - 1))} disabled={index === 0}><ArrowUp size={15} /></button><button aria-label="下一个变更" onClick={() => onJump(Math.min(locations.length - 1, index + 1))} disabled={index === locations.length - 1}><ArrowDown size={15} /></button></> : <span>没有行级变化</span>}</div><div className="distribution-strip" role="group" aria-label={locations.length + " 个变更的位置分布"}>
+  return <div className="change-navigator"><div className="change-navigator__controls">{locations.length ? <><span className="change-navigator__count" title={"第 " + (index + 1) + " 个变更，共 " + locations.length + " 个"}><strong>{index + 1}</strong><span>/{locations.length}</span></span><button aria-label="上一个变更" onClick={() => onJump(Math.max(0, index - 1))} disabled={index === 0}><ArrowUp size={15} /></button><button aria-label="下一个变更" onClick={() => onJump(Math.min(locations.length - 1, index + 1))} disabled={index === locations.length - 1}><ArrowDown size={15} /></button></> : <span title="没有行级变化">—</span>}<button className="change-navigator__layout" aria-label={layoutTitle} title={layoutTitle} aria-pressed={grouped} onClick={() => onDeletionLayout(grouped ? "interleave" : "group")}>{grouped ? <Rows2 size={15} /> : <Rows4 size={15} />}</button></div><div className="distribution-strip" role="group" aria-label={locations.length + " 个变更的位置分布"}>
     <span className="distribution-visible-range" aria-hidden="true" style={{ top: visibleTop + "%", height: Math.max(1, visibleBottom - visibleTop) + "%" }} />
     {riskRows.map((row) => <span key={"risk:" + row.key} aria-label={"第 " + (row.rowNumber ?? "未知") + " 行风险"} className={"distribution-mark distribution-mark--risk-only distribution-mark--" + (row.riskLevel ?? "UNKNOWN").toLowerCase().replace("_", "-")} style={{ top: toPercent(row.rowNumber ?? 1) + "%" }} />)}
     {locations.map((location, itemIndex) => { const position = location.position ?? itemIndex + 1; return <button key={String(location.rowIdentity) + itemIndex} aria-label={"定位第 " + (itemIndex + 1) + " 个变更"} className={"distribution-mark" + (location.riskLevel ? " distribution-mark--" + location.riskLevel.toLowerCase().replace("_", "-") : "") + (itemIndex === index ? " is-current" : "")} style={{ top: toPercent(position) + "%" }} onClick={() => onJump(itemIndex)} />; })}

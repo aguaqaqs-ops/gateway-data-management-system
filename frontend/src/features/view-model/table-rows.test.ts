@@ -205,6 +205,19 @@ describe("browse rows from published locators", () => {
       .toEqual([" 1", "-2", "+2", "-3", "+3", " 4", "-5", "+5", "+6"]);
   });
 
+  it("keeps a deleted block ahead of its added block in the grouped layout", () => {
+    const before = [1, 2, 3, 4].map((n) => ({ dev_addr: n, description: `旧${n}` }));
+    const current = [1, 21, 31, 4].map((n) => ({ dev_addr: n, description: `新${n}` }));
+    const locator = parseRowLocator([locatorRow(0x12, 1, null), locatorRow(0x13, 2, null), locatorRow(0x21, null, 1), locatorRow(0x31, null, 2)]);
+    const result = buildBrowseRows({
+      table: table(), beforeRows: before, currentRows: current, deletionLayout: "group",
+      records: [record("ROW_DELETED", 0x12), record("ROW_DELETED", 0x13), record("ROW_ADDED", 0x21), record("ROW_ADDED", 0x31)],
+      annotations: [], locator,
+    });
+    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
+      .toEqual([" 1", "-2", "-3", "+2", "+3", " 4"]);
+  });
+
   it("places Preview deletions of an ordered table by their recorded before position", () => {
     const current = [1, 21, 31, 4].map((n) => ({ dev_addr: n, description: `新${n}` }));
     const locator = parseRowLocator([locatorRow(0x12, null, null), locatorRow(0x13, null, null), locatorRow(0x21, null, 1), locatorRow(0x31, null, 2)]);

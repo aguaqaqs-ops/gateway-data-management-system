@@ -330,9 +330,10 @@ const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modifi
  * they stood. A deleted row at before row b goes after the k-th surviving row,
  * where k is the number of non-deleted rows before b. Deleted rows sharing an
  * anchor interleave with the added rows right after it, so replacing rows
- * 14-16 reads -14 +14 -15 +15 -16 +16. Moves make this approximate.
+ * 14-16 reads -14 +14 -15 +15 -16 +16; the "group" layout keeps the block
+ * together instead: -14 -15 -16 +14 +15 +16. Moves make this approximate.
  */
-function placeDeletedRowsInline(rows: BrowseRow[]): void {
+function placeDeletedRowsInline(rows: BrowseRow[], layout: DeletionLayout): void {
   const deleted = rows.filter((row) => row.kind === "deleted" && row.rowNumber !== null)
     .sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0));
   if (!deleted.length) return;
@@ -347,7 +348,7 @@ function placeDeletedRowsInline(rows: BrowseRow[]): void {
     let index = start;
     for (const row of group ?? []) {
       output.push(row);
-      if (base[index]?.kind === "added") { output.push(base[index] as BrowseRow); index += 1; }
+      if (layout === "interleave" && base[index]?.kind === "added") { output.push(base[index] as BrowseRow); index += 1; }
     }
     return index;
   };
@@ -369,6 +370,9 @@ function placeDeletedRowsInline(rows: BrowseRow[]): void {
   rows.splice(0, rows.length, ...output);
 }
 
+/** How deleted rows sit beside the added rows that follow them: one by one, or as one block before them. */
+export type DeletionLayout = "interleave" | "group";
+
 export function buildBrowseRows(input: {
   table: SurfaceTable;
   beforeRows: Record<string, unknown>[];
@@ -388,6 +392,7 @@ export function buildBrowseRows(input: {
   reuseUnrecordedBefore?: boolean;
   search?: string;
   expandedRuns?: ReadonlySet<string>;
+  deletionLayout?: DeletionLayout;
 }): { rows: BrowseRow[] } {
   const hasBeforeSnapshot = input.hasBeforeSnapshot ?? input.beforeRows.length > 0;
   const hasCurrentSnapshot = input.hasCurrentSnapshot ?? input.currentRows.length > 0;
@@ -562,7 +567,7 @@ export function buildBrowseRows(input: {
       };
       return position(left) - position(right);
     });
-    if (hasCurrentSnapshot) placeDeletedRowsInline(rows);
+    if (hasCurrentSnapshot) placeDeletedRowsInline(rows, input.deletionLayout ?? "interleave");
   }
 
   let visible = rows;

@@ -266,10 +266,13 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .risk-legend__source { white-space: nowrap; }
 .risk-legend .risk-badge { min-height: 21px; }
 .table-grid-area { display: grid; min-width: 0; min-height: 280px; flex: 1 1 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 8px; }
-.table-grid-area.has-distribution { grid-template-columns: minmax(0, 1fr) 48px; align-items: stretch; }
+.table-grid-area.has-distribution { grid-template-columns: minmax(0, 1fr) 26px; gap: 6px; align-items: stretch; }
 .change-navigator { display: flex; min-height: 0; flex-direction: column; align-items: center; gap: 7px; padding: 2px 0; color: var(--color-text-muted); font-size: 10px; }
 .change-navigator__controls { display: flex; align-items: center; flex-direction: column; gap: 4px; text-align: center; }
 .change-navigator__controls strong { color: var(--color-text); }
+.change-navigator__count { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.change-navigator__layout { margin-top: 4px; }
+.change-navigator__layout[aria-pressed="true"] { border-color: var(--color-accent) !important; color: var(--color-accent) !important; }
 .change-navigator__controls button { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--color-border); border-radius: 4px; background: #fff; color: var(--color-text-muted); cursor: pointer; }
 .distribution-strip { position: relative; width: 10px; min-height: 92px; flex: 1; border-radius: 3px; background: repeating-linear-gradient(180deg, #e1e6ec 0, #e1e6ec 1px, transparent 1px, transparent 8px); }
 .distribution-visible-range { position: absolute; z-index: 1; right: 0; left: 0 !important; min-height: 2px; border: 1px solid #8996a4; border-radius: 3px; background: rgb(201 208 216 / 22%); pointer-events: none; }
@@ -543,7 +546,7 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
   .compare-workspace.sidebar-is-collapsed .sidebar-expand { display: flex; }
   .sidebar-resize { display: none; }
   .comparison-content { padding: 13px 9px 24px; }
-  .table-grid-area.has-distribution { grid-template-columns: minmax(0, 1fr) 40px; gap: 5px; }
+  .table-grid-area.has-distribution { grid-template-columns: minmax(0, 1fr) 26px; gap: 5px; }
   .replacement-sides { grid-template-columns: 1fr; }
   .formula-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .semantic-token-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

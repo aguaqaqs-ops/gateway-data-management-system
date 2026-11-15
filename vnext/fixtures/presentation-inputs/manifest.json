@@ -118,7 +118,8 @@
         "sha256": "f6205557b237abeeac5d2832a5365273d326014bebdc87bd7d2c2ad95d1b7730"
       },
       "changes": [
-        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid",
+        "b1_n1_iec104_syx_list: add COMMENT='遥信引用表' for the current ordered-reference classification"
       ],
       "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },
@@ -137,7 +138,8 @@
         "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001"
       },
       "changes": [
-        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid",
+        "b1_n1_iec104_syx_list: add COMMENT='遥信引用表' for the current ordered-reference classification"
       ],
       "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },
@@ -156,7 +158,8 @@
         "sha256": "57450fdce2e9ab27e695e48a7cb0c80475caa016c7c9beaeef41b30bea717773"
       },
       "changes": [
-        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid",
+        "b1_n1_iec104_syx_list: add COMMENT='遥信引用表' for the current ordered-reference classification"
       ],
       "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },

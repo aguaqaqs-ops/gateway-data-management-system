@@ -12,8 +12,8 @@ from typing import Any, Iterator
 
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
-from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, _same_resolved_rules
+from gateway_backend.capabilities.table_rules import STORAGE_PROJECTION_VERSION, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.application.submission.accept_transaction import AcceptSubmitPreflight, accept_submit_transaction
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
@@ -41,6 +41,10 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
     current_digest = canonical_state_digest_of(current.bound.summary.tables)
     if before_digest is None or before_digest != current_digest:
         raise ValueError("comment-only fixture changed canonical business identity")
+    rules_semantically_equal = _same_resolved_rules(before.bound, current.bound,
+        before.presentation, current.presentation, migrated_table_ruleset_snapshot())
+    if not rules_semantically_equal:
+        raise ValueError("comment-only fixture changed resolved rule semantics")
     now = datetime(2026, 11, 11, tzinfo=UTC)
     head = BaselineHead("fixture-node", "fixture-commit", 1)
     workspace = Workspace("fixture-workspace", "fixture-actor", "fixture-device", "fixture-project",
@@ -48,7 +52,7 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
     upload = UploadRevision("fixture-upload", workspace.workspace_id, 1, InputCompleteness.MODIFIED_ONLY,
         {SourceArtifactRole.MODIFIED: SourceArtifactBinding(**{**artifact_ref_to_dict(source_ref),
             "raw_sha256": source_ref.raw_sha256.value})}, "fixture-upload-key", "fixture-upload-fingerprint", "fixture-actor", now)
-    identity = CanonicalContentIdentity(current_digest.value, rules_digest.value, "3", 1)
+    identity = CanonicalContentIdentity(current_digest.value, rules_digest.value, STORAGE_PROJECTION_VERSION, 1)
     absent_time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None,
         0, 0, 0, None, None, False)
     side = ConfigurationSideFacts(identity, absent_time, source_ref.artifact_id, sql_source_digest)
@@ -79,7 +83,7 @@ def run_comment_only_submit(*, before: Any, current: Any, store: Any,
             preview_ref(current.canonical_table_set_closure_ref),
             current.canonical_table_set_closure_ref.raw_sha256,
             preview_ref(current.canonicalization_manifest_ref), current.canonicalization_manifest_digest,
-            before_digest, current_digest, rules_digest),
+            before_digest, current_digest, rules_digest, rules_semantically_equal),
         identity_assessment_set_digest=identity_digest, identity_pairs=(pair,),
         comparison_pairs=(PreviewComparisonPair(
             pair_id=pair_id, before_snapshot_digest=before.bound.snapshot.snapshot_digest.value,

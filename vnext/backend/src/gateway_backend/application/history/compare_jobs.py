@@ -158,7 +158,7 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v5"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v6"
 
 _JOB_STATE_SIDES = "sides"
 _JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
@@ -170,11 +170,11 @@ _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
 HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE = "history-compare-materialized-sides"
 HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/materialized-sides/v2"
+    "backend-vnext/history-compare/materialized-sides/v3"
 )
 HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
 HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/assemble-state/v6"
+    "backend-vnext/history-compare/assemble-state/v7"
 )
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(
@@ -927,6 +927,11 @@ def _assemble_comparison(
             pair_specs[1][0]: (1, 2),
         }
 
+    presentations = _history_presentations(payload, dependencies) if dependencies is not None else {}
+    if set(presentations) != set(sides):
+        raise HistoryCompareJobError("comparison requires frozen presentation for every commit")
+    sides = {commit: dataclasses.replace(bound, presentation=presentations[commit])
+             for commit, bound in sides.items()}
     dedup_session = declare_pair_comparison_session(tuple(
         ComparisonRequest(pair_id=pair_id, before=sides[before_node.commit_id],
             current=sides[current_node.commit_id], rule_set=rule_set, mode=ComparisonMode.DETAILED)
@@ -934,7 +939,6 @@ def _assemble_comparison(
     ), computation_cache=None if dependencies is None else dependencies.computation_cache,
         cache_owner=CacheOperationOwner("history-compare-operation", operation_id),
         repository_id=payload.repository_id)
-    presentations = _history_presentations(payload, dependencies) if dependencies is not None else {}
     table_exports: dict[str, dict[str, ArtifactRef]] = {}
     try:
         if dependencies is not None:
@@ -954,8 +958,8 @@ def _assemble_comparison(
                 pair_id=pair_id,
                 before=before,
                 current=current,
-                before_presentation=presentations.get(before_node.commit_id, PresentationMetadata()),
-                current_presentation=presentations.get(current_node.commit_id, PresentationMetadata()),
+                before_presentation=presentations[before_node.commit_id],
+                current_presentation=presentations[current_node.commit_id],
                 rule_set=rule_set,
                 store=store,
                 control=control,
@@ -1201,8 +1205,8 @@ def _run_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(

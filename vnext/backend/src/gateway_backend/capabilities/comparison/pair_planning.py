@@ -35,6 +35,8 @@ def plan_comparison(request: ComparisonRequest) -> ComparisonPlan | FailedResult
     """Plan a pair using the caller's runtime ComparisonRuleSet."""
     if type(request) is not ComparisonRequest:
         raise TypeError("request must be ComparisonRequest")
+    if request.before.presentation is None or request.current.presentation is None:
+        raise ValueError("comparison requires frozen presentation for both sides")
     before_descriptors = _descriptor_map(request.before)
     current_descriptors = _descriptor_map(request.current)
     before_tables = _table_map(request.before)
@@ -46,8 +48,8 @@ def plan_comparison(request: ComparisonRequest) -> ComparisonPlan | FailedResult
     for table_name in sorted(before_descriptors.keys() | current_descriptors.keys()):
         before_descriptor = before_descriptors.get(table_name)
         current_descriptor = current_descriptors.get(table_name)
-        before_view = _rule_view(request, table_name, before_descriptor)
-        current_view = _rule_view(request, table_name, current_descriptor)
+        before_view = _rule_view(request, request.before, table_name, before_descriptor)
+        current_view = _rule_view(request, request.current, table_name, current_descriptor)
         if before_view is None and current_view is None:
             continue
         active_view = current_view or before_view
@@ -87,13 +89,20 @@ def plan_comparison(request: ComparisonRequest) -> ComparisonPlan | FailedResult
 
 def _rule_view(
     request: ComparisonRequest,
+    bound: BoundSnapshotInput,
     table_name: str,
     descriptor: SnapshotTableDescriptor | None,
 ) -> ComparisonRuleView | None:
-    primary_key = () if descriptor is None else descriptor.primary_key_columns
+    if descriptor is None:
+        return None
+    primary_key = descriptor.primary_key_columns
+    assert bound.presentation is not None
+    comment = next((item.comment for item in bound.presentation.tables
+                    if item.table_name == table_name), None)
     return resolve_comparison_rule_view(
         request.rule_set,
         table_name,
+        table_comment=comment,
         primary_key_columns=primary_key,
     )
 
@@ -154,6 +163,8 @@ def _comparison_policy(
         effective_key_before=() if before_view is None else before_view.effective_key_columns,
         effective_key_current=() if current_view is None else current_view.effective_key_columns,
         comparison_role=view.comparison_role.value,
+        rule_digest_before=None if before_view is None else before_view.comparison_rule_digest.value,
+        rule_digest_current=None if current_view is None else current_view.comparison_rule_digest.value,
         storage_facts_before=storage_facts_before,
         storage_facts_current=storage_facts_current,
     )

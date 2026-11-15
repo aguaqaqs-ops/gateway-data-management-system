@@ -201,8 +201,12 @@ def test_acceptance_checks_effective_audit_keys_with_keyless_canonical_storage(n
     if nonempty:
         before += " INSERT INTO cnt_manage_cfg VALUES(1,2,10);"
         current += " INSERT INTO cnt_manage_cfg VALUES(1,2,10,'type','tip');"
+    before_bound = _artifact_bound(before, store)
+    current_bound = _artifact_bound(current, store)
+    assert before_bound.presentation is not None and current_bound.presentation is not None
     result = run_history_pair_pipeline(pair_id="configuration-key-audit",
-        before=_artifact_bound(before, store), current=_artifact_bound(current, store),
+        before=before_bound, current=current_bound,
+        before_presentation=before_bound.presentation, current_presentation=current_bound.presentation,
         rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()), store=store,
         control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
     assert result.structure_audit_ref is not None

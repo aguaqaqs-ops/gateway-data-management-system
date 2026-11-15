@@ -133,6 +133,7 @@ def history_compare_ordered_provider(
         rows=rows,
         current_commit=commit_id,
         missing_table_on_open=missing_table_on_open,
+        table_comments={ORDERED_SYX_TABLE: "引用表"},
     )
 
 
@@ -290,6 +291,7 @@ def build_history_compare_harness(
             (REPOSITORY_ID, commit_id): metadata_for_catalog(
                 provider.catalog,
                 rows_by_table=_rows_matching_catalog_counts(provider),
+                table_comments=provider.table_comments,
             )
             for commit_id, provider in providers.items()
         }

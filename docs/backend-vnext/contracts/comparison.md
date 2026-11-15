@@ -1,5 +1,7 @@
 # Comparison Contract
 
+通道表的有序分类按当前存在侧的真实 COMMENT 解析；仅当前表缺失时采用前侧。缺 `gid` 或 `no` 时保留表并发布 `ORDERED_REQUIRED_COLUMN_MISSING` 降级与不支持 replay；完整列但任一存在侧缺少已验证的有序存储来源时发布 `ORDERED_INPUT_NOT_CANONICAL`，不推断伪 gid。两侧解析规则及实际存储事实参与 task identity，table early-exit 还须核对两侧规则摘要。
+
 > v2 增加 `comparison_mode`、project identity assessment digest 和 `REPLACED` table status。v3 定义 schema 演进分类与整表新增/删除不生成逐行记录。formal upload 在 `DIFFERENT_PROJECT` 时使用 `DATASET_REPLACEMENT`，不生成 records closure；完整规则见 `../capabilities/project-identity-and-dataset-replacement.md`。
 
 本文定义 backend vNext 第一版 directed comparison contract。Comparison 只消费已经物化的 Snapshot/Summary/Table access，不解析 SourcePackage，不执行 repository import，不生成风险结论或前端 surface。

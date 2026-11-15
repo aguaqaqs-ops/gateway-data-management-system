@@ -13,6 +13,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     SnapshotMaterializationStatus,
 )
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     OrderedPolicy,
@@ -300,8 +301,11 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
     monkeypatch: pytest.MonkeyPatch,
     shape: KeyScanCoverageShape,
 ) -> None:
-    def resolve_rule(_ruleset: object, table_name: str, *, primary_key_columns: tuple[str, ...]) -> object:
-        del primary_key_columns
+    def resolve_rule(
+        _ruleset: object, table_name: str, *, primary_key_columns: tuple[str, ...],
+        table_comment: str | None,
+    ) -> object:
+        del primary_key_columns, table_comment
         if table_name == "unresolved":
             raise ValueError("no rule")
         role = TableStaticRole.SKIP if table_name == "skipped" else TableStaticRole.STANDARD_DIFF
@@ -352,6 +356,7 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
         table_set=SimpleNamespace(  # type: ignore[arg-type]
             tables=tuple(census_table(name, rows) for name, rows in shape.tables)
         ),
+        presentation=PresentationMetadata(),
         ruleset=object(),
         diagnostic_mode=True,
         materialization_complete=True,
@@ -410,12 +415,14 @@ def test_sql_scan_fallback_keeps_tables_when_composite_stage_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     table_set = SimpleNamespace(tables=())
+    presentation = PresentationMetadata()
     monkeypatch.setattr(
         real_dump_census,
         "materialize_sql_snapshot",
         lambda _request: SimpleNamespace(
             status=SnapshotMaterializationStatus.COMPLETE,
             table_set=table_set,
+            presentation=presentation,
         ),
     )
     failed_business = SimpleNamespace(
@@ -434,17 +441,18 @@ def test_sql_scan_fallback_keeps_tables_when_composite_stage_fails(
 
     assert result[0] is not None
     assert result[0].tables == ()
-    assert result[1:] == (True, "sql_snapshot_after_composite_failure")
+    assert result[1] is presentation
+    assert result[2:] == (True, "sql_snapshot_after_composite_failure")
 
 
 def test_ordered_gid_census_uses_real_rust_projection_counts() -> None:
     from tests.support.snapshot_materialization import materialize_sql
     from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
     from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
-    materialized = materialize_sql("CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL, payload TEXT); INSERT INTO b1_n1_iec104_syx_list VALUES (NULL,1,'a'),(0,2,'b'),(7,3,'c');", policy=MaterializationPolicy.READERS_REQUIRED)
+    materialized = materialize_sql("CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL, payload TEXT) COMMENT='遥信引用表'; INSERT INTO b1_n1_iec104_syx_list VALUES (NULL,1,'a'),(0,2,'b'),(7,3,'c');", policy=MaterializationPolicy.READERS_REQUIRED)
     assert materialized.table_set is not None
     stats = real_dump_census._duplicate_and_effective_key_stats(table_set=materialized.table_set,
-        ruleset=migrated_table_ruleset_snapshot(), diagnostic_mode=True, materialization_complete=True)
+        presentation=materialized.presentation, ruleset=migrated_table_ruleset_snapshot(), diagnostic_mode=True, materialization_complete=True)
     facts = stats.ordered_projection_by_table["b1_n1_iec104_syx_list"]
     assert facts["status"] == "COMPLETE"
     assert facts["real_gid_count"] == 1 and facts["pseudo_gid_count"] == 2

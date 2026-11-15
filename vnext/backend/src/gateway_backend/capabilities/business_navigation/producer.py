@@ -24,12 +24,16 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotation, RiskLevel, RiskTargetType,
 )
 
-FORWARD_TABS = (
-    ("syx", "单点遥信"), ("dyx", "双点遥信"), ("yc", "遥测"),
-    ("syk", "单点遥控"), ("dyk", "双点遥控"), ("yt", "遥调"),
-    ("ym", "遥脉"), ("sc", "顺控"), ("yp", "遥步"),
-)
-_FORWARD = re.compile(r"^b(\d+)_n(\d+)_(?:iec104_(?:syx|dyx|yc|syk|dyk|yt|ym|sc|yp)_list|sg_cfg)$")
+from gateway_backend.capabilities.table_rules import is_ordered_reference_table, parse_channel_table_name
+
+_PROTOCOL_SEGMENTS = {
+    "n": {"dev103": ("nr103d",), "ht103": ("nr103ht",),
+          "modbusnetdev": ("modbusnet",), "stdmdsnet": ("stdmds",),
+          "dll": ("dll3xx", "dll495"), "dev103_9150": ("nrts103",),
+          "mach2dev": ("mach2",), "abb103dev": ("abb103",), "cagc": ("agc",)},
+    "c": {"stdmdscom": ("stdmds",), "dll": ("dll3xx", "dll495")},
+}
+
 _SEVERITY = {level: rank for rank, level in enumerate((
     RiskLevel.LOW, RiskLevel.MEDIUM_LOW, RiskLevel.UNKNOWN, RiskLevel.MEDIUM_HIGH, RiskLevel.HIGH))}
 
@@ -257,76 +261,130 @@ class _Builder:
         names = {t.table_name: t for t in tables}
         groups: list[dict[str, Any]] = [{"group_key": key, "label": label, "items": []} for key, label in GROUPS]
         claimed: set[str] = set()
-        channels: dict[tuple[int, int], dict[str, NavigationRow]] = defaultdict(dict)
-        qualified: set[tuple[int, int]] = set()
-        # One scan of the small registry table per existing logical side.
-        net = names.get("net_cfg")
-        if net:
-            for label, source in self.registry_sides(net):
+        channels: dict[tuple[str, int, int], dict[str, NavigationRow]] = defaultdict(dict)
+        registries = {"n": names.get("net_cfg"), "c": names.get("com_cfg")}
+        com_has_exe = False
+        for kind, registry in registries.items():
+            if registry is None:
+                continue
+            number_column = "link_no" if kind == "n" else "com_no"
+            for label, source in self.registry_sides(registry):
                 for row in self.rows(source):
-                    board, link = row.values.get("board"), row.values.get("link_no")
-                    if type(board) is not int or type(link) is not int or max(abs(board), abs(link)) > SAFE_INTEGER:
+                    exe = row.values.get("exe")
+                    if not isinstance(exe, str) or not exe.strip():
                         continue
-                    key = (board, link)
+                    if kind == "c":
+                        com_has_exe = True
+                    board, number = row.values.get("board"), row.values.get(number_column)
+                    if (type(board) is not int or type(number) is not int
+                            or not 0 <= board <= SAFE_INTEGER or not 0 <= number <= SAFE_INTEGER):
+                        continue
+                    key = (kind, board, number)
                     existing = channels[key].get(label)
                     if existing is None or row.canonical_order_key < existing.canonical_order_key:
                         if existing is None:
-                            self.charge([board, link, label])
+                            self.charge([kind, board, number, label])
                         self.retain_row(row, existing)
                         channels[key][label] = row
-                    tab_num = row.values.get("tab_num")
-                    if str(row.values.get("exe") or "").lower() == "iec104" and type(tab_num) is int and tab_num > 0:
-                        qualified.add(key)
-        for (board, link), rows in sorted(channels.items()):
-            if (board, link) not in qualified:
+
+        def ordered_keys() -> list[tuple[str, int, int]]:
+            return sorted(channels, key=lambda key: (key[0] != "n", key[1], key[2]))
+
+        def prefix(key: tuple[str, int, int]) -> str:
+            kind, board, number = key
+            return f"b{board}_{kind}{number}"
+
+        def attrs(key: tuple[str, int, int]) -> dict[str, Scalar]:
+            kind, board, number = key
+            return {"board": board, "link_no" if kind == "n" else "com_no": number}
+
+        def selected_comment(table: NavigationTable) -> str | None:
+            source = table.current or table.before
+            return None if source is None else source.table_comment
+
+        parsed = {name: parse_channel_table_name(name) for name in names}
+        by_channel: dict[tuple[str, int, int], list[str]] = defaultdict(list)
+        for name, info in parsed.items():
+            if info is not None:
+                self.charge([name, info.kind, info.board, info.channel_no])
+                by_channel[(info.kind, info.board, info.channel_no)].append(name)
+        ordered = {name for name, table in names.items()
+                   if is_ordered_reference_table(name, selected_comment(table))}
+        forward_tabs: dict[tuple[str, int, int], list[dict[str, Any]]] = defaultdict(list)
+        for name in sorted(ordered, key=lambda value: value.encode("utf-8")):
+            table = names[name]
+            info = parsed[name]
+            assert info is not None
+            key = (info.kind, info.board, info.channel_no)
+            owners = channels.get(key, {})
+            actual_owners = [label for label, source in (("CURRENT", table.current), ("BEFORE", table.before))
+                             if source is not None and label in owners]
+            if actual_owners:
+                comment = selected_comment(table) or ""
+                tab_label = comment.replace("引用表", "").strip() or name
+                forward_tabs[key].append(self.tab(table, name, tab_label))
+                claimed.add(name)
+            else:
+                for label, source in (("BEFORE", table.before), ("CURRENT", table.current)):
+                    if source is not None and label not in owners:
+                        self.diagnostic("CHANNEL_TABLE_UNCLAIMED", "OTHER_TABLES", table=table,
+                            item=f"table:{name}", side=label, channel_prefix=prefix(key),
+                            registry_table="net_cfg" if info.kind == "n" else "com_cfg")
+        for key in ordered_keys():
+            if not forward_tabs[key]:
                 continue
-            prefix = f"b{board}_n{link}"
-            tabs = []
-            for suffix, label in (*((f"iec104_{s}_list", label) for s, label in FORWARD_TABS), ("sg_cfg", "定值")):
-                table = names.get(f"{prefix}_{suffix}")
-                if table is not None:
-                    claimed.add(table.table_name)
-                    tabs.append(self.tab(table, suffix, table.display_name if suffix == "sg_cfg" and table.display_name != table.table_name else label))
-            if tabs:
-                current = rows.get("CURRENT")
-                before = rows.get("BEFORE")
-                label = self.business_label(current, before, "channel_desc", prefix)
-                groups[0]["items"].append(self.item(f"channel:{prefix}", "FORWARD_CHANNEL", label, tabs, board=board, link_no=link))
+            rows = channels[key]
+            label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "channel_desc", prefix(key))
+            groups[0]["items"].append(self.item(f"channel:{prefix(key)}", "FORWARD_CHANNEL", label,
+                                                forward_tabs[key], **attrs(key)))
         self.devices(groups[1]["items"], names, claimed, side)
-        if net:
-            claimed.add("net_cfg")
-            groups[2]["items"].append(self.item("protocol:table", "TABLE", net.display_name, [self.tab(net)]))
-        for (board, link), rows in sorted(channels.items()):
-            prefix = f"b{board}_n{link}"
+        net = registries["n"]
+        for kind in ("n", "c"):
+            registry = registries[kind]
+            if registry is None or (kind == "c" and not com_has_exe):
+                continue
+            claimed.add(registry.table_name)
+            label = next((source.table_comment for source in (registry.current, registry.before)
+                          if source is not None and source.table_comment), registry.table_name)
+            item_key = "protocol:table" if kind == "n" else "protocol:com_cfg"
+            groups[2]["items"].append(self.item(item_key, "TABLE", label, [self.tab(registry, label=label)]))
+        for key in ordered_keys():
+            kind, _, _ = key
+            rows = channels[key]
             tabs_by_name: dict[str, dict[str, Any]] = {}
             for label, row in rows.items():
-                protocol = str(row.values.get("exe") or "").lower()
-                if not protocol:
-                    self.diagnostic("PROTOCOL_EXE_MISSING", "COMMUNICATION_PROTOCOLS", item=f"protocol:{prefix}", side=label, board=board, link_no=link)
-                    continue
-                segment = "nr103d" if protocol == "dev103" else protocol
-                candidates = [f"{prefix}_{segment}_cfg", f"{prefix}_{segment}_dev_cfg"]
+                exe = row.values["exe"]
+                assert isinstance(exe, str)
+                protocol = exe.strip().casefold()
+                segments = _PROTOCOL_SEGMENTS[kind].get(protocol, (protocol,))
+                expected = [f"{prefix(key)}_{segment}" for segment in segments]
                 found = False
-                for name in candidates:
-                    table = names.get(name)
-                    if table is not None and (table.before if label == "BEFORE" else table.current) is not None:
-                        found = True
-                        if name not in claimed:
-                            tabs_by_name[name] = self.tab(table, name)
+                for name in sorted(by_channel.get(key, ()), key=lambda value: value.encode("utf-8")):
+                    self.check()
+                    table, info = names[name], parsed[name]
+                    if (info is None or name in ordered or (info.kind, info.board, info.channel_no) != key
+                            or not info.suffix.casefold().startswith(segments)
+                            or (table.before if label == "BEFORE" else table.current) is None):
+                        continue
+                    found = True
+                    if name not in claimed:
+                        tabs_by_name[name] = self.tab(table, name, selected_comment(table) or name)
                 if not found:
-                    self.diagnostic("PROTOCOL_TABLE_NOT_FOUND", "COMMUNICATION_PROTOCOLS", item=f"protocol:{prefix}", side=label, board=board, link_no=link, protocol=protocol, expected_tables=candidates)
+                    self.diagnostic("PROTOCOL_TABLE_NOT_FOUND", "COMMUNICATION_PROTOCOLS",
+                        item=f"protocol:{prefix(key)}", side=label, channel_prefix=prefix(key),
+                        registry_table="net_cfg" if kind == "n" else "com_cfg",
+                        protocol=protocol, expected_prefixes=expected)
             claimed.update(tabs_by_name)
-            label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "channel_desc", prefix)
+            label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "channel_desc", prefix(key))
             protocol_name = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "protocol_name", "")
-            groups[2]["items"].append(self.item(f"protocol:{prefix}", "PROTOCOL_CHANNEL", (label + " " + protocol_name).strip(), list(tabs_by_name.values()), board=board, link_no=link, protocol=self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "exe", "").lower()))
-        self.globals(groups[3]["items"], names, claimed)
+            exe = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "exe", "").strip().casefold()
+            tabs = [tabs_by_name[name] for name in sorted(tabs_by_name, key=lambda value: value.encode("utf-8"))]
+            groups[2]["items"].append(self.item(f"protocol:{prefix(key)}", "PROTOCOL_CHANNEL",
+                (label + " " + protocol_name).strip(), tabs, **attrs(key), protocol=exe))
+        self.globals(groups[3]["items"], names, claimed, ordered)
         for name, table in sorted(names.items()):
-            if name in claimed:
-                continue
-            groups[4]["items"].append(self.item(f"table:{name}", "TABLE", table.display_name, [self.tab(table)]))
-            match = _FORWARD.fullmatch(name)
-            if match and int(match[1]) <= SAFE_INTEGER and int(match[2]) <= SAFE_INTEGER:
-                self.diagnostic("CHANNEL_TABLE_UNCLAIMED", "OTHER_TABLES", table=table, item=f"table:{name}", side=side, board=int(match[1]), link_no=int(match[2]))
+            if name not in claimed:
+                groups[4]["items"].append(self.item(f"table:{name}", "TABLE", table.display_name, [self.tab(table)]))
         # Diagnostics can target an absent protocol item: use the existing net_cfg
         # table item as the nearest visible owner after empty channels are omitted.
         visible = {i["item_key"] for g in groups for i in g["items"]}
@@ -353,7 +411,8 @@ class _Builder:
                 return value
         return default
 
-    def globals(self, output: list[dict[str, Any]], names: dict[str, NavigationTable], claimed: set[str]) -> None:
+    def globals(self, output: list[dict[str, Any]], names: dict[str, NavigationTable],
+                claimed: set[str], reserved: set[str]) -> None:
         for name in ("project", "prot_list", "app_cfg"):
             if name in names and name not in claimed:
                 table = names[name]
@@ -380,7 +439,7 @@ class _Builder:
                     if disabled:
                         continue
                     self.diagnostic("APP_TABLE_NOT_FOUND", "GLOBAL_PARAMETERS", table=app, item="global:app_cfg", side=side, app_name=app_name, table_cfg=target)
-                elif target in seen or target in claimed:
+                elif target in seen or target in claimed or target in reserved:
                     if target in seen:
                         existing = targets[target].get(side)
                         if existing is not None and row.canonical_order_key < existing.canonical_order_key:

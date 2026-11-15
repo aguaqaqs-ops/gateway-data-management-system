@@ -116,9 +116,10 @@ def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
                 or (_pure_column_change(schema) and schema.before_key and not schema.key_invalid))
                 and first.row_count + second.row_count > 0 else ())
         if policy.ordered_policy is not None:
-            from gateway_backend.capabilities.comparison.ordered import _ordered_schema_diagnostics
+            from gateway_backend.capabilities.comparison.ordered import _ordered_schema_diagnostics, _ordered_input_diagnostics
 
-            if _ordered_schema_diagnostics(first, second, policy.ordered_policy, schema):
+            if (_ordered_input_diagnostics(task)
+                    or _ordered_schema_diagnostics(first, second, policy.ordered_policy, schema)):
                 return ()
             return (current,) if _can_table_early_exit(first, second, policy) else (before, current)
         if _can_table_early_exit(first, second, policy):
@@ -895,6 +896,11 @@ def _compare_task_native(
     changes = _schema_changes_from_view(schema, policy)
     def native_input() -> TableTaskInputV1:
         return build_table_task_input(plan, task, include_identity=False)
+    if policy.ordered_policy is not None:
+        from gateway_backend.capabilities.comparison.ordered import _ordered_input_diagnostics, _degraded_fact
+        diagnostics = _ordered_input_diagnostics(task)
+        if diagnostics:
+            return _degraded_fact(task, before, current, changes, diagnostics), None
     if before.row_count == current.row_count == 0 and _pure_column_change(schema):
         return replace(_compare_task_metadata_nonrecord(task, changes),
             status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,

@@ -20,7 +20,7 @@ def make_configuration_facts(*, workspace_id: str = "ws-1", upload_revision_id: 
         rules_digest: str = "sha256:" + "6" * 64, initial_source: str = "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
         modified_source: str = "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303", uploaded_initial: bool = True) -> ConfigurationFacts:
     def content(digest: str) -> CanonicalContentIdentity:
-        return CanonicalContentIdentity(digest, rules_digest, "3", 1)
+        return CanonicalContentIdentity(digest, rules_digest, "4", 1)
     time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
     baseline = content(baseline_digest)
     return ConfigurationFacts(CONFIGURATION_FACTS_SCHEMA, operation_id, workspace_id, upload_revision_id,

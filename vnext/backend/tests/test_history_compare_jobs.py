@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.support.artifact_layout import open_test_store
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1415,6 +1416,8 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     harness = build_history_compare_harness(tmp_path)
     payload = compare_jobs.decode_history_compare_payload(json.loads(harness.job_payload))
     sides = compare_jobs._materialize_distinct_commits(payload, harness.deps)
+    presentations = compare_jobs._history_presentations(payload, harness.deps)
+    sides = {commit: replace(bound, presentation=presentations[commit]) for commit, bound in sides.items()}
     rules = compare_jobs._assert_runtime_ruleset(payload)
     captured: list[SnapshotTableSet] = []
     original = ensure_committed_tables
@@ -1485,8 +1488,10 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     monkeypatch.setattr(PersistentRiskCandidates, "lookup", observed_lookup)
     monkeypatch.setattr(cache, "store", observed_store)
     sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY COMMENT 'column-{value}') COMMENT='table-{value}'; INSERT INTO t VALUES ({value});"
-    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="a1:durable:5adad6374935ac1f2c031bb667178cd95a1b658a4c4276477d515ba2d687e8be")
-    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="a1:durable:661b6c2cafc55581541967e4871f60d18dc73d892270c5ecebb12ce7215e89bb")
+    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(),
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "history-preview-source", "initial"))
+    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(),
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "history-preview-source", "modified"))
     preview.upload_revision = preview_support.build_upload_revision(input_completeness=InputCompleteness.FULL,
         initial_binding=initial, modified_binding=modified, generation=preview.upload_revision.generation)
     preview.job_payload = build_preview_job_payload(workspace_id=preview.upload_revision.workspace_id,
@@ -1699,7 +1704,7 @@ def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
     )
     with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1), new_operation=True):
         run_full_history_compare_job(cold)
-    with local.cleanup_session("a1:canonical:" + "0" * 64) as acquired:
+    with local.cleanup_session(build_artifact_id(ArtifactLocation.CANONICAL, "history-cleanup", "probe")) as acquired:
         assert acquired  # The completed cold operation has released every mapping.
     target_commit, target_value = (left, 11) if damaged_side == 'same-commit-later-table' else (right, 2)
     with ControlDbUnitOfWork(cold.db_path, read_only=True) as uow:

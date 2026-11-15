@@ -406,19 +406,19 @@ def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -
 def _protected_preview_refs(repository_id: str) -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_INITIAL),
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_MODIFIED),
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
             media_type="application/json",
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -457,13 +457,13 @@ def seed_submit_ready_workspace(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_INITIAL),
                     raw_sha256=_SHA_INITIAL,
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_MODIFIED),
                     raw_sha256=_SHA_MODIFIED,
@@ -485,7 +485,7 @@ def seed_submit_ready_workspace(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
-            contract_version="contract-1",
+            contract_version="backend-vnext/preview/v4",
             provider_versions={"comparison": "v1"},
             digests=PreviewResultDigests(
                 source_digest="d-source",
@@ -496,11 +496,11 @@ def seed_submit_ready_workspace(
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
-            canonical=make_preview_canonical_bindings(repository_id),
+            canonical=make_preview_canonical_bindings(repository_id, generated_source_ids=True),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
-            bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
-            ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
+            ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
             operation_id="op-preview-1",
             created_at=TS1,
         )
@@ -538,9 +538,9 @@ def seed_submit_ready_workspace(
         )
 
     payload_by_id = {
-        "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf": _PAYLOAD_INITIAL,
-        "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303": _PAYLOAD_MODIFIED,
-        "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1": _PAYLOAD_CLOSURE,
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"): _PAYLOAD_INITIAL,
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"): _PAYLOAD_MODIFIED,
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"): _PAYLOAD_CLOSURE,
         **make_canonical_artifact_fixture(repository_id).payloads,
         **review_payloads,
     }

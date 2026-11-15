@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from tests.support.configuration_facts import preview_result_with_facts
 
 from datetime import UTC, datetime
@@ -52,7 +54,7 @@ pytestmark = pytest.mark.unit
 TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 BINDING = SourceArtifactBinding(
-    artifact_id="a1:durable:704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",
+    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39"),
     media_type="application/gzip",
     size_bytes=10,
     raw_sha256="sha256:abc",
@@ -239,7 +241,7 @@ def _preview_result(*, head_version: int = 1, commit_id: str = "commit-1") -> Pr
         business_baseline_commit_id=commit_id,
         baseline_head_version=head_version,
         ruleset_version="rules-1",
-        contract_version="contract-1",
+        contract_version="backend-vnext/preview/v4",
         provider_versions={"comparison": "v1"},
         digests=PreviewResultDigests(
             source_digest="d-source",
@@ -253,8 +255,8 @@ def _preview_result(*, head_version: int = 1, commit_id: str = "commit-1") -> Pr
         canonical=make_preview_canonical_bindings(),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
-        ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
+        ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
         operation_id="op-1",
         created_at=TS0,
     )

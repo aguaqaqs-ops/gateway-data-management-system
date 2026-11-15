@@ -327,6 +327,8 @@ def _can_table_early_exit(
         and before_facts.raw_content_digest == current_facts.raw_content_digest
         and before_facts.storage_projection_version is not None
         and before_facts.storage_projection_version == current_facts.storage_projection_version
+        and policy.rule_digest_before is not None
+        and policy.rule_digest_before == policy.rule_digest_current
         and (
             not policy.allow_keyless_key_transition
             or policy.effective_key_before == policy.effective_key_current

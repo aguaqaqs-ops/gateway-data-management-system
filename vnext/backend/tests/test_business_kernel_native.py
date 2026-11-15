@@ -60,7 +60,7 @@ def _tables(sql: str) -> list[dict[str, Any]]:
 
 def _view(descriptor: SnapshotTableDescriptor) -> Any:
     rules = migrated_table_ruleset_snapshot()
-    record = resolve_table_rule(rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns).record
+    record = resolve_table_rule(rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns, table_comment=None).record
     view = derive_storage_rule_view(record, descriptor)
     assert view is not None
     return view

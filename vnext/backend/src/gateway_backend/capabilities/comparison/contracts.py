@@ -15,6 +15,7 @@ from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_d
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BATCH_READER_CONTRACT_VERSION,
     BATCH_SCHEMA_METADATA_VERSION,
@@ -614,6 +615,8 @@ class _ComparisonTablePolicy:
     effective_key_before: tuple[str, ...] = ()
     effective_key_current: tuple[str, ...] = ()
     comparison_role: str = "STANDARD"
+    rule_digest_before: str | None = None
+    rule_digest_current: str | None = None
     storage_facts_before: ComparisonStorageFacts | None = None
     storage_facts_current: ComparisonStorageFacts | None = None
 
@@ -919,6 +922,7 @@ class BoundSnapshotInput:
     summary: SnapshotSummary
     table_set: SnapshotTableSet | None = None
     storage_facts: tuple[ComparisonStorageFacts, ...] = ()
+    presentation: PresentationMetadata | None = None
 
     def __post_init__(self) -> None:
         if type(self.snapshot) is not Snapshot:

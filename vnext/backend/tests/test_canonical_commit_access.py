@@ -66,7 +66,7 @@ def _catalog(bound: SnapshotTableDescriptor, commit: str = COMMIT) -> dict[str, 
 
 
 def _view(bound: SnapshotTableDescriptor) -> StorageRuleView:
-    record = resolve_table_rule(migrated_table_ruleset_snapshot(), "t", primary_key_columns=bound.primary_key_columns).record
+    record = resolve_table_rule(migrated_table_ruleset_snapshot(), "t", primary_key_columns=bound.primary_key_columns, table_comment=None).record
     view = derive_storage_rule_view(record, bound)
     assert view is not None
     return view

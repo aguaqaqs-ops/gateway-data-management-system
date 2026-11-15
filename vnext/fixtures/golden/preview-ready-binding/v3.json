@@ -1,9 +1,9 @@
 {
-  "binding_digest": "v2:sha256:67e7255918580a6e5a89617b3c31256d8c3e4d2f418982e90fd9354b6d78aa05",
+  "binding_digest": "v3:sha256:9109f01713e451c07311108f5340629c2c539afaf306862d8e1c0b0b82079be2",
   "fixture_workspace_id": "preview-binding-golden",
   "preimage": {
     "baseline_head_version": 3,
-    "binding_contract_version": "backend-vnext/preview-ready-binding/v2",
+    "binding_contract_version": "backend-vnext/preview-ready-binding/v3",
     "bundle_artifact_id": "a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
     "business_baseline_commit_id": "commit-base",
     "business_baseline_node_id": "node-1",
@@ -23,10 +23,11 @@
         1204,
         "sha256:72af288fb5962dcf9ca1e483e465222b1871e1b85f5db362869faf55c65b1522"
       ],
-      "configuration_facts_digest": "sha256:16a458d2e5fd81b0a8d3c9cfba12bb8073531e3a51b55ffba0301984865f5c4a",
+      "configuration_facts_digest": "sha256:331da6bfa57c0465dd04aa92c5184a3eee64bca6cdb149e77721cb07e6202d43",
       "initial_canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
       "modified_canonical_state_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
-      "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16"
+      "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16",
+      "rules_semantically_equal": true
     },
     "comparison_pairs": [
       {
@@ -40,7 +41,7 @@
         "surface_digest": "d-surface"
       }
     ],
-    "contract_version": "contract-1",
+    "contract_version": "backend-vnext/preview/v4",
     "digests": {
       "bundle_digest": "sha256:preview-canonical",
       "comparison_digest": "d-comparison",
@@ -101,7 +102,7 @@
               "canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
               "scalar_encoding_version": 1,
               "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16",
-              "storage_projection_version": "3"
+              "storage_projection_version": "4"
             },
             "baseline_head_version": 3,
             "baseline_is_initial": false,
@@ -114,7 +115,7 @@
                 "canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
                 "scalar_encoding_version": 1,
                 "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16",
-                "storage_projection_version": "3"
+                "storage_projection_version": "4"
               },
               "generated_time": {
                 "empty_count": 0,
@@ -137,7 +138,7 @@
                 "canonical_state_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
                 "scalar_encoding_version": 1,
                 "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16",
-                "storage_projection_version": "3"
+                "storage_projection_version": "4"
               },
               "generated_time": {
                 "empty_count": 0,
@@ -160,11 +161,12 @@
             "upload_revision_id": "ur-1",
             "workspace_id": "preview-binding-golden"
           },
-          "facts_digest": "sha256:16a458d2e5fd81b0a8d3c9cfba12bb8073531e3a51b55ffba0301984865f5c4a"
+          "facts_digest": "sha256:331da6bfa57c0465dd04aa92c5184a3eee64bca6cdb149e77721cb07e6202d43"
         },
         "initial_canonical_state_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
         "modified_canonical_state_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
-        "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16"
+        "storage_projection_ruleset_digest": "sha256:612cddf922e6b54e110ffec887e2e297fdf43fe648be905732cd420fd0a5bc16",
+        "rules_semantically_equal": true
       },
       "comparison_pairs": [
         {
@@ -178,7 +180,7 @@
           "surface_digest": "d-surface"
         }
       ],
-      "contract_version": "contract-1",
+      "contract_version": "backend-vnext/preview/v4",
       "digests": {
         "bundle_digest": "sha256:preview-canonical",
         "comparison_digest": "d-comparison",

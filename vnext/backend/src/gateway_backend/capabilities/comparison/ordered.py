@@ -15,10 +15,29 @@ from gateway_backend.capabilities.comparison.errors import StandardComparisonErr
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
 )
+from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, STORAGE_PROJECTION_VERSION
 
 
 class OrderedComparisonError(StandardComparisonError):
     """An ordered metadata comparison failure."""
+
+
+def _ordered_input_diagnostics(task: TableComparisonTask) -> tuple[str, ...]:
+    policy = task.policy
+    assert policy is not None and policy.ordered_policy is not None
+    for descriptor in (task.before_descriptor, task.current_descriptor):
+        if descriptor is not None and not {"gid", "no"} <= {c.name for c in descriptor.columns}:
+            return ("ORDERED_REQUIRED_COLUMN_MISSING",)
+    for descriptor, facts in ((task.before_descriptor, policy.storage_facts_before),
+                              (task.current_descriptor, policy.storage_facts_current)):
+        if descriptor is not None and (facts is None
+                or facts.storage_rule_view.ordered_policy is not OrderedPolicy.GID_NO_V1
+                or facts.storage_projection_version != STORAGE_PROJECTION_VERSION
+                or facts.canonical_schema_digest is None
+                or facts.raw_content_digest is None
+                or facts.raw_content_digest != descriptor.raw_content_digest):
+            return ("ORDERED_INPUT_NOT_CANONICAL",)
+    return ()
 
 
 def _compare_single_side_ordered(task: TableComparisonTask) -> ComparisonTableFact:
@@ -32,6 +51,11 @@ def _compare_single_side_ordered(task: TableComparisonTask) -> ComparisonTableFa
         raise OrderedComparisonError("METADATA_ROUTE_REQUIRES_NATIVE_ROWS")
     added = before is None
     descriptor = current if added else before
+    assert descriptor is not None
+    diagnostics = _ordered_input_diagnostics(task)
+    if diagnostics:
+        return _degraded_fact(task, before, current,
+            _single_side_schema_changes(descriptor, added=added, policy=policy), diagnostics)
     try:
         return _compare_single_side(
             task, descriptor,

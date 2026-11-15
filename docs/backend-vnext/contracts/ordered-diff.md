@@ -4,7 +4,7 @@
 
 Ordered diff 是 comparison 的扩展事实，不是前端 UI contract，也不是 Dolt native provider contract。实现设计见 `../capabilities/ordered-diff-compute.md`。
 
-旧实现映射和 feature parity 目标见 `../contracts/ordered-diff.md`。vNext 可以优化模块边界和实现阶段，但 IEC104 ordered family 的业务规则、pseudo blank 处理和 tail/middle/move 风险语义需要完整保留。
+通道表按真实 COMMENT 中的“引用表”判定有序；pseudo blank 处理和 tail/middle/move 风险语义继续保留。
 
 ## 范围
 
@@ -90,7 +90,7 @@ range 一致；该 range 是 physical identity，不展示为真实业务 gid。
 
 规则：
 
-- 第一批 ordered diff 仍以 IEC104 list family 为主。
+- 有序分类不依赖具体协议或注册行，适用于网络与串口通道引用表。
 - 缺失/空 `gid` 的 blank row 需要按 pseudo blank 处理，不默认降级。
 - 位置字段 `no` 参与 ordered sequence，不参与 content update 判定。
 

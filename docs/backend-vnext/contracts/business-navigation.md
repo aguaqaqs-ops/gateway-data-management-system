@@ -8,7 +8,7 @@ Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3�
 
 ```text
 BusinessNavigation:
-  contract_version: backend-vnext/business-navigation/v2
+  contract_version: backend-vnext/business-navigation/v3
   groups: [Group]
   replacement_sides: null | {before: [Group], current: [Group]}
 Group: {group_key, label, items: [Item], nonempty_item_count}
@@ -21,7 +21,9 @@ summary: {change_kinds: [SurfaceChangeKind], risk_level: RiskLevel|null, nonempt
 
 普通模式 `replacement_sides=null`，`groups` 按顺序始终含 FORWARD_CHANNELS、SECONDARY_DEVICES、COMMUNICATION_PROTOCOLS、GLOBAL_PARAMETERS、OTHER_TABLES 五组，允许空 items。固定认领也按该顺序；未认领表进入 OTHER_TABLES。item_kind 为 FORWARD_CHANNEL、DEVICE、COMPOSITE_SIGNAL_DEVICE、PROTOCOL_CHANNEL、TABLE。item/tab key、label、attributes、业务排序与十个原导航诊断按第一步；同侧重复业务键用规范标量整行字节序最小者提供 label/attributes，筛选仍覆盖全部有效身份集合。
 
-从表名提取的 board/link_no 须在 `[0, 9007199254740991]` 内；仅有 `b<数字>_n<数字>_...` 形状但任一片段超域的合法表名不具备业务通道资格，按普通 OTHER_TABLES 整表呈现，不生成含非法数字的 CHANNEL_TABLE_UNCLAIMED。该范围与 net_cfg 通道键共用 safe 整数上界，不裁剪、转换或拒绝原表数据。
+通道表使用 `b<board>_n<link_no>_<后缀>` 或 `b<board>_c<com_no>_<后缀>`，数字按数值关联对应 net_cfg / com_cfg，范围为 `[0, 9007199254740991]`。超域、不合形状的表保留 OTHER_TABLES。仅 exe 非空配置行建立通道；重复行按规范整行排序选代表。net_cfg 固定首项，com_cfg 任一侧有非空 exe 时为第二项，否则保留在其他表。网络通道排在串口前，各按数字排序。
+
+当前存在侧（否则前侧）的真实 COMMENT 含“引用表”时归转发通道，去掉该字样作为 tab 标签；无同侧有效注册行则保留其他表及孤儿诊断。普通通道表按对应侧配置的协议映射前缀认领所有匹配表，不限 cfg 后缀。实际表名为 tab key，COMMENT 为标签，空则回退表名；前后同表仅认领一次。replacement 两侧独立，普通 pair 当前 COMMENT 为空时不借前侧分类。映射及详细归属见[通道规则设计](../channel-table-rules-refactoring-design.md)。v3 由后端及前端严格核对，防止旧消费者将串口诊断解释为网口。
 
 APP_TABLE_CFG_MISSING / APP_TABLE_CFG_DUPLICATE / APP_TABLE_NOT_FOUND 的 app_name 是展示用 string|null；原 app_cfg.app_name 为整数时仅在该展示/诊断边界格式化为十进制文本，string 原样保留，NULL 或非展示标量使用既有 null；全局参数项的 app_name 标签采用同一规则。此格式化不改变比较键、row_filter、规范值或表数据，不因展示标签类型而使 pair 失败。
 

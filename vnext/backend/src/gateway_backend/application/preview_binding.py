@@ -15,7 +15,7 @@ def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
     """Freeze the complete result binding, including audit absence, without another result."""
     canonical = preview.canonical
     payload = {
-        "binding_contract_version": "backend-vnext/preview-ready-binding/v2",
+        "binding_contract_version": "backend-vnext/preview-ready-binding/v3",
         "preview_result_id": preview.preview_result_id,
         "workspace_id": preview.workspace_id,
         "upload_revision_id": preview.upload_revision_id,
@@ -34,6 +34,7 @@ def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
             "baseline_canonical_state_digest": canonical.baseline_canonical_state_digest.value,
             "modified_canonical_state_digest": canonical.modified_canonical_state_digest.value,
             "storage_projection_ruleset_digest": canonical.storage_projection_ruleset_digest.value,
+            "rules_semantically_equal": canonical.rules_semantically_equal,
             "canonical_table_set_closure_ref": _ref_document(canonical.canonical_table_set_closure_ref),
             "canonical_table_set_closure_digest": canonical.canonical_table_set_closure_digest.value,
             "canonicalization_manifest_ref": _ref_document(canonical.canonicalization_manifest_ref),
@@ -51,4 +52,4 @@ def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
         "ready_closure_artifact_id": preview.ready_closure_artifact_id,
         "operation_id": preview.operation_id,
     }
-    return "v2:" + raw_blob_digest(canonicalize_json_value(payload)).value
+    return "v3:" + raw_blob_digest(canonicalize_json_value(payload)).value

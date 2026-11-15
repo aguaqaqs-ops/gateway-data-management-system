@@ -60,7 +60,7 @@ def test_dropped_source_column_preserves_provenance_for_a_shared_export(distinct
                     resources.callback(table.reader.close)
                 if table.batch_reader is not None:
                     resources.callback(table.batch_reader.close)
-            projected = project_canonical_arrow_table_set(raw.table_set, ruleset)
+            projected = project_canonical_arrow_table_set(raw.table_set, ruleset, presentation=raw.presentation)
             assert projected.manifest is not None and len(projected.tables) == 1
             table = publish_canonical_tables(projected.tables, snapshot_digest=raw.snapshot.snapshot_digest,
                 store=store, repository_id="shared-surface-test")[0]
@@ -69,7 +69,7 @@ def test_dropped_source_column_preserves_provenance_for_a_shared_export(distinct
             if table.batch_reader is not None:
                 resources.callback(table.batch_reader.close)
             manifest = projected.manifest.tables[0]
-            record = resolve_table_rule(ruleset, "net_cfg", primary_key_columns=table.descriptor.primary_key_columns).record
+            record = resolve_table_rule(ruleset, "net_cfg", primary_key_columns=table.descriptor.primary_key_columns, table_comment=None).record
             view = derive_storage_rule_view(record, raw.table_set.tables[0].descriptor)
             assert view is not None
             assert manifest.source_schema_digest is not None
@@ -165,7 +165,7 @@ def test_history_preserves_distinct_frozen_source_schemas_for_shared_rows(tmp_pa
         for sql, commit in zip(sql_inputs, commits, strict=True):
             raw = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED, ruleset=ruleset)
             assert raw.table_set is not None
-            projected = project_canonical_arrow_table_set(raw.table_set, ruleset)
+            projected = project_canonical_arrow_table_set(raw.table_set, ruleset, presentation=raw.presentation)
             assert projected.manifest is not None
             for table in (*raw.table_set.tables, *projected.tables):
                 if table.reader is not None:

@@ -25,10 +25,10 @@ pytestmark = pytest.mark.unit
 
 def side(rows: tuple[Mapping[str, Scalar], ...] = (), *, column: str = "dev_addr",
          sql_type: str = "INT", columns: Mapping[str, str | None] | None = None,
-         label: str = "表") -> NavigationSide:
+         label: str = "表", comment: str | None = None) -> NavigationSide:
     # Tests deliberately control canonical representative bytes independently of row order.
     data = tuple(NavigationRow(r, str(sorted(r.items())).encode()) for r in rows)
-    return NavigationSide(columns or {column: sql_type}, lambda: iter(data), len(data), label)
+    return NavigationSide(columns or {column: sql_type}, lambda: iter(data), len(data), label, comment)
 
 
 def evidence(**changes: Any) -> NavigationEvidence:
@@ -203,7 +203,7 @@ def test_replacement_isolates_filter_values_labels_and_unsupported_side() -> Non
 def test_channel_empty_sg_schema_change_and_global_claim_priority() -> None:
     row: dict[str, Scalar] = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1, "channel_desc": "通道"}
     net = table("net_cfg", None, side((row,), columns={"board": "INT"}))
-    sg = table("b1_n2_sg_cfg", None, side(label="定值"), table_change=True)
+    sg = table("b1_n2_sg_cfg", None, side(label="定值", comment="定值引用表"), table_change=True)
     app = table("app_cfg", None, side(({"app_name": "重复", "table_cfg": sg.table_name},)))
     result = build(net, sg, app, table("unrelated", None, side()))
     assert result.document["groups"][0]["items"][0]["tabs"][0]["table_id"] == sg.table_id
@@ -213,7 +213,7 @@ def test_channel_empty_sg_schema_change_and_global_claim_priority() -> None:
 
 
 def test_unclaimed_channel_table_and_absent_replacement_side() -> None:
-    result = build(table("b2_n3_sg_cfg", None, side()), replacement=True)
+    result = build(table("b2_n3_sg_cfg", None, side(comment="定值引用表")), replacement=True)
     assert result.document["replacement_sides"]["before"] == []
     diagnostic = diagnostics(result, "CHANNEL_TABLE_UNCLAIMED")[0]
     assert diagnostic["side"] == "CURRENT" and diagnostic["target"]["group_key"] == "OTHER_TABLES"
@@ -366,7 +366,7 @@ def test_protocol_diagnostic_targets_existing_empty_channel_item() -> None:
     assert items[1]["attributes"] == {"board": 1, "link_no": 2, "protocol": "dev103"}
     diagnostic = diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")[0]
     assert diagnostic["target"]["item_key"] == "protocol:b1_n2"
-    assert diagnostic["params"]["expected_tables"] == ["b1_n2_nr103d_cfg", "b1_n2_nr103d_dev_cfg"]
+    assert diagnostic["params"]["expected_prefixes"] == ["b1_n2_nr103d"]
 
 
 def test_unrecorded_identity_requires_two_sides_and_actual_eligibility() -> None:
@@ -622,7 +622,7 @@ def test_existing_side_with_unknown_filtered_count_is_not_assumed_zero(missing: 
 def test_empty_forward_channel_and_unassigned_shared_table_remain_reachable() -> None:
     registry: dict[str, Scalar] = {"board": 1, "link_no": 2, "exe": "iec104", "tab_num": 1}
     result = build(table("net_cfg", None, side((registry,))),
-        table("b1_n2_iec104_syx_list", side(), side(), unchanged=True),
+        table("b1_n2_iec104_syx_list", side(comment="遥信引用表"), side(comment="遥信引用表"), unchanged=True),
         table("device_st", side(), side(), unchanged=True))
     channel = result.document["groups"][0]
     assert channel["nonempty_item_count"] == 0 and len(channel["items"]) == 1
@@ -676,3 +676,97 @@ def test_enabled_app_requires_parameter_table_on_its_own_side() -> None:
     source = side(({'app_name': 'JMS', 'table_cfg': 'jms_cfg', 'enable': '1:YES'},))
     result = build(table("app_cfg", source, source), table("jms_cfg", side(), None))
     assert [d["side"] for d in diagnostics(result, "APP_TABLE_NOT_FOUND")] == ["CURRENT"]
+
+
+def test_network_and_serial_channels_claim_actual_tables_once() -> None:
+    net = table("net_cfg", None, side(({"board": 1, "link_no": 2, "exe": "DLL"},)))
+    com = table("com_cfg", None, side(({"board": 1, "com_no": 2, "exe": "stdmdsCOM", "channel_desc": "串口"},), comment="串口配置"))
+    result = build(net, com,
+        table("b01_n02_dll3xx_extra", None, side(comment="网络一")),
+        table("b1_n2_dll495", None, side(comment="网络二")),
+        table("b1_c2_stdmds_any", None, side(comment="串口规约")),
+        table("b1_c2_custom", None, side(comment="遥信引用表")))
+    groups = result.document["groups"]
+    assert [i["item_key"] for i in groups[2]["items"]] == [
+        "protocol:table", "protocol:com_cfg", "protocol:b1_n2", "protocol:b1_c2"]
+    assert [t["label"] for t in groups[2]["items"][2]["tabs"]] == ["网络一", "网络二"]
+    assert groups[0]["items"][0]["tabs"][0]["label"] == "遥信"
+    assert len(tabs(result, "b1_c2_custom")) == 1
+    assert not diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")
+
+
+def test_current_comment_controls_pair_classification_and_replacement_is_independent() -> None:
+    row: dict[str, str | int | None] = {"board": 1, "com_no": 2, "exe": "x"}
+    registry = table("com_cfg", side((row,)), side((row,)))
+    target = table("b1_c2_x_more", side(comment="旧引用表"), side(comment=None))
+    result = build(registry, target)
+    assert not result.document["groups"][0]["items"]
+    assert tabs(result, target.table_id)[0]["label"] == target.table_name
+    replacement = build(registry, target, replacement=True)
+    assert replacement.document["replacement_sides"]["before"][0]["items"]
+    assert not replacement.document["replacement_sides"]["current"][0]["items"]
+
+
+def test_empty_exe_and_orphan_serial_reference_remain_browsable() -> None:
+    registry = table("com_cfg", None, side(({"board": 1, "com_no": 2, "exe": "  "},)))
+    target = table("b1_c2_any", None, side(comment="引用表"))
+    result = build(registry, target)
+    assert not result.document["groups"][2]["items"]
+    assert len(tabs(result, "com_cfg")) == len(tabs(result, target.table_id)) == 1
+    assert diagnostics(result, "CHANNEL_TABLE_UNCLAIMED")[0]["params"] == {
+        "channel_prefix": "b1_c2", "registry_table": "com_cfg"}
+
+
+@pytest.mark.parametrize("kind,exe,segment", [
+    ("n", "dev103", "nr103d"), ("n", "ht103", "nr103ht"),
+    ("n", "ModbusNetDev", "modbusnet"), ("n", "stdmdsNET", "stdmds"),
+    ("n", "dev103_9150", "nrts103"), ("n", "mach2Dev", "mach2"),
+    ("n", "abb103Dev", "abb103"), ("n", "cagc", "agc"),
+    ("c", "stdmdsCOM", "stdmds"), ("c", "DLL", "dll495"),
+    ("c", "custom", "custom"),
+])
+def test_protocol_mapping_claims_literal_prefix(kind: str, exe: str, segment: str) -> None:
+    registry = "net_cfg" if kind == "n" else "com_cfg"
+    column = "link_no" if kind == "n" else "com_no"
+    name = f"b1_{kind}2_{segment}extra"
+    result = build(table(registry, None, side(({"board": 1, column: 2, "exe": exe},))),
+                   table(name, None, side(comment="标签")))
+    item = next(i for i in result.document["groups"][2]["items"] if i["item_key"] == f"protocol:b1_{kind}2")
+    assert [t["table_id"] for t in item["tabs"]] == [name]
+    assert not diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")
+
+
+def test_navigation_v3_rejects_old_diagnostic_shape_and_version() -> None:
+    result = build(table("com_cfg", None, side(({"board": 1, "com_no": 2, "exe": "x"},))))
+    old_navigation = deepcopy(result.document)
+    old_navigation["contract_version"] = "backend-vnext/business-navigation/v2"
+    with pytest.raises(ValueError):
+        validate_navigation(old_navigation, replacement=False)
+    old_diagnostics = deepcopy(result.diagnostics)
+    assert old_diagnostics is not None
+    old_diagnostics["diagnostics"][0]["params"] = {"board": 1, "link_no": 2, "protocol": "x", "expected_tables": []}
+    with pytest.raises(ValueError):
+        validate_diagnostics(old_diagnostics, result.document, frozenset({"com_cfg"}))
+
+
+def test_channel_representatives_and_side_ownership_do_not_cross() -> None:
+    old: tuple[dict[str, str | int | None], ...] = ({"board": 3, "com_no": 4, "exe": "old", "channel_desc": "旧"},)
+    current: tuple[dict[str, str | int | None], ...] = ({"board": 3, "com_no": 4, "exe": " "},
+               {"board": 3, "com_no": 4, "exe": "new", "channel_desc": "新"})
+    registry = table("com_cfg", side(old), side(current))
+    old_only = table("b3_c4_old_extra", side(comment="旧表"), None)
+    new_only = table("b3_c4_new_extra", None, side(comment="新表"))
+    result = build(registry, old_only, new_only)
+    item = next(i for i in result.document["groups"][2]["items"] if i["item_key"] == "protocol:b3_c4")
+    assert item["label"] == "新"
+    assert [t["table_id"] for t in item["tabs"]] == [new_only.table_id, old_only.table_id]
+    assert not diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")
+
+
+def test_reference_without_registration_cannot_be_claimed_by_app_cfg() -> None:
+    reference = table("b2_c3_any", None, side(comment="引用表"))
+    app = table("app_cfg", None, side(({"app_name": "应用", "table_cfg": reference.table_name},)))
+    result = build(reference, app)
+    assert result.document["groups"][4]["items"][0]["item_key"] == "table:b2_c3_any"
+    assert len(tabs(result, reference.table_id)) == 1
+    assert diagnostics(result, "CHANNEL_TABLE_UNCLAIMED")[0]["side"] == "CURRENT"

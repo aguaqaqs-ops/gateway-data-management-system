@@ -1,4 +1,4 @@
-"""Fixed C/D vectors: original semantic preimages with v4 evidence identities."""
+"""GW08 comparison vectors with frozen semantic expectations."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any, cast
 
 _FIXTURE = (
     Path(__file__).resolve().parents[3]
-    / "fixtures/golden/comparison/s3-e/comparison-v4-expected.json"
+    / "fixtures/golden/comparison/s3-e/gw08-target-expected.json"
 )
 _SOURCE = "f0b4ee93cd036f5941f0227839e807445274f500"
 _ALGORITHM_SOURCE = "4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec"
@@ -20,6 +20,7 @@ _ALGORITHM_SOURCE = "4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec"
 @cache
 def _cases() -> dict[str, dict[str, Any]]:
     payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    assert payload["fixture_scope"] == "GW08 current comparison identity and preserved semantic vectors"
     assert payload["source_commit"] == _SOURCE
     assert payload["old_algorithm_source"] == _ALGORITHM_SOURCE
     assert payload["historical_source_commit"] == "a9da0c59277e3179f34d646eabcd9c185917ae05"
@@ -31,5 +32,5 @@ def _cases() -> dict[str, dict[str, Any]]:
 
 
 def frozen_case(nodeid: str) -> dict[str, Any]:
-    """Get the fixed v4 expectation for one exact expanded pytest case."""
+    """Get the GW08 expectation for one exact expanded pytest case."""
     return deepcopy(_cases()[nodeid])

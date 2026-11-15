@@ -53,7 +53,8 @@ def _bound(sql: str) -> BoundSnapshotInput:
     assert result.snapshot is not None
     assert result.summary is not None
     assert result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
+        presentation=result.presentation)
 
 
 def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
@@ -63,7 +64,8 @@ def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInpu
     from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
     raw = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert raw.snapshot is not None and raw.table_set is not None
-    projected = project_canonical_arrow_table_set(raw.table_set, migrated_table_ruleset_snapshot())
+    projected = project_canonical_arrow_table_set(raw.table_set, migrated_table_ruleset_snapshot(),
+        presentation=raw.presentation)
     assert projected.manifest is not None
     try:
         result = materialize_canonical_snapshot(raw.snapshot, projected.tables, artifact_store=store,
@@ -76,7 +78,7 @@ def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInpu
                 table.batch_reader.close()
     assert result.snapshot is not None and result.summary is not None and result.table_set is not None
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
-        _comparison_storage_facts(projected.manifest))
+        _comparison_storage_facts(projected.manifest), presentation=projected.manifest.presentation)
 
 
 def _replacement(
@@ -191,10 +193,12 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         "INSERT INTO version_manager VALUES ('project-b', 'v2', 2);"
     )
     pair_id = "replacement-pair"
+    assert before.presentation is not None and current.presentation is not None
     pair = run_preview_pair_pipeline(
         pair_id=pair_id,
         before=before,
         current=current,
+        before_presentation=before.presentation, current_presentation=current.presentation,
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
@@ -266,10 +270,12 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         "INSERT INTO second_table VALUES (1, 'same');"
     )
     pair_id = "history-pair"
+    assert before.presentation is not None and current.presentation is not None
     pair = run_preview_pair_pipeline(
         pair_id=pair_id,
         before=before,
         current=current,
+        before_presentation=before.presentation, current_presentation=current.presentation,
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
@@ -338,10 +344,12 @@ def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table(
         "INSERT INTO uploaded_table VALUES (4);"
     )
     pair_id = "preview-pair"
+    assert before.presentation is not None and current.presentation is not None
     pair = run_preview_pair_pipeline(
         pair_id=pair_id,
         before=before,
         current=current,
+        before_presentation=before.presentation, current_presentation=current.presentation,
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,

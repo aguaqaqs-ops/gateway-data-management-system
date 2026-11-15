@@ -39,9 +39,8 @@ Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只
 | DEVICE_GID_DUPLICATE | gid |
 | DEVICE_TAB_COUNT_UNKNOWN | identity_column |
 | DEVICE_ROWS_UNASSIGNED | identity_column, row_count, changed_row_count |
-| CHANNEL_TABLE_UNCLAIMED | board, link_no |
-| PROTOCOL_EXE_MISSING | board, link_no |
-| PROTOCOL_TABLE_NOT_FOUND | board, link_no, protocol, expected_tables |
+| CHANNEL_TABLE_UNCLAIMED | channel_prefix, registry_table |
+| PROTOCOL_TABLE_NOT_FOUND | channel_prefix, registry_table, protocol, expected_prefixes |
 | APP_TABLE_CFG_MISSING | app_name |
 | APP_TABLE_CFG_DUPLICATE | app_name, table_cfg |
 | APP_TABLE_NOT_FOUND | app_name, table_cfg |

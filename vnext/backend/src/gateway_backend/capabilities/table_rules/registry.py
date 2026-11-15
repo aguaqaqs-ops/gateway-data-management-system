@@ -85,20 +85,7 @@ COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS: tuple[str, ...] = (
     "formula_ast_json",
     "point_name",
 )
-IEC104_ORDERED_FAMILIES: tuple[str, ...] = (
-    "iec104_syx_list",
-    "iec104_dyx_list",
-    "iec104_yc_list",
-    "iec104_syk_list",
-    "iec104_dyk_list",
-    "iec104_yt_list",
-    "iec104_ym_list",
-    "iec104_sc_list",
-    "iec104_yp_list",
-)
-IEC104_ORDERED_TABLE_PATTERNS: tuple[str, ...] = tuple(
-    rf"^b\d+_n\d+_{re.escape(family)}$" for family in IEC104_ORDERED_FAMILIES
-)
+CHANNEL_TABLE_PATTERN = r"^b[0-9]+_[nc][0-9]+_.+$"
 PROTOCOL_CFG_TABLE_SEGMENTS: tuple[str, ...] = (
     "iec104",
     "iec61850c",
@@ -204,12 +191,13 @@ def _browse_only_records() -> tuple[TableRuleRecord, ...]:
 
 
 def _ordered_records() -> tuple[TableRuleRecord, ...]:
-    return tuple(_ordered_record(pattern) for pattern in IEC104_ORDERED_TABLE_PATTERNS)
+    return (_ordered_record(CHANNEL_TABLE_PATTERN),)
 
 
 def _ordered_record(pattern: str) -> TableRuleRecord:
     return TableRuleRecord(
-        selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern),
+        selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern,
+                                   table_comment_contains="引用表"),
         precedence_class=SelectorPrecedenceClass.ORDERED_DIFF,
         static_role=TableStaticRole.ORDERED_DIFF,
         table_storage=TableStorageDisposition.PROJECT,

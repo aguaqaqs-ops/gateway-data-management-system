@@ -63,7 +63,7 @@ from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_frozen import frozen_case
 from tests.support.snapshot_materialization import snapshot_table_as_arrow
 from tests.support.table_rules import (
-    comparison_ruleset_for, fallback_record, ordered_record, standard_rule_record,
+    comparison_ruleset_for, fallback_record, ordered_record, standard_rule_record, snapshot_from_records,
 )
 from tests.test_comparison_replacement import _artifact_bound
 from tests.test_comparison_rule_roles import _plan as role_plan
@@ -72,7 +72,7 @@ pytestmark = pytest.mark.unit
 
 
 def _risk_v7_golden() -> dict[str, str]:
-    path = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison/s3-e/risk-v7-expected.json"
+    path = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison/s3-e/gw08-risk-expected.json"
     return json.loads(path.read_bytes())  # type: ignore[no-any-return]
 
 
@@ -85,7 +85,7 @@ def test_native_sort_cap_uses_the_reserved_phase_budget(
                        "INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b');")
         current = bound("CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
                         "INSERT INTO t VALUES (2, 1, 'b'), (1, 2, 'a');")
-        planned = plan(_canonical_bound(before), _canonical_bound(current), ordered=True)
+        planned = plan(_ordered_bound(before), _ordered_bound(current), ordered=True)
     elif route == "probe":
         before = bound("CREATE TABLE t (id INT PRIMARY KEY, value INT); "
                        "INSERT INTO t VALUES (1, 10);")
@@ -149,6 +149,29 @@ def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
 
 
+
+def _ordered_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
+    from gateway_backend.application.preview_jobs import _comparison_storage_facts
+    from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
+    from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
+    from gateway_backend.capabilities.table_access import NeverCancel, ParserInvocationContext
+
+    assert source.table_set is not None and source.presentation is not None
+    ruleset = snapshot_from_records(ordered_record(r"^t$"), fallback_record())
+    projected = project_canonical_arrow_table_set(
+        source.table_set, ruleset, presentation=source.presentation,
+    )
+    assert projected.manifest is not None
+    result = materialize_canonical_snapshot(
+        source.snapshot, projected.tables, artifact_store=InMemoryArtifactStore(),
+        context=ParserInvocationContext(NeverCancel()), repository_id="ordered-fixture",
+    )
+    assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+    return BoundSnapshotInput(
+        result.snapshot, result.summary, result.table_set,
+        _comparison_storage_facts(projected.manifest), presentation=projected.manifest.presentation,
+    )
+
 def _session_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     return complete_canonical_bound(_canonical_bound(source))
 
@@ -164,12 +187,12 @@ def _session_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
 def test_ordered_added_column_uses_shared_row_association(
     current_rows: str, content_changed: bool,
 ) -> None:
-    before = _canonical_bound(bound(
+    before = _ordered_bound(bound(
         "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8));"
         " INSERT INTO t VALUES (1,1,'a','x'),(2,2,'b','y');"
     ))
     rows_with_added = current_rows.replace(")", ",'z')")
-    current = _canonical_bound(bound(
+    current = _ordered_bound(bound(
         "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8),"
         " added VARCHAR(8));"
         f" INSERT INTO t VALUES {rows_with_added};"
@@ -466,7 +489,7 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
     expected = frozen_case(request.node.nodeid)
 
     product = compare_plan_native(plan(
-        _canonical_bound(before), _canonical_bound(current), ordered=True,
+        _ordered_bound(before), _ordered_bound(current), ordered=True,
     ))
     try:
         assert isinstance(product.result, DetailedFactsResult)
@@ -513,17 +536,9 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert blank_published.records_closure is not None
         assert len(blank_published.records_closure.records) == 1
         assert blank_published.records_closure.records[0].family.value == "BLANK"
-        # Keep the pre-E capture intact. Only location-bearing transport bytes
-        # use the separately authored S1a preimage; all semantic/Parquet checks stay.
+        # Verify the current closure preimage and exact transport identities.
         fixture_root = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison"
-        location_vector = json.loads((fixture_root / "s3-e/comparison-v4-blank-location-closure.json").read_bytes())
-        historical = location_vector["historical_source"]
-        assert historical["case"] == request.node.nodeid
-        assert hashlib.sha256((fixture_root / "s3-e/old-python-expected.json").read_bytes()).hexdigest() == historical["file_sha256"]
-        old_preimage = location_vector["historical_closure_preimage"].encode()
-        assert "sha256:" + hashlib.sha256(old_preimage).hexdigest() == expected["blank_only"]["closure_manifest_digest"]
-        assert historical["closure_manifest_digest"] == expected["blank_only"]["closure_manifest_digest"]
-        assert location_vector["historical_derived_digest"] == historical["closure_manifest_digest"]
+        location_vector = json.loads((fixture_root / "s3-e/gw08-blank-closure.json").read_bytes())
         blank_entry = blank_published.records_closure.records[0]
         assert artifact_ref_to_dict(blank_entry.records_ref) == location_vector["records_ref"]
         assert artifact_ref_to_dict(blank_entry.records_manifest_ref) == location_vector["manifest_ref"]
@@ -553,10 +568,10 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
             ordered_position_maxima={"t": (4, 4)},
         ), artifact_store=risk_store)
         annotations = json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))["annotations"]
-        assert [(row["reasons"][0]["reason_code"], row["target"]["position_range"]) for row in annotations
-                if row["target"]["target_type"] == "ROW_INTERVAL"] == [
-            ("ORDERED_TAIL_BLANK_INTERVAL", [4, 4]), ("ORDERED_MIDDLE_BLANK_INTERVAL", [2, 2]),
-        ]
+        assert {(row["reasons"][0]["reason_code"], tuple(row["target"]["position_range"])) for row in annotations
+                if row["target"]["target_type"] == "ROW_INTERVAL"} == {
+            ("ORDERED_TAIL_BLANK_INTERVAL", (4, 4)), ("ORDERED_MIDDLE_BLANK_INTERVAL", (2, 2)),
+        }
         assert new_risk.risk_evaluation is not None
         assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v7_golden()["ordered_risk_evaluation_digest"]
         new_store = InMemoryArtifactStore()
@@ -874,8 +889,10 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
         return result
 
     monkeypatch.setattr(pair_pipeline, "compare_plan_native", observe_compare)
+    assert before.presentation is not None and current.presentation is not None
     first = run_preview_pair_pipeline(
         pair_id="writer-first", before=before, current=current,
+        before_presentation=before.presentation, current_presentation=current.presentation,
         store=store, control=ExecutionControl(), on_cancel=lambda: None,
         rule_set=rules, assess_identity=False, dedup_session=session,
         repository_id="replacement-fixture",
@@ -926,6 +943,7 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     monkeypatch.setattr(session, "risk_evict_for_output", counted_evict)
     second = run_preview_pair_pipeline(
         pair_id="writer-second", before=before, current=current,
+        before_presentation=before.presentation, current_presentation=current.presentation,
         store=store, control=ExecutionControl(), on_cancel=lambda: None,
         rule_set=rules, assess_identity=False, dedup_session=session,
         repository_id="replacement-fixture",
@@ -1234,7 +1252,7 @@ def test_ordered_reader_failure_preserves_standard_ordered_and_blank_degradation
 
     expected = frozen_case(request.node.nodeid)
     native_plan = missing_reader(plan(
-        _canonical_bound(before), _canonical_bound(current), ordered=True,
+        _ordered_bound(before), _ordered_bound(current), ordered=True,
     ))
     product = compare_plan_native(native_plan)
     try:
@@ -1267,8 +1285,8 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
     current_sql = before_sql.replace("before", "after")
     expected = frozen_case(request.node.nodeid)
     native_plan = plan(
-        _canonical_bound(bound(before_sql)),
-        _canonical_bound(bound(current_sql)),
+        (_ordered_bound if ordered else _canonical_bound)(bound(before_sql)),
+        (_ordered_bound if ordered else _canonical_bound)(bound(current_sql)),
         ordered=ordered,
     )
     assert native_plan.tasks[0].current_table is not None

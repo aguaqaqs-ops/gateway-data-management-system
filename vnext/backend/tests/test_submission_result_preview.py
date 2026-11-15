@@ -49,7 +49,7 @@ def test_real_preview_review_pairs_match_final_bundle_and_ready(
         if ref.media_type != "application/json":
             continue
         raw = json.loads(harness.artifact_store.locate(ref))
-        if isinstance(raw, dict) and raw.get("contract_version") == "backend-vnext/business-navigation/v2":
+        if isinstance(raw, dict) and raw.get("contract_version") == "backend-vnext/business-navigation/v3":
             documents.append(raw)
     assert len(documents) >= len(expected)
     for document in documents:

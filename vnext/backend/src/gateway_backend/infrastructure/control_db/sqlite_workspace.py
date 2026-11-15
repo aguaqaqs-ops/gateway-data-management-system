@@ -429,6 +429,7 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
             "baseline_canonical_state_digest": result.canonical.baseline_canonical_state_digest.value,
             "modified_canonical_state_digest": result.canonical.modified_canonical_state_digest.value,
             "storage_projection_ruleset_digest": result.canonical.storage_projection_ruleset_digest.value,
+            "rules_semantically_equal": result.canonical.rules_semantically_equal,
         },
         "identity_assessment_set_digest": result.identity_assessment_set_digest.value,
         "identity_pairs": [

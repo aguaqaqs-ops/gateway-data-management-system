@@ -234,11 +234,13 @@ def _parse_xml(xml_bytes: bytes | None, dataset_id: str) -> Any:
 def _rule_category(
     descriptor: SnapshotTableDescriptor,
     manifest_table: CanonicalizationManifestTable,
+    table_comment: str | None,
 ) -> str:
     ruleset = migrated_table_ruleset_snapshot()
     resolved = resolve_table_rule(
         ruleset,
         descriptor.table_name,
+        table_comment=table_comment,
         primary_key_columns=descriptor.primary_key_columns,
     )
     if resolved.record.static_role is TableStaticRole.SNAPSHOT_ONLY:
@@ -321,7 +323,9 @@ def _materialize_project(
         )
 
     raw_table_set = business.table_set
-    projection = project_canonical_arrow_table_set(raw_table_set, ruleset)
+    projection = project_canonical_arrow_table_set(
+        raw_table_set, ruleset, presentation=business.presentation,
+    )
     _close_readers(raw_table_set.tables)
     if projection.status is not ProjectionStatus.COMPLETE or projection.manifest is None:
         raise CensusRefusal(
@@ -336,6 +340,7 @@ def _materialize_project(
         _close_readers(projection.tables)
         raise CensusRefusal(f"{spec.dataset_id}: projection table and manifest sets differ")
 
+    comments = {table.table_name: table.comment for table in business.presentation.tables}
     metadata: dict[str, TableMetadata] = {}
     try:
         for table_name, manifest_table in manifest_by_name.items():
@@ -358,9 +363,9 @@ def _materialize_project(
                 columns=columns,
                 float_columns=_float_column_names(projected_table),
                 rule_category=(
-                    _rule_category(source_descriptor, manifest_table)
+                    _rule_category(source_descriptor, manifest_table, comments.get(table_name))
                     if not manifest_table.canonical_key_columns
-                    else _category_for_keyed_table(source_descriptor)
+                    else _category_for_keyed_table(source_descriptor, comments.get(table_name))
                 ),
                 canonical_key_columns=manifest_table.canonical_key_columns,
             )
@@ -370,11 +375,14 @@ def _materialize_project(
     return metadata, projection.tables
 
 
-def _category_for_keyed_table(descriptor: SnapshotTableDescriptor) -> str:
+def _category_for_keyed_table(
+    descriptor: SnapshotTableDescriptor, table_comment: str | None,
+) -> str:
     ruleset = migrated_table_ruleset_snapshot()
     resolved = resolve_table_rule(
         ruleset,
         descriptor.table_name,
+        table_comment=table_comment,
         primary_key_columns=descriptor.primary_key_columns,
     )
     if resolved.record.static_role is TableStaticRole.SNAPSHOT_ONLY:

@@ -148,9 +148,12 @@ def test_hidden_pair_is_consistent_and_audit_is_only_in_backend_ready_closure() 
     from tests.test_comparison_replacement import _artifact_bound
 
     store = InMemoryArtifactStore()
+    before = _artifact_bound(_BEFORE, store)
+    current = _artifact_bound("CREATE TABLE t(id INT PRIMARY KEY,v INT); INSERT INTO t VALUES(1,10);", store)
+    assert before.presentation is not None and current.presentation is not None
     result = run_history_pair_pipeline(pair_id="audit-pair",
-        before=_artifact_bound(_BEFORE, store),
-        current=_artifact_bound("CREATE TABLE t(id INT PRIMARY KEY,v INT); INSERT INTO t VALUES(1,10);", store),
+        before=before, current=current,
+        before_presentation=before.presentation, current_presentation=current.presentation,
         rule_set=comparison_ruleset_for(standard_rule_record("t")), store=store,
         control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
     surface = result.surface_result.surface
@@ -278,8 +281,12 @@ def test_empty_original_schema_change_stays_browsable_without_restoring_hidden_r
                 if filtered else "")
     before = registry + f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,dev_addr INT,old TEXT);"
     current = registry + f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,dev_addr INT,new TEXT);" if changed else before
+    before_bound = _artifact_bound(before, store)
+    current_bound = _artifact_bound(current, store)
+    assert before_bound.presentation is not None and current_bound.presentation is not None
     result = run_history_pair_pipeline(pair_id="empty-structure",
-        before=_artifact_bound(before, store), current=_artifact_bound(current, store),
+        before=before_bound, current=current_bound,
+        before_presentation=before_bound.presentation, current_presentation=current_bound.presentation,
         rule_set=comparison_ruleset_for(standard_rule_record(name), standard_rule_record("device")), store=store,
         control=ExecutionControl(), on_cancel=lambda: None, repository_id="replacement-fixture")
     surface = result.surface_result.surface

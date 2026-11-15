@@ -34,9 +34,10 @@ from gateway_backend.capabilities.table_access import current_kernel_context
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
 from gateway_backend.capabilities.table_presentation import table_display_name
 
-NAVIGATION_ROW_TABLES = frozenset({"net_cfg", "device", "app_cfg", *FILTER_IDENTITY_COLUMNS})
+NAVIGATION_ROW_TABLES = frozenset({"net_cfg", "com_cfg", "device", "app_cfg", *FILTER_IDENTITY_COLUMNS})
 _REGISTRY_COLUMNS = {
-    "net_cfg": ("board", "link_no", "tab_num", "exe", "channel_desc", "protocol_name"),
+    "net_cfg": ("board", "link_no", "exe", "channel_desc", "protocol_name"),
+    "com_cfg": ("board", "com_no", "exe", "channel_desc", "protocol_name"),
     "device": ("dev_addr", "gid", "description"),
     "app_cfg": ("app_name", "table_cfg", "enable"),
 }
@@ -141,7 +142,8 @@ def _side(table: SnapshotTable | None, presentation: TablePresentation | None) -
             with_rows.close()
 
     return NavigationSide({c.name: c.scalar_type for c in descriptor.columns}, rows,
-        descriptor.row_count, table_display_name(descriptor.table_name, None, presentation))
+        descriptor.row_count, table_display_name(descriptor.table_name, None, presentation),
+        None if presentation is None else presentation.comment)
 
 
 def publish_business_presentation(

@@ -1,6 +1,7 @@
 """Strict persisted Preview binding documents; SQL scalar scope is checked first."""
 from __future__ import annotations
 
+from typing import Literal
 from pydantic import BaseModel, ConfigDict, JsonValue
 from gateway_shared_kernel import DigestRef
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
@@ -60,6 +61,7 @@ class PreviewCanonicalDocument(_StrictDocument):
     baseline_canonical_state_digest: str
     modified_canonical_state_digest: str
     storage_projection_ruleset_digest: str
+    rules_semantically_equal: bool
 
     def to_model(self) -> PreviewCanonicalBindings:
         return PreviewCanonicalBindings(
@@ -71,7 +73,8 @@ class PreviewCanonicalDocument(_StrictDocument):
             canonicalization_manifest_digest=DigestRef(self.canonicalization_manifest_digest),
             baseline_canonical_state_digest=DigestRef(self.baseline_canonical_state_digest),
             modified_canonical_state_digest=DigestRef(self.modified_canonical_state_digest),
-            storage_projection_ruleset_digest=DigestRef(self.storage_projection_ruleset_digest))
+            storage_projection_ruleset_digest=DigestRef(self.storage_projection_ruleset_digest),
+            rules_semantically_equal=self.rules_semantically_equal)
 
 
 class PreviewBindingDocument(_StrictDocument):
@@ -79,7 +82,7 @@ class PreviewBindingDocument(_StrictDocument):
     business_baseline_commit_id: str
     baseline_head_version: int
     ruleset_version: str
-    contract_version: str
+    contract_version: Literal["backend-vnext/preview/v4"]
     provider_versions: dict[str, str]
     digests: PreviewDigestsDocument
     canonical: PreviewCanonicalDocument

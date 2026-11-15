@@ -334,7 +334,7 @@ def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> Preview
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
         baseline_head_version=BASELINE_HEAD.baseline_head_version,
         ruleset_version="rules-1",
-        contract_version="contract-1",
+        contract_version="backend-vnext/preview/v4",
         provider_versions={"comparison": "v1"},
         digests=PreviewResultDigests(
             source_digest="d-source",
@@ -348,8 +348,8 @@ def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> Preview
         canonical=make_preview_canonical_bindings(repository_id),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
-        ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
+        ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
         operation_id="op-preview-1",
         created_at=TS1,
     )
@@ -425,19 +425,19 @@ def _set_preview_identity_statuses(
 def _protected_preview_refs(repository_id: str = "repo-1") -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
             media_type="application/gzip",
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
             media_type="application/gzip",
             size_bytes=2,
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
             media_type="application/json",
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -491,13 +491,13 @@ def seed_submit_ready_workspace(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
                     media_type="application/gzip",
                     size_bytes=1,
                     raw_sha256="sha256:initial",
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
                     media_type="application/gzip",
                     size_bytes=2,
                     raw_sha256="sha256:modified",
@@ -521,6 +521,12 @@ def seed_submit_ready_workspace(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
         )
+        facts = preview.canonical.configuration_facts
+        preview = replace(preview, canonical=replace(preview.canonical, configuration_facts=replace(
+            facts,
+            initial=replace(facts.initial, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf")),
+            modified=replace(facts.modified, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
+        )))
         if input_completeness is InputCompleteness.MODIFIED_ONLY:
             preview = replace(preview, canonical=replace(preview.canonical,
                 configuration_facts=replace(preview.canonical.configuration_facts, initial_origin="BASELINE_REUSED")))
@@ -605,9 +611,10 @@ def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
     )
 
 
-def _set_preview_canonical_states_equal(seed: SubmitSeed) -> SubmitSeed:
+def _set_preview_canonical_states_equal(seed: SubmitSeed, *, rules_equal: bool = True) -> SubmitSeed:
     canonical = replace(
         seed.preview_result.canonical,
+        rules_semantically_equal=rules_equal,
         configuration_facts=replace(seed.preview_result.canonical.configuration_facts,
             baseline_content_identity=replace(seed.preview_result.canonical.configuration_facts.baseline_content_identity,
                 canonical_state_digest=seed.preview_result.canonical.modified_canonical_state_digest.value)),
@@ -1156,7 +1163,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
             ),
             source_digest=seed.preview_result.digests.source_digest,
             snapshot_digest=seed.preview_result.digests.snapshot_digest,
-            source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+            source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"), build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
             canonical_table_set_closure_ref=(
                 seed.preview_result.canonical.canonical_table_set_closure_ref.artifact_id
             ),
@@ -1361,7 +1368,7 @@ def _seed_effect_pending_attempt(
         now=TS1,
     )
     backend_ref = BackendArtifactRef(
-        artifact_id="a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9"),
         media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
         size_bytes=10,
         raw_sha256=_SHA_PACKAGE,
@@ -1380,7 +1387,7 @@ def _seed_effect_pending_attempt(
             state=SubmitAttemptState.EFFECT_PENDING,
             effect_pending_at=TS1,
             optimistic_version=1,
-            prepared_canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+            prepared_canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
             prepared_canonicalization_manifest_digest=_SHA_MANIFEST,
             repository_import_artifact_ref=backend_ref,
             repository_artifact_ref=repository_ref,
@@ -1558,7 +1565,7 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
     assert attempt.canonicalization_manifest_digest == (
         seed.preview_result.canonical.canonicalization_manifest_digest.value
     )
-    assert attempt.prepared_canonicalization_manifest_ref == "a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"
+    assert attempt.prepared_canonicalization_manifest_ref == build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6")
     assert attempt.prepared_canonicalization_manifest_digest == _SHA_MANIFEST
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     facts = MatchingFinalizeFacts(
@@ -1568,7 +1575,7 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1655,7 +1662,7 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1723,7 +1730,7 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1861,7 +1868,7 @@ def _finalize_facts(seed: SubmitSeed) -> MatchingFinalizeFacts:
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -2898,3 +2905,43 @@ def test_submit_queue_limit_counts_active_history_before_writing(db_path: Path) 
             operation_queue_limit=1,
         )
     _assert_t1_zero_writes(db_path, seed, idempotency_key="queue-submit")
+
+
+def test_t1_accepts_equal_rows_when_resolved_rules_changed(db_path: Path) -> None:
+    seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path), rules_equal=False)
+    result = accept_submit_transaction(
+        command=_accept_command(seed, idempotency_key="rule-change"),
+        scope_resolution=FixedScopeResolutionPort(repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    assert not result.replay
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.get_submit_attempt(result.submit_attempt_id) is not None
+
+
+@pytest.mark.parametrize("rules_equal", (True, False))
+def test_standalone_accept_validation_uses_frozen_rule_equivalence(db_path: Path, rules_equal: bool) -> None:
+    from gateway_backend.application.submission.accept import validate_accept_submit
+
+    seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path), rules_equal=rules_equal)
+    def validate() -> object:
+        with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+            return validate_accept_submit(
+                command=_accept_command(seed, idempotency_key="standalone-rule-check"),
+                scope_resolution=FixedScopeResolutionPort(repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD),
+                workspace_repository=unit_of_work.workspace,
+                submission_repository=unit_of_work.submission,
+                occupancy=unit_of_work.submission,
+                main_resolve=RecordingMainResolvePort(),
+                current_storage_projection_ruleset_digest=seed.preview_result.canonical.storage_projection_ruleset_digest.value,
+                preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
+            )
+    if rules_equal:
+        with pytest.raises(NoCanonicalChange):
+            validate()
+    else:
+        assert validate() is not None

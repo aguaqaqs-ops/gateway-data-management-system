@@ -689,7 +689,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
-            contract_version="contract-1",
+            contract_version="backend-vnext/preview/v4",
             provider_versions={"comparison": "v1"},
             digests=PreviewResultDigests(
                 source_digest="d-source",

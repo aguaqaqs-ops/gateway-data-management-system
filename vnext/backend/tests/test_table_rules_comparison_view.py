@@ -27,12 +27,12 @@ from gateway_backend.capabilities.table_rules import (
 def test_comparison_view_projects_runtime_role_keys_and_column_disposition() -> None:
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
 
-    standard = resolve_comparison_rule_view(rules, "composite_signal_point")
-    standard_again = resolve_comparison_rule_view(rules, "composite_signal_point")
-    ordered = resolve_comparison_rule_view(rules, "b1_n1_iec104_syx_list")
-    browse = resolve_comparison_rule_view(rules, "version_manager")
-    snapshot = resolve_comparison_rule_view(rules, "forwardtable_demo")
-    skipped = resolve_comparison_rule_view(rules, "device_model_table")
+    standard = resolve_comparison_rule_view(rules, "composite_signal_point", table_comment=None)
+    standard_again = resolve_comparison_rule_view(rules, "composite_signal_point", table_comment=None)
+    ordered = resolve_comparison_rule_view(rules, "b1_n1_iec104_syx_list", table_comment="遥信引用表")
+    browse = resolve_comparison_rule_view(rules, "version_manager", table_comment=None)
+    snapshot = resolve_comparison_rule_view(rules, "forwardtable_demo", table_comment=None)
+    skipped = resolve_comparison_rule_view(rules, "device_model_table", table_comment=None)
 
     assert standard is not None
     assert standard.comparison_role is ComparisonRole.STANDARD
@@ -58,7 +58,7 @@ def test_comparison_view_projects_runtime_role_keys_and_column_disposition() -> 
 
 def test_comparison_view_resolves_raw_primary_key_from_runtime_descriptor() -> None:
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
-    view = resolve_comparison_rule_view(rules, "fallback_table", primary_key_columns=("ID",))
+    view = resolve_comparison_rule_view(rules, "fallback_table", primary_key_columns=("ID",), table_comment=None)
 
     assert view is not None
     assert view.comparison_role is ComparisonRole.STANDARD
@@ -96,7 +96,7 @@ def _configuration_compare(
 @pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
 def test_configuration_rows_align_page_and_number_and_emit_all_changes(table_name: str) -> None:
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
-    view = resolve_comparison_rule_view(rules, table_name, primary_key_columns=("id",))
+    view = resolve_comparison_rule_view(rules, table_name, primary_key_columns=("id",), table_comment=None)
     assert view is not None
     assert view.comparison_role is ComparisonRole.STANDARD
     assert view.effective_key_columns == ("page_no", "no")
@@ -192,7 +192,31 @@ def test_configuration_exact_scope_preserves_other_and_prefixed_rules(
     table_name: str, role: ComparisonRole, key: tuple[str, ...],
 ) -> None:
     view = resolve_comparison_rule_view(comparison_rule_set(migrated_table_ruleset_snapshot()),
-                                        table_name, primary_key_columns=("id",))
+                                        table_name, primary_key_columns=("id",), table_comment=None)
     assert view is not None
     assert view.comparison_role is role
     assert view.effective_key_columns == key
+
+
+def test_comparison_view_tracks_reference_classification_but_not_comment_wording() -> None:
+    rules = comparison_rule_set(migrated_table_ruleset_snapshot())
+    name = "b12_c3_custom"
+    first = resolve_comparison_rule_view(rules, name, primary_key_columns=("id",),
+                                         table_comment="遥信引用表")
+    renamed = resolve_comparison_rule_view(rules, name, primary_key_columns=("id",),
+                                           table_comment="新遥信引用表")
+    ordinary = resolve_comparison_rule_view(rules, name, primary_key_columns=("id",),
+                                            table_comment=None)
+    assert first is not None and renamed is not None and ordinary is not None
+    assert first.comparison_role is ComparisonRole.ORDERED
+    assert first.comparison_rule_digest == renamed.comparison_rule_digest
+    assert ordinary.comparison_role is ComparisonRole.STANDARD
+    assert ordinary.comparison_rule_digest != first.comparison_rule_digest
+
+
+def test_canonical_bound_preserves_parsed_table_comment() -> None:
+    bound = canonical_bound("CREATE TABLE t (id INT PRIMARY KEY) COMMENT='实际注释';")
+    assert bound.presentation is not None
+    assert [(table.table_name, table.comment) for table in bound.presentation.tables] == [
+        ("t", "实际注释"),
+    ]

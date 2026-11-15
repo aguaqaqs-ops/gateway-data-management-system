@@ -305,6 +305,7 @@ class PreviewCanonicalBindings:
     baseline_canonical_state_digest: DigestRef
     modified_canonical_state_digest: DigestRef
     storage_projection_ruleset_digest: DigestRef
+    rules_semantically_equal: bool
 
     def __post_init__(self) -> None:
         for field_name in (

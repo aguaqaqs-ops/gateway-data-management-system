@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from tests.support.configuration_facts import make_configuration_facts
 from functools import lru_cache
 
@@ -10,6 +10,7 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, artifact_ref_to_dict
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
@@ -46,7 +47,7 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
     )
     if materialized.table_set is None or len(materialized.table_set.tables) != 1:
         raise AssertionError("canonical fixture SQL must materialize one table")
-    projected = project_canonical_arrow_table_set(materialized.table_set, migrated_table_ruleset_snapshot())
+    projected = project_canonical_arrow_table_set(materialized.table_set, migrated_table_ruleset_snapshot(), presentation=materialized.presentation)
     assert materialized.snapshot is not None
     canonical = materialize_canonical_snapshot(materialized.snapshot, projected.tables, artifact_store=snapshot_store,
         context=ParserInvocationContext(NeverCancel()), repository_id=repository_id)
@@ -59,7 +60,7 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
         raise AssertionError("canonical fixture must project a manifest")
     manifest_bytes = durable_manifest_bytes(projected.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id="a1:durable:3fa9d814b79a37769b3c0669ad245741b4dbeb66df53bb2a0bc95aca1b313248",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "3fa9d814b79a37769b3c0669ad245741b4dbeb66df53bb2a0bc95aca1b313248"),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -76,12 +77,13 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id="a1:durable:3e05636aa9b041e486150f3ba350caaa9db6578825fc54f4b58f3963e3dcf99e",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "3e05636aa9b041e486150f3ba350caaa9db6578825fc54f4b58f3963e3dcf99e"),
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),
     )
     bindings = PreviewCanonicalBindings(
+        rules_semantically_equal=True,
         initial_canonical_state_digest=DigestRef("sha256:" + "4" * 64),
         configuration_facts=make_configuration_facts(repository_id=repository_id, rules_digest=projected.manifest.ruleset_digest.value),
         canonical_table_set_closure_ref=PreviewArtifactRef(
@@ -115,5 +117,15 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
     )
 
 
-def make_preview_canonical_bindings(repository_id: str = "repo-1") -> PreviewCanonicalBindings:
-    return make_canonical_artifact_fixture(repository_id).bindings
+def make_preview_canonical_bindings(
+    repository_id: str = "repo-1", *, generated_source_ids: bool = False,
+) -> PreviewCanonicalBindings:
+    bindings = make_canonical_artifact_fixture(repository_id).bindings
+    if not generated_source_ids:
+        return bindings
+    facts = bindings.configuration_facts
+    return replace(bindings, configuration_facts=replace(
+        facts,
+        initial=replace(facts.initial, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf")),
+        modified=replace(facts.modified, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
+    ))

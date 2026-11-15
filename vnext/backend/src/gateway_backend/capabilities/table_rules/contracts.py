@@ -15,15 +15,16 @@ import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Mapping
+from pydantic import BaseModel, ConfigDict
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-TABLE_RULESET_VERSION = 1
+TABLE_RULESET_VERSION = 2
 RULESET_ID = "backend-vnext/table-ruleset"
-RULESET_VERSION = "v6"
-TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
-STORAGE_PROJECTION_VERSION = "3"
+RULESET_VERSION = "v7"
+TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v2"
+STORAGE_PROJECTION_VERSION = "4"
 FALLBACK_SELECTOR_VALUE = "*"
 # These exact configuration tables keep their DDL storage identity while
 # comparison aligns options by page and sequence. No suffix-wide policy.
@@ -67,7 +68,7 @@ _DOCUMENT_TOP_LEVEL_KEYS = frozenset(
         "table_ruleset_version",
     }
 )
-_SELECTOR_KEYS = frozenset({"kind", "value"})
+_SELECTOR_KEYS = frozenset({"kind", "value", "table_comment_contains"})
 _DROPPED_COLUMN_KEYS = frozenset({"name", "reason"})
 _RULE_RECORD_KEYS = frozenset(
     {
@@ -88,6 +89,48 @@ _RULE_RECORD_KEYS = frozenset(
         "table_storage",
     }
 )
+
+
+class _StrictRuleDocument(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class _SelectorDocument(_StrictRuleDocument):
+    kind: str
+    value: str
+    table_comment_contains: str | None
+
+
+class _DroppedColumnDocument(_StrictRuleDocument):
+    name: str
+    reason: str
+
+
+class _RecordDocument(_StrictRuleDocument):
+    selector: _SelectorDocument
+    precedence_class: str
+    static_role: str
+    table_storage: str
+    canonical_key_policy: str
+    ordered_policy: str
+    compare_key_mode: str | None
+    compare_key_columns: list[str]
+    ignored_columns: list[str]
+    compare_excluded_columns: list[str]
+    artifact_scope: str | None
+    position_column: str | None
+    stable_key_candidates: list[str]
+    dropped_columns: list[_DroppedColumnDocument]
+    structural_columns: list[str]
+
+
+class _RulesetDocument(_StrictRuleDocument):
+    contract_version: str
+    rules: list[_RecordDocument]
+    ruleset_id: str
+    ruleset_version: str
+    storage_projection_version: str
+    table_ruleset_version: int
 
 
 class TableRuleSelectorKind(StrEnum):
@@ -192,8 +235,13 @@ def legacy_ignored_column_reason(selector: TableRuleSelector) -> str:
 class TableRuleSelector:
     kind: TableRuleSelectorKind
     value: str
+    table_comment_contains: str | None = None
 
     def __post_init__(self) -> None:
+        if self.table_comment_contains is not None and (
+            self.kind is not TableRuleSelectorKind.REGEX or not self.table_comment_contains
+        ):
+            raise ValueError("comment condition requires a regex and nonempty text")
         if type(self.kind) is not TableRuleSelectorKind:
             raise ValueError("kind must be TableRuleSelectorKind")
         if type(self.value) is not str or self.value == "":
@@ -215,7 +263,8 @@ class TableRuleSelector:
         if self.kind is TableRuleSelectorKind.EXACT:
             return f"exact:{self.value}"
         if self.kind is TableRuleSelectorKind.REGEX:
-            return f"regex:{self.value}"
+            suffix = "" if self.table_comment_contains is None else f":comment:{self.table_comment_contains}"
+            return f"regex:{self.value}{suffix}"
         return f"fallback:{FALLBACK_SELECTOR_VALUE}"
 
 
@@ -436,7 +485,8 @@ class TableRuleRecord:
             "ordered_policy": self.ordered_policy.value,
             "position_column": self.position_column,
             "precedence_class": self.precedence_class.value,
-            "selector": {"kind": self.selector.kind.value, "value": self.selector.value},
+            "selector": {"kind": self.selector.kind.value, "value": self.selector.value,
+                         "table_comment_contains": self.selector.table_comment_contains},
             "stable_key_candidates": list(self.stable_key_candidates),
             "static_role": self.static_role.value,
             "structural_columns": list(self.structural_columns),
@@ -474,7 +524,7 @@ class TableRulesetSnapshot:
         if self.ruleset_version != RULESET_VERSION:
             raise ValueError(f"ruleset_version must be {RULESET_VERSION}")
         if self.contract_version != TABLE_RULESET_CONTRACT_VERSION:
-            raise ValueError("contract_version must be gateway-vnext.table-ruleset:v1")
+            raise ValueError(f"contract_version must be {TABLE_RULESET_CONTRACT_VERSION}")
         if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
             raise ValueError(f"storage_projection_version must be {STORAGE_PROJECTION_VERSION}")
         if type(self.rules) is not tuple:
@@ -606,9 +656,9 @@ def compute_ruleset_digest(document: Mapping[str, object]) -> DigestRef:
 
 
 def table_ruleset_from_document(document: Mapping[str, object]) -> TableRulesetSnapshot:
-    if type(document) is not dict:
-        raise ValueError("ruleset document must be a dict")
-    _reject_unknown_keys(document, _DOCUMENT_TOP_LEVEL_KEYS, "ruleset document")
+    document = _RulesetDocument.model_validate(document, strict=True).model_dump()
+    if document["table_ruleset_version"] != TABLE_RULESET_VERSION:
+        raise ValueError(f"table_ruleset_version must be {TABLE_RULESET_VERSION}")
     rules_payload = document.get("rules")
     if type(rules_payload) is not list:
         raise ValueError("rules must be a list")
@@ -643,6 +693,7 @@ def _rule_record_from_document(payload: object) -> TableRuleRecord:
         selector=TableRuleSelector(
             kind=TableRuleSelectorKind(_require_string(selector_payload.get("kind"), "selector.kind")),
             value=_require_string(selector_payload.get("value"), "selector.value"),
+            table_comment_contains=_optional_string(selector_payload.get("table_comment_contains"), "selector.table_comment_contains"),
         ),
         precedence_class=SelectorPrecedenceClass(
             _require_string(payload.get("precedence_class"), "precedence_class")

@@ -1,4 +1,4 @@
-"""Frozen SQL comments. These values never participate in canonical identity."""
+"""Frozen SQL comments; channel reference classification consumes table comments."""
 
 from __future__ import annotations
 

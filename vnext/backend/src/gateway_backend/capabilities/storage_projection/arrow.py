@@ -28,7 +28,7 @@ from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, Ta
 
 
 def project_canonical_arrow_table_set(raw: SnapshotTableSet, ruleset: TableRulesetSnapshot, *,
-    presentation: PresentationMetadata = PresentationMetadata(),
+    presentation: PresentationMetadata,
 ) -> CanonicalProjectionResult:
     context = current_kernel_context()
     if context is None or ruleset.ruleset_digest is None:
@@ -37,11 +37,13 @@ def project_canonical_arrow_table_set(raw: SnapshotTableSet, ruleset: TableRules
     manifest_tables: list[CanonicalizationManifestTable] = []
     diagnostics: list[ProjectionDiagnostic] = []
     omitted = 0
+    comments = {table.table_name: table.comment for table in presentation.tables}
     try:
         for table in sorted(raw.tables, key=lambda item: item.descriptor.table_name.encode("utf-8")):
             context.checkpoint()
             descriptor = table.descriptor
-            record = resolve_table_rule(ruleset, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns).record
+            record = resolve_table_rule(ruleset, descriptor.table_name,
+                table_comment=comments.get(descriptor.table_name), primary_key_columns=descriptor.primary_key_columns).record
             try:
                 view = derive_storage_rule_view(record, descriptor)
             except StorageViewError as exc:

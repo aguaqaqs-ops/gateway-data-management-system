@@ -21,6 +21,7 @@ from gateway_backend.capabilities.bundle_assembly import (
 from gateway_backend.capabilities.business_navigation import validate_navigation
 from gateway_backend.capabilities.comparison import ComparisonRequest
 from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyStatus
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_live import canonical_bound
@@ -29,10 +30,11 @@ from tests.support.table_rules import comparison_ruleset_for, ordered_record, st
 
 def test_preview_ordered_swap_publishes_movement_risk() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-    before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"))
-    current = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,2,'a'),(2,1,'b');"))
+    before = replace(complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,2,'a'),(2,1,'b');"), ordered=True), presentation=PresentationMetadata())
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
         pair_id="initial_to_modified", before=before, current=current, store=store,
         control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
@@ -64,10 +66,11 @@ def test_preview_ordered_row_risk_rules(
     before_rows: str, current_rows: str, level: str, reason: str, target: str,
 ) -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8), value INT);"
-    before = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"))
-    current = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_rows};"))
+    before = replace(complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_rows};"), ordered=True), presentation=PresentationMetadata())
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
         pair_id="initial_to_modified", before=before, current=current, store=store,
         control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
@@ -102,10 +105,11 @@ def test_ordered_replacements_after_blank_insert_keep_each_pair(blank_count: int
         (12, 12), (113, 13), (114, 14), (115, 15), (16, 16)))
     current_sql = ",".join(
         f"({'NULL' if gid is None else gid},{position},'p')" for gid, position in current_rows)
-    before = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"))
-    current = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_sql};"))
+    before = replace(complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_sql};"), ordered=True), presentation=PresentationMetadata())
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
         pair_id="initial_to_modified", before=before, current=current, store=store,
         control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
@@ -126,14 +130,15 @@ def test_ordered_replacements_after_blank_insert_keep_each_pair(blank_count: int
 
 def test_blank_shift_does_not_pair_unequal_changed_runs_by_absolute_position() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
-    before = complete_canonical_bound(canonical_bound(schema +
+    before = replace(complete_canonical_bound(canonical_bound(schema +
         " INSERT INTO t VALUES (10,10,'p'),(11,11,'p'),(12,12,'p'),"
-        "(13,13,'p'),(14,14,'p'),(15,15,'p'),(16,16,'p');"))
-    current = complete_canonical_bound(canonical_bound(schema +
+        "(13,13,'p'),(14,14,'p'),(15,15,'p'),(16,16,'p');"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema +
         " INSERT INTO t VALUES (10,10,'p'),(11,11,'p'),(NULL,12,'p'),"
-        "(12,13,'p'),(113,14,'p'),(114,15,'p'),(115,16,'p'),(116,17,'p'),(16,18,'p');"))
+        "(12,13,'p'),(113,14,'p'),(114,15,'p'),(115,16,'p'),(116,17,'p'),(16,18,'p');"), ordered=True), presentation=PresentationMetadata())
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
         pair_id="initial_to_modified", before=before, current=current, store=store,
         control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
@@ -148,10 +153,11 @@ def test_blank_shift_does_not_pair_unequal_changed_runs_by_absolute_position() -
 
 def test_ordered_name_change_and_movement_keep_both_risks() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
-    before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"))
-    current = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,20,'a'),(2,10,'new');"))
+    before = replace(complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,20,'a'),(2,10,'new');"), ordered=True), presentation=PresentationMetadata())
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
         pair_id="initial_to_modified", before=before, current=current, store=store,
         control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
@@ -181,10 +187,11 @@ def test_preview_blank_interval_risk_uses_actual_table_end(
     before_rows: str, current_rows: str, level: str, reason: str, interval: list[int],
 ) -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-    before = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"))
-    current = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_rows};"))
+    before = replace(complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_rows};"), ordered=True), presentation=PresentationMetadata())
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
         pair_id="initial_to_modified", before=before, current=current, store=store,
         control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
@@ -208,8 +215,8 @@ def test_preview_blank_interval_risk_uses_actual_table_end(
 
 def test_blank_interval_risk_replays_identically_with_comparison_cache() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-    before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,100,'b');"))
-    current = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(NULL,40,'x'),(2,100,'b');"))
+    before = replace(complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,100,'b');"), ordered=True), presentation=PresentationMetadata())
+    current = replace(complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(NULL,40,'x'),(2,100,'b');"), ordered=True), presentation=PresentationMetadata())
     rules = comparison_ruleset_for(ordered_record(r"^t$"))
     requests = tuple(ComparisonRequest(pair_id=pair_id, before=before, current=current, rule_set=rules)
                      for pair_id in ("first", "second"))
@@ -217,7 +224,8 @@ def test_blank_interval_risk_replays_identically_with_comparison_cache() -> None
     assert session is not None
     store = InMemoryArtifactStore()
     with closing(session):
-        results = [run_preview_pair_pipeline(
+        results = [run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(),
             pair_id=pair_id, before=before, current=current, store=store,
             control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
             rule_set=rules, assess_identity=False, repository_id="replacement-fixture", dedup_session=session,
@@ -241,7 +249,8 @@ def test_preview_uses_identical_current_device_when_baseline_reader_is_omitted()
     before = replace(before, table_set=replace(before.table_set,
         tables=tuple(t for t in before.table_set.tables if t.descriptor.table_name != "device")))
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(standard_rule_record("device"), standard_rule_record("device_cfg")),
         assess_identity=False, repository_id="replacement-fixture")
@@ -268,7 +277,8 @@ def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_cont
         "INSERT INTO device VALUES (8,49,'current device'); INSERT INTO device_cfg VALUES(1,7,'" +
         ("new" if changed_cfg else "old") + ("','added" if schema_added else "") + "');"))
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(standard_rule_record("device"), standard_rule_record("device_cfg")),
         assess_identity=False, repository_id="replacement-fixture")
@@ -337,7 +347,8 @@ def test_physical_filter_column_absence_does_not_become_rule_exclusion(missing_s
     before = complete_canonical_bound(canonical_bound(before_sql))
     current = complete_canonical_bound(canonical_bound(current_sql))
     store = InMemoryArtifactStore()
-    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(standard_rule_record("device"), standard_rule_record("device_cfg")),
         assess_identity=False, repository_id="replacement-fixture")
@@ -381,7 +392,8 @@ def test_keyless_added_identity_column_uses_one_whole_table_under_final_reorderi
     results = []
     for reverse in (False, True):
         exports[current.snapshot.snapshot_id]["device_cfg"] = _rewrite(store, original) if reverse else original
-        result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified", before=before, current=current,
             store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
             rule_set=comparison_ruleset_for(standard_rule_record("device"), fallback_record()),
             assess_identity=False, repository_id="replacement-fixture", table_exports=exports)
@@ -454,7 +466,7 @@ def _materialize_business_pair_input(sql: str, store: InMemoryArtifactStore) -> 
     assert canonical.status.value == "COMPLETE", canonical.diagnostics
     assert canonical.snapshot is not None and canonical.summary is not None and canonical.table_set is not None
     return BoundSnapshotInput(canonical.snapshot, canonical.summary, canonical.table_set,
-                              _comparison_storage_facts(projected.manifest))
+                              _comparison_storage_facts(projected.manifest), presentation=raw.presentation)
 
 
 APP_DIAGNOSTIC_CASES = (
@@ -481,7 +493,8 @@ def test_business_materialized_nontext_app_labels_do_not_break_pair_diagnostics(
     before = _materialize_business_pair_input(sql + identity + "INSERT INTO version_manager VALUES('left');", store)
     current = _materialize_business_pair_input(sql + identity +
         ("INSERT INTO version_manager VALUES('right');" if replacement else "INSERT INTO version_manager VALUES('left');"), store)
-    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
         assess_identity=True, repository_id="replacement-fixture")
@@ -514,13 +527,14 @@ def test_business_materialized_unclaimed_table_name_keeps_safe_channel_domain(
 ) -> None:
     from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
     name = f"b{board}_n{link}_sg_cfg"
-    sql = f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,value TEXT);INSERT INTO {name} VALUES(1,'x');"
+    sql = f"CREATE TABLE {name}(gid BIGINT PRIMARY KEY,value TEXT) COMMENT='定值引用表';INSERT INTO {name} VALUES(1,'x');"
     store = InMemoryArtifactStore()
     identity = "CREATE TABLE version_manager(project_id VARCHAR(32) PRIMARY KEY);"
     before = _materialize_business_pair_input(sql + identity + "INSERT INTO version_manager VALUES('left');", store)
     current = _materialize_business_pair_input(sql + identity +
         ("INSERT INTO version_manager VALUES('right');" if replacement else "INSERT INTO version_manager VALUES('left');"), store)
-    result = run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
         assess_identity=True, repository_id="replacement-fixture")
@@ -536,9 +550,9 @@ def test_business_materialized_unclaimed_table_name_keeps_safe_channel_domain(
     diagnostics = [] if projection.diagnostics_ref is None else json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
     channels = [d for d in diagnostics if d["code"] == "CHANNEL_TABLE_UNCLAIMED"]
     if board <= 9007199254740991 and link <= 9007199254740991:
-        assert len(channels) == (2 if replacement else 1)
-        assert all(d["params"] == {"board": board, "link_no": link} for d in channels)
-        assert {d["side"] for d in channels} == ({"BEFORE", "CURRENT"} if replacement else {None})
+        assert len(channels) == 2
+        assert all(d["params"] == {"channel_prefix": f"b{board}_n{link}", "registry_table": "net_cfg"} for d in channels)
+        assert {d["side"] for d in channels} == {"BEFORE", "CURRENT"}
     else:
         assert channels == []
 
@@ -556,7 +570,8 @@ def test_new_table_risk_distinguishes_empty_baseline_from_incremental_addition(
         "INSERT INTO app_cfg VALUES('JMS','0:NO','jms_cfg');" + existing))
     store = InMemoryArtifactStore()
     run = run_preview_pair_pipeline if flow == "preview" else run_history_pair_pipeline
-    result = run(pair_id="baseline_to_modified", before=before, current=current,
+    result = run(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="baseline_to_modified", before=before, current=current,
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
         rule_set=comparison_ruleset_for(standard_rule_record("existing"), standard_rule_record("added"), standard_rule_record("app_cfg")),
         repository_id="replacement-fixture")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+
 from tests.support.configuration_facts import preview_result_with_facts
 
 from dataclasses import replace
@@ -56,13 +58,13 @@ def _seed_uploaded_workspace(
         input_completeness=InputCompleteness.FULL,
         source_artifacts={
             SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
                 media_type="application/gzip",
                 size_bytes=1,
                 raw_sha256="sha256:initial",
             ),
             SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
                 media_type="application/gzip",
                 size_bytes=2,
                 raw_sha256="sha256:modified",
@@ -91,7 +93,7 @@ def _preview_result(*, generation: int = 1) -> PreviewResult:
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
         baseline_head_version=BASELINE_HEAD.baseline_head_version,
         ruleset_version="rules-1",
-        contract_version="contract-1",
+        contract_version="backend-vnext/preview/v4",
         provider_versions={"comparison": "v1"},
         digests=PreviewResultDigests(
             source_digest="d-source",
@@ -102,11 +104,11 @@ def _preview_result(*, generation: int = 1) -> PreviewResult:
             surface_digest="d-surface",
             bundle_digest="d-bundle",
         ),
-        canonical=make_preview_canonical_bindings(),
+        canonical=make_preview_canonical_bindings(generated_source_ids=True),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
-        ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
+        ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
         operation_id="op-1",
         created_at=TS1,
     )

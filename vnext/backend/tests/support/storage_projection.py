@@ -16,6 +16,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
 )
 from gateway_backend.capabilities.table_access.contracts import SourceCell, SourceRow, SqlSetValue
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 
 _DIGEST = DigestRef("sha256:" + "11" * 32)
 
@@ -143,7 +144,7 @@ def table_descriptor(
         "row_count": row_count,
         "materialization_stage": materialization_stage,
         "compare_schema_digest": compare_schema_digest or digest,
-        "table_ruleset_version": 1,
+        "table_ruleset_version": TABLE_RULESET_VERSION,
         "row_materialization_profile": ROW_MATERIALIZATION_PROFILE,
         "scalar_encoding_version": SCALAR_ENCODING_VERSION,
     }
@@ -183,7 +184,7 @@ def table_input(
             row_count=0,
             materialization_stage=MaterializationStage.FINAL,
             compare_schema_digest=_DIGEST,
-            table_ruleset_version=1,
+            table_ruleset_version=TABLE_RULESET_VERSION,
             row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
             scalar_encoding_version=SCALAR_ENCODING_VERSION,
             raw_content_digest=_DIGEST,

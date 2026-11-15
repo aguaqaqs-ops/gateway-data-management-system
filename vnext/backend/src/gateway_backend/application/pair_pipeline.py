@@ -10,7 +10,7 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 
 from collections.abc import Callable, Mapping
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 from gateway_backend.statistics.metrics import ordered_input_table, pair_table, pair_totals, timed
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -180,8 +180,8 @@ def run_preview_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -201,8 +201,8 @@ def run_preview_pair_pipeline(
     active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())
     request = ComparisonRequest(
         pair_id=pair_id,
-        before=before,
-        current=current,
+        before=replace(before, presentation=before_presentation),
+        current=replace(current, presentation=current_presentation),
         rule_set=active_rules,
         mode=(
             ComparisonMode.DATASET_REPLACEMENT
@@ -258,13 +258,13 @@ def run_history_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
-        before=before,
-        current=current,
+        before=replace(before, presentation=before_presentation),
+        current=replace(current, presentation=current_presentation),
         rule_set=rule_set,
         mode=ComparisonMode.DETAILED,
     )
@@ -326,8 +326,8 @@ def _run_comparison_risk_surface(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -368,8 +368,8 @@ def _finish_comparison_risk_surface(
     repository_id: str | None,
     export_cache: SnapshotTableExportCachePort | None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     if context is None:

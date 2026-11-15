@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -77,6 +77,7 @@ def metadata_for_catalog(
     manifest_override: CanonicalizationManifest | None = None,
     initial: bool | None = None,
     scope: CommitCanonicalScope | None = None,
+    table_comments: Mapping[str, str] | None = None,
 ) -> CommitCanonicalMetadata:
     active = ruleset or migrated_table_ruleset_snapshot()
     is_initial = (not catalog.tables) if initial is None else initial
@@ -84,6 +85,7 @@ def metadata_for_catalog(
         catalog,
         ruleset=active,
         is_initial=is_initial,
+        table_comments=table_comments,
     )
     manifest = None
     snapshot_digest: DigestRef | None = None
@@ -148,7 +150,9 @@ def metadata_for_catalog(
             ruleset_digest=active.ruleset_digest,
             source_artifact_digest=raw_blob_digest(b"test-source-artifact"),
             tables=tuple(manifest_tables),
-            presentation=PresentationMetadata().project((t.name, t.retained_columns) for t in manifest_tables),
+            presentation=PresentationMetadata(tuple(
+                TablePresentation(t.name, (table_comments or {}).get(t.name), ()) for t in manifest_tables
+            )).project((t.name, t.retained_columns) for t in manifest_tables),
         )
         if manifest_override is not None:
             manifest = manifest_override

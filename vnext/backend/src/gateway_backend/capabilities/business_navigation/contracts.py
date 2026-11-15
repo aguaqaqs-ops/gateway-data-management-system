@@ -1,4 +1,4 @@
-"""Flow-neutral inputs and strict wire validation for business navigation v2.
+"""Flow-neutral inputs and strict wire validation for business navigation v3.
 
 Row identities, scalar encodings and comparison/risk facts are supplied by their owners.
 This capability never reconstructs a canonical row identity from business values.
@@ -20,8 +20,9 @@ from gateway_backend.capabilities.comparison.contracts import (
     standard_identity_is_keyless,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
+from gateway_backend.capabilities.table_rules import parse_channel_table_name
 
-CONTRACT_VERSION = "backend-vnext/business-navigation/v2"
+CONTRACT_VERSION = "backend-vnext/business-navigation/v3"
 
 
 class NavigationChangeKind(StrEnum):
@@ -71,6 +72,7 @@ class NavigationSide:
     rows: Callable[[], Iterable[NavigationRow]]
     row_count: int
     display_name: str
+    table_comment: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,9 +443,8 @@ _DIAGNOSTIC_PARAMS = {
     "DEVICE_GID_DUPLICATE": {"gid"},
     "DEVICE_TAB_COUNT_UNKNOWN": {"identity_column"},
     "DEVICE_ROWS_UNASSIGNED": {"identity_column", "row_count", "changed_row_count"},
-    "CHANNEL_TABLE_UNCLAIMED": {"board", "link_no"},
-    "PROTOCOL_EXE_MISSING": {"board", "link_no"},
-    "PROTOCOL_TABLE_NOT_FOUND": {"board", "link_no", "protocol", "expected_tables"},
+    "CHANNEL_TABLE_UNCLAIMED": {"channel_prefix", "registry_table"},
+    "PROTOCOL_TABLE_NOT_FOUND": {"channel_prefix", "registry_table", "protocol", "expected_prefixes"},
     "APP_TABLE_CFG_MISSING": {"app_name"},
     "APP_TABLE_CFG_DUPLICATE": {"app_name", "table_cfg"},
     "APP_TABLE_NOT_FOUND": {"app_name", "table_cfg"},
@@ -501,19 +502,30 @@ def validate_diagnostics(
         side = diagnostic["side"]
         if side not in {None, "BEFORE", "CURRENT"} or (replacement and side is None):
             raise ValueError("invalid diagnostic side")
-        if code not in {"CHANNEL_TABLE_UNCLAIMED", "DEVICE_TAB_FACTS_UNAVAILABLE"} and side is None:
+        if code != "DEVICE_TAB_FACTS_UNAVAILABLE" and side is None:
             raise ValueError("diagnostic requires actual side")
         if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and (replacement or side is not None):
             raise ValueError("local facts diagnostic is ordinary and table-wide")
         for name, value in params.items():
-            if name == "expected_tables":
-                if type(value) is not list or any(type(v) is not str for v in value):
-                    raise ValueError("invalid expected table names")
+            if name == "expected_prefixes":
+                if type(value) is not list or not 1 <= len(value) <= 2 or any(type(v) is not str or not v for v in value):
+                    raise ValueError("invalid expected prefixes")
             elif name in {"board", "link_no", "dev_addr", "gid", "row_count", "changed_row_count"}:
                 if not (value is None and name == "changed_row_count") and (type(value) is not int or abs(value) > SAFE_INTEGER):
                     raise ValueError("invalid diagnostic integer")
             elif not (value is None and name == "app_name") and type(value) is not str:
                 raise ValueError("invalid diagnostic string")
+        if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"} and params["registry_table"] not in {"net_cfg", "com_cfg"}:
+            raise ValueError("invalid channel registry")
+        if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"}:
+            channel = parse_channel_table_name(params["channel_prefix"] + "_x")
+            if (channel is None or params["channel_prefix"] != f"b{channel.board}_{channel.kind}{channel.channel_no}"
+                    or params["registry_table"] != ("net_cfg" if channel.kind == "n" else "com_cfg")):
+                raise ValueError("invalid channel prefix")
+            if code == "PROTOCOL_TABLE_NOT_FOUND" and any(
+                not prefix.startswith(params["channel_prefix"] + "_") for prefix in params["expected_prefixes"]
+            ):
+                raise ValueError("invalid expected channel prefix")
         if code == "DEVICE_FILTER_VALUE_UNSUPPORTED" and params["reason"] not in {"INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"}:
             raise ValueError("invalid unsupported reason")
         if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and params["reason"] not in {"RECORDS_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE", "TABLE_DEGRADED"}:

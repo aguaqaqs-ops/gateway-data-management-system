@@ -298,8 +298,10 @@ Workspace Preview 指针推断旧提交，也不得用 History read 权限绕过
 
 History 受理先核当前权限、设备/项目、fresh Repository mapping 并解析有序 node ref 到
 exact commit。相同 commit 的不同业务 node ref、相反方向、不同 pair 数、不同冻结比较规则
-或 Contract/view 身份不得互用。复用身份采用现有完整 accept-binding fingerprint，不增加只计算
-不核对的新摘要。同幂等键先按原绑定核对；同键异请求仍为冲突。新键命中同范围同指纹的
+或 Contract/view 身份不得互用。复用身份沿用 accept-binding fingerprint，但其 preimage 必须含
+当前 Comparison capability 的实际 Contract 版本和 History job Contract 版本；后者由 History owner
+在风险、导航、surface、bundle 等输出语义变化时升版，受理、worker 和复用路径均核对。
+不增加只计算不核对的新摘要。同幂等键先按原绑定核对；同键异请求仍为冲突。新键命中同范围同指纹的
 QUEUED/RUNNING，或保留期内 SUCCEEDED 且结果保护、READY 与 bundle 当前可读时，原事务
 绑定该键到原 operation，返回原 ID/当前状态和 `replayed=true`，不创建新作业或 bundle。
 FAILED、CANCELLED、过期、缺失或损坏结果不作跨键复用，改用新键可重新运行。创建原始
@@ -308,10 +310,13 @@ FAILED、CANCELLED、过期、缺失或损坏结果不作跨键复用，改用�
 
 History 列表按当前设备+项目，列进行中与保留期内终态作业；结果、bundle、列表均每次重新
 鉴权与核 fresh scope。列表有界分页，返回有序节点、operation ID、状态及受理/完成时间；
-SUCCEEDED 还给结果到期时间。列表和跨键复用对成功结果使用同一持久到期事实；过期结果即使物理文件
-尚在也不列为可用、不可复用。不按发起人区分或新增发起人事实。单 scope 进行中 History
+SUCCEEDED 还给结果到期时间。原 acceptance 冻结保留秒数，终态到期由其与 operation 完成时间
+计算；成功发布的全部 result owner 保护必须写同一 expiry。列表、内容读取、复用和有界清理
+共同核这个持久到期事实；过期结果即使物理文件尚在也不列为可用、不可复用。
+不按发起人区分或新增发起人事实。单 scope 进行中 History
 上限及全局 QUEUED 作业上限由同一受理事务执行；命中复用不占新名额，超限给明确错误及
-可适用的现有 operation ID。Workspace 读模型返回当前 QUEUED/RUNNING Preview operation ID，
+可适用的现有 operation ID。Workspace 读模型返回当前 generation/revision 的
+`active_preview_operation_id`（QUEUED/RUNNING），
 无则为空；跨终端接回以服务端为权威，现有 supersede 行为不变。
 
 ## 7. Persisted 与 Derived 边界

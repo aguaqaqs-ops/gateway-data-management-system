@@ -250,9 +250,12 @@ GW08 补充（目标行为，见[执行设计](../plans/gw08-submission-view-and
 精确相同的 History 请求命中已有有效作业时，只返回原 operation/READY/bundle，不进入新的
 三 step，也不重做上述 checkpoint 恢复核对。**新建** History 作业仍遵守本节的 exact-commit
 authority、catalog、行需求与失效缓存重建；共享单个 commit 不构成共享整个 pair 结果。
-跨键复用与新作业受理在同一 control DB 事务核对/写入，避免并发双建；别名只指向唯一
-原始 operation，不成为第二个结果 owner。已完成结果到期时，列表和复用同步失效；原
-operation/原始键绑定保留，跨键别名有界清理，过期保护由既有派生结果清理处理。History result owner 的全部
+跨键复用与新作业受理在同一 control DB 写事务核对/写入，避免并发双建；别名只指向唯一
+原始 operation，不成为第二个结果 owner。原 acceptance 冻结结果保留秒数；终态到期按
+operation 完成时间计算，不依赖可被清理的 protection 行。已完成结果到期时，列表、读取和复用
+同步失效；原 operation/原始键绑定保留，跨键别名有界清理，有界扫尾器清除过期 History result
+owner 并恢复 canonical cache TTL；扫尾接入现有显式 storage maintenance 入口，在文件扫描前
+按批运行，部署定期调用且失败可重试，不新建常驻服务。History result owner 的全部
 closure ref 在发布事务内使用同一到期时刻；进行中 checkpoint、Submission/Preview 与其它
 强 owner 的保护不因它到期而释放。读取仍核当前 scope、权限和文件可读性，缓存 hit 不是
 READY 或读回证明。

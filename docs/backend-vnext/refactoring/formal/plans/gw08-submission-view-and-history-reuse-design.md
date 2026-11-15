@@ -23,28 +23,34 @@
 
 工作台跳转提交结果时使用现有 `GET /v1/submissions/{submission_id}/result` 与 `/result/bundle`，保留其 Preview/Submission/Attempt、READY、pair digest、bundle 和当前权限核对；不通过工作区 current preview 指针找旧结果，也不把提交 Review 权限隐式授给 History 用户。只有 `read_project_history`、无上述提交结果读取权限的主体，仍可按原权限发起 History。遇到提交结果的 unavailable/integrity 503，不自动伪装成 History 成功或悄悄发起新作业；向用户显示错误及其有权限的显式 History 操作。
 
+审核人**不是必然**有 `read_project_history`。仓库示例 session 的 reviewer 仅授予 `review_submission` 和 `archive_submission`；它可按提交结果接口的现有权限读取同 scope 提交时结果，却不能据此打开任意 History 比较。08 实际部署的授权要以其当前 session 配置核实；前端入口按服务器权限和响应决定，不预设角色自动含 History 权限。
+
 工作台「查看提交时差异」与「比较选中节点」应分开命名。FULL 的默认 pair 为 `initial_to_modified`，可切换 `baseline_to_initial`；如果用户要求父节点→最终提交，须另选 History。前端变更仅作交接，后端会话不修改 `frontend/`。
 
 ## 3. History 受理、去重与幂等
 
-1. 在原受理事务内先核当前 session、`read_project_history`、fresh provisioned scope、Repository 归属，并把请求的有序 `ref_kind/ref_id` 解析为 exact commit。相同 commit 但不同业务 node ref 仍是不同展示绑定；`[A,B]` 与 `[B,A]`、两节点与三节点不互用。
-2. 使用现有 accept-binding fingerprint 的完整语义：设备/项目、Repository、上述有序节点绑定、冻结 `comparison_ruleset_digest`、comparison contract version、view kind、pair count。它已是受理者和结果核对者使用的摘要，不另造 digest；实现须核现有指纹是否还覆盖会改变输出的规则/格式版本，变更时修订 owning version 并使旧结果失效。
-3. **同一幂等键优先。** 已绑定相同指纹且结果仍有效，返回原作业；同键不同指纹保持 409 `IDEMPOTENCY_CONFLICT`。创建原始作业的键在该作业结果过期后，不重用确定性 operation ID，返回明确的 409 `HISTORY_COMPARE_REQUEST_EXPIRED`，提示使用新键重新发起。FAILED/CANCELLED 的同键仍可读取原终态，新的尝试用新键。跨键复用形成的别名在其有效期内也按此规则回放；别名过期清理后，同字符串可作为一次新请求的键。
-4. 对新键查同 scope、同指纹候选：优先 QUEUED/RUNNING；否则取保留期内 SUCCEEDED、result owner 保护仍有效、READY/assemble checkpoint/bundle 引用与已冻结绑定完整且 bundle 可读者。不能只凭 Operation.status、缓存索引或 HEAD 判成功；候选损坏/丢失不返回，记录诊断后允许新作业重建。FAILED/CANCELLED/过期不作内容去重候选。闭包/产物预检在短写事务**外**完成并持有现有读取借用；不为受理把 tar 传给客户端。写事务中重新核候选 operation、scope、指纹、到期与保护仍有效，才绑定新键。借用/复核做不到时不放行缓存命中，不能在长写事务里扫描 bundle。
-5. 命中时写事务写入新键→原 operation 的别名映射，再返回原 ID、当前状态、`replayed=true`（对外沿用现有 DTO）。映射保证有效期内 response loss 后同键仍指向同一作业；原始 operation/acceptance 是唯一结果 owner。未命中时同事务写新 operation、初始 step 和含原始幂等键的 acceptance，不写别名。并发受理由同一 SQLite 写事务/约束串行判定，冲突后重新读目标而不双建；不能只靠进程内锁。无法在原子窗口内证明候选可用时，回到新建路径，不把「预检曾成功」当作持久事实。
+1. 受理先核当前 session、`read_project_history`、fresh provisioned scope、Repository 归属，并把请求的有序 `ref_kind/ref_id` 解析为 exact commit。相同 commit 但不同业务 node ref 仍是不同展示绑定；`[A,B]` 与 `[B,A]`、两节点与三节点不互用。
+2. 沿用现有 `accept-binding` digest 算法，**扩充其 preimage**：设备/项目、Repository、有序节点绑定、冻结 `comparison_ruleset_digest`、实际 Comparison capability 的 `COMPARISON_CONTRACT_VERSION`、History `HISTORY_COMPARE_JOB_CONTRACT_VERSION`、view kind、pair count。当前 History 常量写死 `comparison/v3`，而 Comparison capability 已是 `comparison/v4`；实施时改为引用实际常量，不能以旧 v3 继续作为复用身份。History job contract 升到下一版，兼作整条 History 输出语义的版本闸门：比较算法/投影、表需求、风险、导航、surface、bundle 的语义变化只要可能使同一输入的结果不同，维护该路径者就必须升版。受理者核当前版本，worker 对冻结 job 版本执行既有核对，结果复用者比较当前 preimage 与原 acceptance 指纹；版本不一致不跨键复用。这样复用现有、已由双方核对的摘要，不新增只计算不核对的 digest；版本升级后同一原始幂等键与当前请求指纹不同，明确返回 409 `IDEMPOTENCY_CONFLICT`，新版本请求须用新键，不把旧结果冒充新版本结果。
+3. **同一幂等键优先。** 已绑定相同指纹的活动/失败/取消作业返回原 ID；成功且未到期、闭包可读时返回原 ID；成功但未到期而闭包损坏时返回现有 unavailable/integrity 503，保留原 operation，重跑须用新键。同键不同指纹保持 409 `IDEMPOTENCY_CONFLICT`。创建原始作业的键在该作业结果过期后，不重用确定性 operation ID，返回明确的 409 `HISTORY_COMPARE_REQUEST_EXPIRED`，提示使用新键重新发起。FAILED/CANCELLED 的同键仍可读取原终态，新的尝试用新键。跨键复用形成的别名在其有效期内也按此规则回放；别名过期清理后，同字符串可作为一次新请求的键。
+4. 对新键查同 scope、同指纹候选：优先 QUEUED/RUNNING；否则按受理时间、operation ID 倒序检查最多 8 个 SUCCEEDED 候选，要求在保留期内、result owner 保护仍有效、READY/assemble checkpoint/bundle 引用与冻结绑定完整且 bundle 可读。建 `(device, project, request_fingerprint, created_at_us)` 查询索引。不能只凭 Operation.status、缓存索引或 HEAD 判成功；候选损坏/丢失不返回，记录诊断后允许新作业重建。FAILED/CANCELLED/过期不作内容去重候选。成功结果的完整预检在短写事务**外**通过现有 bundle download prepare/read-session 完成：它会读遍成员并验证元数据，持有读取借用直到事务复核结束，随后关闭而不向客户端传 tar。预检有实际 I/O 成本，不能把复用宣称为纯索引命中；focused 与真实样本须记录这段耗时。写事务中重新核候选 operation、scope、指纹、到期与保护仍有效，才绑定新键。借用/复核做不到时不放行缓存命中，不能在长写事务里扫描 bundle。
+5. 命中时写事务写入新键→原 operation 的别名映射，再返回原 ID、当前状态、`replayed=true`（对外沿用现有 DTO）。映射保证有效期内 response loss 后同键仍指向同一作业；原始 operation/acceptance 是唯一结果 owner。未命中时同事务写新 operation、初始 step 和含原始幂等键的 acceptance，不写别名。现有 control DB 写事务使用 `BEGIN IMMEDIATE`；在其中同时查询原始键和别名键，再检查候选与配额并插入，靠 SQLite writer 串行而非两张表之间虚构的唯一约束或进程锁。若预检后已有更新的活动候选，事务内改用该候选；若原成功候选变化且无法证明仍可用，就新建作业，不把「预检曾成功」当作持久事实。活动候选优先按受理时间、operation ID 倒序选取。
 
-目标 control DB 基线保留原受理记录作为 operation 的规范绑定和原始幂等键唯一 owner，另以受约束的**别名**表保存 `(device, project, idempotency_key) → (operation_id, request_fingerprint)`；受理事务在原始键索引和别名索引两处查重，不向同一 operation 创建多个相互竞争的结果 owner。无已部署数据，直接改基线、严格启动 schema，不做迁移。原始 operation 的键绑定与既有 acceptance 同寿命；跨键复用形成的别名只保留到原作业完成后一个结果保留期，活动期间不能清理。到期删除别名后，其旧键可作为新请求生成自身的新 operation ID；原始键仍指向原作业。它仅防有效窗口内重复受理，由受理事务核对，不作为新的比较结果摘要。别名清理必须有界，不能因重复点击无限积累。
+两段事务的安全边界：预检前可用只读事务完成初次授权/节点解析，**最终 `BEGIN IMMEDIATE` 内再次核当前 session 权限、fresh mapping、节点→exact commit 和请求指纹**，使用事务时刻判断是否到期，再写键与作业；任何变化均拒绝或重新计算，不拿预检前的授权/绑定直接落库。结果下载在响应开始时核授权与到期；响应已开始而时间跨过 TTL，可在既有 read-session 下完成这一次下载，之后的新读取返回 410。
+
+目标 control DB 基线保留原受理记录作为 operation 的规范绑定和原始幂等键唯一 owner，并存受理时冻结的正整数 `result_retention_seconds`；另以受约束的**别名**表保存 `(device, project, idempotency_key) → (operation_id, request_fingerprint)`，外键指向原 acceptance/operation。受理事务在原始键索引和别名索引两处查重，不向同一 operation 创建多个相互竞争的结果 owner。无已部署数据，直接改基线、严格启动 schema，不做迁移。原始 operation 的键绑定与既有 acceptance 同寿命；跨键复用形成的别名只保留到原作业完成后该 acceptance 的保留期，活动期间不能清理。到期删除别名后，其旧键可作为新请求生成自身的新 operation ID；原始键仍指向原作业。它仅防有效窗口内重复受理，由受理事务核对，不作为新的比较结果摘要。每个原作业最多 64 个有效别名，超限返回 429 `HISTORY_COMPARE_ALIAS_LIMIT` 与可见的原 operation ID；清理以有索引的小批次进行，不能因重复点击无限积累。
 
 `GET /v1/history-compares/{operation_id}`、bundle 与任务列表均每次使用现有 History 权限、fresh scope、operation/acceptance 绑定；返回复用的 ID 不转让权限。HTTP 200 表示复用已有作业，202 表示新建；已完成结果的旧 operation ID、pair 内容与 bundle digest 不改。授权后的 SUCCEEDED 结果到期时，直接结果与 bundle 读取返回 410 `HISTORY_COMPARE_RESULT_EXPIRED`，新请求须用新幂等键；未到期而产物损坏仍按现有 unavailable/integrity 错误，不以新作业覆盖原失败证据。
 
 ## 4. 找回、保留与上限
 
-- `GET /v1/history-compares` 按当前设备+项目列 QUEUED/RUNNING 与保留期内终态；默认按受理时间倒序，固定有界 `limit`（默认 50、最大 100）和稳定游标。每项含 operation ID、有序节点、状态、受理/完成时间、成功结果到期时间；FAILED/CANCELLED 可列出诊断状态但不参与完成结果复用，其列表窗口由完成时间与配置计算，不占用结果保护。不按发起人分组或持久化发起人字段。scope/permission 改变后重读，不用浏览器保存的任务列表当权威。
-- 成功发布时在**同一事务**把 `history-compare-operation` 的全部结果闭包保护设置为同一到期时刻 `completed_at + result_retention`；到期时列表/内容复用同时失效。到期时刻存于已有 protection expiry 字段，由读取与清理共同消费；避免运行期配置变化让已清理结果重新可见。过期后原 operation 状态与幂等映射保留作审计/重试解释，保护按既有清理流程有界释放；即使文件尚未删除也不可复用。清理只释放 History 结果 owner，不触碰 Submission/Preview、canonical/导出缓存及其他 owner 的强引用。进行中的 checkpoint 保护不受结果 TTL 影响。
-- 配置建议默认保留 24 小时、单设备+项目最多 2 个进行中 History、所有作业类型合计最多 32 个 QUEUED；实施时在现有配置入口固定有界正整数，生产资源档不变。已命中的作业不占新名额。上限判断和插入必须同一写事务；scope 超限返回明确码及现有活动 ID，全局队列超限返回 429。跨 Preview/Submit/History 的全局队列限制须接到所有受理入口，不能只限制 History 而声称全局。API 并发受理 gate 与 durable 排队上限是两个独立约束。
-- 工作区读模型增加当前 QUEUED/RUNNING Preview operation ID（没有为 null），供跨标签页/终端接回；Preview 的既有 supersede 规则不变。此项与 History 列表/上限同属已确认的后台任务找回需求，可在独立包实施，不能靠前端 sessionStorage 作为权威。
+- `GET /v1/history-compares` 按当前设备+项目列 QUEUED/RUNNING 与保留期内终态；按 `(acceptance.created_at_us, operation_id)` 倒序，游标编码这两个值并限制在同一 scope 内，每页仍核当前权限；`limit` 默认 50、最大 100，游标不匹配/格式错误为 422。status 可在两页之间变化，游标只保证不重复/跳过受理顺序，不承诺跨页状态快照。每项含 operation ID、有序节点、状态、受理/完成时间、成功结果到期时间；FAILED/CANCELLED 可列出诊断状态但不参与完成结果复用，其列表窗口由完成时间与冻结保留期计算，不占用结果保护。不按发起人分组或持久化发起人字段。scope/permission 改变后重读，不用浏览器保存的任务列表当权威。
+- 每个终态的到期事实由原 acceptance 的 `result_retention_seconds` 与 operation 的不可变 `completed_at` 计算；成功的 `result_expires_at` 与失败/取消的列表截止时间均用 `completed_at + result_retention_seconds`。成功发布时在**同一事务**把 `history-compare-operation` 的全部结果闭包保护设置为同一计算到期时刻；读取、列表、复用和清理均核这个持久事实，protection expiry 必须一致，不能仅从可被清掉的保护行推断到期。现有 `set_protection` 不写 expiry，实施时在该接口增加受限到期参数；同 owner 已有 intent 的幂等写也必须核/更新 expiry。到期后原 operation 状态与原始幂等映射保留作审计/重试解释；有界扫尾器在 control DB 写事务中按已到期 operation 清除 History result owner，调用现有 `clear_protection` 以恢复 canonical cache TTL，然后按保留规则分批删别名。`touch_canonical_ttl` 现只把无 expiry 的其它 intent 当作强 owner；扩展有限期保护时必须改为核**所有尚有效**的其它 owner，不能提前使共用 canonical cache 可清。其它 owner 的强引用及进行中 checkpoint 保护不受影响；即使文件尚未删除也不可复用。扫尾延迟不延长接口可见期。
+- 配置默认保留 24 小时、单设备+项目最多 2 个进行中 History、所有作业类型合计最多 32 个 QUEUED；实施时在现有配置入口固定有界正整数，生产资源档不变。已命中的作业不占新名额。上限判断和插入必须同一写事务；scope 计数为同 scope 的 History QUEUED/RUNNING，超限为 409 `HISTORY_COMPARE_SCOPE_LIMIT` 并返回至多 2 个当前活动 ID；global 计数为所有 job kind 的 QUEUED，超限为 429 `OPERATION_QUEUE_FULL`。跨 Preview/Submit/History 及其它作业受理入口都须接同一 global 检查，不能只限制 History 而声称全局。先完成同键/跨键复用，再判断配额；API 并发受理 gate 与 durable 排队上限是两个独立约束。
+- 工作区读模型增加 `active_preview_operation_id: string | null`，只指向当前 Workspace generation/revision 的 QUEUED/RUNNING Preview，排除 superseded/cancelled；同一当前 generation 出现多个候选属状态完整性错误，不能任取。供跨标签页/终端接回；Preview 的既有 supersede 规则不变。此项与 History 列表/上限同属已确认的后台任务找回需求，可在独立包实施，不能靠前端 sessionStorage 作为权威。
 
-若现有 bundle 读取在到期并发清理时不能保证一次已开始下载的稳定性，实施者在现有 read-session/保护能力内补短生命周期借用；不得以永不清理掩盖问题，也不为此新建持久 evidence 状态机。维护任务只处理已到期的派生结果，保留成功/失败原始测试证据及其它保护 owner。配置改变仅作用于以后发布的成功结果。
+若现有 bundle 读取在到期并发清理时不能保证一次已开始下载的稳定性，实施者在现有 read-session/保护能力内补短生命周期借用；不得以永不清理掩盖问题，也不为此新建持久 evidence 状态机。维护任务只处理已到期的派生结果，保留成功/失败原始测试证据及其它保护 owner。配置改变仅作用于以后**受理**的作业；已受理作业使用冻结的保留期。
+
+维护落点是现有 `bootstrap/storage_admin.py` 的显式 storage maintenance 入口：每次文件候选扫描前先以索引和 `LIMIT 32` 处理一批已到期且**仍有 History result intent 或别名**的原作业，单批短写事务提交，随后按既有 bounded artifact cleanup 运行；查询应有 owner/alias 索引，已清完的旧 operation 不得被反复选中。重复调用直至数据库待清理数为零，不另建服务或持久状态机。部署运行手册给该命令固定的定期调用（建议每小时，失败告警并重试），阶段验收须验证从到期到释放的调用链和批次接续。接口过期判断直接按持久时间事实执行，不等待维护调用；维护停跑只影响磁盘/数据库回收，不能令过期内容重新可见。
 
 ## 5. 提交不可变性与下一层缓存
 
@@ -64,7 +70,7 @@
 | --- | --- | --- |
 | A | 后端提交结果读取接口维持现有绑定/权限；交前端路由与 pair 文案；审核页行为不退化。仅交接前端，不改 `frontend/` | A：提交内容与权限；Business Lifecycle / Bundle |
 | B | History 规范受理、跨键幂等映射、原子去重与精确候选核验；同请求零新作业、零新 bundle | B，授权核对为 A；History Application / control DB |
-| C | History 列表、结果 TTL 与保护释放、单 scope/全局队列上限；Workspace active Preview 读模型可独立交付 | B：状态/保护；History / Operation / Workspace |
+| C | History 列表、结果 TTL 与 storage maintenance 保护释放、单 scope/全局队列上限；Workspace active Preview 读模型可独立交付 | B：状态/保护；History / Operation / Workspace |
 | D | 仅量化必要的冷 catalog 与热 step 2 成本；有证据才选择一个局部缓存优化，不默认实施新的持久缓存或简化校验 | C/D：派生缓存；Repository/Snapshot/Comparison 各 owner |
 
 按 [比例化政策](../policies/proportional-assurance-and-risk-based-verification-policy.md) 分包：权威 Submission/Repository 内容和权限是 A；operation/幂等/结果保护是 B；可重建缓存是 C。A/B 包逐包独审，阶段末不同模型家族新上下文全范围独审；实际门禁闭包由协调者依据代码差异与脚本定，不因设计文档自动跑全部六包。更改容器/清理接线时先读 testing-conventions 对应触发条件。
@@ -79,9 +85,9 @@
 
 先冻结目标源码与接口行为，完成 B 的受理/幂等/结果复用及 focused；再交付 C 的列表、TTL、上限与找回，**B+C 同一最终候选验收，不把永久保留的 B 单独发布**；最后与前端会话对接 A。D 在核心复用验收后按剩余成本单独决策，避免对已消失的重复作业做缓存优化。
 
-实施映射：B 优先改 `application/history/{compare,contracts,ports}.py`、`infrastructure/control_db/{schema,sqlite_history_compare}.py` 与 History HTTP orchestration/errors；C 接 `application/history/compare_jobs.py` 发布保护、`sqlite_protection.py` 的到期处理、History 列表 DTO/路由、Workspace read model 和所有作业受理的队列计数入口。完成每包后删掉被替代的旧查找路径；schema、HTTP golden 与受影响测试同步目标形态，不保旧字段别名。D 若获证据支持，从 `repository_service/candidate_a/dolt_cli.py` 或 `snapshot_materialization/client_parquet.py` 的实测热点选择**一个**局部包，不与 B/C 暗中合并范围。
+实施映射：B 优先改 `application/history/{compare,contracts,compare_bindings,ports}.py`、`infrastructure/control_db/{schema,sqlite_history_compare}.py` 与 History HTTP orchestration/errors，完成原始键和别名键的事务查找、成功候选的事务外预检及 B 的 focused；C 接 `application/history/compare_jobs.py` 发布保护、`sqlite_protection.py` 的到期处理、`bootstrap/storage_admin.py` 的有界扫尾、History 列表 DTO/路由、Workspace read model 和所有作业受理的队列计数入口。C 同步部署维护运行手册及必要的容器接线验收。完成每包后删掉被替代的旧查找路径；schema、HTTP golden 与受影响测试同步目标形态，不保旧字段别名。D 若获证据支持，从 `repository_service/candidate_a/dolt_cli.py` 或 `snapshot_materialization/client_parquet.py` 的实测热点选择**一个**局部包，不与 B/C 暗中合并范围。
 
-接口落点：History `POST` 沿用 `{operation_id,status,replayed}`；新增 `GET /v1/history-compares?limit=<1..100>&after=<opaque>`，响应为有序 items 与可空 next cursor。每项固定 `operation_id,nodes,status,accepted_at,completed_at,result_expires_at`，后两项可空；输入超界 422，越权遵循原隐藏规则。新增 `HISTORY_COMPARE_REQUEST_EXPIRED`（409）与 `HISTORY_COMPARE_RESULT_EXPIRED`（410），scope active 超限码返回该 scope 的活动 operation ID，global queue 满返回 429。WorkspaceResponse 增加可空 active Preview operation ID；具体字段 spelling 在接口实施时与前端会话冻结一次，Contract 不接受两个同义字段。
+接口落点：History `POST` 沿用 `{operation_id,status,replayed}`；新增 `GET /v1/history-compares?limit=<1..100>&after=<opaque>`，响应为有序 items 与可空 next cursor。每项固定 `operation_id,nodes,status,accepted_at,completed_at,result_expires_at`，后两项可空，`result_expires_at` 仅成功时非空；输入超界 422，越权遵循原隐藏规则。新增 `HISTORY_COMPARE_REQUEST_EXPIRED`（409）、`HISTORY_COMPARE_RESULT_EXPIRED`（410）、`HISTORY_COMPARE_SCOPE_LIMIT`（409）、`HISTORY_COMPARE_ALIAS_LIMIT`（429）与 `OPERATION_QUEUE_FULL`（429）。WorkspaceResponse 增加可空 `active_preview_operation_id`；后端 DTO/OpenAPI 按这些名称落地后，前端会话据此接入，Contract 不接受同义字段。
 
 各包完成后追加阶段日志和外部 handoff，设计/Contract 入库，审核意见和机器原件留 `/home/dev/gdds-stage-exchange/gw08-history-reuse/`。不推送、部署或修改正在联调的 08 数据；阶段真实范围与前端修改由相应 owner 确认。
 

@@ -418,6 +418,31 @@ def test_blank_position_renumber_keeps_occupancy_without_records() -> None:
         product.close()
 
 
+def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b'),(3,3,'c');"
+    current = schema + " INSERT INTO t VALUES (1,2,'a'),(2,1,'b'),(3,3,'c');"
+    product = native_product(before, current, ordered=True)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        table, = product.result.facts.tables
+        assert table.ordered_extension is not None
+        assert table.ordered_extension.ordered_summary.row_moved_count == 1
+        result = evaluate_risk(RiskEvaluationInput(
+            comparison_facts=product.result.facts,
+            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
+            ordered_record_views=product.handles,
+        ), artifact_store=InMemoryArtifactStore())
+        assert result.status is RiskEvaluationStatus.READY
+        assert result.risk_report is not None
+        assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_MOVE,)
+        assert result.risk_report.tables[0].risk_level.value == "MEDIUM_HIGH"
+        assert result.risk_report.tables[0].annotation_count == 1
+    finally:
+        product.close()
+
+
 def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> None:
     before = (
         "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"

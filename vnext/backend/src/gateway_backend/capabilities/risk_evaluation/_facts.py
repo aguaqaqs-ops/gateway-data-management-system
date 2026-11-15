@@ -187,6 +187,8 @@ def has_visible_change(item: ExtractedRiskFacts) -> bool:
         or table.row_deleted_count
         or table.row_modified_count
         or item.records
+        or (table.ordered_extension is not None
+            and table.ordered_extension.ordered_summary.row_moved_count > 0)
         or item.ordered_unsupported
         or item.uncovered_targets
     )

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import pyarrow as pa
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -23,6 +24,9 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact,
     ComparisonTableStatus,
     OrderedRecord,
+    OrderedExtension,
+    OrderedStatus,
+    OrderedSummary,
     PairResultStatus,
     SchemaEvolution,
 )
@@ -168,6 +172,51 @@ def _evaluate(
         execution_policy=policy or RiskExecutionPolicy(),
         execution_context=context,
     )
+
+
+def test_ordered_moves_generate_row_risk_from_native_records() -> None:
+    identity = raw_blob_digest(b"moved point")
+    table = ComparisonTableFact(
+        table_name="b1_n2_iec104_syx_list",
+        status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(row_moved_count=1),
+        ),
+    )
+
+    class OrderedView:
+        def record_batches(self, family: str) -> pa.RecordBatchReader:
+            assert family == "ORDERED"
+            batch = pa.record_batch({
+                "record_kind": ["ORDERED_ROW_MOVED"],
+                "row_identity": [bytes.fromhex(identity.value.removeprefix("sha256:"))],
+                "current_position": [2],
+            })
+            return pa.RecordBatchReader.from_batches(batch.schema, [batch])
+
+    store = InMemoryArtifactStore()
+    result = evaluate_risk(RiskEvaluationInput(
+        comparison_facts=_facts(table), risk_ruleset=_ruleset(),
+        ordered_record_views={table.table_name: OrderedView()},
+    ), artifact_store=store)
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_MOVE,)
+    payload = json.loads(store.locate(result.annotation_artifacts[0].content_ref))
+    assert payload["annotations"][0]["target"]["row_identity"] == identity.value
+    assert payload["annotations"][0]["target"]["position"] == 2
+
+
+def test_ordered_move_without_records_fails_closed() -> None:
+    table = ComparisonTableFact(
+        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(row_moved_count=1),
+        ),
+    )
+    assert _evaluate(table).status is RiskEvaluationStatus.FAILED
 
 
 def test_structural_risk_publishes_annotation_and_valid_closure() -> None:

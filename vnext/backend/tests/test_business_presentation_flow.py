@@ -22,7 +22,29 @@ from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyStatus
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_live import canonical_bound
-from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+from tests.support.table_rules import comparison_ruleset_for, ordered_record, standard_rule_record
+
+
+def test_preview_ordered_swap_publishes_movement_risk() -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"))
+    current = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,2,'a'),(2,1,'b');"))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(
+        pair_id="initial_to_modified", before=before, current=current, store=store,
+        control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        assess_identity=False, repository_id="replacement-fixture",
+    )
+    assert result.surface_result.status is SurfaceAssemblyStatus.READY
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert table.ordered_extension is not None
+    assert table.risk_refs.risk_level is not None
+    assert table.risk_refs.risk_level.value == "MEDIUM_HIGH"
+    assert table.risk_refs.reason_codes == ("ORDERED_MOVE",)
+    assert table.risk_refs.annotation_count == 1
 
 
 def test_preview_uses_identical_current_device_when_baseline_reader_is_omitted() -> None:

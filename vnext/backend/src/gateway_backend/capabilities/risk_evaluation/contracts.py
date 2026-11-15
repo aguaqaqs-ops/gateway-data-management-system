@@ -37,8 +37,8 @@ RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
-RISK_RULESET_VERSION = "v4"
-RISK_RULE_VERSION = "v4"
+RISK_RULESET_VERSION = "v5"
+RISK_RULE_VERSION = "v5"
 
 
 RiskOptionValue: TypeAlias = str | int | bool | None
@@ -128,6 +128,7 @@ class RiskRuleId(StrEnum):
     ROW_ADDED = "ROW_ADDED"
     ROW_DELETED = "ROW_DELETED"
     ROW_MODIFIED = "ROW_MODIFIED"
+    ORDERED_MOVE = "ORDERED_MOVE"
     KEY_DEGRADED = "KEY_DEGRADED"
     ORDERED_DIFF_UNSUPPORTED = "ORDERED_DIFF_UNSUPPORTED"
     COMPARISON_FAILED = "COMPARISON_FAILED"
@@ -143,6 +144,7 @@ class RiskReasonCode(StrEnum):
     ROW_ADDED = "ROW_ADDED"
     ROW_DELETED = "ROW_DELETED"
     ROW_MODIFIED = "ROW_MODIFIED"
+    ORDERED_MOVE = "ORDERED_MOVE"
     KEY_DEGRADED = "KEY_DEGRADED"
     ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED = "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED"
     COMPARISON_FAILED = "COMPARISON_FAILED"
@@ -1153,6 +1155,7 @@ class RiskEvaluationInput:
     cache_policy: RiskCachePolicy | None = None
     # Transient facts-order Arrow views; excluded from the persisted digest/DTO.
     record_views: Mapping[str, object] | None = None
+    ordered_record_views: Mapping[str, object] | None = None
     record_view_metrics: dict[str, float] | None = None
     risk_cache_session: object | None = None
     risk_task_keys: Mapping[str, str] | None = None
@@ -1439,6 +1442,7 @@ V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
             _default_rule(RiskRuleId.ROW_ADDED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_ADDED, RiskLevel.MEDIUM_LOW),
             _default_rule(RiskRuleId.ROW_DELETED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_DELETED, RiskLevel.MEDIUM_LOW),
             _default_rule(RiskRuleId.ROW_MODIFIED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_MODIFIED, RiskLevel.MEDIUM_HIGH),
+            _default_rule(RiskRuleId.ORDERED_MOVE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MOVE, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.KEY_DEGRADED, RiskScope.DEGRADED_TABLE, RiskReasonCode.KEY_DEGRADED, RiskLevel.UNKNOWN),
             _default_rule(
                 RiskRuleId.ORDERED_DIFF_UNSUPPORTED,

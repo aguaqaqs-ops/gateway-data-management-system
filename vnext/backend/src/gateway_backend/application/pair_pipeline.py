@@ -439,6 +439,7 @@ def _finish_comparison_risk_surface(
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
             risk_options=RiskOptions(empty_baseline=not plan.before.summary.tables),
             record_views=native_comparison.risk_handles,
+            ordered_record_views=native_comparison.handles,
             record_view_metrics=risk_conversion,
             risk_cache_session=native_comparison.session,
             risk_task_keys=native_comparison.task_keys,

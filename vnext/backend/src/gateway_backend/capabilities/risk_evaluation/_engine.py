@@ -5,7 +5,7 @@ from __future__ import annotations
 from gateway_backend.statistics.metrics import timed
 
 from collections.abc import Callable, Mapping
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from time import perf_counter
@@ -16,6 +16,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordKind,
     ComparisonRecordsClosure,
     ComparisonTableStatus,
+    OrderedRecordKind,
     SchemaEvolution,
 )
 from gateway_backend.capabilities.risk_evaluation._artifacts import (
@@ -94,6 +95,7 @@ _MESSAGES: dict[RiskReasonCode, str] = {
     RiskReasonCode.ROW_ADDED: "row added",
     RiskReasonCode.ROW_DELETED: "row deleted",
     RiskReasonCode.ROW_MODIFIED: "row modified",
+    RiskReasonCode.ORDERED_MOVE: "ordered row moved",
     RiskReasonCode.KEY_DEGRADED: "comparison key degraded; review required",
     RiskReasonCode.ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED: "ordered diff unsupported; review required",
     RiskReasonCode.COMPARISON_FAILED: "comparison failed",
@@ -574,6 +576,7 @@ def _evaluate_table_impl(
                 table_target,
                 (("target", item.uncovered_targets[0]),),
             )
+        _emit_ordered_moves(item, emit, evaluation_input, context)
         _emit_row_risks(
             item,
             emit,
@@ -602,6 +605,57 @@ def _evaluate_table_impl(
     if recorder is not None:
         recorder.finish()
     return outcome
+
+
+def _emit_ordered_moves(
+    item: ExtractedRiskFacts,
+    emit: _RiskEmitter,
+    evaluation_input: RiskEvaluationInput,
+    context: RiskExecutionContext,
+) -> None:
+    extension = item.table_fact.ordered_extension
+    if extension is None or extension.ordered_summary.row_moved_count == 0:
+        return
+    expected = extension.ordered_summary.row_moved_count
+    count = 0
+
+    def emit_move(identity: DigestRef | None, position: int | None) -> None:
+        nonlocal count
+        if identity is None:
+            raise _PairFailure("ordered move missing row identity")
+        emit(RiskRuleId.ORDERED_MOVE, RiskTarget(
+            target_type=RiskTargetType.ROW, table_name=item.table_fact.table_name,
+            row_identity=identity, position=position,
+        ))
+        count += 1
+
+    views = evaluation_input.ordered_record_views
+    handle = None if views is None else views.get(item.table_fact.table_name)
+    if handle is not None:
+        reader = getattr(handle, "record_batches")("ORDERED")
+        with closing(reader):
+            for batch in reader:
+                if context.operation is not None:
+                    context.operation.checkpoint()
+                scratch = (nullcontext() if context.operation is None else context.operation.memory.reserve(
+                    8192 + batch.nbytes * 16 + batch.num_rows * 512,
+                ))
+                with scratch:
+                    kinds = batch.column(batch.schema.get_field_index("record_kind")).to_pylist()
+                    identities = batch.column(batch.schema.get_field_index("row_identity")).to_pylist()
+                    positions = batch.column(batch.schema.get_field_index("current_position")).to_pylist()
+                    for kind, identity, position in zip(kinds, identities, positions, strict=True):
+                        if kind == OrderedRecordKind.ROW_MOVED.value:
+                            emit_move(None if identity is None else DigestRef("sha256:" + identity.hex()), position)
+    else:
+        records = extension.records
+        if not records and evaluation_input.records_access is not None:
+            records = evaluation_input.records_access.get_ordered_records(item.table_fact.table_name)
+        for record in records:
+            if record.record_kind is OrderedRecordKind.ROW_MOVED:
+                emit_move(record.row_identity, record.current_position)
+    if count != expected:
+        raise _PairFailure("ordered move records do not match summary")
 
 
 def _emit_row_risks(

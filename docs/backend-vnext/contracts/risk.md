@@ -469,6 +469,8 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 - reason code、默认风险和 target 需要与 `contracts/ordered-diff.md` 保持一致。
 - Surface/bundle 只消费 risk output，不重新判定 tail/middle/move 风险。
 
+当前 ruleset v5 对有序比较输出的 `ORDERED_ROW_MOVED` 逐行产生 `ORDERED_MOVE`；风险目标绑定比较记录的行身份和改后位置。移动计数与可读取记录不一致时风险计算失败，不得发布无风险结果。规则集版本由风险规则校验器核对，规则快照摘要参与风险及其候选缓存身份，避免复用旧规则结果。Preview assemble-state v8、History assemble-state v5 由 checkpoint 解码器核对，防止恢复旧风险结果。其余有序专项规则仍待实现。
+
 ## 非目标
 
 第一版不定义：

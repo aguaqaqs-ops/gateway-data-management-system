@@ -1,0 +1,5 @@
+{
+  "ruleset_digest": "sha256:e15a0561b88e27a9b156ab4f9831a6052c95b2b2a410286b5fffb0c40c907d3d",
+  "ordered_risk_evaluation_digest": "sha256:50d763cd7dea1c2cd20cd2c43d1d29c0a788b07d2c79e6d59229b6d63b4dadf9",
+  "keyless_risk_evaluation_digest": "sha256:0542231bc08f54a82e570d02f15d3e60502be8e0249e96efa3d3cd72c9345e41"
+}

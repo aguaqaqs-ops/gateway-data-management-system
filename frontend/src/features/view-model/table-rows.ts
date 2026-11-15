@@ -345,7 +345,12 @@ function blankIntervalRows(records: RowDiffRecord[]): { insertedCurrent: Set<num
     const start = positionNumber(interval[`${side}_start`]);
     const end = positionNumber(interval[`${side}_end`]) ?? start;
     if (start === null || end === null) continue;
-    const positions = Array.from({ length: Math.max(0, end - start + 1) }, (_, offset) => start + offset);
+    // The interval spans the whole blank run on that side; row_count is the net
+    // number inserted or deleted (a run of 2 shrinking to 1 deletes 1). Blank
+    // rows are interchangeable, so the change is shown at the start of the run.
+    const span = Math.max(0, end - start + 1);
+    const count = positionNumber(interval.row_count);
+    const positions = Array.from({ length: count === null ? span : Math.min(count, span) }, (_, offset) => start + offset);
     if (side === "current") positions.forEach((position) => insertedCurrent.add(position)); else deletedBefore.set(record, positions);
   }
   return { insertedCurrent, deletedBefore };

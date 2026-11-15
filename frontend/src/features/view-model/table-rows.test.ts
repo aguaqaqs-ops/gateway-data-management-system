@@ -211,6 +211,20 @@ describe("browse rows from published locators", () => {
     expect(deriveChangeLocations(records).map((location) => location.position)).toEqual([4, 2]);
   });
 
+  it("shows only the net row_count of a blank run that grew or shrank", () => {
+    // Before: 1 2 _ _ 5 _ _ 8. Insert two blanks after 1 and shrink the 6-7 run to one blank.
+    const current = ["1", "", "", "2", "", "", "5", "", "8"].map((label, index) => ({ dev_addr: label, description: label || "空点", no: String(index + 1) }));
+    const blank = (kind: string, interval: Record<string, number | null>) => ({ table_name: "device", record_kind: kind, interval }) as RowDiffRecord;
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 9 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations: [],
+      records: [blank("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 2, current_end: 3, row_count: 2 }),
+        blank("BLANK_DELETE_INTERVAL", { before_start: 6, before_end: 7, current_start: 8, current_end: 8, row_count: 1 })],
+    });
+    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
+      .toEqual([" 1", "+2", "+3", " 4", " 5", " 6", " 7", "-6", " 8", " 9"]);
+  });
+
   it("maps blank-interval risks to the blank rows of the named side by position", () => {
     const current = [1, 0, 2, 3].map((n, index) => ({ dev_addr: n, description: n ? `点${n}` : "空点", no: String(index + 1) }));
     const interval = (side: "CURRENT" | "BEFORE", start: number, end: number, level: RiskAnnotation["risk_level"]): RiskAnnotation => ({

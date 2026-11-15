@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from dataclasses import replace
 from typing import Any
 
@@ -10,7 +11,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 
 from gateway_shared_kernel import raw_blob_digest
-from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
+from gateway_backend.application.pair_pipeline import declare_pair_comparison_session, run_history_pair_pipeline, run_preview_pair_pipeline
 from gateway_backend.application.preview_jobs import surface_artifact_closure
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.bundle_assembly import (
@@ -18,6 +19,7 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput, BundleProfile, assemble_bundle, validate_bundle,
 )
 from gateway_backend.capabilities.business_navigation import validate_navigation
+from gateway_backend.capabilities.comparison import ComparisonRequest
 from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyStatus
 from gateway_backend.operations.worker import ExecutionControl
 from tests.support.comparison_cache_inputs import complete_canonical_bound
@@ -45,6 +47,132 @@ def test_preview_ordered_swap_publishes_movement_risk() -> None:
     assert table.risk_refs.risk_level.value == "MEDIUM_HIGH"
     assert table.risk_refs.reason_codes == ("ORDERED_MOVE",)
     assert table.risk_refs.annotation_count == 1
+
+
+@pytest.mark.parametrize(("before_rows", "current_rows", "level", "reason", "target"), (
+    ("(1,10,'a',1)", "(1,10,'a',1),(2,30,'b',2)", "LOW", "ORDERED_TAIL_INSERT_DELETE", "ROW"),
+    ("(1,10,'a',1),(2,30,'b',2)", "(1,10,'a',1)", "LOW", "ORDERED_TAIL_INSERT_DELETE", "ROW"),
+    ("(1,10,'a',1),(2,30,'b',2)", "(1,10,'a',1),(3,20,'c',3),(2,30,'b',2)", "MEDIUM_HIGH", "ORDERED_MIDDLE_INSERT_DELETE", "ROW"),
+    ("(1,10,'a',1),(3,20,'c',3),(2,30,'b',2)", "(1,10,'a',1),(2,30,'b',2)", "MEDIUM_HIGH", "ORDERED_MIDDLE_INSERT_DELETE", "ROW"),
+    ("(1,10,'a',1)", "(2,10,'b',2)", "MEDIUM_LOW", "ORDERED_REPLACEMENT", "ROW_PAIR"),
+    ("(1,10,'a',1)", "(1,10,'new',1)", "LOW", "ORDERED_NAME_UPDATE", "ROW"),
+    ("(1,10,'a',1)", "(1,10,'a',2)", "MEDIUM_LOW", "ORDERED_CONTENT_UPDATE", "ROW"),
+    ("(1,10,'a',1)", "(1,10,'new',2)", "MEDIUM_LOW", "ORDERED_CONTENT_UPDATE", "ROW"),
+    ("(1,10,'a',1)", "(1,20,'a',1)", "UNKNOWN", "ORDERED_RISK_UNKNOWN", "TABLE"),
+))
+def test_preview_ordered_row_risk_rules(
+    before_rows: str, current_rows: str, level: str, reason: str, target: str,
+) -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8), value INT);"
+    before = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"))
+    current = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_rows};"))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(
+        pair_id="initial_to_modified", before=before, current=current, store=store,
+        control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        assess_identity=False, repository_id="replacement-fixture",
+    )
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert table.risk_refs.risk_level is not None
+    assert table.risk_refs.risk_level.value == level
+    assert surface.view.risk_level is not None
+    assert surface.view.risk_level.value == level
+    assert table.risk_refs.reason_codes == (reason,)
+    assert table.risk_refs.annotation_ref is not None
+    document = json.loads(store.locate(table.risk_refs.annotation_ref))
+    annotation, = document["annotations"]
+    assert annotation["target"]["target_type"] == target
+    if target == "ROW":
+        assert annotation["target"]["row_identity"] is not None
+    if target == "ROW_PAIR":
+        assert annotation["target"]["before_row_identity"] is not None
+        assert annotation["target"]["current_row_identity"] is not None
+
+
+def test_ordered_name_change_and_movement_keep_both_risks() -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, name VARCHAR(8));"
+    before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"))
+    current = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,20,'a'),(2,10,'new');"))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(
+        pair_id="initial_to_modified", before=before, current=current, store=store,
+        control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        assess_identity=False, repository_id="replacement-fixture",
+    )
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert set(table.risk_refs.reason_codes) == {"ORDERED_NAME_UPDATE", "ORDERED_MOVE"}
+    assert table.risk_refs.risk_level is not None
+    assert table.risk_refs.risk_level.value == "MEDIUM_HIGH"
+
+
+@pytest.mark.parametrize(("before_rows", "current_rows", "level", "reason", "interval"), (
+    ("(1,10,'a'),(2,100,'b')", "(1,10,'a'),(NULL,40,'x'),(2,100,'b')",
+     "MEDIUM_HIGH", "ORDERED_MIDDLE_BLANK_INTERVAL", [40, 40]),
+    ("(1,10,'a'),(NULL,40,'x'),(2,100,'b')", "(1,10,'a'),(2,100,'b')",
+     "MEDIUM_HIGH", "ORDERED_MIDDLE_BLANK_INTERVAL", [40, 40]),
+    ("(1,10,'a')", "(1,10,'a'),(NULL,40,'x')",
+     "LOW", "ORDERED_TAIL_BLANK_INTERVAL", [40, 40]),
+    ("(1,10,'a'),(NULL,40,'x')", "(1,10,'a')",
+     "LOW", "ORDERED_TAIL_BLANK_INTERVAL", [40, 40]),
+    ("(1,10,'a'),(2,100,'b')", "(1,10,'a'),(NULL,40,'x'),(2,100,'b'),(3,200,'c')",
+     "MEDIUM_HIGH", "ORDERED_MIDDLE_BLANK_INTERVAL", [40, 40]),
+))
+def test_preview_blank_interval_risk_uses_actual_table_end(
+    before_rows: str, current_rows: str, level: str, reason: str, interval: list[int],
+) -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {before_rows};"))
+    current = complete_canonical_bound(canonical_bound(schema + f" INSERT INTO t VALUES {current_rows};"))
+    store = InMemoryArtifactStore()
+    result = run_preview_pair_pipeline(
+        pair_id="initial_to_modified", before=before, current=current, store=store,
+        control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        assess_identity=False, repository_id="replacement-fixture",
+    )
+    surface = result.surface_result.surface
+    assert surface is not None
+    table, = surface.tables
+    assert table.risk_refs.risk_level is not None
+    assert table.risk_refs.risk_level.value == level
+    assert surface.view.risk_level is not None
+    assert surface.view.risk_level.value == level
+    assert reason in table.risk_refs.reason_codes
+    assert table.risk_refs.annotation_ref is not None
+    document = json.loads(store.locate(table.risk_refs.annotation_ref))
+    annotation, = (item for item in document["annotations"]
+                   if any(entry["reason_code"] == reason for entry in item["reasons"]))
+    assert annotation["target"]["target_type"] == "ROW_INTERVAL"
+    assert annotation["target"]["position_range"] == interval
+
+
+def test_blank_interval_risk_replays_identically_with_comparison_cache() -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(2,100,'b');"))
+    current = complete_canonical_bound(canonical_bound(schema + " INSERT INTO t VALUES (1,10,'a'),(NULL,40,'x'),(2,100,'b');"))
+    rules = comparison_ruleset_for(ordered_record(r"^t$"))
+    requests = tuple(ComparisonRequest(pair_id=pair_id, before=before, current=current, rule_set=rules)
+                     for pair_id in ("first", "second"))
+    session = declare_pair_comparison_session(requests)
+    assert session is not None
+    store = InMemoryArtifactStore()
+    with closing(session):
+        results = [run_preview_pair_pipeline(
+            pair_id=pair_id, before=before, current=current, store=store,
+            control=ExecutionControl(), on_cancel=lambda: pytest.fail("unexpected cancellation"),
+            rule_set=rules, assess_identity=False, repository_id="replacement-fixture", dedup_session=session,
+        ) for pair_id in ("first", "second")]
+        assert session.hits > 0
+    first, second = (result.surface_result.surface for result in results)
+    assert first is not None and second is not None
+    assert first.tables[0].risk_refs.risk_level == second.tables[0].risk_refs.risk_level
+    assert first.tables[0].risk_refs.reason_codes == second.tables[0].risk_refs.reason_codes == ("ORDERED_MIDDLE_BLANK_INTERVAL",)
 
 
 def test_preview_uses_identical_current_device_when_baseline_reader_is_omitted() -> None:

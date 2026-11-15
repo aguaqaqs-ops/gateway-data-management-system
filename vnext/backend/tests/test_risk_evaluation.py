@@ -24,9 +24,14 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact,
     ComparisonTableStatus,
     OrderedRecord,
+    OrderedRecordKind,
+    OrderedSemanticKind,
     OrderedExtension,
     OrderedStatus,
     OrderedSummary,
+    BlankExtension,
+    BlankSummary,
+    ReplayGuarantee,
     PairResultStatus,
     SchemaEvolution,
 )
@@ -186,7 +191,7 @@ def test_ordered_moves_generate_row_risk_from_native_records() -> None:
     )
 
     class OrderedView:
-        def record_batches(self, family: str) -> pa.RecordBatchReader:
+        def risk_record_batches(self, family: str) -> pa.RecordBatchReader:
             assert family == "ORDERED"
             batch = pa.record_batch({
                 "record_kind": ["ORDERED_ROW_MOVED"],
@@ -209,14 +214,73 @@ def test_ordered_moves_generate_row_risk_from_native_records() -> None:
     assert payload["annotations"][0]["target"]["position"] == 2
 
 
-def test_ordered_move_without_records_fails_closed() -> None:
+def test_ordered_move_without_records_requires_review() -> None:
     table = ComparisonTableFact(
         table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
         ordered_extension=OrderedExtension(
             status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(row_moved_count=1),
         ),
     )
+    result = _evaluate(table, store=InMemoryArtifactStore())
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
+
+
+def test_blank_interval_without_position_evidence_fails_closed() -> None:
+    table = ComparisonTableFact(
+        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        blank_extension=BlankExtension(
+            status=OrderedStatus.CHANGED,
+            blank_summary=BlankSummary(interval_inserted_count=1, blank_changed_count=1),
+        ),
+    )
     assert _evaluate(table).status is RiskEvaluationStatus.FAILED
+
+
+def test_blank_interval_without_maximum_requires_review() -> None:
+    table = ComparisonTableFact(
+        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary()),
+        blank_extension=BlankExtension(
+            status=OrderedStatus.CHANGED,
+            blank_summary=BlankSummary(interval_inserted_count=1, blank_changed_count=1),
+        ),
+    )
+    result = _evaluate(table, store=InMemoryArtifactStore())
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_RISK_UNKNOWN,)
+
+
+def test_unreliable_ordered_replay_requires_review() -> None:
+    table = ComparisonTableFact(
+        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(position_changed_count=1),
+            replay_guarantee=ReplayGuarantee.PARTIAL,
+        ),
+    )
+    result = _evaluate(table, store=InMemoryArtifactStore())
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_RISK_UNKNOWN,)
+
+
+def test_ordered_update_without_changed_columns_requires_review() -> None:
+    name = "b1_n2_iec104_syx_list"
+    table = ComparisonTableFact(
+        table_name=name, status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(row_modified_count=1),
+            records=(OrderedRecord(table_name=name, record_kind=OrderedRecordKind.ROW_MODIFIED,
+                semantic_kind=OrderedSemanticKind.CONTENT_UPDATE, row_identity=raw_blob_digest(b"point"),
+                before_position=1, current_position=1),),
+        ),
+    )
+    result = _evaluate(table, store=InMemoryArtifactStore())
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_RISK_UNKNOWN,)
 
 
 def test_structural_risk_publishes_annotation_and_valid_closure() -> None:

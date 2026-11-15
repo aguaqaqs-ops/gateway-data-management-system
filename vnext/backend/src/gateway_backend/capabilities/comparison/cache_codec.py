@@ -216,7 +216,8 @@ class ComparisonCacheCodec:
                     views.append(_encode_view(f"facts/{family}", handle.facts_batches(family), context, charges))
                 for family in families:
                     views.append(_encode_view(f"artifact/{family}", handle.neutral_record_batches(family), context, charges))
-                views.append(_encode_view("risk/STANDARD", handle.risk_record_batches(), context, charges))
+                for family in FAMILIES:
+                    views.append(_encode_view(f"risk/{family}", handle.risk_record_batches(family), context, charges))
             return ComparisonCachePayload(identity.repository_id, identity.artifact_scope,
                 identity.task_digest, identity.task_input.kind, identity.task_input.detail_policy.value,
                 fact_jcs, metadata, families, tuple(views), charges=charges)
@@ -263,8 +264,8 @@ class ComparisonCacheCodec:
             if identity.task_input.native_kind == "ordered":
                 native_data["table_name"] = task.table_name
             expected = tuple(f"facts/{family}" for family in FAMILIES) + tuple(
-                f"artifact/{family}" for family in payload.families) + ("risk/STANDARD",)
-            if (len(payload.views) > 7 or tuple(view.name for view in payload.views) != expected
+                f"artifact/{family}" for family in payload.families) + tuple(f"risk/{family}" for family in FAMILIES)
+            if (len(payload.views) > 9 or tuple(view.name for view in payload.views) != expected
                     or not payload.families or len(set(payload.families)) != len(payload.families)
                     or any(family not in FAMILIES for family in payload.families)):
                 raise ValueError("neutral cache view closure mismatch")
@@ -275,7 +276,8 @@ class ComparisonCacheCodec:
                     metadata_json=json.dumps(native_data, separators=(",", ":")), detail_policy=payload.detail_policy,
                     family_names=list(payload.families), facts=[readers[f"facts/{family}"] for family in FAMILIES],
                     artifacts=[readers[f"artifact/{family}"] for family in payload.families],
-                    risk=readers["risk/STANDARD"], input_owner_charge=owner,
+                    risk=readers["risk/STANDARD"], ordered_risk=readers["risk/ORDERED"],
+                    blank_risk=readers["risk/BLANK"], input_owner_charge=owner,
                     max_records=MAX_CACHE_ROWS, max_row_bytes=MAX_FACT_ROW_BYTES, max_input_bytes=upper)
             from gateway_backend.capabilities.comparison.row_encoding import _schema_view
             if task.before_descriptor is None or task.current_descriptor is None or task.policy is None:

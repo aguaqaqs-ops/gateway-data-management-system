@@ -173,7 +173,7 @@ HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
 )
 HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
 HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/assemble-state/v5"
+    "backend-vnext/history-compare/assemble-state/v6"
 )
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(

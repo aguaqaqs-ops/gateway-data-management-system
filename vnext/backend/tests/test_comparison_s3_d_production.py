@@ -71,8 +71,8 @@ from tests.test_comparison_rule_roles import _plan as role_plan
 pytestmark = pytest.mark.unit
 
 
-def _risk_v5_golden() -> dict[str, str]:
-    path = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison/s3-e/risk-v5-expected.json"
+def _risk_v6_golden() -> dict[str, str]:
+    path = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison/s3-e/risk-v6-expected.json"
     return json.loads(path.read_bytes())  # type: ignore[no-any-return]
 
 
@@ -545,13 +545,20 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert product.risk_handles == {}
         rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
         assert rules.risk_ruleset_digest is not None
-        assert rules.risk_ruleset_digest.value == _risk_v5_golden()["ruleset_digest"]
+        assert rules.risk_ruleset_digest.value == _risk_v6_golden()["ruleset_digest"]
+        risk_store = InMemoryArtifactStore()
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
             ordered_record_views=product.handles,
-        ), artifact_store=InMemoryArtifactStore())
+            ordered_position_maxima={"t": (4, 4)},
+        ), artifact_store=risk_store)
+        annotations = json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))["annotations"]
+        assert [(row["reasons"][0]["reason_code"], row["target"]["position_range"]) for row in annotations
+                if row["target"]["target_type"] == "ROW_INTERVAL"] == [
+            ("ORDERED_TAIL_BLANK_INTERVAL", [4, 4]), ("ORDERED_MIDDLE_BLANK_INTERVAL", [2, 2]),
+        ]
         assert new_risk.risk_evaluation is not None
-        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v5_golden()["ordered_risk_evaluation_digest"]
+        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v6_golden()["ordered_risk_evaluation_digest"]
         new_store = InMemoryArtifactStore()
         new_published = publish_records_closure_arrow(
             product.result, product.handles, new_store,
@@ -770,12 +777,12 @@ def test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status(
         assert fact.table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
         rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
         assert rules.risk_ruleset_digest is not None
-        assert rules.risk_ruleset_digest.value == _risk_v5_golden()["ruleset_digest"]
+        assert rules.risk_ruleset_digest.value == _risk_v6_golden()["ruleset_digest"]
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
         ), artifact_store=InMemoryArtifactStore())
         assert new_risk.risk_evaluation is not None
-        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v5_golden()["keyless_risk_evaluation_digest"]
+        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v6_golden()["keyless_risk_evaluation_digest"]
     finally:
         product.close()
 

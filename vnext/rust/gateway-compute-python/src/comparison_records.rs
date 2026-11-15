@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use arrow_array::builder::{FixedSizeBinaryBuilder, ListBuilder, StringBuilder};
+use arrow_array::builder::{FixedSizeBinaryBuilder, Int64Builder, ListBuilder, StringBuilder};
 use arrow_array::{
     Array, FixedSizeBinaryArray, ListArray, RecordBatch, RecordBatchReader, StringArray,
 };
@@ -230,6 +230,8 @@ struct ComparisonRecordsHandle {
     ordered: Option<BuiltRecords>,
     blank: Option<BuiltRecords>,
     risk_batches: Option<Vec<RecordBatch>>,
+    ordered_risk: Option<Vec<RecordBatch>>,
+    blank_risk: Option<Vec<RecordBatch>>,
     cache_facts: Option<NeutralFacts>,
     cache_metadata: Option<String>,
     cache_created_risk: bool,
@@ -266,6 +268,8 @@ impl ComparisonRecordsHandle {
         self.ordered = None;
         self.blank = None;
         self.risk_batches = None;
+        self.ordered_risk = None;
+        self.blank_risk = None;
         self.cache_facts = None;
         self.cache_metadata = None;
         self.cache_created_risk = false;
@@ -457,27 +461,30 @@ impl ComparisonRecordsHandle {
         }
         let external: Arc<dyn Any + Send + Sync> =
             self.owner.as_ref().ok_or_else(closed_handle)?.clone();
+        let (ordered_risk, blank_risk) = match result.as_ref() {
+            ComparisonResult::Ordered(value) => (
+                build_ordered_risk(value, false, &self.context, external.clone())?,
+                build_ordered_risk(value, true, &self.context, external.clone())?,
+            ),
+            _ => (Vec::new(), Vec::new()),
+        };
         self.risk_batches =
             Some(charge_arrow_batches(batches, lease, external).map_err(comparison_error)?);
+        self.ordered_risk = Some(ordered_risk);
+        self.blank_risk = Some(blank_risk);
         Ok(())
     }
 
-    fn risk_record_batches(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let batches = self
-            .risk_batches
-            .as_ref()
-            .ok_or_else(|| PyValueError::new_err("risk view was not prepared before seal"))?;
-        let schema = risk_schema();
-        let reader = BatchVecReader {
-            schema,
-            batches: batches.iter().cloned().collect(),
+    #[pyo3(signature = (family="STANDARD"))]
+    fn risk_record_batches(&self, py: Python<'_>, family: &str) -> PyResult<Py<PyAny>> {
+        let (schema, batches) = match family {
+            "STANDARD" => (risk_schema(), &self.risk_batches),
+            "ORDERED" => (ordered_risk_schema(false), &self.ordered_risk),
+            "BLANK" => (ordered_risk_schema(true), &self.blank_risk),
+            _ => return Err(PyValueError::new_err("unknown risk family")),
         };
-        let bridge = Py::new(py, PyRecordBatchReader::new(Box::new(reader)))?;
-        Ok(py
-            .import("pyarrow")?
-            .getattr("RecordBatchReader")?
-            .call_method1("from_stream", (bridge,))?
-            .unbind())
+        let batches = batches.as_ref().ok_or_else(closed_handle)?;
+        export_batches(py, schema, batches)
     }
 
     /// Optional neutral facts are prepared before phase sealing. A failed
@@ -537,6 +544,8 @@ impl ComparisonRecordsHandle {
     fn discard_cache_views(&mut self) {
         if self.cache_created_risk {
             self.risk_batches = None;
+            self.ordered_risk = None;
+            self.blank_risk = None;
         }
         self.cache_created_risk = false;
         self.cache_facts = None;
@@ -623,6 +632,122 @@ fn export_batches(
 
 fn closed_handle() -> PyErr {
     PyValueError::new_err("comparison records handle is closed")
+}
+
+fn ordered_risk_schema(blank: bool) -> SchemaRef {
+    let mut fields = vec![Field::new("record_kind", DataType::Utf8, false)];
+    if blank {
+        for name in [
+            "before_start",
+            "before_end",
+            "current_start",
+            "current_end",
+            "row_count",
+        ] {
+            fields.push(Field::new(name, DataType::Int64, true));
+        }
+    } else {
+        fields.extend([
+            Field::new("row_identity", DataType::FixedSizeBinary(32), false),
+            Field::new("before_position", DataType::Int64, true),
+            Field::new("current_position", DataType::Int64, true),
+            Field::new(
+                "changed_columns",
+                DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+                false,
+            ),
+        ]);
+    }
+    Arc::new(Schema::new(fields))
+}
+
+fn build_ordered_risk(
+    result: &OrderedKernelResult,
+    blank: bool,
+    context: &Arc<KernelContext>,
+    owner: Arc<dyn Any + Send + Sync>,
+) -> PyResult<Vec<RecordBatch>> {
+    let order = if blank {
+        &result.blank_facts_order
+    } else {
+        &result.ordered_facts_order
+    };
+    let upper = order.iter().try_fold(4096usize, |total, index| {
+        let strings = if blank {
+            0
+        } else {
+            result.ordered_records[*index]
+                .changed_columns
+                .iter()
+                .map(String::len)
+                .sum::<usize>()
+        };
+        total
+            .checked_add(2048)
+            .and_then(|n| n.checked_add(strings.saturating_mul(8)))
+            .ok_or_else(|| PyMemoryError::new_err("ordered risk view size overflow"))
+    })?;
+    let lease = context
+        .reserve(upper)
+        .map_err(|e| comparison_error(e.to_string()))?;
+    let schema = ordered_risk_schema(blank);
+    let mut batches = Vec::new();
+    for chunk in order.chunks(1024) {
+        context
+            .check()
+            .map_err(|e| comparison_error(e.to_string()))?;
+        let mut kinds = StringBuilder::new();
+        let mut identities = FixedSizeBinaryBuilder::with_capacity(chunk.len(), 32);
+        let mut positions: Vec<Int64Builder> = (0..if blank { 5 } else { 2 })
+            .map(|_| Int64Builder::new())
+            .collect();
+        let mut changes = ListBuilder::new(StringBuilder::new());
+        for index in chunk {
+            if blank {
+                let record = &result.blank_records[*index];
+                kinds.append_value(record.kind);
+                let interval = &record.interval;
+                let count = i64::try_from(interval.row_count)
+                    .map_err(|_| PyValueError::new_err("blank count overflow"))?;
+                for (builder, value) in positions.iter_mut().zip([
+                    interval.before_start,
+                    interval.before_end,
+                    interval.current_start,
+                    interval.current_end,
+                    Some(count),
+                ]) {
+                    builder.append_option(value);
+                }
+            } else {
+                let record = &result.ordered_records[*index];
+                kinds.append_value(record.kind);
+                identities
+                    .append_value(digest_bytes(&record.row_identity)?)
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                positions[0].append_option(record.before_position);
+                positions[1].append_option(record.current_position);
+                for column in &record.changed_columns {
+                    changes.values().append_value(column);
+                }
+                changes.append(true);
+            }
+        }
+        let mut arrays: Vec<Arc<dyn Array>> = vec![Arc::new(kinds.finish())];
+        if !blank {
+            arrays.push(Arc::new(identities.finish()));
+        }
+        for mut builder in positions {
+            arrays.push(Arc::new(builder.finish()));
+        }
+        if !blank {
+            arrays.push(Arc::new(changes.finish()));
+        }
+        batches.push(
+            RecordBatch::try_new(schema.clone(), arrays)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        );
+    }
+    charge_arrow_batches(batches, lease, owner).map_err(comparison_error)
 }
 
 fn risk_schema() -> SchemaRef {
@@ -1064,6 +1189,8 @@ fn _compare_records_native(
             ordered: output.2,
             blank: output.3,
             risk_batches: None,
+            ordered_risk: None,
+            blank_risk: None,
             cache_facts: None,
             cache_metadata: None,
             cache_created_risk: false,
@@ -1098,6 +1225,8 @@ fn _restore_comparison_table_native(
     facts_streams: Bound<'_, PyList>,
     artifact_streams: Bound<'_, PyList>,
     risk_stream: PyRecordBatchReader,
+    ordered_risk_stream: PyRecordBatchReader,
+    blank_risk_stream: PyRecordBatchReader,
     max_records: usize,
     max_row_bytes: usize,
     max_input_bytes: usize,
@@ -1191,6 +1320,28 @@ fn _restore_comparison_table_native(
             .map_err(|error| comparison_error(error.to_string()))?;
         let risk =
             charge_arrow_batches(risk, risk_lease, external.clone()).map_err(comparison_error)?;
+        let mut extra_risk = Vec::new();
+        for (stream, is_blank, expected) in [
+            (ordered_risk_stream, false, counts[1]),
+            (blank_risk_stream, true, counts[2]),
+        ] {
+            let (schema, batches) =
+                read_stream(py, stream, &context, &mut input_bytes, max_input_bytes)?;
+            if schema.as_ref() != ordered_risk_schema(is_blank).as_ref()
+                || batches.iter().any(|batch| batch.num_rows() > 1024)
+                || batches.iter().map(RecordBatch::num_rows).sum::<usize>() != expected
+            {
+                return Err(PyValueError::new_err("ordered risk schema/count mismatch"));
+            }
+            let lease = context
+                .reserve(batches.len().saturating_mul(4096))
+                .map_err(|error| comparison_error(error.to_string()))?;
+            extra_risk.push(
+                charge_arrow_batches(batches, lease, external.clone()).map_err(comparison_error)?,
+            );
+        }
+        let blank_risk = extra_risk.pop().ok_or_else(closed_handle)?;
+        let ordered_risk = extra_risk.pop().ok_or_else(closed_handle)?;
         let mut standard = None;
         let mut ordered = None;
         let mut blank = None;
@@ -1267,6 +1418,8 @@ fn _restore_comparison_table_native(
             ordered,
             blank,
             risk_batches: Some(risk),
+            ordered_risk: Some(ordered_risk),
+            blank_risk: Some(blank_risk),
             cache_facts: None,
             cache_metadata: None,
             cache_created_risk: false,

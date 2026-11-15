@@ -16,6 +16,7 @@ from gateway_backend.capabilities.comparison import (
     OrderedTableProcessingMode, SchemaChangeSource, SchemaEvolution, plan_comparison,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
+from gateway_backend.capabilities.comparison.production import ComparisonTaskSession, comparison_row_demands
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskEvaluationStatus, RiskOptions, RiskReasonCode,
     RiskRulesetSnapshot, V1_RISK_RULE_SPECS, evaluate_risk,
@@ -439,6 +440,37 @@ def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
         assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_MOVE,)
         assert result.risk_report.tables[0].risk_level.value == "MEDIUM_HIGH"
         assert result.risk_report.tables[0].annotation_count == 1
+    finally:
+        product.close()
+
+
+def test_cached_ordered_change_still_demands_snapshots_for_risk(monkeypatch: pytest.MonkeyPatch) -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before_sql = schema + " INSERT INTO t VALUES (1,10,'a'),(2,100,'b');"
+    current_sql = schema + " INSERT INTO t VALUES (1,10,'a'),(NULL,40,'x'),(2,100,'b');"
+    before, current = canonical_bound(before_sql), canonical_bound(current_sql)
+    from tests.support.table_rules import ordered_record
+    planned = plan_comparison(ComparisonRequest(
+        pair_id="cached-blank", before=before, current=current,
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+    ))
+    assert isinstance(planned, ComparisonPlan)
+    product = native_product(before_sql, current_sql, ordered=True)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        fact, = product.result.facts.tables
+        assert fact.blank_extension is not None and fact.blank_extension.blank_summary.blank_changed_count
+        session = ComparisonTaskSession((planned,))
+        try:
+            monkeypatch.setattr(session, "prepare_persistent", lambda _plan: None)
+            monkeypatch.setattr(session, "persistent_lookup", lambda _plan, _task: (fact, None))
+            demands = comparison_row_demands(planned, session)
+            assert len(demands) == 2
+            assert demands[0] is planned.tasks[0].before_table
+            assert demands[1] is planned.tasks[0].current_table
+        finally:
+            session.close()
     finally:
         product.close()
 

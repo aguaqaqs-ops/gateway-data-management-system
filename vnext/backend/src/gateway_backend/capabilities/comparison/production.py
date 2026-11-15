@@ -1203,7 +1203,7 @@ def _compare_plan_native_once(
                 handle = None
             if handle is not None:
                 handles[task.table_name] = handle
-                if cached is None and (fact.row_modified_count or
+                if cached is None and (fact.ordered_extension is not None or fact.row_modified_count or
                     fact.row_added_count > fact.suppressed_added_count or
                     fact.row_deleted_count > fact.suppressed_deleted_count):
                     handle.prepare_risk_batches()
@@ -1291,6 +1291,15 @@ def comparison_row_demands(plan: ComparisonPlan, session: ComparisonTaskSession 
     """Actual remaining readers; no parallel copy of Comparison equality rules."""
     if session is not None:
         session.prepare_persistent(plan)
-    return tuple(table for task in plan.tasks
-        if session is None or session.persistent_lookup(plan, task) is None
-        for table in _task_arrow_inputs(task))
+    result: list[SnapshotTable] = []
+    for task in plan.tasks:
+        cached = None if session is None else session.persistent_lookup(plan, task)
+        if cached is not None:
+            blank = cached[0].blank_extension
+            ordered = cached[0].ordered_extension
+            if ((blank is None or not blank.blank_summary.blank_changed_count)
+                    and (ordered is None or not (ordered.ordered_summary.row_added_count
+                                                  or ordered.ordered_summary.row_deleted_count))):
+                continue
+        result.extend(_task_arrow_inputs(task))
+    return tuple(result)

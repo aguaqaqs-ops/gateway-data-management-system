@@ -63,7 +63,7 @@ class ComparisonRecordsHandle(Protocol):
     def table_fact_digest(self, metadata_json: str, max_jcs_row_bytes: int) -> str: ...
     def family_summary(self, family: str) -> tuple[int, str]: ...
     def record_batches(self, family: str) -> pa.RecordBatchReader: ...
-    def risk_record_batches(self) -> pa.RecordBatchReader: ...
+    def risk_record_batches(self, family: str = "STANDARD") -> pa.RecordBatchReader: ...
     def is_sealed(self) -> bool: ...
     def close(self) -> None: ...
 
@@ -196,6 +196,7 @@ def restore_table_cache(
     operation: ComparisonOperation, *, table_name: str, kind: str, metadata_json: str,
     detail_policy: str, family_names: list[str], facts: list[pa.RecordBatchReader],
     artifacts: list[pa.RecordBatchReader], risk: pa.RecordBatchReader,
+    ordered_risk: pa.RecordBatchReader, blank_risk: pa.RecordBatchReader,
     input_owner_charge: object, max_records: int, max_row_bytes: int, max_input_bytes: int,
 ) -> ComparisonRecordsHandle:
     """Restore complete neutral Arrow views under the caller's active M phase."""
@@ -208,7 +209,7 @@ def restore_table_cache(
         operation.require_operation(id(context.memory))
         handle = cast(ComparisonRecordsHandle, _restore_comparison_table_native(
             operation, id(context.memory), table_name, kind, metadata_json, detail_policy, family_names, facts,
-            artifacts, risk, max_records, max_row_bytes, max_input_bytes, input_owner_charge,
+            artifacts, risk, ordered_risk, blank_risk, max_records, max_row_bytes, max_input_bytes, input_owner_charge,
         ))
         context.checkpoint()
         return handle

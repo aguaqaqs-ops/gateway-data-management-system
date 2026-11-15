@@ -11,6 +11,7 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from collections.abc import Callable, Mapping
 from contextlib import closing
 from dataclasses import dataclass
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 from gateway_backend.statistics.metrics import ordered_input_table, pair_table, pair_totals, timed
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -48,6 +49,7 @@ from gateway_backend.capabilities.comparison import (
     RecordsPublicationPolicy,
     RecordsDetailPolicy,
 )
+from gateway_backend.capabilities.comparison.production import _stream
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
     PersistentRiskCandidates,
@@ -440,6 +442,7 @@ def _finish_comparison_risk_surface(
             risk_options=RiskOptions(empty_baseline=not plan.before.summary.tables),
             record_views=native_comparison.risk_handles,
             ordered_record_views=native_comparison.handles,
+            ordered_position_maxima=_ordered_position_maxima(plan, comparison_facts),
             record_view_metrics=risk_conversion,
             risk_cache_session=native_comparison.session,
             risk_task_keys=native_comparison.task_keys,
@@ -532,6 +535,46 @@ def _finish_comparison_risk_surface(
         risk_evaluation=risk.risk_evaluation,
         structure_audit_ref=structure_audit_ref,
     )
+
+
+def _ordered_position_maxima(
+    plan: ComparisonPlan, facts: ComparisonFacts,
+) -> dict[str, tuple[int | None, int | None]]:
+    """Find the actual end of each changed side, including sparse `no` values."""
+    changed = {table.table_name for table in facts.tables
+               if (table.blank_extension is not None and table.blank_extension.blank_summary.blank_changed_count)
+               or (table.ordered_extension is not None and
+                   (table.ordered_extension.ordered_summary.row_added_count
+                    or table.ordered_extension.ordered_summary.row_deleted_count))}
+    context = current_kernel_context()
+    if context is None:
+        raise PairPipelineError("operation kernel context was lost")
+    result: dict[str, tuple[int | None, int | None]] = {}
+    for task in plan.tasks:
+        if task.table_name not in changed:
+            continue
+        maxima: list[int | None] = []
+        for table in (task.before_table, task.current_table):
+            if table is None or table.reader is None:
+                break
+            stream, owner = _stream(table)
+            maximum: int | None = None
+            try:
+                with closing(stream):
+                    for batch in stream:
+                        context.checkpoint()
+                        index = batch.schema.get_field_index("no")
+                        if index < 0:
+                            raise PairPipelineError("blank interval risk requires position column")
+                        value = pc.max(batch.column(index)).as_py()
+                        if value is not None:
+                            maximum = value if maximum is None else max(maximum, value)
+            finally:
+                owner.close()
+            maxima.append(maximum)
+        if len(maxima) == 2:
+            result[task.table_name] = (maxima[0], maxima[1])
+    return result
 
 
 @timed("export")

@@ -37,8 +37,8 @@ RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
-RISK_RULESET_VERSION = "v5"
-RISK_RULE_VERSION = "v5"
+RISK_RULESET_VERSION = "v6"
+RISK_RULE_VERSION = "v6"
 
 
 RiskOptionValue: TypeAlias = str | int | bool | None
@@ -129,6 +129,14 @@ class RiskRuleId(StrEnum):
     ROW_DELETED = "ROW_DELETED"
     ROW_MODIFIED = "ROW_MODIFIED"
     ORDERED_MOVE = "ORDERED_MOVE"
+    ORDERED_REPLACEMENT = "ORDERED_REPLACEMENT"
+    ORDERED_MIDDLE_INSERT_DELETE = "ORDERED_MIDDLE_INSERT_DELETE"
+    ORDERED_TAIL_INSERT_DELETE = "ORDERED_TAIL_INSERT_DELETE"
+    ORDERED_NAME_UPDATE = "ORDERED_NAME_UPDATE"
+    ORDERED_CONTENT_UPDATE = "ORDERED_CONTENT_UPDATE"
+    ORDERED_RISK_UNKNOWN = "ORDERED_RISK_UNKNOWN"
+    ORDERED_MIDDLE_BLANK_INTERVAL = "ORDERED_MIDDLE_BLANK_INTERVAL"
+    ORDERED_TAIL_BLANK_INTERVAL = "ORDERED_TAIL_BLANK_INTERVAL"
     KEY_DEGRADED = "KEY_DEGRADED"
     ORDERED_DIFF_UNSUPPORTED = "ORDERED_DIFF_UNSUPPORTED"
     COMPARISON_FAILED = "COMPARISON_FAILED"
@@ -145,6 +153,14 @@ class RiskReasonCode(StrEnum):
     ROW_DELETED = "ROW_DELETED"
     ROW_MODIFIED = "ROW_MODIFIED"
     ORDERED_MOVE = "ORDERED_MOVE"
+    ORDERED_REPLACEMENT = "ORDERED_REPLACEMENT"
+    ORDERED_MIDDLE_INSERT_DELETE = "ORDERED_MIDDLE_INSERT_DELETE"
+    ORDERED_TAIL_INSERT_DELETE = "ORDERED_TAIL_INSERT_DELETE"
+    ORDERED_NAME_UPDATE = "ORDERED_NAME_UPDATE"
+    ORDERED_CONTENT_UPDATE = "ORDERED_CONTENT_UPDATE"
+    ORDERED_RISK_UNKNOWN = "ORDERED_RISK_UNKNOWN"
+    ORDERED_MIDDLE_BLANK_INTERVAL = "ORDERED_MIDDLE_BLANK_INTERVAL"
+    ORDERED_TAIL_BLANK_INTERVAL = "ORDERED_TAIL_BLANK_INTERVAL"
     KEY_DEGRADED = "KEY_DEGRADED"
     ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED = "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED"
     COMPARISON_FAILED = "COMPARISON_FAILED"
@@ -1156,6 +1172,7 @@ class RiskEvaluationInput:
     # Transient facts-order Arrow views; excluded from the persisted digest/DTO.
     record_views: Mapping[str, object] | None = None
     ordered_record_views: Mapping[str, object] | None = None
+    ordered_position_maxima: Mapping[str, tuple[int | None, int | None]] | None = None
     record_view_metrics: dict[str, float] | None = None
     risk_cache_session: object | None = None
     risk_task_keys: Mapping[str, str] | None = None
@@ -1443,6 +1460,14 @@ V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
             _default_rule(RiskRuleId.ROW_DELETED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_DELETED, RiskLevel.MEDIUM_LOW),
             _default_rule(RiskRuleId.ROW_MODIFIED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_MODIFIED, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.ORDERED_MOVE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MOVE, RiskLevel.MEDIUM_HIGH),
+            _default_rule(RiskRuleId.ORDERED_REPLACEMENT, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_REPLACEMENT, RiskLevel.MEDIUM_LOW),
+            _default_rule(RiskRuleId.ORDERED_MIDDLE_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE, RiskLevel.MEDIUM_HIGH),
+            _default_rule(RiskRuleId.ORDERED_TAIL_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_TAIL_INSERT_DELETE, RiskLevel.LOW),
+            _default_rule(RiskRuleId.ORDERED_NAME_UPDATE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_NAME_UPDATE, RiskLevel.LOW),
+            _default_rule(RiskRuleId.ORDERED_CONTENT_UPDATE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_CONTENT_UPDATE, RiskLevel.MEDIUM_LOW),
+            _default_rule(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_RISK_UNKNOWN, RiskLevel.UNKNOWN),
+            _default_rule(RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL, RiskLevel.MEDIUM_HIGH),
+            _default_rule(RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_TAIL_BLANK_INTERVAL, RiskLevel.LOW),
             _default_rule(RiskRuleId.KEY_DEGRADED, RiskScope.DEGRADED_TABLE, RiskReasonCode.KEY_DEGRADED, RiskLevel.UNKNOWN),
             _default_rule(
                 RiskRuleId.ORDERED_DIFF_UNSUPPORTED,

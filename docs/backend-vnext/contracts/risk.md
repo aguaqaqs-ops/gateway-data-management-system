@@ -469,7 +469,17 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 - reason code、默认风险和 target 需要与 `contracts/ordered-diff.md` 保持一致。
 - Surface/bundle 只消费 risk output，不重新判定 tail/middle/move 风险。
 
-当前 ruleset v5 对有序比较输出的 `ORDERED_ROW_MOVED` 逐行产生 `ORDERED_MOVE`；风险目标绑定比较记录的行身份和改后位置。移动计数与可读取记录不一致时风险计算失败，不得发布无风险结果。规则集版本由风险规则校验器核对，规则快照摘要参与风险及其候选缓存身份，避免复用旧规则结果。Preview assemble-state v8、History assemble-state v5 由 checkpoint 解码器核对，防止恢复旧风险结果。其余有序专项规则仍待实现。
+当前 ruleset v6 对有序表使用专项规则，不重复应用普通行风险。`ORDERED_ROW_MOVED` 逐行产生 `ORDERED_MOVE`；相同位置的删除与新增配成 `ORDERED_REPLACEMENT`；单独的新增、删除按该位置是否超出另一侧实际最大 `no` 区分尾部与中间。修改列只有 `name` 时使用 `ORDERED_NAME_UPDATE`，包含其他列时使用 `ORDERED_CONTENT_UPDATE`。无法确定修改列、缺少必要记录或仅有不可解释的位置变化时输出 `ORDERED_RISK_UNKNOWN`；非 EXACT 的有序或空点重放也输出 UNKNOWN，degraded 沿用 review-required 诊断。
+
+对 `BLANK_INSERT_INTERVAL` 和 `BLANK_DELETE_INTERVAL` 分别以改后侧或改前侧的实际最大 `no` 判定尾部：对应区间终点等于该侧最大 `no` 才是尾部，其余为中间。`no` 无需连续，也不以表行数或整表 processing mode 代替位置证据。空点风险目标为 `ROW_INTERVAL`，范围为该侧记录的完整空点区间，evidence 包含净变化数量与侧别。记录与摘要数量不一致或没有可用位置证据时产生 UNKNOWN；证据相互矛盾时风险计算失败，不得发布无风险结果。
+
+有序变更表的风险计算按需读取两侧快照以核实最大 `no`；History 的 comparison cache 命中时如含行增删或空点变化仍须恢复这两侧 reader。规则集版本由风险规则校验器核对，规则快照摘要参与风险及候选缓存身份，候选中的比较任务身份绑定两侧快照，避免复用旧规则或其他位置数据。Preview assemble-state v9、History assemble-state v6 由 checkpoint 解码器核对，防止恢复旧风险结果。
+
+风险读取与缓存：Comparison handle 的 `risk_record_batches(family)` 对 STANDARD、ORDERED、BLANK 分别返回最小 typed Arrow facts 投影；ORDERED 直接遍历原生 `ordered_facts_order`，BLANK 直接遍历 `blank_facts_order`（相邻稳定锚顺序，不另按位置排序）。ORDERED 保留 kind、identity、两侧 position、changed_columns；BLANK 保留 kind、两侧区间端点和净 row_count。每批最多 1024 行，构建前向原生 operation 预约，封存前完成构建，Arrow buffer 保留 owner/lease 至最后消费者退出。Artifact 视图及其排序不变。风险按规则族重读这些视图：移动、修改、同位置替换、剩余新增/删除、空白区间；同族标注遵循 facts 序，替换与剩余增删按位置配对/输出，配对索引和每批 Python 转换均先预约必要内存，必要时回收可选风险候选。
+
+`comparison-table-cache/v2` 由任务身份与恢复 codec 核对，拒绝没有完整三族风险投影的旧缓存；持久闭包最多九个视图（三族 facts、artifact、risk），恢复保留原批次边界与顺序，仍受同 operation M 约束。风险候选沿用既有有序事件回放，v6 ruleset 及完整比较任务身份使旧规则/旧比较缓存身份不能命中；标注编号、过滤与 cap 始终由当前 emit 决定。`COUNTS_ONLY` 对专项原因按首次出现次序聚合为 TABLE/ROW_COUNTS，行/替换计一项，空白区间计净变化行数；不发布逐条标注文件。
+
+前端配合：`ROW_INTERVAL` 标注没有普通行身份，消费者应按 evidence 中的 `side` 及 `position_range` 将风险映射到对应快照的 `no` 区间，同时保留表级和视图级汇总；新增的 `ORDERED_*` reason code 需要对应的用户文案。此项不由后端行 locator 推断，也不在本次改动前端。
 
 ## 非目标
 

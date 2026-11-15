@@ -12,6 +12,6 @@
 
 与设计的偏差：真实 History 以空 baseline 到本次提交的精确 commit 验证；两份真实输入的差异由 FULL Preview 覆盖。真实 Preview 页面使用原始 bundle、mock API 与合成身份核对，并非 live backend 浏览器旅程。
 
-遗留事项：前端权威 mock e2e 仍有既有失败和负载敏感项；F4 跨引用校验、F6 提示措辞与 F7 搜索时提示位置交前端设计会话。真实 History 页面截图和浏览器内旧 OPFS 缓存路径未测。前端功能改动在中期结束后按暂停记录重新评估并移植至 fe-vnext。
+遗留事项：前端权威 mock e2e 仍有既有失败和负载敏感项；F4 跨引用校验、F6 提示措辞与 F7 搜索时提示位置交前端设计会话。真实 History 页面截图和浏览器内旧 OPFS 缓存路径未测。前端功能改动的后续衔接及中期分支与 main 的处理，由 Owner 单独安排；不预设移植目标或合并方式。
 
 验证：后端独审及前端原审复审通过；backend 与容器门禁、针对性测试和真实 Preview／Submit／History 产物核对通过。前端单测、构建及受影响场景通过，完整 mock e2e 未通过；限制及原始证据见阶段交接区 `gate/index.md`。

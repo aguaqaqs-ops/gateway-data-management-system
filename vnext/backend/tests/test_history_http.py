@@ -1281,14 +1281,17 @@ def test_history_compare_list_is_paginated_and_scope_bound(db_path: Path, tmp_pa
     page1 = env.client.get("/v1/history-compares?limit=1", headers=env.auth_headers())
     assert page1.status_code == 200
     cursor = page1.json()["next_cursor"]
+    assert set(page1.json()["items"][0]) == {
+        "operation_id", "nodes", "status", "accepted_at", "completed_at", "result_expires_at",
+    }
     assert cursor is not None
-    page2 = env.client.get("/v1/history-compares", params={"limit": 1, "cursor": cursor}, headers=env.auth_headers())
+    page2 = env.client.get("/v1/history-compares", params={"limit": 1, "after": cursor}, headers=env.auth_headers())
     assert page2.status_code == 200
     assert {page1.json()["items"][0]["operation_id"], page2.json()["items"][0]["operation_id"]} == {
         first.json()["operation_id"], second.json()["operation_id"]
     }
     assert page2.json()["next_cursor"] is None
-    assert env.client.get("/v1/history-compares?cursor=garbage", headers=env.auth_headers()).status_code == 422
+    assert env.client.get("/v1/history-compares?after=garbage", headers=env.auth_headers()).status_code == 422
 
 
 def test_unreadable_success_replays_error_and_new_key_rebuilds(db_path: Path, tmp_path: Path) -> None:

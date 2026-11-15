@@ -72,7 +72,7 @@ def list_compare_operations(
                     operation_id=operation.operation_id,
                     nodes=[HistoryNodeRefResponse(ref_kind=node.ref_kind.value, ref_id=node.ref_id)
                            for node in acceptance.nodes],
-                    status=_public_operation_status(operation.status), created_at=acceptance.created_at,
+                    status=_public_operation_status(operation.status), accepted_at=acceptance.created_at,
                     completed_at=operation.completed_at, result_expires_at=expires,
                 ))
             next_cursor = None

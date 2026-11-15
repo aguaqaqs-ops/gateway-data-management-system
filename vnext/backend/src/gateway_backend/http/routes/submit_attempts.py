@@ -43,7 +43,7 @@ router = APIRouter(tags=["submit"])
             ", PROJECT_IDENTITY_CONFIRMATION_REQUIRED, PROJECT_IDENTITY_CONFIRMATION_MISMATCH"
         },
         422: {"description": "REQUEST_VALIDATION_FAILED"},
-        429: {"description": "ADMISSION_LIMIT_REACHED"},
+        429: {"description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL"},
         503: {"description": "ARTIFACT_UNAVAILABLE, DEPENDENCY_UNAVAILABLE, SERVICE_NOT_READY"},
     },
 )

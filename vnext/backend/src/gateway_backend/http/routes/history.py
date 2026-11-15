@@ -28,6 +28,7 @@ from gateway_backend.http.orchestration.history_compare import (
     read_compare_bundle,
 )
 from gateway_backend.http.errors import ApiError
+from gateway_backend.http.schemas.errors import ErrorResponse
 from gateway_backend.http.orchestration.history_read import list_history_operation
 from gateway_backend.http.orchestration.history_compare_list import list_compare_operations
 from gateway_backend.http.orchestration.operation_scope import authorize_history_compare_operation_read
@@ -86,17 +87,21 @@ def list_history_route(
 
 @router.get(
     "/v1/history-compares", response_model=HistoryCompareListResponse,
-    responses={401: {"description": "AUTHENTICATION_REQUIRED"},
-               403: {"description": "SCOPE_FORBIDDEN"},
-               422: {"description": "REQUEST_VALIDATION_FAILED"}},
+    responses={
+        401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
+        403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
+        404: {"description": "RESOURCE_NOT_FOUND", "model": ErrorResponse},
+        422: {"description": "REQUEST_VALIDATION_FAILED", "model": ErrorResponse},
+        503: {"description": "HISTORY_INTEGRITY_FAILURE, SERVICE_NOT_READY", "model": ErrorResponse},
+    },
 )
 def list_history_compares_route(
     deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    cursor: Annotated[str | None, Query(max_length=1024)] = None,
+    after: Annotated[str | None, Query(max_length=1024)] = None,
 ) -> HistoryCompareListResponse:
-    return list_compare_operations(context=context, deps=deps, limit=limit, cursor=cursor)
+    return list_compare_operations(context=context, deps=deps, limit=limit, cursor=after)
 
 
 @router.post(
@@ -104,15 +109,15 @@ def list_history_compares_route(
     response_model=HistoryCompareAcceptResponse,
     status_code=202,
     responses={
-        200: {"description": "Idempotent replay", "model": HistoryCompareAcceptResponse},
-        401: {"description": "AUTHENTICATION_REQUIRED"},
-        403: {"description": "SCOPE_FORBIDDEN"},
-        404: {"description": "RESOURCE_NOT_FOUND"},
-        409: {"description": "IDEMPOTENCY_CONFLICT, ADMISSION_CONFLICT"},
-        413: {"description": "REQUEST_TOO_LARGE"},
-        422: {"description": "REQUEST_VALIDATION_FAILED"},
-        429: {"description": "ADMISSION_LIMIT_REACHED"},
-        503: {"description": "SERVICE_NOT_READY"},
+        200: {"description": "Existing operation reused or replayed", "model": HistoryCompareAcceptResponse},
+        401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
+        403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
+        404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE", "model": ErrorResponse},
+        409: {"description": "IDEMPOTENCY_CONFLICT, HISTORY_COMPARE_REQUEST_EXPIRED, HISTORY_COMPARE_SCOPE_LIMIT, ADMISSION_CONFLICT; scope limit details include operation_ids", "model": ErrorResponse},
+        413: {"description": "REQUEST_TOO_LARGE", "model": ErrorResponse},
+        422: {"description": "REQUEST_VALIDATION_FAILED", "model": ErrorResponse},
+        429: {"description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL, HISTORY_COMPARE_ALIAS_LIMIT; alias limit details include operation_id", "model": ErrorResponse},
+        503: {"description": "SERVICE_NOT_READY, HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE", "model": ErrorResponse},
     },
 )
 def accept_history_compare_route(
@@ -121,7 +126,7 @@ def accept_history_compare_route(
     request: Request,
     deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
-    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> HistoryCompareAcceptResponse:
     resolved_key = _validate_idempotency_key(idempotency_key)
     command = build_history_compare_accept_command(
@@ -154,11 +159,11 @@ def accept_history_compare_route(
     "/v1/history-compares/{operation_id}",
     response_model=HistoryCompareResultResponse,
     responses={
-        401: {"description": "AUTHENTICATION_REQUIRED"},
-        403: {"description": "SCOPE_FORBIDDEN"},
-        404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"},
-        410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED"},
-        503: {"description": "HISTORY_INTEGRITY_FAILURE"},
+        401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
+        403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
+        404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE", "model": ErrorResponse},
+        410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED", "model": ErrorResponse},
+        503: {"description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE", "model": ErrorResponse},
     },
 )
 def get_history_compare_route(
@@ -195,11 +200,11 @@ def get_history_compare_route(
                 "Content-Disposition": {"schema": {"type": "string"}, "description": "Safe attachment tar filename"},
             },
         },
-        401: {"description": "AUTHENTICATION_REQUIRED"},
-        403: {"description": "SCOPE_FORBIDDEN"},
-        404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"},
-        410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED"},
-        503: {"description": "BUNDLE_INTEGRITY_FAILURE"},
+        401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
+        403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
+        404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE", "model": ErrorResponse},
+        410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED", "model": ErrorResponse},
+        503: {"description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE", "model": ErrorResponse},
     },
 )
 def get_history_compare_bundle_route(

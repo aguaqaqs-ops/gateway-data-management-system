@@ -33,7 +33,7 @@ router = APIRouter(tags=["preview"])
             "description": "IDEMPOTENCY_CONFLICT, WORKSPACE_VERSION_CONFLICT, PREVIEW_BINDING_CONFLICT"
         },
         422: {"description": "REQUEST_VALIDATION_FAILED"},
-        429: {"description": "ADMISSION_LIMIT_REACHED"},
+        429: {"description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL"},
         503: {"description": "SERVICE_NOT_READY"},
     },
 )

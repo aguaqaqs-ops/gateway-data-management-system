@@ -191,7 +191,7 @@ class HistoryCompareListItemResponse(BaseModel):
     operation_id: str
     nodes: list[HistoryNodeRefResponse]
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
-    created_at: datetime
+    accepted_at: datetime
     completed_at: datetime | None
     result_expires_at: datetime | None
 
@@ -200,4 +200,4 @@ class HistoryCompareListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[HistoryCompareListItemResponse]
-    next_cursor: str | None = None
+    next_cursor: str | None = Field(max_length=1024)

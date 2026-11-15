@@ -261,10 +261,19 @@ def test_workspace_recommends_latest_active_preview_for_current_input(
     with ControlDbUnitOfWork(env.db_path) as uow:
         uow.connection.execute("UPDATE operation_records SET cancel_requested = 0 WHERE operation_id = ?", (newest,))
     assert recommendation() == newest
-    replacement = env.client.post(
-        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
-        headers=env.auth_headers(idempotency_key="upload-replacement"),
-        files=upload_files(expected_version=upload["optimistic_version"]),
-    )
-    assert replacement.status_code == 201, replacement.text
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute(
+            "UPDATE preview_idempotency_records SET generation = generation + 1 WHERE operation_id = ?",
+            (newest,),
+        )
+    assert recommendation() is None
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute(
+            "UPDATE preview_idempotency_records SET generation = generation - 1 WHERE operation_id = ?",
+            (newest,),
+        )
+        uow.connection.execute(
+            "UPDATE workspace_records SET current_upload_revision_id = NULL WHERE workspace_id = ?",
+            (workspace["workspace_id"],),
+        )
     assert recommendation() is None

@@ -162,6 +162,9 @@ function riskTokens(level: RiskLevel): { bg: string; rail: string; text: string;
     text: style.getPropertyValue("--" + name + "-text").trim(), cell: style.getPropertyValue("--" + name + "-cell").trim() };
 }
 
+/** Changed fields listed in the hover detail before the rest are summarised. */
+const HOVER_FIELD_LIMIT = 8;
+
 /** Rows an ordered table moved; row_change_stats does not count moves. */
 function orderedMovedCount(table: SurfaceTable): number {
   const summary = table.ordered_extension?.ordered_summary;
@@ -1304,17 +1307,26 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const hoverBefore = hoverPair?.length === 2 ? rows[hoverPair.find((index) => rows[index]?.kind === "modified-before") ?? -1] : undefined;
   const hoverAfter = hoverPair?.length === 2 ? rows[hoverPair.find((index) => rows[index]?.kind === "modified-after") ?? -1] : undefined;
   const hoverColumnId = typeof hoverColumn?.id === "string" ? hoverColumn.id : null;
-  const hoverChanged = Boolean(hoverRow && hoverColumnId && hoverRow.changedColumns.includes(hoverColumnId));
+  // Every changed field of the hovered modified row, the hovered column first.
+  const hoverFields = useMemo(() => {
+    if (!hoverRow || !hoverBefore || !hoverAfter || !hoverRow.changedColumns.length) return [];
+    const order = new Map(orderedColumns.map((column, index) => [column.name, index]));
+    return [...hoverRow.changedColumns]
+      .sort((left, right) => Number(right === hoverColumnId) - Number(left === hoverColumnId)
+        || (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER))
+      .map((name) => ({ name, shape: orderedColumns.find((column) => column.name === name) }));
+  }, [hoverAfter, hoverBefore, hoverColumnId, hoverRow, orderedColumns]);
+  const hoverChanged = hoverFields.length > 0;
   const hoverAnnotation = hoverRow ? rowRiskAnnotation(hoverRow, annotations) : undefined;
   const hoverMove = hoverRow && hoverRow.kind !== "collapsed" ? rowMove(hoverRow) : null;
   const showHoverDetail = Boolean(hoverRow && (hoverChanged || hoverRow.riskLevel || hoverMove));
-  const hoverShape = table.columns?.find((column) => column.name === hoverColumn?.id);
-  const fieldTitle = hoverShape?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
   return <div ref={frameRef} className="grid-frame" aria-label="比较表格" onDoubleClick={fitEdgeColumn} onMouseMove={trackPointer} data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onColumnResize={resizeColumn} minColumnWidth={COLUMN_MIN} maxColumnWidth={COLUMN_FIT_MAX} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={34} rowHeight={34} theme={theme} width="100%" height={Math.max(240, frameSize.height)} smoothScrollX smoothScrollY verticalBorder={false} freezeColumns={frozenColumnCount} />
     {showHoverDetail && hoverRow && <div ref={hoverDetailRef} className="grid-hover-detail" role="tooltip">
-      {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId], hoverShape)}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId], hoverShape)}</code></div></section>}
+      {hoverChanged && hoverBefore && hoverAfter && <section><strong>字段变更{hoverFields.length > 1 ? " · " + hoverFields.length + " 列" : ""}</strong>
+        {hoverFields.slice(0, HOVER_FIELD_LIMIT).map(({ name, shape }) => <div key={name} className={name === hoverColumnId ? "is-hovered" : undefined}><span>{shape?.display_name || name}</span><code>{normalizeDisplayScalar(hoverBefore.values[name], shape)}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[name], shape)}</code></div>)}
+        {hoverFields.length > HOVER_FIELD_LIMIT && <small>另有 {hoverFields.length - HOVER_FIELD_LIMIT} 列</small>}</section>}
       {hoverMove && <section><strong>位置</strong><span>第 {hoverMove.from} 行 → 第 {hoverMove.to} 行</span></section>}
       {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code, reason.evidence)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}
     </div>}

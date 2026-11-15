@@ -285,7 +285,11 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .grid-hover-detail { position: fixed; z-index: 30; top: 0; left: 0; display: grid; width: min(380px, calc(100vw - 16px)); gap: 10px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: 8px; background: #fff; box-shadow: var(--shadow-panel); color: var(--color-text); font-size: 12px; pointer-events: none; }
 .grid-hover-detail section { display: grid; gap: 5px; }
 .grid-hover-detail section > strong { color: var(--color-text-muted); font-size: 12px; }
-.grid-hover-detail section > div { display: flex; align-items: center; gap: 8px; }
+.grid-hover-detail section > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.grid-hover-detail section > div > span:first-child { flex: 0 0 auto; color: var(--color-text-muted); }
+.grid-hover-detail section > div.is-hovered > span:first-child { color: var(--color-text); font-weight: 650; }
+.grid-hover-detail section > div > code { min-width: 0; overflow-wrap: anywhere; }
+.grid-hover-detail section > small { color: var(--color-text-muted); font-size: 11px; }
 .grid-hover-detail code { color: var(--color-text-muted); font-family: var(--font-family-mono); font-size: 11px; }
 .grid-hover-detail code.grid-hover-detail__new { padding: 0 4px; border-radius: 3px; background: var(--diff-surface); color: var(--color-text); font-weight: 650; }
 .grid-hover-detail__risk { padding-top: 9px; border-top: 1px solid var(--color-row-separator); }

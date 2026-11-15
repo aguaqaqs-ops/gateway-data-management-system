@@ -315,9 +315,10 @@ SUCCEEDED 还给结果到期时间。原 acceptance 冻结保留秒数，终态�
 共同核这个持久到期事实；过期结果即使物理文件尚在也不列为可用、不可复用。
 不按发起人区分或新增发起人事实。单 scope 进行中 History
 上限及全局 QUEUED 作业上限由同一受理事务执行；命中复用不占新名额，超限给明确错误及
-可适用的现有 operation ID。Workspace 读模型返回当前 generation/revision 的
-`active_preview_operation_id`（QUEUED/RUNNING），
-无则为空；跨终端接回以服务端为权威，现有 supersede 行为不变。
+可适用的现有 operation ID。Workspace 读模型返回当前 generation/upload revision 的
+`active_preview_operation_id`（QUEUED/RUNNING 且未请求取消）；合法多候选按 operation
+受理时间与 ID 倒序取最新，无则为空。该字段只是接回推荐，不新增 Preview 单活动约束，
+不改变其受理、supersede 或结果发布规则；跨终端接回以服务端为权威。
 
 ## 7. Persisted 与 Derived 边界
 

@@ -85,7 +85,7 @@ export const WORKSPACE_RESPONSE = {
   current_upload_revision_id: "upload-fe2b-3",
   current_preview_result_id: "preview-full",
   active_submission_id: null,
-  active_submit_attempt_id: null,
+  active_preview_operation_id: null, active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const WORKSPACE_CREATED = { status: 201, body: WORKSPACE_RESPONSE } as const;
@@ -177,6 +177,18 @@ export const HISTORY_COMPARE_ACCEPT_BODY = {
 export const HISTORY_COMPARE_ACCEPTED = { status: 202, body: HISTORY_COMPARE_ACCEPT_BODY } as const;
 // The replay uses the response body accepted for the first request, as the HTTP idempotency contract requires.
 export const HISTORY_COMPARE_REPLAY = { status: 200, body: HISTORY_COMPARE_ACCEPT_BODY } as const;
+
+export const HISTORY_COMPARE_LIST = {
+  items: [{
+    operation_id: "history-compare-fe2b-1",
+    nodes: HISTORY_COMPARE_REQUEST.nodes,
+    status: "RUNNING",
+    accepted_at: "2026-11-15T08:00:00Z",
+    completed_at: null,
+    result_expires_at: null,
+  }],
+  next_cursor: null,
+} satisfies Schemas["HistoryCompareListResponse"];
 
 export const HISTORY_COMPARE_QUEUED = {
   operation_id: "history-compare-fe2b-1", status: "QUEUED", diagnostic: null,
@@ -311,6 +323,11 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" } },
   { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" } },
   { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "历史比较请求已达到并发上限" } },
+  { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_REQUEST_EXPIRED", message: "原比较请求已过期" } },
+  { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_SCOPE_LIMIT", message: "该设备已有正在执行的历史比较", details: { operation_ids: ["history-compare-fe2b-1"] } } },
+  { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_ALIAS_LIMIT", message: "同一比较的重复请求过多", details: { operation_id: "history-compare-fe2b-1" } } },
+  { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "OPERATION_QUEUE_FULL", message: "服务器任务队列已满" } },
+  { route: "/v1/history-compares/{operation_id}", method: "GET", status: 410, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_RESULT_EXPIRED", message: "比较结果已过期" } },
   { route: "/v1/archive-candidates", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有读取归档候选的权限" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有预检归档方案的权限" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
@@ -504,7 +521,7 @@ export const WRITE_SCENARIO_COVERAGE = [
   { method: "POST", route: "/v1/workspaces/{workspace_id}/submit-attempts", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT", "409:NO_CANONICAL_CHANGE"] },
   { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/submissions/{submission_id}/closure", outcomes: ["success:201", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:REVIEW_VERSION_CONFLICT"] },
-  { method: "POST", route: "/v1/history-compares", outcomes: ["success:202", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:ADMISSION_CONFLICT", "429:ADMISSION_LIMIT_REACHED"] },
+  { method: "POST", route: "/v1/history-compares", outcomes: ["success:202", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:ADMISSION_CONFLICT", "409:HISTORY_COMPARE_REQUEST_EXPIRED", "409:HISTORY_COMPARE_SCOPE_LIMIT", "429:ADMISSION_LIMIT_REACHED", "429:HISTORY_COMPARE_ALIAS_LIMIT", "429:OPERATION_QUEUE_FULL"] },
   { method: "POST", route: "/v1/archive-plan-preview", outcomes: ["success:200", "403:SCOPE_FORBIDDEN", "409:CANDIDATE_BINDING_CONFLICT"] },
   { method: "POST", route: "/v1/archive-confirmations", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/archive-anomaly-resolutions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
@@ -533,7 +550,7 @@ export const TEST_WORKSPACE = {
   generation: 4, optimistic_version: 10, created_at: "2026-11-03T09:00:00Z", updated_at: "2026-11-03T09:00:00Z",
   current_preview_result_id: "preview-1",
   active_submission_id: null,
-  active_submit_attempt_id: null,
+  active_preview_operation_id: null, active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const TEST_UPLOAD_FULL = {
@@ -761,6 +778,7 @@ export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "Submission result", method: "GET", route: "/v1/submissions/{submission_id}/result", status: 200, schema: "SubmissionResultResponse", body: TEST_SUBMISSION_RESULT },
   { name: "History compare accepted", method: "POST", route: "/v1/history-compares", status: 202, schema: "HistoryCompareAcceptResponse", body: HISTORY_COMPARE_ACCEPT_BODY },
   { name: "History compare idempotent replay", method: "POST", route: "/v1/history-compares", status: 200, schema: "HistoryCompareAcceptResponse", body: HISTORY_COMPARE_ACCEPT_BODY },
+  { name: "History compare list", method: "GET", route: "/v1/history-compares?limit=50", status: 200, schema: "HistoryCompareListResponse", body: HISTORY_COMPARE_LIST },
   { name: "History compare QUEUED", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_QUEUED },
   { name: "History compare status", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_RUNNING },
   { name: "History compare result", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_SUCCEEDED },

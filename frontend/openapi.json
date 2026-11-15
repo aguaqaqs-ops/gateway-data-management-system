@@ -2081,6 +2081,37 @@
         "title": "DrainSnapshot",
         "type": "object"
       },
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "ExecutionMetrics": {
         "additionalProperties": false,
         "properties": {
@@ -2813,6 +2844,102 @@
           "message"
         ],
         "title": "HistoryCompareDiagnosticResponse",
+        "type": "object"
+      },
+      "HistoryCompareListItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "format": "date-time",
+            "title": "Accepted At",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryNodeRefResponse"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "result_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Expires At"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "nodes",
+          "status",
+          "accepted_at",
+          "completed_at",
+          "result_expires_at"
+        ],
+        "title": "HistoryCompareListItemResponse",
+        "type": "object"
+      },
+      "HistoryCompareListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryCompareListItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "HistoryCompareListResponse",
         "type": "object"
       },
       "HistoryCompareNodeRequest": {
@@ -5941,6 +6068,17 @@
       "WorkspaceResponse": {
         "additionalProperties": false,
         "properties": {
+          "active_preview_operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Preview Operation Id"
+          },
           "active_submission_id": {
             "anyOf": [
               {
@@ -6030,6 +6168,7 @@
           "business_project_id",
           "state",
           "generation",
+          "active_preview_operation_id",
           "active_submit_attempt_id",
           "active_submission_id",
           "optimistic_version",
@@ -7547,23 +7686,126 @@
       }
     },
     "/v1/history-compares": {
-      "post": {
-        "operationId": "accept_history_compare_route_v1_history_compares_post",
+      "get": {
+        "operationId": "list_history_compares_route_v1_history_compares_get",
         "parameters": [
           {
-            "in": "header",
-            "name": "Idempotency-Key",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 1024,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "Idempotency-Key"
+              "title": "After"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Gateway-Device-Key",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "X-Gateway-Device-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryCompareListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HISTORY_INTEGRITY_FAILURE, SERVICE_NOT_READY"
+          }
+        },
+        "summary": "List History Compares Route",
+        "tags": [
+          "history"
+        ]
+      },
+      "post": {
+        "operationId": "accept_history_compare_route_v1_history_compares_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
             }
           },
           {
@@ -7596,7 +7838,7 @@
                 }
               }
             },
-            "description": "Idempotent replay"
+            "description": "Existing operation reused or replayed"
           },
           "202": {
             "content": {
@@ -7609,28 +7851,84 @@
             "description": "Successful Response"
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "AUTHENTICATION_REQUIRED"
           },
           "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "SCOPE_FORBIDDEN"
           },
           "404": {
-            "description": "RESOURCE_NOT_FOUND"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"
           },
           "409": {
-            "description": "IDEMPOTENCY_CONFLICT, ADMISSION_CONFLICT"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "IDEMPOTENCY_CONFLICT, HISTORY_COMPARE_REQUEST_EXPIRED, HISTORY_COMPARE_SCOPE_LIMIT, ADMISSION_CONFLICT; scope limit details include operation_ids"
           },
           "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "REQUEST_TOO_LARGE"
           },
           "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "REQUEST_VALIDATION_FAILED"
           },
           "429": {
-            "description": "ADMISSION_LIMIT_REACHED"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL, HISTORY_COMPARE_ALIAS_LIMIT; alias limit details include operation_id"
           },
           "503": {
-            "description": "SERVICE_NOT_READY"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "SERVICE_NOT_READY, HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE"
           }
         },
         "summary": "Accept History Compare Route",
@@ -7675,13 +7973,44 @@
             "description": "Successful Response"
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "AUTHENTICATION_REQUIRED"
           },
           "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "SCOPE_FORBIDDEN"
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HISTORY_COMPARE_RESULT_EXPIRED"
           },
           "422": {
             "content": {
@@ -7694,7 +8023,14 @@
             "description": "Validation Error"
           },
           "503": {
-            "description": "HISTORY_INTEGRITY_FAILURE"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE"
           }
         },
         "summary": "Get History Compare Route",
@@ -7755,13 +8091,44 @@
             }
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "AUTHENTICATION_REQUIRED"
           },
           "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "SCOPE_FORBIDDEN"
           },
           "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
             "description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HISTORY_COMPARE_RESULT_EXPIRED"
           },
           "422": {
             "content": {
@@ -7774,7 +8141,14 @@
             "description": "Validation Error"
           },
           "503": {
-            "description": "BUNDLE_INTEGRITY_FAILURE"
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE"
           }
         },
         "summary": "Get History Compare Bundle Route",
@@ -9834,7 +10208,7 @@
             "description": "REQUEST_VALIDATION_FAILED"
           },
           "429": {
-            "description": "ADMISSION_LIMIT_REACHED"
+            "description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL"
           },
           "503": {
             "description": "SERVICE_NOT_READY"
@@ -10142,7 +10516,7 @@
             "description": "REQUEST_VALIDATION_FAILED"
           },
           "429": {
-            "description": "ADMISSION_LIMIT_REACHED"
+            "description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL"
           },
           "503": {
             "description": "ARTIFACT_UNAVAILABLE, DEPENDENCY_UNAVAILABLE, SERVICE_NOT_READY"

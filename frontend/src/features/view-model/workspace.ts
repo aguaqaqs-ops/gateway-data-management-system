@@ -235,7 +235,7 @@ export function sortWorkspaceTreeRows<T extends WorkspaceTreeRow>(
   return result;
 }
 
-export type WorkbenchActionId = "continue-preview" | "open-submission" | "view-diff" | "archive-mainline";
+export type WorkbenchActionId = "continue-preview" | "open-submission" | "view-submission-diff" | "open-review" | "compare-parent" | "archive-mainline";
 
 export interface WorkbenchAction {
   id: WorkbenchActionId;
@@ -251,6 +251,10 @@ export interface WorkbenchAction {
  *
  * The workspace offers its Preview only before Submit: once a submission
  * holds that Preview, its diff belongs to the submission node.
+ *
+ * A submission offers two different diffs: the frozen submission-time Preview
+ * result (read-only, Submission result permission) and an explicit History
+ * compare from its parent node (current rules, read_project_history).
  */
 export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonLocked = false): WorkbenchAction[] {
   if (!row) return [];
@@ -268,9 +272,11 @@ export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonL
         ? "该提交已关闭（未归档）"
         : null;
     return [
+      enabled("view-submission-diff", "查看提交时差异"),
+      ...(row.reviewStatus === "PENDING" ? [enabled("open-review", "去审核")] : []),
       comparisonLocked
-        ? blocked("view-diff", "查看差异", "历史比较执行中，暂不能发起新比较")
-        : row.parentRef ? enabled("view-diff", "查看差异") : blocked("view-diff", "查看差异", "提交缺少基线节点"),
+        ? blocked("compare-parent", "比较父节点 → 此提交", "历史比较执行中，暂不能发起新比较")
+        : row.parentRef ? enabled("compare-parent", "比较父节点 → 此提交") : blocked("compare-parent", "比较父节点 → 此提交", "提交缺少基线节点"),
       dispositionReason
         ? blocked("archive-mainline", "归档主线", dispositionReason)
         : row.reviewStatus === "APPROVED" && row.eligibilityNote == null

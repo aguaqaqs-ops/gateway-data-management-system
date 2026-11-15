@@ -44,6 +44,9 @@ function errorMessage(cause: unknown, phase: UploadPhase): { message: string; co
     if (cause.code === "UPLOAD_STREAM_TIMEOUT" || cause.status === 408) {
       return { message: "上传超时，结果尚不确定，请重试", code: cause.code ?? "UPLOAD_STREAM_TIMEOUT", retryable: true, refresh: false };
     }
+    if (cause.code === "OPERATION_QUEUE_FULL") {
+      return { message: "服务器任务队列已满，请稍后重试", code: cause.code, retryable: true, refresh: false };
+    }
     if (cause.code === "ADMISSION_LIMIT_REACHED" || cause.status === 429) {
       return { message: "当前请求较多，请稍后重试", code: cause.code ?? "ADMISSION_LIMIT_REACHED", retryable: true, refresh: false };
     }

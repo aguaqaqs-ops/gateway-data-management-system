@@ -301,7 +301,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List History Compares Route */
+        get: operations["list_history_compares_route_v1_history_compares_get"];
         put?: never;
         /** Accept History Compare Route */
         post: operations["accept_history_compare_route_v1_history_compares_post"];
@@ -1378,6 +1379,17 @@ export interface components {
             /** In Flight */
             in_flight: number;
         };
+        /** ErrorResponse */
+        ErrorResponse: {
+            /** Code */
+            code: string;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            } | null;
+            /** Message */
+            message: string;
+        };
         /** ExecutionMetrics */
         ExecutionMetrics: {
             cache_hits?: components["schemas"]["CacheCounts"];
@@ -1566,6 +1578,34 @@ export interface components {
             message: string;
             /** Omitted Count */
             omitted_count?: number | null;
+        };
+        /** HistoryCompareListItemResponse */
+        HistoryCompareListItemResponse: {
+            /**
+             * Accepted At
+             * Format: date-time
+             */
+            accepted_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Nodes */
+            nodes: components["schemas"]["HistoryNodeRefResponse"][];
+            /** Operation Id */
+            operation_id: string;
+            /** Result Expires At */
+            result_expires_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+        };
+        /** HistoryCompareListResponse */
+        HistoryCompareListResponse: {
+            /** Items */
+            items: components["schemas"]["HistoryCompareListItemResponse"][];
+            /** Next Cursor */
+            next_cursor: string | null;
         };
         /** HistoryCompareNodeRequest */
         HistoryCompareNodeRequest: {
@@ -2529,6 +2569,8 @@ export interface components {
         };
         /** WorkspaceResponse */
         WorkspaceResponse: {
+            /** Active Preview Operation Id */
+            active_preview_operation_id: string | null;
             /** Active Submission Id */
             active_submission_id: string | null;
             /** Active Submit Attempt Id */
@@ -3676,11 +3718,81 @@ export interface operations {
             };
         };
     };
+    list_history_compares_route_v1_history_compares_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                after?: string | null;
+            };
+            header: {
+                "X-Gateway-Device-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryCompareListResponse"];
+                };
+            };
+            /** @description AUTHENTICATION_REQUIRED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description SCOPE_FORBIDDEN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RESOURCE_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description REQUEST_VALIDATION_FAILED */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HISTORY_INTEGRITY_FAILURE, SERVICE_NOT_READY */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     accept_history_compare_route_v1_history_compares_post: {
         parameters: {
             query?: never;
             header: {
-                "Idempotency-Key"?: string | null;
+                "Idempotency-Key": string;
                 "X-Gateway-Device-Key": string;
             };
             path?: never;
@@ -3692,7 +3804,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Idempotent replay */
+            /** @description Existing operation reused or replayed */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3715,56 +3827,72 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description SCOPE_FORBIDDEN */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
-            /** @description RESOURCE_NOT_FOUND */
+            /** @description RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
-            /** @description IDEMPOTENCY_CONFLICT, ADMISSION_CONFLICT */
+            /** @description IDEMPOTENCY_CONFLICT, HISTORY_COMPARE_REQUEST_EXPIRED, HISTORY_COMPARE_SCOPE_LIMIT, ADMISSION_CONFLICT; scope limit details include operation_ids */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description REQUEST_TOO_LARGE */
             413: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description REQUEST_VALIDATION_FAILED */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
-            /** @description ADMISSION_LIMIT_REACHED */
+            /** @description ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL, HISTORY_COMPARE_ALIAS_LIMIT; alias limit details include operation_id */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
-            /** @description SERVICE_NOT_READY */
+            /** @description SERVICE_NOT_READY, HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -3795,21 +3923,36 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description SCOPE_FORBIDDEN */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HISTORY_COMPARE_RESULT_EXPIRED */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -3820,12 +3963,14 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description HISTORY_INTEGRITY_FAILURE */
+            /** @description HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -3862,21 +4007,36 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description SCOPE_FORBIDDEN */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description HISTORY_COMPARE_RESULT_EXPIRED */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -3887,12 +4047,14 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
-            /** @description BUNDLE_INTEGRITY_FAILURE */
+            /** @description HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
         };
     };
@@ -5091,7 +5253,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description ADMISSION_LIMIT_REACHED */
+            /** @description ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL */
             429: {
                 headers: {
                     [name: string]: unknown;
@@ -5360,7 +5522,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description ADMISSION_LIMIT_REACHED */
+            /** @description ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL */
             429: {
                 headers: {
                     [name: string]: unknown;

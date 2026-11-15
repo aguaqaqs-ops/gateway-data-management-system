@@ -19,6 +19,8 @@ import { UploadStepCard } from "../features/workbench/UploadStepCard";
 import { ArchiveMainlineDialog } from "../features/workbench/ArchiveMainlineDialog";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { summarizeHistoryPair, type HistoryPairSummary } from "../features/workbench/history-summary";
+import { describeHistoryReadError, describeHistoryStartError, type HistoryCompareFailure } from "../features/workbench/history-compare-errors";
+import { HistoryCompareTasks, type HistoryCompareTask } from "../features/workbench/HistoryCompareTasks";
 import { baselineDisplayLabelFor } from "../features/view-model/baseline-labels";
 import { buildWorkspaceTree, compareToggle, deriveWorkbenchActions, hasOnlyInitialBaseline, sortWorkspaceTreeRows, type WorkbenchAction, type WorkbenchActionId, type WorkspaceTreeRow } from "../features/view-model/workspace";
 import { WORKSPACE_STATE_COPY } from "../features/view-model/workspace-state-copy";
@@ -98,12 +100,14 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     try { return readHistoryCompareIntent(scopedStorage.getItem("gateway-history-compare-pending-intent")); }
     catch { return null; }
   });
-  const [compareStartError, setCompareStartError] = useState<{ code: string; message: string } | null>(() => compareIntent
-    ? { code: "REQUEST_UNCONFIRMED", message: "上次请求结果尚未确认，可使用同一请求重试。" }
+  const [compareStartError, setCompareStartError] = useState<HistoryCompareFailure | null>(() => compareIntent
+    ? { code: "REQUEST_UNCONFIRMED", message: "上次请求结果尚未确认，可使用同一请求重试。", retry: "same", operationIds: [] }
     : null);
   const [comparePending, setComparePending] = useState(false);
   const [compareState, setCompareState] = useState<Schemas["HistoryCompareResultResponse"] | null>(null);
   const [compareError, setCompareError] = useState<string | null>(null);
+  // Set when only a new request (new idempotency key) can produce a usable result.
+  const [compareNeedsRerun, setCompareNeedsRerun] = useState(false);
   const [compareConnectionLost, setCompareConnectionLost] = useState(false);
   const [refreshCompare, setRefreshCompare] = useState(0);
   const [historyDrawerCollapsed, setHistoryDrawerCollapsed] = useState(false);
@@ -130,6 +134,7 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
   const operationId = new URLSearchParams(window.location.search).get("operationId");
   const operationKind = new URLSearchParams(window.location.search).get("operationKind");
   const historyCompareOperationId = operationKind === "history-compare" ? operationId : null;
+  const compareReplayed = Boolean(historyCompareOperationId) && new URLSearchParams(window.location.search).get("replayed") === "1";
   const pendingIntentKey = "gateway-history-compare-pending-intent";
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -284,6 +289,7 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     window.history.replaceState(null, "", url);
   }, [rows, selectedKey]);
   const rowByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
+  const nodeLabel = (ref: Schemas["HistoryCompareNodeRequest"]) => rowByKey.get(refKey(ref))?.label ?? ref.ref_id;
   const selected = rowByKey.get(selectedKey) ?? null;
   const comparedKeys = useMemo(() => new Set(compareRefs.map(refKey)), [compareRefs]);
   const comparisonLocked = comparePending || showOperationForCompare(historyCompareOperationId, compareState)
@@ -353,6 +359,27 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: row.refId, workbenchNode: selectedKey }, compareRefs));
   };
 
+  // The frozen submission-time Preview result, read through the Submission
+  // result endpoints only; it never starts a History compare.
+  const openSubmissionResult = (row: WorkspaceTreeRow) => {
+    if (!row.refId) return;
+    window.location.assign(pageUrl("compare", { mode: "REVIEW", submissionId: row.refId, readonly: "1", workbenchNode: selectedKey }, compareRefs));
+  };
+
+  const openCompareOperation = (operationId: string, nodes: Schemas["HistoryCompareNodeRequest"][]) => {
+    window.location.assign(pageUrl("workspace", { operationId, operationKind: "history-compare", workbenchNode: selectedKey }, nodes));
+  };
+
+  // A limit error names existing compares by ID only; their nodes come from the server list.
+  const jumpToCompare = async (operationId: string) => {
+    let nodes: Schemas["HistoryCompareNodeRequest"][] = [];
+    try {
+      const page = await gatewayApi.listHistoryCompares({ limit: 100 });
+      nodes = page.items.find((item) => item.operation_id === operationId)?.nodes ?? [];
+    } catch { /* open without node labels */ }
+    openCompareOperation(operationId, nodes);
+  };
+
   const sendHistoryCompare = async (intent: IdempotentIntent<Schemas["HistoryCompareAcceptRequest"]>) => {
     setComparePending(true);
     setCompareStartError(null);
@@ -360,27 +387,31 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
       const accepted = await requestWithTimeout(gatewayApi.startHistoryCompare(intent.request, intent.key), historyCompareRequestTimeoutMs());
       setCompareIntent(null);
       try { scopedStorage.removeItem(pendingIntentKey); } catch { /* storage is optional */ }
-      const compareParams: Record<string, string> = {
+      // 200/replayed: an existing operation (same request) is reattached by its original ID.
+      const compareParams: Record<string, string | null> = {
         page: "workspace", operationId: accepted.operation_id, operationKind: "history-compare", workbenchNode: selectedKey,
+        replayed: accepted.replayed ? "1" : null,
       };
       window.location.assign(pageUrl("workspace", compareParams, intent.request.nodes));
     } catch (cause) {
       if (isTemporaryError(cause)) reportConnectionStatus("interrupted");
-      const info = messageFrom(cause);
-      setCompareStartError(cause instanceof ApiError && (cause.status === 403 || cause.code === "SCOPE_FORBIDDEN")
-        ? { code: "SCOPE_FORBIDDEN", message: "当前身份没有该操作的权限" }
-        : cause instanceof DOMException && cause.name === "TimeoutError"
-          ? { code: "TimeoutError", message: "请求超时；历史比较可能已经受理。使用同一请求重试会复用幂等结果。" }
-          : { code: info.code, message: info.message });
+      const failure = describeHistoryStartError(cause);
+      if (failure.retry !== "same") {
+        // The key can no longer give a usable answer; the next attempt gets a new one.
+        setCompareIntent(null);
+        try { scopedStorage.removeItem(pendingIntentKey); } catch { /* storage is optional */ }
+      }
+      setCompareStartError(failure);
     } finally {
       setComparePending(false);
     }
   };
 
-  const startOrRetryCompare = (request: Schemas["HistoryCompareAcceptRequest"] = { nodes: compareRefs }) => {
+  /** `fresh` forces a new idempotency key (expired, failed or unreadable earlier result). */
+  const startOrRetryCompare = (request: Schemas["HistoryCompareAcceptRequest"] = { nodes: compareRefs }, fresh = false) => {
     if (comparePending) return;
-    let intent = compareIntent;
-    if (!intent) {
+    let intent = fresh ? null : compareIntent;
+    if (!intent && !fresh) {
       try {
         const saved = scopedStorage.getItem(pendingIntentKey);
         if (saved) intent = readHistoryCompareIntent(saved);
@@ -406,6 +437,7 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     setCompareState(null);
     setBundleStatus("idle");
     setCompareError(null);
+    setCompareNeedsRerun(false);
     setCompareConnectionLost(false);
     setCompareElapsed(0);
     const ticker = window.setInterval(() => setCompareElapsed(Math.floor((Date.now() - startedAt) / 1_000)), 1_000);
@@ -416,6 +448,8 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     }).then(async (result) => {
       if (result.status !== "SUCCEEDED" || !result.result) {
         setCompareError(result.diagnostic?.message ?? "历史比较未能完成");
+        // The same key keeps returning this terminal state; a retry needs a new request.
+        setCompareNeedsRerun(true);
         setBundleStatus("idle");
         return;
       }
@@ -434,6 +468,7 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
         // B5: the server's bundle error code is carried into the message so
         // it stays visible; the title copy comes from bundleErrorTitle.
         setCompareError(historyBundleErrorMessage(cause));
+        setCompareNeedsRerun(describeHistoryReadError(cause).retry === "new");
         setBundleStatus("failed");
       }
     }).catch((cause: unknown) => {
@@ -442,7 +477,9 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
         setCompareConnectionLost(true);
         reportConnectionStatus("interrupted");
       } else {
-        setCompareError(cause instanceof Error ? cause.message : String(cause));
+        const failure = describeHistoryReadError(cause);
+        setCompareError(`${failure.message}（${failure.code}）`);
+        setCompareNeedsRerun(failure.retry === "new");
       }
     });
     return () => { controller.abort(new DOMException("比较状态查询已停止", "AbortError")); window.clearInterval(ticker); };
@@ -455,17 +492,18 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
   const actionLabel = (action: WorkbenchAction) => action.id === "open-submission" && activeSubmissionRow ? `转到${activeSubmissionRow.label}` : action.label;
 
   const runAction = (row: WorkspaceTreeRow, id: WorkbenchActionId) => {
-    if (comparisonLocked && id === "view-diff") return;
+    if (comparisonLocked && id === "compare-parent") return;
     if (id === "continue-preview") openPreview("initial_to_modified");
     else if (id === "open-submission") {
       if (activeSubmissionRow) setSelectedKey(activeSubmissionRow.key);
-    } else if (id === "view-diff") {
-      if (row.kind === "submission" && row.reviewStatus === "PENDING") openReview(row);
-      else {
-        const currentRef = historyRef(row);
-        if (currentRef && row.parentRef) {
-          startOrRetryCompare({ nodes: [{ ref_kind: row.parentRef.ref_kind, ref_id: row.parentRef.ref_id }, currentRef] });
-        }
+    } else if (id === "view-submission-diff") {
+      openSubmissionResult(row);
+    } else if (id === "open-review") {
+      openReview(row);
+    } else if (id === "compare-parent") {
+      const currentRef = historyRef(row);
+      if (currentRef && row.parentRef) {
+        startOrRetryCompare({ nodes: [{ ref_kind: row.parentRef.ref_kind, ref_id: row.parentRef.ref_id }, currentRef] });
       }
     } else if (id === "archive-mainline" && row.kind === "submission" && row.refId) {
       setArchiveSubmissionId(row.refId);
@@ -496,28 +534,38 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
     const url = new URL(window.location.href);
     url.searchParams.delete("operationId");
     url.searchParams.delete("operationKind");
+    url.searchParams.delete("replayed");
     window.history.replaceState(null, "", url);
     setHistoryDrawerCollapsed(false);
     setUrlRevision((value) => value + 1);
   };
   const showOperationStatus = operationId !== null && (operationKind === null || operationKind === "operation");
+  // The server names the newest active Preview of the current upload revision
+  // (possibly started in another tab or terminal); it is a reattach hint, not
+  // proof that it is the only one.
+  const activePreviewOperationId = !operationId && !uploadLocked ? workspace?.active_preview_operation_id ?? null : null;
+  const resumeActivePreview = (id: string) => {
+    try { scopedStorage.setItem("gateway-preview-operation", id); } catch { /* the status panel still shows without auto-open */ }
+    window.location.assign(pageUrl("workspace", { operationId: id, operationKind: "operation", workbenchNode: selectedKey }, compareRefs));
+  };
 
   if (isGatewaySessionBlocked(sessionState)) return <SessionGate state={sessionState} identityControl={identityControl} />;
   if (loading) return <main className="workspace-page"><LoadingSkeleton label="加载工作区与 History" /></main>;
   if (loadError || !workspace || !history) return <main className="workspace-page workspace-page--error"><ErrorState description={loadError?.message === DEVICE_UNAVAILABLE_MESSAGE ? DEVICE_UNAVAILABLE_MESSAGE : undefined} code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;
 
-  const compareLabels = compareRefs.map((ref) => rows.find((row) => row.key === refKey(ref))?.label ?? ref.ref_id);
+  const compareLabels = compareRefs.map(nodeLabel);
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   const uploadCard = <UploadStepCard head={history.head} onReloadHead={reloadHead} onUploadStateChange={(active) => { if (active) { resumePending.current = false; uploadMode.clearResumeNotice(); } if (active || !resumePending.current) setUploadLocked(active); }} onReadyChange={() => undefined}
     occupancyReason={occupancyReason}
     onComplete={(workspaceId, previewResultId) => window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId, previewResultId, workbenchNode: selectedKey }, compareRefs))} />;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
+    {activePreviewOperationId && <div role="status" className="info-note workspace-notice"><Info size={16} aria-hidden="true" /><span>该工作区有进行中的预览（可能由其他标签页或终端发起）。</span><button className="link-button" onClick={() => resumeActivePreview(activePreviewOperationId)}>查看进度并接回</button></div>}
     {notice === "withdrawn" && <div role="status" className="form-success workspace-notice"><span>已撤回，可以重新上传</span><button className="link-button" onClick={() => setNotice(null)}>关闭</button></div>}
     {submitResumeNotice && <div role="alert" className="form-error workspace-notice"><span>{submitResumeNotice.title}</span>{submitResumeNotice.code && <span>{submitResumeNotice.codeLabel ?? "操作ID"}：<code>{submitResumeNotice.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitResumeNotice.code ?? "")}>复制</button></span>}<span className="form-error__actions"><button className="link-button" onClick={() => void retryResumeNotice()}>重试</button><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: "" } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar" {...(uploadLocked ? { inert: "" } as object : {})}>
       <div className={`workspace-brand${sessionState.kind === "handoff" ? " workspace-brand--device" : ""}`}><strong>网关数据工作台</strong>{sessionState.kind === "handoff" ? <DevicePath display={sessionState.session.display} /> : <span>{workspace.gateway_device_external_key}</span>}</div>
-      <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}{headerControl}<ConnectionStatusIndicator />{identityControl}{sessionState.kind === "handoff" && <><span className="topbar-divider" aria-hidden="true" /><ReturnToDirectoryLink href={sessionState.session.returnUrl} /></>}</div>
+      <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<HistoryCompareTasks api={gatewayApi} currentOperationId={historyCompareOperationId} labelFor={nodeLabel} onOpen={(task: HistoryCompareTask) => openCompareOperation(task.operation_id, task.nodes)} />{headerControl}<ConnectionStatusIndicator />{identityControl}{sessionState.kind === "handoff" && <><span className="topbar-divider" aria-hidden="true" /><ReturnToDirectoryLink href={sessionState.session.returnUrl} /></>}</div>
     </header>
     <div className="workspace-layout" {...(uploadLocked ? { inert: "" } as object : {})}>
       <section className="workspace-main" aria-label="组态树工作台">
@@ -564,15 +612,17 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
           <div className="compare-tray__label"><GitBranch size={17} /><strong>比较托盘</strong>{compareRefs.length > 0 && <span>{compareRefs.length} / 3</span>}{compareLabels.length === 0 && <small>勾选 2–3 个基线或提交节点</small>}</div>
           <div className="compare-tray__items">{compareRefs.map((node, index) => <div className="compare-chip" key={refKey(node)}><span>{index + 1}</span>{compareLabels[index]}<button aria-label={`移除${compareLabels[index]}`} disabled={comparisonLocked} onClick={() => setCompareSelection(compareRefs.filter((item) => refKey(item) !== refKey(node)))}><X size={13} /></button></div>)}</div>
           <div className="compare-tray__actions"><button className="button button--ghost" disabled={!compareRefs.length || comparisonLocked} onClick={() => setCompareSelection([])}><Trash2 size={14} />清空比较</button>
-            {compareStartError && <span role="alert" className="compare-tray__error" title={compareStartError.code}>{compareStartError.message}（{compareStartError.code}）<button className="icon-button" aria-label="复制比较错误详情" onClick={() => void navigator.clipboard?.writeText(`${compareStartError.code}\n${compareStartError.message}`)}><Copy size={13} /></button></span>}
-            {compareIntent && compareStartError ? <button className="button button--primary" disabled={comparePending || comparisonLocked} onClick={() => startOrRetryCompare(compareIntent.request)}><RefreshCw size={14} />重试发起比较</button> : <button className="button button--primary" disabled={compareRefs.length < 2 || comparisonLocked} onClick={() => startOrRetryCompare()}>{comparisonLocked ? <RefreshCw size={14} /> : null}{!comparisonLocked ? "历史比较" : compareState === null || compareState.status === "SUCCEEDED" ? "读取中" : "比较中"}</button>}
+            {compareStartError && <span role="alert" className="compare-tray__error" title={compareStartError.code}>{compareStartError.message}（{compareStartError.code}）<button className="icon-button" aria-label="复制比较错误详情" onClick={() => void navigator.clipboard?.writeText(`${compareStartError.code}\n${compareStartError.message}`)}><Copy size={13} /></button>
+              {compareStartError.operationIds.length > 0 && <span className="compare-tray__jump">{compareStartError.operationIds.map((id, index) => <button key={id} className="link-button" title={id} onClick={() => void jumpToCompare(id)}>查看已有比较{compareStartError.operationIds.length > 1 ? ` ${index + 1}` : ""}</button>)}</span>}</span>}
+            {compareIntent && compareStartError?.retry === "same" ? <button className="button button--primary" disabled={comparePending || comparisonLocked} onClick={() => startOrRetryCompare(compareIntent.request)}><RefreshCw size={14} />重试发起比较</button> : <button className="button button--primary" disabled={compareRefs.length < 2 || comparisonLocked} onClick={() => startOrRetryCompare(undefined, compareStartError?.retry === "new")}>{comparisonLocked ? <RefreshCw size={14} /> : null}{comparisonLocked ? compareState === null || compareState.status === "SUCCEEDED" ? "读取中" : "比较中" : compareStartError?.retry === "new" ? "重新发起比较" : "历史比较"}</button>}
             {compareRefs.length < 2 && <small>至少选择 2 个节点</small>}
           </div>
         </div>
         {showHistoryDrawer && <section className="history-result-drawer" aria-label="历史比较结果抽屉">
-          <div className="history-result-drawer__heading"><div><GitBranch size={16} /><strong>历史比较</strong><span className={`status-tag status-tag--${compareState?.status === "SUCCEEDED" ? "success" : compareState?.status === "FAILED" ? "warning" : "info"}`}>{compareConnectionLost ? "连接中断" : compareState?.status === "QUEUED" ? "排队中" : compareState?.status === "RUNNING" ? "执行中" : compareState?.status === "SUCCEEDED" ? "已完成" : compareState?.status === "FAILED" ? "失败" : compareState?.status === "CANCELLED" ? "已取消" : "读取结果中"}</span>{(compareState?.status === "QUEUED" || compareState?.status === "RUNNING") && <small>已等待 {formatWaitDuration(compareElapsed)}</small>}</div>
+          <div className="history-result-drawer__heading"><div><GitBranch size={16} /><strong>历史比较</strong><span className={`status-tag status-tag--${compareState?.status === "SUCCEEDED" ? "success" : compareState?.status === "FAILED" ? "warning" : "info"}`}>{compareConnectionLost ? "连接中断" : compareState?.status === "QUEUED" ? "排队中" : compareState?.status === "RUNNING" ? "执行中" : compareState?.status === "SUCCEEDED" ? "已完成" : compareState?.status === "FAILED" ? "失败" : compareState?.status === "CANCELLED" ? "已取消" : "读取结果中"}</span>{(compareState?.status === "QUEUED" || compareState?.status === "RUNNING") && <small>已等待 {formatWaitDuration(compareElapsed)}</small>}{compareReplayed && <small title="相同节点与规则的比较已存在，接回了原比较（同一结果与 bundle）">已接回已有比较</small>}</div>
             <div className="history-result-drawer__buttons">{compareConnectionLost && <button className="button button--secondary" onClick={() => setRefreshCompare((value) => value + 1)}><RefreshCw size={14} />重试查询</button>}
-              {bundleStatus === "failed" && <button className="button button--secondary" onClick={() => { setCompareError(null); setDownloadRevision((value) => value + 1); }}><RefreshCw size={14} />重试下载</button>}
+              {bundleStatus === "failed" && !compareNeedsRerun && <button className="button button--secondary" onClick={() => { setCompareError(null); setDownloadRevision((value) => value + 1); }}><RefreshCw size={14} />重试下载</button>}
+              {compareNeedsRerun && compareRefs.length >= 2 && <button className="button button--secondary" disabled={comparePending} title="用新的请求重新比较这些节点（当前规则）" onClick={() => startOrRetryCompare({ nodes: compareRefs }, true)}><RefreshCw size={14} />重新比较</button>}
               {bundleStatus === "ready" && <button className="button button--primary" onClick={() => window.location.assign(pageUrl("compare", { mode: "HISTORY", operationId: historyCompareOperationId, operationKind: "history-compare", workbenchNode: selectedKey }, compareRefs))}>打开差异工作台</button>}
               <button className="icon-button" aria-label={historyDrawerCollapsed ? "展开历史比较结果" : "收起历史比较结果"} aria-expanded={!historyDrawerCollapsed} title={historyDrawerCollapsed ? "展开" : "收起"} onClick={() => setHistoryDrawerCollapsed((value) => !value)}>{historyDrawerCollapsed ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>
               {!comparisonLocked && <button className="icon-button" aria-label="关闭历史比较结果" title="关闭" onClick={closeHistoryDrawer}><X size={17} /></button>}

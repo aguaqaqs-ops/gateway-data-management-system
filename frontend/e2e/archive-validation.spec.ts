@@ -257,7 +257,7 @@ const SIMULATED_WORKSPACE: Schemas["WorkspaceResponse"] = {
   current_upload_revision_id: null,
   current_preview_result_id: null,
   active_submission_id: null,
-  active_submit_attempt_id: null,
+  active_preview_operation_id: null, active_submit_attempt_id: null,
 };
 
 async function openArchiveDialog(page: Page, submission: string) {

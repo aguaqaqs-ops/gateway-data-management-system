@@ -6,6 +6,8 @@ export interface BrowseState {
   workspaceId: string | null;
   previewResultId: string | null;
   submissionId: string | null;
+  /** REVIEW only: re-viewing the submission-time result from the workbench, without review actions. */
+  readOnly: boolean;
   operationId: string | null;
   operationKind: "history-compare" | "operation" | null;
   pairId: string | null;
@@ -27,6 +29,7 @@ export const initialBrowseState: BrowseState = {
   workspaceId: null,
   previewResultId: null,
   submissionId: null,
+  readOnly: false,
   operationId: null,
   operationKind: null,
   pairId: null,
@@ -68,6 +71,7 @@ export interface CommandResult {
 function normalizeState(state: BrowseState): BrowseState {
   return {
     ...state,
+    readOnly: state.mode === "REVIEW" && state.readOnly,
     changeIndex: Math.max(0, Math.floor(state.changeIndex)),
     expandedGroups: [...new Set(state.expandedGroups)],
     comparisonNodeRefs: [...new Set(state.comparisonNodeRefs)].slice(0, 3),
@@ -112,6 +116,7 @@ export function encodeBrowseState(state: BrowseState): string {
   if (state.workspaceId) params.set("workspaceId", state.workspaceId);
   if (state.previewResultId) params.set("previewResultId", state.previewResultId);
   if (state.submissionId) params.set("submissionId", state.submissionId);
+  if (state.readOnly) params.set("readonly", "1");
   if (state.operationId) params.set("operationId", state.operationId);
   if (state.operationKind) params.set("operationKind", state.operationKind);
   if (state.pairId) params.set("pair", state.pairId);
@@ -139,6 +144,7 @@ export function decodeBrowseState(search: string): BrowseState {
     workspaceId: params.get("workspaceId"),
     previewResultId: params.get("previewResultId"),
     submissionId: params.get("submissionId"),
+    readOnly: params.get("readonly") === "1",
     operationId: params.get("operationId"),
     operationKind: params.get("operationKind") === "history-compare" || params.get("operationKind") === "operation" ? params.get("operationKind") as "history-compare" | "operation" : null,
     pairId: params.get("pair"),

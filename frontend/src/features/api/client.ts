@@ -65,6 +65,8 @@ export interface GatewayApi {
   startHistoryCompare(body: Schemas["HistoryCompareAcceptRequest"], idempotencyKey?: string): Promise<Schemas["HistoryCompareAcceptResponse"]>;
   getHistoryCompare(operationId: string, signal?: AbortSignal): Promise<Schemas["HistoryCompareResultResponse"]>;
   getHistoryBundle(operationId: string, signal?: AbortSignal): Promise<Response>;
+  /** One page of this device/project's active and retained History compares (newest first). */
+  listHistoryCompares(query?: { limit?: number; after?: string | null }, signal?: AbortSignal): Promise<Schemas["HistoryCompareListResponse"]>;
   listArchiveCandidates(): Promise<Schemas["ArchiveCandidatesResponse"]>;
   listArchiveEvents(query: { subjectKind: Schemas["ArchiveAuditEventResponse"]["subject_kind"]; subjectDigest: string; afterSequence?: number; limit?: number }): Promise<Schemas["ArchiveAuditEventsResponse"]>;
   previewArchive(body: Schemas["PreviewArchivePlanRequest"]): Promise<Schemas["PreviewArchivePlanResponse"]>;
@@ -184,6 +186,15 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     startHistoryCompare: (body, key) => sendJson<Schemas["HistoryCompareAcceptResponse"]>(route("/v1/history-compares"), body, key),
     getHistoryCompare: async (operationId, signal) => json<Schemas["HistoryCompareResultResponse"]>(await request(route("/v1/history-compares/{operation_id}").replace("{operation_id}", encodeURIComponent(operationId)), { signal })),
     getHistoryBundle: (operationId, signal) => request(route("/v1/history-compares/{operation_id}/bundle").replace("{operation_id}", encodeURIComponent(operationId)), { signal, headers: { Accept: "application/x-tar" } }),
+    listHistoryCompares: async (query = {}, signal) => {
+      const params = new URLSearchParams();
+      if (query.limit !== undefined) params.set("limit", String(query.limit));
+      // The cursor is opaque: it is sent back exactly as the server returned it.
+      if (query.after) params.set("after", query.after);
+      const encoded = params.toString();
+      const suffix = encoded ? `?${encoded}` : "";
+      return json<Schemas["HistoryCompareListResponse"]>(await request(`${route("/v1/history-compares")}${suffix}`, { signal }));
+    },
     listArchiveCandidates: async () => json<Schemas["ArchiveCandidatesResponse"]>(await request(route("/v1/archive-candidates"))),
     listArchiveEvents: async (query) => {
       const params = new URLSearchParams({ subject_kind: query.subjectKind, subject_digest: query.subjectDigest });

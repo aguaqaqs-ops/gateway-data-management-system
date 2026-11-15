@@ -20,7 +20,7 @@ const WORKSPACE_RESPONSE = {
   business_project_id: "bp-1",
   gateway_device_external_key: "device-1",
   active_submission_id: null,
-  active_submit_attempt_id: null,
+  active_preview_operation_id: null, active_submit_attempt_id: null,
   current_preview_result_id: PREVIEW_RESULT_ID,
   current_upload_revision_id: null,
   generation: 1,

@@ -52,14 +52,22 @@ describe("formal workbench tree and contextual actions", () => {
     expect(compareToggle(workspace, 0, false).available).toBe(false);
   });
 
-  it("shows submission review and archive eligibility with explicit disabled reasons", () => {
+  it("separates the submission-time diff, review and parent History compare on a submission", () => {
     const rows = buildWorkspaceTree(WORKSPACE_RESPONSE, history);
     const pending = rows.find((row) => row.refId === "fe2a-history-ref-2") ?? null;
     const stale = rows.find((row) => row.eligibilityNote) ?? null;
     expect(deriveWorkbenchActions(pending)).toEqual([
-      { id: "view-diff", label: "查看差异", enabled: true, reason: null },
+      { id: "view-submission-diff", label: "查看提交时差异", enabled: true, reason: null },
+      { id: "open-review", label: "去审核", enabled: true, reason: null },
+      { id: "compare-parent", label: "比较父节点 → 此提交", enabled: true, reason: null },
       { id: "archive-mainline", label: "归档主线", enabled: false, reason: "提交尚未审核通过" },
     ]);
+    expect(deriveWorkbenchActions(pending, true).find((action) => action.id === "compare-parent"))
+      .toMatchObject({ enabled: false, reason: "历史比较执行中，暂不能发起新比较" });
+    expect(deriveWorkbenchActions(pending, true).find((action) => action.id === "view-submission-diff"))
+      .toMatchObject({ enabled: true });
+    const approved = { ...pending!, reviewStatus: "APPROVED" as const };
+    expect(deriveWorkbenchActions(approved).map((action) => action.id)).not.toContain("open-review");
     expect(compareToggle(pending!, 3, false)).toMatchObject({ enabled: false, reason: "比较托盘最多选择 3 个节点" });
     expect(deriveWorkbenchActions(stale).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已归档" });

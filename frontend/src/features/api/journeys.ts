@@ -106,10 +106,22 @@ function isRequestTimeout(cause: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (cause instanceof DOMException && (cause.name === "TimeoutError" || cause.name === "AbortError"));
 }
 
+// A 503 with one of these codes is a definite server answer about the result,
+// not a temporary outage: retrying the same read cannot make it succeed.
+const PERMANENT_SERVER_CODES = new Set([
+  "HISTORY_INTEGRITY_FAILURE",
+  "BUNDLE_INTEGRITY_FAILURE",
+  "SUBMISSION_RESULT_INTEGRITY_FAILURE",
+  "SUBMISSION_RESULT_UNAVAILABLE",
+]);
+
 function isTransientRequestError(cause: unknown): boolean {
   if (cause instanceof TypeError) return true;
-  return typeof cause === "object" && cause !== null && "status" in cause
-    && (Number((cause as { status: unknown }).status) >= 500 || Number((cause as { status: unknown }).status) === 429);
+  if (typeof cause !== "object" || cause === null || !("status" in cause)) return false;
+  const code = "code" in cause ? (cause as { code: unknown }).code : null;
+  if (typeof code === "string" && PERMANENT_SERVER_CODES.has(code)) return false;
+  const status = Number((cause as { status: unknown }).status);
+  return status >= 500 || status === 429;
 }
 
 export async function pollHistoryCompare(

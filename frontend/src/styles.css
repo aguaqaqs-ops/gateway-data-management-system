@@ -362,6 +362,23 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .workspace-brand strong { font-size: 15px; }
 .workspace-brand > span { padding-left: 14px; border-left: 1px solid var(--color-border); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .workspace-topbar__right { min-width: 0; justify-content: flex-end; }
+/* Workbench History compare tasks (server list; reattach from other tabs/terminals). */
+.compare-tasks { position: relative; }
+.compare-tasks > summary { cursor: pointer; list-style: none; }
+.compare-tasks > summary::-webkit-details-marker { display: none; }
+.compare-tasks > summary:hover, .compare-tasks[open] > summary { color: var(--color-text); }
+.compare-tasks__badge { padding: 0 6px; border-radius: var(--radius-pill); background: var(--color-info-surface); color: var(--color-info); }
+.compare-tasks__menu { position: absolute; z-index: 20; top: 34px; right: 0; display: grid; gap: 8px; width: 420px; max-width: calc(100vw - 32px); max-height: 60vh; overflow: auto; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 6px; background: #fff; box-shadow: var(--shadow-panel); }
+.compare-tasks__heading { display: flex; align-items: center; justify-content: space-between; }
+.compare-tasks__list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.compare-tasks__list button { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; width: 100%; padding: 6px 8px; border: 1px solid transparent; border-radius: var(--radius-control); background: none; color: var(--color-text); font: inherit; text-align: left; cursor: pointer; }
+.compare-tasks__list button:hover { background: var(--color-surface-muted); }
+.compare-tasks__list button.is-current { border-color: var(--color-border); background: var(--color-surface-muted); }
+.compare-tasks__list small { grid-column: 1 / -1; color: var(--color-text-subtle); font-size: 11px; }
+.compare-tasks__nodes { overflow: hidden; font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
+.compare-tasks__error { margin: 0; color: var(--color-danger); font-size: var(--font-size-xs); }
+.compare-tasks__empty { margin: 0; color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+.compare-tray__jump { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 6px; }
 .task-indicator { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--radius-pill); background: var(--color-surface-muted); color: var(--color-text-muted); font-size: var(--font-size-xs); white-space: nowrap; }
 .connection-status { display: inline-flex; align-items: center; gap: 6px; color: var(--color-success); font-size: var(--font-size-xs); white-space: nowrap; }
 .connection-status i, .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); }
@@ -521,6 +538,7 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
   .workspace-topbar { padding: 0 12px; }
   .workspace-topbar__right { gap: 8px; }
   .task-indicator { display: none; }
+  .compare-tasks > summary.task-indicator { display: inline-flex; }
   .workspace-layout, .workspace-page.details-open .workspace-layout { gap: 8px; padding: 8px; }
   .workspace-tree-heading { flex-wrap: wrap; padding: 10px; }
   .workspace-search { flex: 1; }

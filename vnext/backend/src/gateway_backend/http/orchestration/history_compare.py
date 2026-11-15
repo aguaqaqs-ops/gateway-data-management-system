@@ -302,7 +302,7 @@ def _public_operation_status(
     return cast(Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"], status.value)
 
 
-def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef) -> bytes:
+def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef, *, bundle_manifest: bool = False) -> bytes:
     try:
         locate = getattr(artifact_store, "locate", None)
         if locate is not None:
@@ -324,7 +324,13 @@ def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef) -> bytes
                 raise ManifestVerificationError(
                     verification.reason or "artifact digest verification failed"
                 )
-    except (ManifestVerificationError, KeyError, TypeError, ValueError) as exc:
+    except ArtifactUnavailableError as exc:
+        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
+    except ManifestVerificationError as exc:
+        if bundle_manifest:
+            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle failed integrity verification", status_code=503) from exc
+        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
+    except (KeyError, TypeError, ValueError) as exc:
         raise ApiError(
             code="ARTIFACT_UNAVAILABLE",
             message="compare result is not available",
@@ -417,7 +423,9 @@ def _load_success_result(
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY version disagrees", status_code=503)
         bundle_id = envelope.job_state.get("bundle_artifact_id")
         bundle_ref = next((ref for ref in closure.artifact_refs() if ref.artifact_id == bundle_id), None)
-        if bundle_ref is None or set(_ready_closure_refs_from_assemble(assemble_state, bundle_ref)) != set(closure.artifact_refs()):
+        if bundle_ref is None:
+            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle is outside history READY", status_code=503)
+        if set(_ready_closure_refs_from_assemble(assemble_state, bundle_ref)) != set(closure.artifact_refs()):
             raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY outputs disagree", status_code=503)
     except (CheckpointDecodeError, ManifestVerificationError) as exc:
         raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
@@ -457,9 +465,14 @@ def _load_success_result(
         try:
             if bundle_ref.media_type != BUNDLE_MANIFEST_MEDIA_TYPE or bundle_ref.size_bytes > MAX_BUNDLE_MANIFEST_JSON_BYTES:
                 raise BundleIntegrityError("invalid history bundle manifest")
-            bundle_metadata = read_bundle_transport_metadata(_read_metadata_from_store(artifact_store, bundle_ref))
+            bundle_metadata = read_bundle_transport_metadata(_read_metadata_from_store(artifact_store, bundle_ref, bundle_manifest=True))
         except BundleIntegrityError as exc:
             raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle failed integrity verification", status_code=503) from exc
+        expected_input_roles = tuple((index, node.ref_id) for index, node in enumerate(acceptance.nodes))
+        expected_pair_indices = tuple((pair_id, index, index + 1) for index, pair_id in enumerate(expected_ids))
+        if (bundle_metadata.input_roles != expected_input_roles
+                or bundle_metadata.pair_input_indices != expected_pair_indices):
+            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history bundle input binding disagrees", status_code=503)
         ready_by_id = {ref.artifact_id: ref for ref in closure.artifact_refs()}
         bundle_refs = (bundle_metadata.closure_ref, *(entry.artifact_ref for entry in bundle_metadata.entries))
         if any(ready_by_id.get(ref.artifact_id) != ref for ref in bundle_refs):

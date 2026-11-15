@@ -6,6 +6,8 @@ import json
 from bisect import bisect_left
 from dataclasses import dataclass
 
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -39,6 +41,27 @@ BUNDLE_REFERENCE_METADATA_KINDS = frozenset({
 })
 
 
+class _BundleInputDocument(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    input_index: int
+    role: str
+    display_name: str
+    display_metadata: dict[str, str]
+    snapshot_digest: str | None
+
+
+class _BundlePairDocument(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    pair_id: str
+    before_input_index: int
+    current_input_index: int
+    surface_digest: str
+    comparison_digest: str
+    risk_evaluation_digest: str | None
+    status: str
+    summary: dict[str, str]
+
+
 @dataclass(frozen=True, slots=True)
 class BundleTransportMetadata:
     bundle_digest: str
@@ -47,6 +70,8 @@ class BundleTransportMetadata:
     entries: tuple[BundleClosureEntry, ...]
     pair_digests: tuple[tuple[str, str, str], ...]
     pair_risk_digests: tuple[tuple[str, str | None], ...]
+    input_roles: tuple[tuple[int, str], ...]
+    pair_input_indices: tuple[tuple[str, int, int], ...]
 
 
 def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
@@ -94,7 +119,11 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             descendant = bisect_left(paths, prefix, lo=index + 1)
             if descendant < len(paths) and paths[descendant].startswith(prefix):
                 raise ValueError("bundle ordinary file paths conflict with a parent file")
+        inputs = TypeAdapter(tuple[_BundleInputDocument, ...]).validate_json(
+            canonicalize_json_value(document["inputs"]), strict=True)
         pairs = document["pairs"]
+        pair_documents = TypeAdapter(tuple[_BundlePairDocument, ...]).validate_json(
+            canonicalize_json_value(pairs), strict=True)
         if type(pairs) is not list or not pairs:
             raise ValueError("bundle must contain published pairs")
         pair_ids: set[str] = set()
@@ -127,7 +156,11 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             size_bytes=len(expected),
             raw_sha256=raw_blob_digest(expected),
         )
-        return BundleTransportMetadata(digest.value, ref, expected, entries, tuple(pair_digests), tuple(pair_risk_digests))
+        return BundleTransportMetadata(
+            digest.value, ref, expected, entries, tuple(pair_digests), tuple(pair_risk_digests),
+            tuple((item.input_index, item.role) for item in inputs),
+            tuple((item.pair_id, item.before_input_index, item.current_input_index) for item in pair_documents),
+        )
     except (KeyError, TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise BundleIntegrityError("bundle metadata failed integrity verification") from exc
 

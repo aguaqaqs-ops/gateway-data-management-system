@@ -713,7 +713,10 @@ export function deriveChangeLocations(records: RowDiffRecord[], annotations: Ris
   for (const annotation of annotations) {
     for (const identity of riskAnnotationRowIdentities(annotation)) risks.set(identity, annotation.risk_level);
   }
-  const rowRecords = records.filter((record): record is RowDiffRecord & { record_kind: RowRecordKind } => isRowRecordKind(record.record_kind));
+  // One location per row: a row both modified and moved has two records.
+  const seen = new Set<string>();
+  const rowRecords = records.filter((record): record is RowDiffRecord & { record_kind: RowRecordKind } => isRowRecordKind(record.record_kind))
+    .filter((record) => { const key = identityKey(record.row_identity); if (!key) return true; if (seen.has(key)) return false; seen.add(key); return true; });
   return rowRecords.map((record, index) => {
     const rowIdentity = identityKey(record.row_identity);
     return {

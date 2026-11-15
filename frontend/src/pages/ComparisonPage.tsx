@@ -11,7 +11,7 @@ import { deriveChangeLocations, deriveFormulaDisplays, navigationTabHasDifferenc
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
-import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, validateRowLocations, type BrowseRow, type DeletionLayout } from "../features/view-model/table-rows";
+import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, rowMove, validateRowLocations, type BrowseRow, type DeletionLayout } from "../features/view-model/table-rows";
 import { formatNavigationDiagnostic, formatSurfaceDiagnostic, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
@@ -182,7 +182,7 @@ function rowLabel(row: BrowseRow): string {
   if (row.kind === "deleted") return "− 删除";
   if (row.recordKind === "ORDERED_ROW_MOVED" || row.kind === "ordered") return "↕ 移动 · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—");
   // Leading space keeps room for the line drawn between a modified pair.
-  if (row.kind === "modified-before" || row.kind === "modified-after") return "\u2002\u2002修改";
+  if (row.kind === "modified-before" || row.kind === "modified-after") { const move = rowMove(row); return "\u2002\u2002修改" + (move ? " · ↕ " + move.from + " → " + move.to : ""); }
   if (row.kind === "blank") return "空行区间";
   return "";
 }
@@ -1307,7 +1307,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const hoverChanged = Boolean(hoverRow && hoverColumnId && hoverRow.changedColumns.includes(hoverColumnId));
   const hoverAnnotation = hoverRow?.rowIdentity ? annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(hoverRow.rowIdentity as string)) : undefined;
   const missingSnapshotHint = hoverRow?.rowNumberTitle ?? (hoverRow?.kind === "modified-before" && hoverRow.rowNumber === null ? "改前值不在本 bundle 中" : null);
-  const showHoverDetail = Boolean(hoverRow && (hoverChanged || hoverRow.riskLevel || missingSnapshotHint));
+  const hoverMove = hoverRow && hoverRow.kind !== "collapsed" ? rowMove(hoverRow) : null;
+  const showHoverDetail = Boolean(hoverRow && (hoverChanged || hoverRow.riskLevel || missingSnapshotHint || hoverMove));
   const hoverShape = table.columns?.find((column) => column.name === hoverColumn?.id);
   const fieldTitle = hoverShape?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
@@ -1316,6 +1317,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     {showHoverDetail && hoverRow && <div ref={hoverDetailRef} className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId], hoverShape)}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId], hoverShape)}</code></div></section>}
+      {hoverMove && <section><strong>位置</strong><span>第 {hoverMove.from} 行 → 第 {hoverMove.to} 行</span></section>}
       {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}
     </div>}
   </div>;

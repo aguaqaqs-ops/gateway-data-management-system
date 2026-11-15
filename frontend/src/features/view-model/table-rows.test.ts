@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RowDiffRecord, SurfaceTable } from "./model";
+import { deriveChangeLocations, type RowDiffRecord, type SurfaceTable } from "./model";
 import {
   type BrowseRow,
   buildBrowseRows,
@@ -9,6 +9,7 @@ import {
   missingSideMarker,
   normalizeDisplayScalar,
   parseRowLocator,
+  rowMove,
   validateRowLocations,
 } from "./table-rows";
 import { loadTableCase } from "../../test/helpers";
@@ -190,6 +191,23 @@ describe("browse rows from published locators", () => {
     });
     expect(result.rows.map((row) => `${row.kind}:${row.beforePosition ?? ""}>${row.currentPosition ?? ""}`))
       .toEqual(["unchanged:>", "ordered:4>2", "unchanged:>", "ordered:2>4"]);
+  });
+
+  it("keeps a modified and moved row as one pair carrying the move", () => {
+    const current = [1, 4, 3, 2].map((n, index) => ({ dev_addr: n, description: n === 2 ? "改名" : `点${n}`, no: String(index + 1) }));
+    const ordered = (kind: string, byte: number, from: number, to: number, extras: Record<string, unknown> = {}) =>
+      record(kind, byte, { before_position: from, current_position: to, changed_columns: [], ...extras });
+    const records = [ordered("ORDERED_ROW_MOVED", 0x02, 2, 4), ordered("ORDERED_ROW_MODIFIED", 0x02, 2, 4,
+      { changed_columns: ["description"], before_values: [{ column_name: "description", value: { kind: "string", text: "点2" } }] }),
+      ordered("ORDERED_ROW_MOVED", 0x04, 4, 2)];
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: 4, row_count_current: 4 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations: [], records,
+    });
+    expect(result.rows.map((row) => `${row.kind}:${row.rowNumber}:${rowMove(row)?.from ?? ""}>${rowMove(row)?.to ?? ""}`))
+      .toEqual(["unchanged:1:>", "ordered:2:4>2", "unchanged:3:>", "modified-before:2:2>4", "modified-after:4:2>4"]);
+    // The jump list counts that row once.
+    expect(deriveChangeLocations(records).map((location) => location.position)).toEqual([4, 2]);
   });
 
   it("shows a FLOAT column's bit pattern as its number", () => {

@@ -465,17 +465,23 @@ export function buildBrowseRows(input: {
     if (entry.beforeRowIndex !== null) recordByBeforeIndex.set(entry.beforeRowIndex, record);
   }
   // Ordered records carry no row locator; their current position is the row's `no`.
+  // A row both modified and moved keeps its modified pair; the move is attached to it.
+  const moveByCurrentIndex = new Map<number, RowDiffRecord>();
   if (hasCurrentSnapshot && input.table.ordered_extension) {
     const indexByPosition = new Map<number, number>();
     input.currentRows.forEach((row, index) => {
       const position = scalarPosition(row[ORDERED_POSITION_COLUMN]);
       if (position !== null && !indexByPosition.has(position)) indexByPosition.set(position, index);
     });
-    for (const record of records) {
+    const movesLast = [...records].sort((left, right) =>
+      Number(left.record_kind === "ORDERED_ROW_MOVED") - Number(right.record_kind === "ORDERED_ROW_MOVED"));
+    for (const record of movesLast) {
       if (!ORDERED_CURRENT_KINDS.has(String(record.record_kind))) continue;
       const position = positionNumber(record.current_position);
       const index = position === null ? undefined : indexByPosition.get(position);
-      if (index !== undefined && !recordByCurrentIndex.has(index)) recordByCurrentIndex.set(index, record);
+      if (index === undefined) continue;
+      if (!recordByCurrentIndex.has(index)) recordByCurrentIndex.set(index, record);
+      else if (record.record_kind === "ORDERED_ROW_MOVED") moveByCurrentIndex.set(index, record);
     }
   }
 
@@ -532,13 +538,23 @@ export function buildBrowseRows(input: {
           for (const column of changedColumns) if (column in oldRecordValues) beforeValues[column] = oldRecordValues[column];
           Object.assign(beforeValues, entry?.beforeFilterContext ?? {}); // raw identity values that row filters match
           beforeNumber = null;
-          title = "改前快照不在本 bundle 中：改前值由改后行与修改记录推出" + (ignored.size ? "，不参与比较的列不可得" : "") + "；改前行号不可得";
+          title = "改前快照不在本 bundle 中：改前值由改后行与修改记录推出" + (ignored.size ? "，不参与比较的列不可得" : "");
         }
+        const move = moveByCurrentIndex.get(index);
+        if (move) consumed.add(move);
+        const movedFrom = positionNumber(move?.before_position) ?? positionNumber(candidate.before_position);
+        const movedTo = positionNumber(move?.current_position) ?? positionNumber(candidate.current_position);
+        if (beforeNumber === null && movedFrom !== null) beforeNumber = movedFrom;
+        if (title && beforeNumber === null) title += "；改前行号不可得";
         const pairKey = `pair:${identity ?? index + 1}`;
-        rows.push(makeRow({ key: `${pairKey}:before`, kind: "modified-before", side: "before", source: beforeValues, rowNumber: beforeNumber,
-          rowNumberTitle: title, identity, record: candidate, values: beforeValues, pairKey }));
-        rows.push(makeRow({ key: `${pairKey}:after`, kind: "modified-after", side: "current", source, rowNumber: index + 1,
-          identity, record: candidate, values: source, pairKey, formulaChanged }));
+        const pair = [
+          makeRow({ key: `${pairKey}:before`, kind: "modified-before", side: "before", source: beforeValues, rowNumber: beforeNumber,
+            rowNumberTitle: title, identity, record: candidate, values: beforeValues, pairKey }),
+          makeRow({ key: `${pairKey}:after`, kind: "modified-after", side: "current", source, rowNumber: index + 1,
+            identity, record: candidate, values: source, pairKey, formulaChanged }),
+        ];
+        for (const row of pair) { if (movedFrom !== null) row.beforePosition = movedFrom; if (movedTo !== null) row.currentPosition = movedTo; }
+        rows.push(...pair);
       } else if (ADDED_KINDS.has(kind)) {
         rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: "added", side: "current",
           source, rowNumber: index + 1, identity, record: candidate }));
@@ -639,6 +655,12 @@ export function buildBrowseRows(input: {
   visible = visible.filter((row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query));
   if (input.onlyInteresting) visible = collapseUnchangedRows(visible, input.expandedRuns ?? new Set());
   return { rows: visible };
+}
+
+/** Before → current position when the row changed position, else null. */
+export function rowMove(row: BrowseRow): { from: number; to: number } | null {
+  return row.beforePosition !== null && row.currentPosition !== null && row.beforePosition !== row.currentPosition
+    ? { from: row.beforePosition, to: row.currentPosition } : null;
 }
 
 export function normalizeDisplayScalar(value: unknown, column?: SurfaceColumn): string { return displayValue(value, column); }

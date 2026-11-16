@@ -1,10 +1,13 @@
 {
-  "archive": "producer-fixtures-794dce0e.tar",
-  "archive_sha256": "6371d3b489a596c567a3b43ed2687f19ba0d4040ccf7fbe814422b5dfa9185da",
-  "generator_commit": "794dce0e336fbcd4a59bbab22a5adaf9daa8b7dd",
-  "vnext_tree": "bd4a2be69c2b875560a2c4c857e079a89feed5ec",
+  "archive": "producer-fixtures-abf3eb744f.tar",
+  "archive_sha256": "42bd995ec67d454d7acbe215c289a34e3b92a89ceb73f913740292bb401e81d0",
+  "archive_location": "/home/dev/gdds-stage-exchange/manual-fixture-import/producer-fixtures-abf3eb744f.tar",
+  "original_node": "ct109-gw-dms-07",
+  "original_output": "/home/dev/gdds-test-tmp/producer-fixture-abf3eb744f.x3l1bc/output",
+  "generator_commit": "abf3eb744f142ee2bab0273c813239ae5eff510a",
+  "vnext_tree": "81843c91f8957104c97e8d6ec2e4563dc326412e",
   "input_manifest_sha256": "f6be60fcb23944c7866d16291652811b32bd783ce0f4420c07bf9bba68f72837",
-  "index_sha256": "85a37bbb7fb2414b0933bff9ffecfe4899e9555885f17bb0e7485811780eacb0",
+  "index_sha256": "1295b0d44ac8f828e40d6893fd27243efb73b479e34a54ba6b61155920ccd06d",
   "imported_member": "backend/",
   "file_digests": "backend.SHA256SUMS"
 }

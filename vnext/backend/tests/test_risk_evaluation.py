@@ -462,8 +462,9 @@ def test_unrelated_standard_additions_keep_risk() -> None:
     assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ROW_ADDED,)
 
 
-def test_shared_table_mixed_addition_and_address_change_retains_update_risk() -> None:
+def test_shared_table_addition_and_address_only_change_have_no_risk() -> None:
     name = "device_mx"
+    observed: list[tuple[str, object, bool]] = []
     records = (
         ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_ADDED,
             row_identity=raw_blob_digest(b"added")),
@@ -471,11 +472,13 @@ def test_shared_table_mixed_addition_and_address_change_retains_update_risk() ->
             row_identity=raw_blob_digest(b"modified"), changed_columns=("dev_addr",)),
     )
     result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        row_added_count=1, row_modified_count=1, records=records), store=InMemoryArtifactStore())
+        row_added_count=1, row_modified_count=1, records=records), store=InMemoryArtifactStore(),
+        context=RiskExecutionContext(attribution_observer=lambda table, annotations, complete:
+            observed.append((table, annotations, complete))))
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
-    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
-    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ROW_MODIFIED,)
+    assert result.risk_report.tables == ()
+    assert observed == [(name, (), True)]
 
 
 @pytest.mark.parametrize(("columns", "level", "reason"), (

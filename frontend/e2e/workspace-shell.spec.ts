@@ -1094,7 +1094,7 @@ test("待审提交从工作台打开提交绑定的不可变比较", async ({ pa
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-details").getByRole("button", { name: "查看差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "去审核" }).click();
   await expect(page).toHaveURL(/mode=REVIEW/);
   await waitForBrowse(page);
 
@@ -1252,7 +1252,7 @@ test("查看差异超时后的重试复用同一幂等意图", async ({ page }) 
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
-  await page.locator(".workspace-details").getByRole("button", { name: "查看差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "比较父节点 → 此提交" }).click();
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("请求超时");
   holdFirstCompare.resolve();
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();

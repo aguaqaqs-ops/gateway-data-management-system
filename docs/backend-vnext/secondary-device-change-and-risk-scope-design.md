@@ -124,6 +124,8 @@ Risk owner 的单一解析函数从 frozen rules 和实际 table_name 得到三�
 
 table_scope 与 facts 中同表值一致，含非空真正表事实时发布。unlocated_row_risk 表达已输出但不能归属到装置的风险，或者风险评估不完整：后者 risk_level/count 均可 null，原因用已有诊断，不能合成 UNKNOWN。count 只在事件互斥且语义单位相同时相加，否则 null。reason_codes 去重排序。不存在公共事实、待定位风险或不完整风险时不发布该项。
 
+该新归约和table_notices仅适用于十一类共享标准表（包括其降级整表入口）。其他整表/通道表沿用原有风险展示，ordered ROW_INTERVAL继续由有序消费路径处理，不落入本节未知target兜底；device行风险由定义变化引用专门接线。COMPARISON全局风险只投影到这些实际相关共享表，整体RiskReport仍保留全部表事实。
+
 typed outcome 按以下优先序归约，不读混合 RiskReport.tables[].risk_level 反推：
 
 | target/evidence | 归约 |
@@ -181,6 +183,8 @@ replacement 根 table_notices=[]、device_definition_changes=[]，保留原两�
 
 “有风险”默认筛选保留已确认个人风险、相关公共/待定位风险入口及定义风险。只带共享提示的装置用范围提示标记，不能用个人彩色风险徽标。差异过滤包括局部内容变化、归属变化、定义变化、比较未知及公共表变化入口。定义变化涉及的空项可由独立定义入口打开，不更改服务端 empty/nonempty计数。风险详情、原因、定位逐条依实际作用域，不给所有行染色。
 
+有序blank records每条显示一条“空点区间变化”摘要，包含before/current受影响范围、原occupancy差count、方向与风险；不得用start+offset推造具体新增/删除空点行，也不以physical index+1代替业务no。真实snapshot行继续原样浏览。摘要进入差异/风险过滤与变化定位，按no定位最近真实行；不计作新增业务行数。ROW_INTERVAL风险仅挂到对应区间摘要，不再经intervalRiskAnnotation给范围内真实新增有效点或全部行染色，其自身ROW风险仍按原annotation呈现。无需为匿名空点创造行身份或补全before快照。
+
 前端 decoder 同步 v4 必填字段、唯一性、引用表/项存在性、数值与summary一致性。row scope摘要校验不再假定 fallback 风险必为null；Preview/History/提交绑定审核消费同一个文档。修改 frontend/ 前按 AGENTS 告知前端设计会话范围并列入审核，本轮只改文档，无需假装已通知。
 
 ## 7 有序空点的精确尾部判据
@@ -205,9 +209,9 @@ RiskEvaluationInput 使用现有字段位置的目标形态 `ordered_tail_bounds
 | Risk ruleset/rule v7→v8，risk-model v4→v5 | 表适用和空点风险改变；rules validator、candidate key及RiskEvaluation digest核对；不额外增加版本轴 |
 | BusinessNavigation v3→v4 | 字段/摘要语义变化，pydantic strict/extra=forbid、前端decoder、golden核对 |
 | Preview assemble-state v10→v11；History v7→v8 | checkpoint恢复解码拒绝旧组装状态；不改变READY closure wire格式 |
-| History job contract v2→v3；Preview job contract v4→v5 | History受理指纹绑定job contract；Preview受理payload的既有capability_contract_versions写入risk model、risk ruleset digest、navigation版本并核对，job decoder也拒绝旧版本；不改变Comparison core contract |
+| History job contract v2→v3；Preview job contract v4→v5 | History受理指纹绑定job contract；Preview既有capability_contract_versions写入risk model、risk ruleset digest、navigation版本并由worker/result reader核对，job decoder拒绝旧版本；不改变调用方请求幂等指纹或Comparison core contract |
 
-不修改 canonical storage、原始SQL、普通records/locator物理schema；有序新边界为operation-local输入，不建独立artifact。Risk candidate key显式绑定§4/§7输入。Surface projection raw digest与bundle闭包重算；已发布旧bundle不被原地重写。新语义不复用旧成功作业；旧只读结果能否打开由其原接口版本自然决定，不加兼容层。活跃旧作业的版本不匹配按既有失败路径，不自动删除数据或重置控制库。
+不修改 canonical storage、原始SQL、普通records/locator物理schema；有序新边界为operation-local输入，不建独立artifact。Risk candidate key显式绑定§4/§7输入。Surface projection raw digest与bundle闭包重算；已发布旧bundle不被原地重写。History新语义不跨键复用旧成功作业。Preview当前没有跨键成功结果复用：新键新建operation，旧键相同请求仍返回原operation，不把服务器语义版本塞入HTTP请求幂等指纹。旧结果不作为当前语义的可提交Preview：既有结果读取、T1/finalize与审核绑定校验增加当前job/capability版本检查，不符走现有PreviewBindingConflict/结果不可用路径并要求新键重新预览，不原地改旧bundle或同键改绑。活跃旧作业版本不符按既有失败路径，不自动删除数据或重置控制库。
 
 ## 9 验收与风险
 

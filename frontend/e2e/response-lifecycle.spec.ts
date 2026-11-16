@@ -76,8 +76,7 @@ test("History POST 202 snapshot survives immediate product navigation repeatedly
     await page.goto("/?page=workspace");
     await expect(page.getByRole("heading", { name: /组态树/ })).toBeVisible();
     for (const label of ["初始基线", "归档基线 1"]) {
-      await page.getByRole("button", { name: label, exact: true }).click();
-      await page.locator(".workspace-actions .workspace-action").filter({ hasText: "加入比较" }).getByRole("button").first().click();
+      await page.getByRole("checkbox", { name: `加入比较：${label}` }).check();
     }
     const capture = await captureResponse(page, identity, "POST", /\/history-compares$/, 15_000);
     try {

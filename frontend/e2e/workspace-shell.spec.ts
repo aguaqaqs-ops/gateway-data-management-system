@@ -1039,8 +1039,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await page.mouse.up();
   await expect.poll(() => page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width))).toBeGreaterThan(widthBefore);
 
-  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await expect(page.locator(".workspace-context-bar")).toContainText("待审核");
   await expect(page.locator(".workspace-context-bar")).toContainText("提交尚未审核通过");
@@ -1090,7 +1089,7 @@ test("待审提交从工作台打开提交绑定的不可变比较", async ({ pa
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "查看差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "查看差异" }).click();
   await expect(page).toHaveURL(/mode=REVIEW/);
   await waitForBrowse(page);
 
@@ -1112,10 +1111,8 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
-  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
-  await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
+  await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
   await expect(page.getByRole("alert")).toContainText("请求超时");
   holdFirstCompare.resolve();
@@ -1234,10 +1231,8 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
-  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
-  await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
+  await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有该操作的权限");
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
@@ -1252,7 +1247,7 @@ test("查看差异超时后的重试复用同一幂等意图", async ({ page }) 
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "查看差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "查看差异" }).click();
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("请求超时");
   holdFirstCompare.resolve();
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
@@ -1533,7 +1528,7 @@ test("FE3c 归档主线确认预检、异常与影响", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "业务核验" })).toBeVisible();
@@ -1822,7 +1817,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const forbidden = page.getByRole("dialog", { name: "归档主基线" });
   await expect(forbidden.getByText("SCOPE_FORBIDDEN")).toBeVisible();
   await expect(forbidden.getByText("当前身份没有预检归档方案的权限")).toBeVisible();
@@ -1834,7 +1829,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await dialog.getByRole("checkbox", { name: /确认把/ }).check();
   await dialog.locator(".archive-anomaly").getByRole("button", { name: "接受" }).click();
@@ -1860,7 +1855,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await installFixtureRoutes(page, { archiveBlocked: true, approvedSubmission: true });
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const blocked = page.getByRole("dialog", { name: "归档主基线" });
   await expect(blocked.getByText("ACTIVE_SUBMIT_ATTEMPT", { exact: true })).toBeVisible();
   await expect(blocked.getByRole("button", { name: "确认归档" })).toBeDisabled();

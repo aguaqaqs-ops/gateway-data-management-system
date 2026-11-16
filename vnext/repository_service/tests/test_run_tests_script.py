@@ -521,6 +521,10 @@ def test_run_tests_without_package_selection_keeps_all_packages_and_two_passes(
     assert completed.returncode == 0, completed.stderr
     assert "==> umask=" in completed.stdout
     actual_packages = [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
+    assert all(
+        "\t-C . run pytest -p no:cacheprovider --durations=0 --durations-min=1.0 " in line
+        for line in calls_log.read_text().splitlines()
+    )
     assert actual_packages == [
         "shared_kernel",
         "repository_contracts",

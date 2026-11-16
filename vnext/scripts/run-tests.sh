@@ -287,7 +287,7 @@ run_locked_pytest() {
     local storage_path
     storage_path="$(runner_hypothesis_storage_path "${package}")"
     HYPOTHESIS_STORAGE_DIRECTORY="${storage_path}" \
-        "${UV_CONSUME}" -C . run pytest -p no:cacheprovider "${PYTEST_TMP_ARGS[@]}" "$@"
+        "${UV_CONSUME}" -C . run pytest -p no:cacheprovider --durations=0 --durations-min=1.0 "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
 run_rust_step() {

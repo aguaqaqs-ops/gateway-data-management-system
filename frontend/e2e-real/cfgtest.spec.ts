@@ -241,7 +241,8 @@ async function openDeviceTab(page: Page, itemKey: string, expected: RegExp, test
 
 async function checkBrowser(page: Page, testInfo: TestInfo, prefix: string): Promise<void> {
   await openDeviceTab(page, "device:addr:34", /移出本装置 5 行/, testInfo, `${prefix}-device-34`);
-  await expect(page.locator(".table-info .risk-badge")).toHaveCount(1);
+  // The tab's own located risk (the header also has per-level count chips).
+  await expect(page.locator('.table-info > span[title^="本页已确认风险"] .risk-badge')).toHaveText("中高风险");
   await openDeviceTab(page, "device:addr:9234", /移入本装置 5 行/, testInfo, `${prefix}-device-9234`);
   await openDeviceTab(page, "device:composite", /删除 2 行/, testInfo, `${prefix}-device-65532`);
   await expect(page.locator(".table-info .risk-badge")).toHaveCount(0);

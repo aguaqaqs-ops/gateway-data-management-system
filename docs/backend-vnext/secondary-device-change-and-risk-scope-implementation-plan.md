@@ -1,6 +1,6 @@
 # 二次装置变化归属与风险范围实施计划
 
-状态：与[设计](secondary-device-change-and-risk-scope-design.md)配套的可实施候选；当前只授权文档收口及一个 Sol xhigh 子agent独立设计审核。审核者不改文档或产品、不运行测试；协调者修订，原审复核同一finding。产品实施与部署另行授权。
+状态：与[设计](secondary-device-change-and-risk-scope-design.md)配套的实施计划已完成独立设计审核及原审复核，无未决阻塞，可作为代码实施依据。审核由用户指定的一个 gpt-6.1-sol / xhigh 子agent完成，文档由协调者本人修订；本轮未修改产品或运行测试。产品实施与部署另行授权。
 
 ## 1 输入和开工条件
 

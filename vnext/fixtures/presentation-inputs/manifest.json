@@ -205,6 +205,16 @@
       "path": "ownership-current.sql",
       "sha256": "78fbf55b5b8594160b554c8cba7b1db30111ff4823b7df8801cd3241b93770d9",
       "source": "Device ownership migration and full add/delete records"
+    },
+    {
+      "path": "pure-row-changes-before.sql",
+      "sha256": "c3dafa95c693eb34fbfbf5c136a41ad48560ed449237d957f596ffbe5b5049e4",
+      "source": "Pure added/deleted device point rows and full old values"
+    },
+    {
+      "path": "pure-row-changes-current.sql",
+      "sha256": "559e12b616d92ed31fa3867ea82fb0edd90fb35df46e7a561ed3141d65751fca",
+      "source": "Pure added/deleted device point rows and full old values"
     }
   ],
   "format": "backend-presentation-fixture-inputs/v1",
@@ -227,7 +237,8 @@
     "backend/scenarios/excluded-identity",
     "backend/scenarios/missing-identity-column",
     "backend/scenarios/empty-tabs",
-    "backend/scenarios/channel-rules"
+    "backend/scenarios/channel-rules",
+    "backend/scenarios/pure-row-changes"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -1199,6 +1210,54 @@
         ]
       },
       "risk_artifact_limit": 1
+    },
+    {
+      "id": "pure-row-changes",
+      "output": "backend/scenarios/pure-row-changes",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "pure-row-changes-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "pure-row-changes-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "pure-add-delete-no-risk",
+        "full-delete-values-with-null",
+        "before-snapshot-absent"
+      ],
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      },
+      "pair_assertions": {
+        "initial_to_modified": {
+          "record_kinds": {
+            "device_st": {
+              "STANDARD": [
+                "ROW_ADDED",
+                "ROW_DELETED"
+              ]
+            }
+          }
+        }
+      }
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",

@@ -2354,6 +2354,14 @@ def test_abort_rejects_stale_step_version_when_expected_set(db_path: Path) -> No
 
 def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: Path) -> None:
     seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path))
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        existing_operations = tuple(
+            tuple(row) for row in unit_of_work.connection.execute(
+                "SELECT * FROM operation_records ORDER BY operation_id"
+            )
+        )
+    assert len(existing_operations) == 1
+    assert existing_operations[0][0] == seed.preview_result.operation_id
     tracker = WriterLockTracker()
     resolve = RecordingMainResolvePort(tracker=tracker)
     with pytest.raises(NoCanonicalChange):
@@ -2381,7 +2389,12 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
         assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM operation_records").fetchone()[0] == 0
+        operations_after = tuple(
+            tuple(row) for row in unit_of_work.connection.execute(
+                "SELECT * FROM operation_records ORDER BY operation_id"
+            )
+        )
+        assert operations_after == existing_operations
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM step_records").fetchone()[0] == 0
         assert workspace is not None
         assert workspace.optimistic_version == seed.workspace.optimistic_version

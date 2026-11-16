@@ -265,6 +265,61 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
                 rows = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
                 if not set(required) <= {row["record_kind"] for row in rows}:
                     raise AssertionError(f"missing {family} record kinds: {name}")
+        if scenario["id"] == "pure-row-changes":
+            if result.records_closure is None:
+                raise AssertionError("pure changes lack records")
+            entry = next(e for e in result.records_closure.records
+                         if e.table_name == "device_st" and e.family.value == "STANDARD")
+            records = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
+            if sorted(row["record_kind"] for row in records) != ["ROW_ADDED", "ROW_DELETED"]:
+                raise AssertionError("pure changes contain unexpected row records")
+            deleted = next(row for row in records if row["record_kind"] == "ROW_DELETED")
+            before_values = {item["column_name"]: item["value"] for item in deleted["before_values"]}
+            if set(before_values) != {"gid", "dev_addr", "name", "detail", "note"}:
+                raise AssertionError("deleted row does not carry all before values")
+            if (before_values["gid"]["text"] != "2" or before_values["dev_addr"]["text"] != "49"
+                    or before_values["name"]["text"] != "删除点" or before_values["detail"]["text"] != "完整旧值"
+                    or before_values["note"]["kind"] != "null" or deleted["current_values"]):
+                raise AssertionError("deleted row before values disagree with source")
+            table = next(t for t in surface.tables if t.table_id == "device_st")
+            if table.table_refs.before_table_ref is not None or table.row_locator_ref is None:
+                raise AssertionError("pure changes do not exercise missing before snapshot")
+            locator = pq.read_table(pa.BufferReader(store.locate(table.row_locator_ref))).to_pylist()
+            located = next(row for row in locator if row["row_identity"] == deleted["row_identity"])
+            if located["before_row_index"] is not None or json.loads(located["before_filter_context_json"]) != {"dev_addr": 49}:
+                raise AssertionError("deleted row locator does not preserve before context")
+            if table.risk_refs.risk_level is not None or table.risk_refs.annotation_count != 0:
+                raise AssertionError("pure added/deleted rows unexpectedly have risk")
+            projection = next(p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION")
+            navigation = json.loads(store.locate(projection.projection_ref))
+            facts = [tab["facts"] for group in navigation["groups"] for item in group["items"]
+                     for tab in item["tabs"] if tab["table_id"] == "device_st" and tab["facts"] is not None]
+            if not facts or any(f["basis"] != "EXACT" or not f["risk_complete"] or f["risk_level"] is not None for f in facts):
+                raise AssertionError("pure changes need exact facts and complete empty risk")
+        if scenario["id"] == "preview-full" and pair["id"] == "baseline_to_initial":
+            if result.records_closure is None:
+                raise AssertionError("blank interval fixture lacks records")
+            entry = next(e for e in result.records_closure.records
+                         if e.table_name == "b1_n1_iec104_syx_list" and e.family.value == "BLANK")
+            rows = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
+            if len(rows) != 1:
+                raise AssertionError("blank fixture should have one interval")
+            row = rows[0]
+            interval = row["interval"]
+            if (row["record_kind"] != "BLANK_DELETE_INTERVAL" or row["before_occupancy"] != 2
+                    or row["current_occupancy"] != 1 or interval["before_start"] != 2
+                    or interval["before_end"] != 4 or interval["current_start"] != 3
+                    or interval["current_end"] != 3 or interval["row_count"] != 1):
+                raise AssertionError("blank interval bounds and occupancy disagree")
+            table = next(t for t in surface.tables if t.table_id == "b1_n1_iec104_syx_list")
+            if table.risk_refs.annotation_ref is None:
+                raise AssertionError("blank interval fixture lacks risk annotations")
+            annotations = json.loads(store.locate(table.risk_refs.annotation_ref))["annotations"]
+            interval_risks = [annotation for annotation in annotations
+                              if annotation["target"]["target_type"] == "ROW_INTERVAL"]
+            if (len(interval_risks) != 1 or interval_risks[0]["target"]["position_range"] != [2, 4]
+                    or not any(["count", 1] in reason["evidence"] for reason in interval_risks[0]["reasons"])):
+                raise AssertionError("blank interval risk must identify region and occupancy difference")
         for name in pair_assertions.get("pseudo_gid_tables", []):
             for source in (before, current):
                 document = canonicalization_manifest_from_bytes(store.locate(source.canonicalization_manifest_ref))

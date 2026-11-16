@@ -53,13 +53,13 @@
 后端阶段门禁入口，在开发节点触发，经 SSH 在 `ct108-gw-dms-04` 的固定 worktree 执行：
 
 ```bash
-scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose stage|s3-ready|s5|release|production] [--fresh] [--session <名>]
+scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose package|stage|s3-ready|s5|release|production] [--fresh] [--session <名>]
 ```
 
 脚本调用权威 runner `./vnext/scripts/run-tests.sh`，占用、环境准备、闭包查表与容器等价、身份与日志记录、清理都由它执行，不手工重复，结果不手抄。参数、04 节点配置、结果位置和失败语义见 [`scripts/README.md`](scripts/README.md)；runner 与闭包的行为说明见 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口)。脚本不强制、仍须遵守：
 
 - 权威运行必须在专用节点、clean 已提交 worktree 上进行；期间不写被测树、不改相关镜像（runner 的既定构建例外保留）。同节点整机单飞、离线预填充、保护真实输入及原始证据、失败不冒称通过都是硬约束。
-- **项目最终门禁与发布门禁必须运行全部六包**：S5、发布与最终 production gate 选对应 `--purpose`（强制六包 fresh、最终 HEAD 重建），不用普通 stage 结果替代。其他阶段按范围与闭包选包；阶段性验证只跑所需 focused/marker 范围，不跑全量。
+- **工作包与最终门禁档位：**工作包门禁使用 `--purpose package`（跳过 `container` 用例与容器门禁）；若改动命中 [触发式重建](docs/backend-vnext/testing-conventions.md#docker--compose触发式重建) 清单，相关改动收敛后用 `--purpose stage` 跑一次；阶段最终候选必须在最终 HEAD 上有 `--purpose stage` 结果；S5、发布与最终 production gate 选对应 `--purpose`（强制六包 fresh、最终 HEAD 重建），不用 `package` 或普通 `stage` 结果替代。阶段性验证只跑所需 focused/marker 范围，不跑全量。
 - 按包沿用和容器结果沿用只以脚本查表结果为准：不手工计算 carried，不把其他节点或其他 worktree 的记录当来源，不手工创建固定门禁 worktree 或删除其归属记录。
 - 占用冲突（exit 3）不抢占，稍后重新触发。修正后新开一次运行，不覆盖失败记录；中断后残留的占用标记由协调者核远端进程和结果后处理，不直接删除。
 - 脚本不覆盖真实数据旅程和前端，它们使用各自入口。门禁之外的手工运行（focused、真实数据旅程）仍按 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口) 自行满足 `legacy` 链接、`TMPDIR` 和日志记录要求。
@@ -113,7 +113,7 @@ scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose stage|s3-r
 
 ## 写测试
 
-`repository_service` 的四个 marker 已声明，`--strict-markers` 生效，拼错会导致收集失败。
+`backend` 与 `repository_service` 的五个 marker 已声明，`--strict-markers` 生效，拼错会导致收集失败。
 
 - **不要**手写 `@pytest.mark.skipif(not dolt_available(), ...)`。dolt 门禁只有一处，
   在 `vnext/repository_service/tests/conftest.py`。
@@ -122,6 +122,7 @@ scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose stage|s3-r
   `import_provider` fixture 的会被 conftest 自动判定，无需重复标注。
 - 依赖固定时间预算（`Event.wait(timeout=...)`、`thread.join(timeout=...)`、子进程
   sleep 与 stream timeout 的相对关系）的测试，**必须**加 `@pytest.mark.serial`。
+- 启动真实 Docker 或 Compose 的测试，**必须**加 `@pytest.mark.container`（并配合 `serial`）。
 - **artifact ID（Owner 2026-11-12）：**除 golden 和 ID 格式校验的测试外，backend 测试经 `build_artifact_id`
   （`gateway_backend/artifacts/location.py`）生成 artifact ID，不手写 `a1:` 字面量。已有的字面量在下次改到该文件时
   顺手改，不为此专门返工。
@@ -164,9 +165,7 @@ mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
 
 ## Docker / Compose 验证
 
-**工作包做针对性验证，阶段最终候选集中构建验收**（Owner 2026-11-10）。工作包交接、独审轮次或角色更换不触发完整镜像构建、
-全量 runner 或完整真实数据旅程。可明确移交至阶段最终候选的容器项记为 `deferred`，不阻塞无依赖的后续实施；
-不得用延期关闭已发现的正确性问题。
+**工作包做针对性验证，阶段最终候选集中构建验收**（Owner 2026-11-10）。工作包交接、独审轮次或角色更换使用 `--purpose package`（或聚焦测试），不触发完整镜像构建、容器测试或完整真实数据旅程。报告中工作包档位的容器门禁记为 `deferred`，不写通过，也不阻塞无依赖的后续实施；不得用延期关闭已发现的正确性问题。
 
 - 改动容器边界（镜像与依赖构建、entrypoint/Compose/环境变量与 healthcheck 接线、UID/GID/权限/mount/socket/pidfile/broker、依赖容器隔离才能证明的 startup/shutdown、Docker/Compose e2e 与 harness），或要判断某项容器验证该提前做还是延期之前，先读 [触发式重建](docs/backend-vnext/testing-conventions.md#docker--compose触发式重建)：逐项清单、提前做最小容器验证的条件、可延期的情形、依赖基础镜像何时重建。
 - 旧镜像结果只能作为回归证据，不得表述为当前 HEAD 已验证；要宣称当前 HEAD 已通过容器门禁，须有绑定到它的门禁结果。

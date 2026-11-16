@@ -250,7 +250,7 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 `repository_service` 并行批（`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"`）。
 前序步骤全部执行完后若任一步失败，则跳过两个 serial 批，被跳过的包输出 `status=not_run` 并以非零退出；
 前序全部通过时再依次执行 `backend` 与 `repository_service` 的 serial 批
-（`-m "serial and not parallel_safe" -n 0`）。`rust` 包由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。
+（`-m "serial and not parallel_safe" -n 0`）。当设置 `GATEWAY_TEST_SCOPE=package`（对应门禁 `--purpose package`）时，并行批与 serial 批都在原 marker 表达式后排除 `and not container`，跳过所有标注 `@pytest.mark.container` 的 Docker/Compose 测试。`rust` 包由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。
 两遍拆分避免 timing-sensitive 测试争用 CPU；`parallel_safe` 只包括下文经逐项隔离审查的例外，backend 当前没有此例外。其余三个 Python 包的 worker 启动开销超过并行收益，因此保持单进程。
 
 非串行worker默认`auto`；初始建议`GATEWAY_TEST_WORKERS=4`，按本次资源调整。阶段性验证不要跑全量；日常迭代用 marker 缩小范围：
@@ -277,9 +277,8 @@ cd ../repository_service
 
 专用测试节点可通过 `GATEWAY_TEST_BASETEMP=/mnt/gateway-test-tmpfs/pytest` 将 pytest 临时工作区
 放入有容量上限的 tmpfs（变量必须为绝对路径）；这不会替换 Docker named volume，也不能替代真实文件系统上的
-持久化、崩溃恢复、快照和容量语义验收。权威脚本在启用该变量时，会让三个实际 Compose
-e2e 文件回到真实磁盘临时目录，以避开 unprivileged LXC 下 Docker secret bind mount 的
-remount 限制；其余测试仍使用 tmpfs。
+持久化、崩溃恢复、快照和容量语义验收。权威脚本在启用该变量且非 `GATEWAY_TEST_SCOPE=package` 时，会让标注 `@pytest.mark.container` 的容器测试回到真实磁盘临时目录，以避开 unprivileged LXC 下 Docker secret bind mount 的
+remount 限制；其余测试仍使用 tmpfs。`GATEWAY_TEST_SCOPE=package` 时不运行 `container` 用例，因此 serial 批可保留 `--basetemp`。
 
 不带 marker 直接运行 pytest 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他
 测试争用 CPU，判定 flaky 时以脚本为准。

@@ -83,7 +83,7 @@ def arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("commit_sha", help="full local commit SHA (40 lowercase hex characters)")
     parser.add_argument("--packages", type=parse_packages, default=list(PACKAGES))
     parser.add_argument("--fresh", action="store_true", help="run all six packages without lookup")
-    parser.add_argument("--purpose", choices=("stage", "s3-ready", "s5", "release", "production"), default="stage")
+    parser.add_argument("--purpose", choices=("package", "stage", "s3-ready", "s5", "release", "production"), default="stage")
     parser.add_argument("--session", default="stage-gate")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--run-id", help=argparse.SUPPRESS)
@@ -135,6 +135,8 @@ class Gate:
         self.preflight_clear = False
         self.temporary_prepared = False
         self.env = self.environment()
+        if args.purpose == "package":
+            self.env["GATEWAY_TEST_SCOPE"] = "package"
         self.closure: Any = None
         self.result: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION, "run_id": self.run_id,
@@ -143,6 +145,7 @@ class Gate:
             "start_head": None, "end_head": None, "clean_start": None, "clean_end": None,
             "exit_code": None, "runner_exit_code": None, "status": "failed",
             "requested_packages": args.packages, "fresh": args.fresh, "purpose": args.purpose,
+            "scope": "package" if args.purpose == "package" else "full",
             "orchestrator_sha256": tool_digest, "logs": {}, "packages": {
                 name: {"mode": "not_run", "total_digest": None, "manifest": None, "source": None,
                        "reason": "not requested" if name not in args.packages else "execution not reached"}
@@ -351,12 +354,12 @@ class Gate:
                 self.command([tool, "--version"], cwd=rust)
             if len(parents) != 1:
                 raise GateError("Rust tools resolve to different toolchains")
-        if {"backend", "repository_service"} & set(self.args.packages):
+        if self.args.purpose != "package" and ({"backend", "repository_service"} & set(self.args.packages)):
             if not isinstance(self.result["cache_provenance"], dict) or "reason" in self.result["cache_provenance"]:
                 raise GateError("container packages require node cache provenance")
             if self.env.get("GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES") != "1":
                 raise GateError("repository-service preloaded dependencies required")
-        if "backend" in self.args.packages:
+        if self.args.purpose != "package" and "backend" in self.args.packages:
             if (self.env.get("GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES") != "1"
                     or not self.env.get("GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE")):
                 raise GateError("backend dependency-base must be preloaded and selected")
@@ -445,7 +448,7 @@ class Gate:
                     continue
                 if self.closure.compare_manifests(source_manifest, current)["status"] != "可沿用":
                     continue
-                if name in {"backend", "repository_service"}:
+                if self.args.purpose != "package" and name in {"backend", "repository_service"}:
                     valid, reason = self.container_equivalent(record, name)
                     if not valid:
                         continue
@@ -529,7 +532,7 @@ class Gate:
         env = dict(self.env, GATEWAY_TEST_PACKAGES=",".join(names),
                    GATEWAY_COMPOSE_GATE_PROVENANCE_PATH=str(provenance))
         self.note("runner_packages=" + ",".join(names))
-        if set(names) & {"backend", "repository_service"}:
+        if self.args.purpose != "package" and (set(names) & {"backend", "repository_service"}):
             # A fresh gate always rebuilds the current RS candidate; backend/worker
             # are built by the unmodified Compose harness inside the runner.
             self.command([str(self.worktree / "vnext/scripts/build-repository-service-image.sh")], cwd=self.worktree,
@@ -563,7 +566,7 @@ class Gate:
                          manifest=self.save_manifest(name, manifest, "runner"), source=None,
                          reason="fresh requested" if self.args.fresh else entry["reason"])
         # Capture the runner's existing evidence before another run overwrites it.
-        if "backend" in names:
+        if self.args.purpose != "package" and "backend" in names:
             if provenance.is_symlink() or not provenance.is_file():
                 raise GateError("backend runner succeeded without Compose provenance")
             payload = json.loads(provenance.read_text())
@@ -593,9 +596,10 @@ class Gate:
             entry["final_manifest"] = reference
             if self.closure.compare_manifests(original, current)["status"] != "可沿用":
                 raise GateError(f"carried {name} closure changed during gate; source results rejected")
-            valid, reason = self.container_equivalent(record, name)
-            if not valid:
-                raise GateError(f"carried {name} container identity changed during gate: {reason}")
+            if self.args.purpose != "package":
+                valid, reason = self.container_equivalent(record, name)
+                if not valid:
+                    raise GateError(f"carried {name} container identity changed during gate: {reason}")
             entry.update(total_digest=current["total_digest"], manifest=reference)
 
     def gate(self) -> None:
@@ -619,7 +623,12 @@ class Gate:
         if to_run:
             self.execute_runner(to_run)
         self.revalidate_carried_containers()
-        if set(self.args.packages) & {"backend", "repository_service"}:
+        if self.args.purpose == "package":
+            self.result["container_gate"].update(
+                status="not_run",
+                reason="package scope skips container tests",
+            )
+        elif set(self.args.packages) & {"backend", "repository_service"}:
             self.result["container_gate"].update(
                 status="run" if set(to_run) & {"backend", "repository_service"} else "carried",
                 reason={name: self.result["packages"][name]["reason"] for name in self.args.packages

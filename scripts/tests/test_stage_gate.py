@@ -35,9 +35,9 @@ class FakeClosureError(Exception):
 
 class FixtureGate(G.Gate):
     """Replace only node/platform preparation; run real child executables."""
-    def __init__(self, root, *, head=SHA, fresh=False, packages=None, digest="same", failure=0, sleep=False):
+    def __init__(self, root, *, head=SHA, fresh=False, purpose="stage", packages=None, digest="same", failure=0, sleep=False):
         args = argparse.Namespace(commit_sha=head, packages=packages or ["shared_kernel"], fresh=fresh,
-                                  purpose="stage", session="selftest")
+                                  purpose=purpose, session="selftest")
         super().__init__(args, "tool-v1")
         self.worktree = root / "worktree"
         self.results = root / "results"
@@ -120,6 +120,10 @@ class StageGateTests(unittest.TestCase):
             parsed = G.arguments([SHA, "--purpose", purpose, "--packages", "shared_kernel"])
             self.assertTrue(parsed.fresh)
             self.assertEqual(parsed.packages, list(G.PACKAGES))
+        package_scope = G.arguments([SHA, "--purpose", "package", "--packages", "backend"])
+        self.assertEqual(package_scope.purpose, "package")
+        self.assertFalse(package_scope.fresh)
+        self.assertEqual(package_scope.packages, ["backend"])
         self.assertEqual(G.arguments([SHA, "--fresh", "--packages", "backend"]).packages, list(G.PACKAGES))
 
     def test_worker_accepts_verified_node_hostname_and_rejects_other_nodes_before_acquiring(self):
@@ -455,6 +459,59 @@ class StageGateTests(unittest.TestCase):
         for raw in ("", "==> test input manifest package=shared_kernel\n{}\n" * 2):
             with self.assertRaises(G.GateError):
                 G.runner_manifests(raw, ["shared_kernel"])
+
+    def test_package_purpose_skips_container_checks_and_isolates_from_stage(self):
+        gate = FixtureGate(self.root, purpose="package", packages=["backend", "repository_service"])
+        self.assertEqual(gate.env.get("GATEWAY_TEST_SCOPE"), "package")
+        # prepare() must not require preloaded dependency images or cache provenance.
+        gate.result["cache_provenance"] = {"reason": "node config absent; no cache provenance supplied"}
+        with patch.object(gate, "image", side_effect=AssertionError("RS image should not be inspected")), \
+             patch.object(gate, "entry_image", side_effect=AssertionError("entry image should not be inspected")), \
+             patch.object(gate, "repository_identity", side_effect=AssertionError("RS identity not required")), \
+             patch.object(gate, "command", side_effect=AssertionError("RS image build should not run")), \
+             patch.object(gate, "container_equivalent", side_effect=AssertionError("container_equivalent skipped")):
+            self.assertEqual(gate.run(), 0)
+        first = self.record(gate)
+        self.assertEqual(first["scope"], "package")
+        self.assertEqual(first["container_gate"]["status"], "not_run")
+        self.assertIn("package scope", first["container_gate"]["reason"])
+        self.assertEqual(first["packages"]["backend"]["mode"], "run")
+        self.assertEqual(first["packages"]["repository_service"]["mode"], "run")
+
+        # Another commit in --purpose package with matching closure carries over without container_equivalent.
+        second = FixtureGate(self.root, head=OTHER, purpose="package", packages=["backend", "repository_service"])
+        with patch.object(second, "container_equivalent", side_effect=AssertionError("container_equivalent skipped")), \
+             patch.object(second, "image", side_effect=AssertionError("RS image should not be inspected")):
+            self.assertEqual(second.run(), 0)
+        carried = self.record(second)
+        self.assertEqual(carried["scope"], "package")
+        self.assertEqual(carried["container_gate"]["status"], "not_run")
+        self.assertEqual(carried["packages"]["backend"]["mode"], "carried")
+        self.assertEqual(carried["packages"]["repository_service"]["mode"], "carried")
+
+        # Switching to --purpose stage must not carry from package scope (container_gate status=not_run and scope unset).
+        stage_gate = FixtureGate(self.root, head="c" * 40, purpose="stage", packages=["backend"])
+        with patch.object(stage_gate, "command"), \
+             patch.object(stage_gate, "repository_identity", return_value={"build_input_revision": "in", "source_tree_sha256": "t"}), \
+             patch.object(stage_gate, "image", return_value={"labels": {}}), \
+             patch.object(stage_gate, "manifest", return_value=manifest("backend", "c" * 40, "stage-diff")):
+            # Simulate execute_runner writing Compose provenance when container run succeeds.
+            original_prepare = stage_gate.prepare
+            def prepare_with_provenance():
+                original_prepare()
+                runner = stage_gate.worktree / "vnext/scripts/run-tests.sh"
+                code = (
+                    "import os, pathlib\n"
+                    "pathlib.Path(os.environ['GATEWAY_COMPOSE_GATE_PROVENANCE_PATH']).write_text("
+                    "'{\"repository_service_image\":{\"labels\":{\"gateway.p2r1.build-input-revision\":\"in\",\"gateway.p2r1.source-tree-sha256\":\"t\"}}}')\n"
+                )
+                runner.write_text(runner.read_text().replace("import json, os, time", "import json, os, time\n" + code))
+            with patch.object(stage_gate, "prepare", side_effect=prepare_with_provenance):
+                self.assertEqual(stage_gate.run(), 0)
+        stage_record = self.record(stage_gate)
+        self.assertEqual(stage_record["scope"], "full")
+        self.assertEqual(stage_record["packages"]["backend"]["mode"], "run")
+        self.assertEqual(stage_record["container_gate"]["status"], "run")
 
 
 if __name__ == "__main__":

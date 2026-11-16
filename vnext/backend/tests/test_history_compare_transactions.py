@@ -241,7 +241,7 @@ def test_idempotent_replay_returns_existing_acceptance(db_path: Path) -> None:
 
 @pytest.mark.parametrize("old_ruleset,old_job", [
     ("sha256:old-ruleset", HISTORY_COMPARE_JOB_CONTRACT_VERSION),
-    (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v3"),
+    (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v4"),
 ])
 def test_semantic_drift_replay_raises_idempotency_conflict(
     db_path: Path, old_ruleset: str, old_job: str,

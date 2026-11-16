@@ -1006,7 +1006,7 @@ print(json.dumps(json.loads(row[0])['canonical']))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         continue
                     if (isinstance(document, dict)
-                            and document.get("contract_version") == "backend-vnext/business-navigation/v5"
+                            and document.get("contract_version") == "backend-vnext/business-navigation/v6"
                             and "groups" in document):
                         documents.append(document)
             assert len(documents) == 1

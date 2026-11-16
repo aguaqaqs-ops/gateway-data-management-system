@@ -25,7 +25,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 
 RISK_CONTRACT_VERSION = "backend-vnext/risk/v2"
 RISK_RULESET_CONTRACT_VERSION = "backend-vnext/risk-ruleset/v1"
-RISK_MODEL_VERSION = "backend-vnext/risk-model/v5"
+RISK_MODEL_VERSION = "backend-vnext/risk-model/v6"
 RISK_ANNOTATION_CONTRACT_VERSION = "backend-vnext/risk-annotations/v1"
 RISK_ANNOTATION_MEDIA_TYPE = "application/vnd.gateway.risk-annotations+json"
 RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = (
@@ -37,8 +37,8 @@ RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
-RISK_RULESET_VERSION = "v8"
-RISK_RULE_VERSION = "v8"
+RISK_RULESET_VERSION = "v9"
+RISK_RULE_VERSION = "v9"
 
 _STANDARD_POINT_TABLES = tuple(sorted((
     "device_st", "device_mx", "device_co", "device_sg", "device_sp",
@@ -1479,7 +1479,7 @@ V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
             _default_rule(RiskRuleId.SCHEMA_CHANGED, RiskScope.TABLE, RiskReasonCode.SCHEMA_CHANGED, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.ROW_ADDED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_ADDED, RiskLevel.MEDIUM_LOW, tuple((f"exclude_table:{name}", True) for name in _STANDARD_ADD_DELETE_EXCLUSIONS)),
             _default_rule(RiskRuleId.ROW_DELETED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_DELETED, RiskLevel.MEDIUM_LOW, tuple((f"exclude_table:{name}", True) for name in _STANDARD_ADD_DELETE_EXCLUSIONS)),
-            _default_rule(RiskRuleId.ROW_MODIFIED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_MODIFIED, RiskLevel.MEDIUM_HIGH),
+            _default_rule(RiskRuleId.ROW_MODIFIED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_MODIFIED, RiskLevel.MEDIUM_HIGH, tuple((f"ignore_address_table:{name}", True) for name in _STANDARD_POINT_TABLES)),
             _default_rule(RiskRuleId.STANDARD_NAME_UPDATE, RiskScope.STANDARD_ROWS, RiskReasonCode.STANDARD_NAME_UPDATE, RiskLevel.LOW),
             _default_rule(RiskRuleId.ORDERED_MOVE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MOVE, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.ORDERED_REPLACEMENT, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_REPLACEMENT, RiskLevel.MEDIUM_LOW),

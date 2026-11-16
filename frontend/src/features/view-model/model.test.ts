@@ -48,7 +48,7 @@ const exactFacts: NavigationFacts = {
 
 const GROUP_KEYS = ["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"] as const;
 
-/** An ordinary v5 navigation: five fixed groups; the device item lives in SECONDARY_DEVICES. */
+/** An ordinary v6 navigation: five fixed groups; the device item lives in SECONDARY_DEVICES. */
 function navigation(overrides: Partial<BusinessNavigation> = {}): BusinessNavigation {
   const groups: NavigationGroup[] = GROUP_KEYS.map((group_key) => ({ group_key, label: group_key, items: [], nonempty_item_count: 0 }));
   groups[1] = { nonempty_item_count: 1, group_key: "SECONDARY_DEVICES", label: "二次装置列表", items: [{
@@ -58,7 +58,7 @@ function navigation(overrides: Partial<BusinessNavigation> = {}): BusinessNaviga
       { empty: false, tab_key: "second", label: "二", table_id: "device", row_filter: { before: null, current: { column: "dev_addr", values: [2] } }, facts: { ...exactFacts } },
     ],
   }] };
-  return { contract_version: "backend-vnext/business-navigation/v5", initial_baseline: false, groups, replacement_sides: null, table_notices: [], device_definition_changes: [], ...overrides };
+  return { contract_version: "backend-vnext/business-navigation/v6", initial_baseline: false, groups, replacement_sides: null, table_notices: [], device_definition_changes: [], ...overrides };
 }
 
 const deviceItem = (doc: BusinessNavigation) => doc.groups[1]!.items[0]!;
@@ -80,7 +80,7 @@ function tableRisk(tableName: string, riskLevel: RiskTableReport["risk_level"], 
 }
 
 describe("business navigation decoding", () => {
-  it("requires the v5 initial baseline booleans and validates their relationship", () => {
+  it("requires the v6 initial baseline booleans and validates their relationship", () => {
     const missingRoot = { ...navigation() } as Record<string, unknown>;
     delete missingRoot.initial_baseline;
     expect(() => decodeBusinessNavigation(missingRoot, surface())).toThrow(/字段无效/);
@@ -90,7 +90,7 @@ describe("business navigation decoding", () => {
     const invalid = navigation();
     deviceItem(invalid).tabs[0]!.facts!.membership_initial_baseline = true;
     expect(() => decodeBusinessNavigation(invalid, surface())).toThrow(/初始基线归属标记/);
-    expect(() => decodeBusinessNavigation({ ...navigation(), contract_version: "backend-vnext/business-navigation/v4" }, surface())).toThrow(/不支持的 business navigation/);
+    expect(() => decodeBusinessNavigation({ ...navigation(), contract_version: "backend-vnext/business-navigation/v5" }, surface())).toThrow(/不支持的 business navigation/);
   });
   it("rejects an unsupported contract version, a v3 payload and a missing navigation", () => {
     expect(() => decodeBusinessNavigation(null, surface())).toThrow(/字段无效/);
@@ -101,7 +101,19 @@ describe("business navigation decoding", () => {
     expect(() => decodeBusinessNavigation(v3Shape, surface())).toThrow(/字段无效/);
   });
 
-  it("accepts a complete v5 document", () => {
+  it("accepts a merged device with distinct side predicates and the same definition item key", () => {
+    const doc = navigation();
+    const item = deviceItem(doc);
+    item.tabs[0]!.row_filter = { before: { column: "dev_addr", values: [1] }, current: { column: "dev_addr", values: [2] } };
+    doc.device_definition_changes = [{ record_identity: "device-change", change_kind: "UPDATED",
+      before_item_key: item.item_key, current_item_key: item.item_key, before_dev_addr: 1, current_dev_addr: 2,
+      risk_level: null, risk_complete: true }];
+    const decoded = decodeBusinessNavigation(doc, surface());
+    expect(decoded.device_definition_changes[0]).toMatchObject({ before_item_key: item.item_key, current_item_key: item.item_key });
+    expect(deviceItem(decoded).tabs[0]!.row_filter).toEqual(item.tabs[0]!.row_filter);
+  });
+
+  it("accepts a complete v6 document", () => {
     expect(decodeBusinessNavigation(navigation(), surface()).groups).toHaveLength(5);
   });
 
@@ -317,7 +329,7 @@ function sameKeyReplacement(tables: string[] = ["device", "device_ext"]): Busine
     ? { group_key, label: "装置", nonempty_item_count: 1, items }
     : { group_key, label: group_key, nonempty_item_count: 0, items: [] });
   const tab = (table: string) => ({ empty: false, tab_key: table, label: table, table_id: table, row_filter: null, facts: null });
-  return { contract_version: "backend-vnext/business-navigation/v5", initial_baseline: false, groups: [], table_notices: [], device_definition_changes: [], replacement_sides: {
+  return { contract_version: "backend-vnext/business-navigation/v6", initial_baseline: false, groups: [], table_notices: [], device_definition_changes: [], replacement_sides: {
     before: groups([{ item_key: "same-device", item_kind: "DEVICE", label: "同一装置", attributes: {}, summary: { change_kinds: ["ADDED"], risk_level: "LOW", nonempty_tab_count: 1, change_complete: true, risk_complete: true }, tabs: [tab(tables[0]!)] }]),
     current: groups([{ item_key: "same-device", item_kind: "DEVICE", label: "同一装置", attributes: {}, summary: { change_kinds: ["DELETED"], risk_level: "HIGH", nonempty_tab_count: tables.length, change_complete: true, risk_complete: true }, tabs: tables.map(tab) }]),
   } };

@@ -493,6 +493,8 @@ class _Builder:
         unsafe_gids: set[str] = set()
         ambiguous_addresses: set[int] = set()
         ambiguous_gids: set[Scalar] = set()
+        duplicate_addresses: dict[str, set[int]] = {"BEFORE": set(), "CURRENT": set()}
+        duplicate_gids: dict[str, set[Scalar]] = {"BEFORE": set(), "CURRENT": set()}
         if device is not None:
             claimed.add("device")
             output.append(self.item("device:table", "TABLE", device.display_name, [self.tab(device)]))
@@ -527,17 +529,46 @@ class _Builder:
                     self.diagnostic("DEVICE_FILTER_VALUE_UNSUPPORTED", "SECONDARY_DEVICES", table=device, item="device:table", side=side, identity_column="dev_addr", reason="INTEGER_OUT_OF_RANGE" if source and scalar_reason(source.column_types.get("dev_addr"), None) is None else "UNSUPPORTED_TYPE")
                 for addr, count in address_counts.items():
                     if count > 1:
+                        duplicate_addresses[side].add(addr)
                         if side == "CURRENT":
                             ambiguous_addresses.add(addr)
                         self.diagnostic("DEVICE_ADDRESS_DUPLICATE", "SECONDARY_DEVICES", item=f"device:addr:{addr}" if addr != 65532 else "device:composite", side=side, dev_addr=addr)
                 for gid, count in gid_counts.items():
                     if count > 1:
+                        duplicate_gids[side].add(gid)
                         if side == "CURRENT":
                             ambiguous_gids.add(gid)
                         self.diagnostic("DEVICE_GID_DUPLICATE", "SECONDARY_DEVICES", table=device, side=side, gid=gid)
         composite = names.get("composite_signal_point")
         if composite is not None:
             representatives.setdefault(65532, {})
+        # Only merge an actual paired device record when both registry rows are
+        # unique and the old and new addresses do not collide with another item.
+        # Ambiguous address reuse remains independently browsable.
+        aliases: dict[int, int] = {}
+        if device is not None and replacement_side is None:
+            for record in device.evidence.records:
+                if record.kind != "ROW_MODIFIED" or record.before is None or record.current is None:
+                    continue
+                old, new = record.before.get("dev_addr"), record.current.get("dev_addr")
+                if type(old) is not int or type(new) is not int or old == new or 65532 in (old, new):
+                    continue
+                old_rows, new_rows = representatives.get(old), representatives.get(new)
+                if (old_rows is None or new_rows is None or set(old_rows) != {"BEFORE"}
+                        or set(new_rows) != {"CURRENT"} or old in duplicate_addresses["BEFORE"]
+                        or new in duplicate_addresses["CURRENT"]):
+                    continue
+                old_gid = old_rows["BEFORE"].values.get("gid")
+                new_gid = new_rows["CURRENT"].values.get("gid")
+                if (old_gid is None or old_gid != new_gid or old_gid in duplicate_gids["BEFORE"]
+                        or new_gid in duplicate_gids["CURRENT"]
+                        or old_gid not in gids["BEFORE"].get(old, set())
+                        or new_gid not in gids["CURRENT"].get(new, set())):
+                    continue
+                new_rows["BEFORE"] = old_rows["BEFORE"]
+                gids["BEFORE"][new] = gids["BEFORE"].pop(old, set())
+                del representatives[old]
+                aliases[old] = new
         candidates: dict[int, dict[str, Any]] = {}
         for addr, rows in sorted(representatives.items(), key=lambda pair: (pair[0] != 65532, pair[0])):
             label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "description", f"装置 {addr}")
@@ -563,7 +594,9 @@ class _Builder:
                     if type(address) is not int or abs(address) > SAFE_INTEGER:
                         address = None
                     device_addresses.append(address)
-                    keys.append(candidates[address]["item_key"] if address in candidates and side in representatives[address] else None)
+                    candidate_address = (aliases.get(address, address)
+                        if side == "BEFORE" and address is not None else address)
+                    keys.append(candidates[candidate_address]["item_key"] if candidate_address in candidates and side in representatives[candidate_address] else None)
                 device_change = {"record_identity": record.row_identity,
                     "change_kind": {"ROW_ADDED": "ADDED", "ROW_DELETED": "DELETED", "ROW_MODIFIED": "UPDATED"}[record.kind],
                     "before_item_key": keys[0], "current_item_key": keys[1],
@@ -611,7 +644,7 @@ class _Builder:
                 for addr, rows in representatives.items():
                     values: set[Scalar] = set()
                     if side in rows:
-                        values = gids[side][addr] if column == "gid" else {addr}
+                        values = gids[side][addr] if column == "gid" else {rows[side].values.get("dev_addr")}
                     elif addr == 65532 and column == "dev_addr":
                         # The composite device is virtual; it does not require a
                         # physical device row and never invents a device_cfg gid.
@@ -699,6 +732,9 @@ class _Builder:
             orphan_reasons = set(table.evidence.unlocated_reasons)
             for record in table.evidence.records:
                 self.check()
+                if (name != "device_cfg" and record.kind == "ROW_MODIFIED"
+                        and record.changed_columns and set(record.changed_columns) == {"dev_addr"}):
+                    continue
                 old_owners = set() if record.before is None else owners["BEFORE"].get(record.before.get(column), set())
                 new_owners = set() if record.current is None else owners["CURRENT"].get(record.current.get(column), set())
                 for address in old_owners | new_owners:

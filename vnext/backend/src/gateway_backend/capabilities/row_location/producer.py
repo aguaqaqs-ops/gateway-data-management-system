@@ -33,6 +33,7 @@ _ROW_KINDS = frozenset({"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"})
 @dataclass(slots=True)
 class _Row:
     kind: str
+    changed_columns: tuple[str, ...] = ()
     before_index: int | None = None
     current_index: int | None = None
     before: RowValues | None = None
@@ -127,6 +128,7 @@ def _prepare_row_locations(
             actual_count += batch.num_rows
             kinds = batch.column(batch.schema.get_field_index("record_kind"))
             identities = batch.column(batch.schema.get_field_index("row_identity"))
+            changed_index = batch.schema.get_field_index("changed_columns")
             for index in range(batch.num_rows):
                 kind = kinds[index].as_py()
                 if kind not in _ROW_KINDS:
@@ -137,7 +139,10 @@ def _prepare_row_locations(
                 key = "sha256:" + identity.hex()
                 if key in rows:
                     raise ValueError("published row identities are ambiguous")
-                rows[key] = _Row(kind)
+                changed = None if changed_index < 0 else batch.column(changed_index)[index].as_py()
+                if changed:
+                    charges.enter_context(context.memory.reserve(sum(len(column) * 16 + 64 for column in changed)))
+                rows[key] = _Row(kind, tuple(changed or ()))
     if actual_count != entry.record_count:
         raise ValueError("published records count differs from native records")
     if not rows:
@@ -192,7 +197,7 @@ def _prepare_row_locations(
             encoded = (canonicalize_json_value(dict(values)).decode() if filter_column is not None
                 and ref is None and values is not None else None)
             data[side + "_filter_context_json"].append(encoded)
-        records.append(FilterRecord(identity, row.kind, row.before, row.current))
+        records.append(FilterRecord(identity, row.kind, row.before, row.current, changed_columns=row.changed_columns))
     batch = pa.RecordBatch.from_pydict(data, schema=LOCATOR_SCHEMA)
     return RowLocationResult(tuple(records), scanned, batch)
 

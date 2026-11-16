@@ -136,7 +136,7 @@ export interface ComparisonSurface {
   tables: SurfaceTable[];
 }
 
-export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v5";
+export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v6";
 
 export type NavigationBasis = "EXACT" | "TABLE_FALLBACK";
 /** Local change kinds of a filtered tab (Business Navigation v4). */

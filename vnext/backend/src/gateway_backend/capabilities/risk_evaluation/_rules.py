@@ -47,7 +47,7 @@ def validate_risk_ruleset(snapshot: RiskRulesetSnapshot) -> dict[RiskRuleId, Ris
 
 def standard_rule_applicability(
     snapshot: RiskRulesetSnapshot, table_name: str,
-) -> tuple[bool, bool, bool]:
+) -> tuple[bool, bool, bool, bool]:
     """Resolve standard-row rules for both evaluation and candidate identity."""
     rules = {rule.rule_id: rule for rule in snapshot.rules}
     def has(rule_id: RiskRuleId, prefix: str) -> bool:
@@ -57,6 +57,7 @@ def standard_rule_applicability(
         not has(RiskRuleId.ROW_ADDED, "exclude_table"),
         not has(RiskRuleId.ROW_DELETED, "exclude_table"),
         True,
+        has(RiskRuleId.ROW_MODIFIED, "ignore_address_table"),
     )
 
 

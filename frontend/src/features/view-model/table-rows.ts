@@ -77,6 +77,25 @@ const MODIFIED_KINDS = new Set(["ROW_MODIFIED", "ORDERED_ROW_MODIFIED", "ORDERED
 const STANDARD_ORDINARY_KINDS = new Set(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
 const ORDERED_CURRENT_KINDS = new Set(["ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"]);
 
+const DEVICE_POINT_TABLES = new Set([
+  "device_st", "device_mx", "device_co", "device_sg", "device_sp",
+  "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb",
+]);
+
+/** Only a nonempty list proves that address is the sole change. */
+function displayedChangedColumns(tableName: string, record: RowDiffRecord | undefined): string[] {
+  const columns = Array.isArray(record?.changed_columns) ? record.changed_columns : [];
+  return record?.record_kind === "ROW_MODIFIED" && DEVICE_POINT_TABLES.has(tableName) && columns.length > 0
+    ? columns.filter((column) => column !== "dev_addr") : columns;
+}
+
+function isAddressOnlyPointChange(tableName: string, record: RowDiffRecord): boolean {
+  return record.record_kind === "ROW_MODIFIED" && DEVICE_POINT_TABLES.has(tableName)
+    && Array.isArray(record.changed_columns) && record.changed_columns.length > 0
+    && displayedChangedColumns(tableName, record).length === 0;
+}
+
+
 /** One decoded five-column locator row, addressed by its published identity. */
 export interface RowLocatorRecord {
   beforeRowIndex: number | null;
@@ -400,13 +419,9 @@ function physicalPositionOfNo(rows: readonly Record<string, unknown>[], no: numb
   return rows.length + 1;
 }
 
-const rangeText = (range: readonly [number, number] | null) => range === null ? "—" : range[0] === range[1] ? `${range[0]}` : `${range[0]}–${range[1]}`;
-
-/** One-line description of a blank-interval change: affected region and net count, never a per-position claim. */
+/** Display the interval as a single change, without assigning changes to individual positions. */
 export function blankIntervalLabel(interval: BlankIntervalSummary): string {
-  const action = interval.direction === "INSERT" ? "插入" : "删除";
-  const amount = interval.rowCount === null ? "数量未知" : `${interval.rowCount} 个`;
-  return `空点区间${action} ${amount} · 改前 no ${rangeText(interval.before)} → 改后 no ${rangeText(interval.current)}`;
+  return interval.direction === "INSERT" ? "+ 新增" : "− 删除";
 }
 
 function unwrapRecordScalar(value: unknown): { present: boolean; isNull: boolean; text: string | null } {
@@ -555,7 +570,7 @@ export function buildBrowseRows(input: {
       semanticKind: typeof record?.semantic_kind === "string" ? record.semantic_kind : null,
       beforePosition: positionNumber(record?.before_position),
       currentPosition: positionNumber(record?.current_position),
-      changedColumns: Array.isArray(record?.changed_columns) ? record.changed_columns : [],
+      changedColumns: displayedChangedColumns(input.table.table_name, record),
       ...(args.formulaChanged !== undefined ? { formulaChanged: args.formulaChanged } : {}),
       values: { ...(args.values ?? args.source) },
       pairKey: args.pairKey ?? null,
@@ -615,6 +630,13 @@ export function buildBrowseRows(input: {
       consumed.add(candidate);
       const kind = String(candidate.record_kind);
       const identity = locatorIdentity(candidate);
+      if (isAddressOnlyPointChange(input.table.table_name, candidate)) {
+        const row = makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source,
+          rowNumber: index + 1, identity, record: candidate, physical: index });
+        row.riskLevel = null;
+        rows.push(row);
+        return;
+      }
       if (kind === "ORDERED_ROW_MOVED" && hasCurrentSnapshot) {
         rows.push(makeRow({ key: `record:moved:${index + 1}`, kind: "ordered", side: "current", source,
           rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate, physical: index }));
@@ -690,6 +712,13 @@ export function buildBrowseRows(input: {
         consumed.add(candidate);
         const kind = String(candidate.record_kind);
         const identity = locatorIdentity(candidate);
+        if (isAddressOnlyPointChange(input.table.table_name, candidate)) {
+          const row = makeRow({ key: `before-only:${index + 1}`, kind: "unchanged", side: "before", source,
+            rowNumber: index + 1, identity, record: candidate, physical: index });
+          row.riskLevel = null;
+          rows.push(row);
+          return;
+        }
         const rowKind = DELETED_KINDS.has(kind) ? "deleted" : "modified-before";
         const pairKey = rowKind === "modified-before" ? `pair:${identity ?? index + 1}` : null;
         rows.push(makeRow({ key: `${rowKind}:${identity ?? index + 1}`, kind: rowKind, side: "before", source, rowNumber: index + 1, identity, record: candidate, pairKey, physical: index }));

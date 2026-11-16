@@ -1,4 +1,4 @@
-"""Flow-neutral inputs and strict wire validation for business navigation v5.
+"""Flow-neutral inputs and strict wire validation for business navigation v6.
 
 Row identities, scalar encodings and comparison/risk facts are supplied by their owners.
 This capability never reconstructs a canonical row identity from business values.
@@ -22,7 +22,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
 from gateway_backend.capabilities.table_rules import parse_channel_table_name
 
-CONTRACT_VERSION = "backend-vnext/business-navigation/v5"
+CONTRACT_VERSION = "backend-vnext/business-navigation/v6"
 
 
 class NavigationChangeKind(StrEnum):
@@ -83,6 +83,7 @@ class FilterRecord:
     current: RowValues | None
     risk_level: RiskLevel | None = None
     risk_reasons: tuple[str, ...] = ()
+    changed_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.row_identity or self.kind not in {"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"}:

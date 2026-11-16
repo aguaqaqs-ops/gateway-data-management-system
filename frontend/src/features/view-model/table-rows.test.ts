@@ -80,6 +80,40 @@ describe("row locator decoding", () => {
   });
 });
 
+describe("device point address changes", () => {
+  const pointTables = ["device_st", "device_mx", "device_co", "device_sg", "device_sp", "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb"];
+  function browse(tableName: string, columns: string[] | undefined, onlyInteresting = false) {
+    const modified = record("ROW_MODIFIED", 0x11, columns === undefined ? {} : { changed_columns: columns });
+    return buildBrowseRows({
+      table: table({ table_name: tableName }), beforeRows: [{ dev_addr: 1, description: "旧" }],
+      currentRows: [{ dev_addr: 2, description: "新" }], records: [modified], locator: parseRowLocator([locatorRow(0x11, 0, 0)]),
+      annotations: [{ annotation_id: "risk", risk_level: "MEDIUM_HIGH", diagnostics: [], reasons: [],
+        target: { target_type: "ROW", table_name: tableName, row_identity: `sha256:${"11".repeat(32)}`,
+          before_row_identity: null, current_row_identity: null, changed_columns: [], coverage: null, position: null, position_range: null } }],
+      onlyInteresting,
+    });
+  }
+
+  it.each(pointTables)("keeps the current %s point but excludes address-only changes from navigation and differences", (name) => {
+    const result = browse(name, ["dev_addr"]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ kind: "unchanged", values: { dev_addr: 2 }, changedColumns: [], riskLevel: null });
+    expect(deriveChangeLocations(result.scoped)).toEqual([]);
+    expect(browse(name, ["dev_addr"], true).rows.map((row) => row.kind)).toEqual(["collapsed"]);
+  });
+
+  it("shows other changed fields and retains conservative handling for missing evidence and other tables", () => {
+    const mixed = browse("device_st", ["dev_addr", "description"]);
+    expect(mixed.rows.map((row) => row.kind)).toEqual(["modified-before", "modified-after"]);
+    expect(mixed.rows.map((row) => row.changedColumns)).toEqual([["description"], ["description"]]);
+    expect(deriveChangeLocations(mixed.scoped)).toHaveLength(1);
+    for (const columns of [undefined, []]) expect(browse("device_st", columns).rows[0]?.kind).toBe("modified-before");
+    for (const name of ["device", "device_cfg", "composite_signal_point"]) {
+      expect(browse(name, ["dev_addr"]).rows.map((row) => row.kind)).toEqual(["modified-before", "modified-after"]);
+    }
+  });
+});
+
 describe("locator validation", () => {
   const base = { table: table(), publications: true };
   function validate(records: RowDiffRecord[], locatorRows: Record<string, unknown>[], overrides: Partial<Parameters<typeof validateRowLocations>[0]> = {}) {
@@ -282,8 +316,8 @@ describe("browse rows from published locators", () => {
     const summaries = result.rows.filter((row) => row.kind === "blank-interval");
     expect(summaries.map((row) => row.rowNumber)).toEqual([null, null]);
     expect(summaries.map((row) => blankIntervalLabel(row.interval!))).toEqual([
-      "空点区间插入 2 个 · 改前 no — → 改后 no 2–3",
-      "空点区间删除 1 个 · 改前 no 6–7 → 改后 no 8",
+      "+ 新增",
+      "− 删除",
     ]);
     // Summaries are changes to jump to, but no business row is counted as added or deleted.
     expect(deriveChangeLocations(result.scoped).map((location) => [location.recordKind, location.position]))
@@ -315,7 +349,7 @@ describe("browse rows from published locators", () => {
     const searched = buildBrowseRows({
       table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 6 } }),
       beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations,
-      records: [blankRecord("BLANK_INSERT_INTERVAL", { before_start: 2, before_end: 3, current_start: 2, current_end: 5, row_count: 1 })], search: "空点区间",
+      records: [blankRecord("BLANK_INSERT_INTERVAL", { before_start: 2, before_end: 3, current_start: 2, current_end: 5, row_count: 1 })], search: "新增",
     });
     expect(searched.rows.map((row) => row.kind)).toEqual(["blank-interval"]);
   });

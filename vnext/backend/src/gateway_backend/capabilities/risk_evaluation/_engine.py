@@ -890,7 +890,7 @@ def _emit_row_risks(
     require_closure: Callable[[], None],
 ) -> None:
     table = item.table_fact
-    emit_added, emit_deleted, name_low = standard_rule_applicability(
+    emit_added, emit_deleted, name_low, ignore_address = standard_rule_applicability(
         evaluation_input.risk_ruleset, table.table_name,
     )
     counts = {
@@ -922,6 +922,11 @@ def _emit_row_risks(
             if record.record_kind is not record_kind:
                 continue
             matching_count += 1
+            effective_columns = set(record.changed_columns)
+            if record_kind is ComparisonRecordKind.ROW_MODIFIED and ignore_address and effective_columns:
+                effective_columns.discard("dev_addr")
+                if not effective_columns:
+                    continue
             target = RiskTarget(
                 target_type=RiskTargetType.ROW,
                 table_name=table.table_name,
@@ -931,7 +936,7 @@ def _emit_row_risks(
             actual_rule = (RiskRuleId.STANDARD_NAME_UPDATE
                 if record_kind is ComparisonRecordKind.ROW_MODIFIED
                 and name_low and bool(record.changed_columns)
-                and set(record.changed_columns) <= {"name", "description"} else rule_id)
+                and effective_columns <= {"name", "description"} else rule_id)
             emit(actual_rule, target)
         if not matching_count:
             if suppressed_counts[record_kind] == count:

@@ -8,7 +8,7 @@ Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3�
 
 ```text
 BusinessNavigation:
-  contract_version: backend-vnext/business-navigation/v5
+  contract_version: backend-vnext/business-navigation/v6
   initial_baseline: boolean
   groups: [Group]
   replacement_sides: null | {before: [Group], current: [Group]}
@@ -95,6 +95,8 @@ gid 7→8 而 cfg gid=7 未改，或地址 49→50 而测点未改时，满足�
 普通导航根的 table_notices 按 table_id UTF-8 排序且唯一，元素为 `{table_id, table_scope, unlocated_row_risk, risk_complete}`；unlocated_row_risk 为 null 或 `{risk_level: RiskLevel|null, count: integer|null, reason_codes: [string]}`，原因去重排序，不能可靠相加时 count=null。仅十一类共享标准表归约公共风险：可定位的 ROW/ROW_PAIR 属局部，未命中任何装置或缺身份者进入待定位入口；TABLE 的记录数量/抑制/缺失覆盖属于待定位风险，真正 structural/degraded TABLE 或 COMPARISON 风险属于 table_scope。未知 target 保留已知等级并标记 risk_complete=false。新生成与缓存 replay 共用归约，不由混合表风险反推个人风险。所有 identity 须在 locator 消费后核对未绑定集合。
 
 根的 device_definition_changes 按 record_identity 排序唯一，元素为 `{record_identity, change_kind: ADDED|DELETED|UPDATED, before_item_key: string|null, current_item_key: string|null, before_dev_addr: integer|null, current_dev_addr: integer|null, risk_level: RiskLevel|null, risk_complete: boolean}`。来源是 device 的实际 record 和逐侧 locator/snapshot；仅有效且已发布的本侧地址生成 item_key，不猜未改地址。定义变化独立于 tab summary。
+
+Owner 2026-11-16：普通 pair 中，实际 device 修改 record 的两侧地址若分别唯一、无地址复用冲突，两侧 registry 行具有相同且各侧唯一的有效 gid，则合并为以当前地址命名的单项；该项两侧谓词使用各自真实地址，定义变化两侧 item_key 可相同。虚拟复合装置及存在重复、缺失或复用歧义的情况不合并，保留可浏览入口。十类测点表中，实际非空修改列仅为 `dev_addr` 的记录不计局部 modified/moved，不产生局部变化；其他记录和缺列证据照原规则处理。原始 Comparison records、计数、locator、快照不变，不能凭 null risk 推断此分类。地址随其他列变化时其他列的变化和风险保留。Navigation v6 由消费者解码器及 Preview capability map 核对；History job v5 进入去重键并由复用读取器核对，避免沿用旧结果。
 
 对可复用的未变化行，按实际有行的身份值比较两侧 owner 集合，集合不同才标记 membership_changed；部分变化表须先从各侧 histogram 减去已发布 records 的贡献，并证明剩余分布相同。不能精确复用则 membership_complete=false。风险不完整本身不阻止内容身份复用。
 

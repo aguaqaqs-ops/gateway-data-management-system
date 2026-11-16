@@ -398,6 +398,10 @@ def test_standard_rows_are_row_targeted_and_digest_is_stable() -> None:
     ("orders", ("description", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
     ("orders", ("name", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
     ("device_mx", (), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+    ("device_mx", ("dev_addr", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+    ("device_mx", ("dev_addr", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+    ("device", ("dev_addr",), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+    ("device_cfg", ("dev_addr",), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
 ))
 def test_standard_updates_classify_only_descriptive_changes(
     name: str, columns: tuple[str, ...], level: RiskLevel, reason: RiskReasonCode,
@@ -410,6 +414,26 @@ def test_standard_updates_classify_only_descriptive_changes(
     assert result.risk_report is not None
     assert result.risk_report.tables[0].risk_level is level
     assert result.risk_report.tables[0].reason_codes == (reason,)
+
+
+@pytest.mark.parametrize("name", ("device_st", "device_mx", "device_co", "device_sg", "device_sp", "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb"))
+def test_device_point_address_only_has_no_row_risk(name: str) -> None:
+    record = ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_MODIFIED,
+        row_identity=raw_blob_digest(b"point"), changed_columns=("dev_addr",))
+    result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
+        row_modified_count=1, records=(record,)), store=InMemoryArtifactStore())
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert not result.risk_report.tables
+
+
+def test_device_point_counts_only_does_not_guess_changed_columns() -> None:
+    table = ComparisonTableFact(table_name="device_st", status=ComparisonTableStatus.MODIFIED,
+        row_modified_count=1)
+    result = _evaluate(table, options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
+                       store=InMemoryArtifactStore())
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
 
 
 @pytest.mark.parametrize("name", (

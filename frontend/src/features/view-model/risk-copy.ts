@@ -40,8 +40,8 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
   ORDERED_NAME_UPDATE: "只修改了测点的名称或描述（name、description），属于低风险。",
   ORDERED_CONTENT_UPDATE: "修改了测点名称、描述以外的内容。",
   ORDERED_RISK_UNKNOWN: "有序表的变化无法可靠判定风险，需要复核。",
-  ORDERED_MIDDLE_BLANK_INTERVAL: "有序表中间的空点数量发生变化，需要复核。",
-  ORDERED_TAIL_BLANK_INTERVAL: "在有序表末尾插入或删除了空点。",
+  ORDERED_MIDDLE_BLANK_INTERVAL: "空点发生变化，需要复核。",
+  ORDERED_TAIL_BLANK_INTERVAL: "空点发生变化。",
   KEY_DEGRADED: "比较键降级，建议复核。",
   ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED: "有序表差异无法可靠比较，建议复核。",
   COMPARISON_FAILED: "比较失败，结果需要复核。",
@@ -49,21 +49,12 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
   UNKNOWN_CHANGE_TARGET: "变化目标无法识别，需要复核。",
 };
 
-/**
- * Blank-interval reasons carry the side (CURRENT = inserted, BEFORE = deleted)
- * and the net count as evidence. The interval is an affected region whose
- * positions are not each changed, so the copy states the net count only.
- */
-
+/** The side identifies the direction; interval positions are not individual changes. */
 function describeBlankInterval(code: string, evidence: ReadonlyArray<readonly [string, unknown]>): string | null {
-  const value = (key: string) => evidence.find(([name]) => name === key)?.[1];
-  const side = value("side");
-  const count = value("count");
+  const side = evidence.find(([name]) => name === "side")?.[1];
   if (side !== "CURRENT" && side !== "BEFORE") return null;
-  const action = (side === "CURRENT" ? "净增 " : "净减 ") + (typeof count === "number" ? count + " 个" : "若干") + "空点";
-  return code === "ORDERED_TAIL_BLANK_INTERVAL"
-    ? "有序表末尾的空点区间" + action + "，其后没有保留的有效测点。"
-    : "有序表中间的空点区间" + action + "，需要复核。";
+  const action = side === "CURRENT" ? "新增了空点" : "删除了空点";
+  return action + (code === "ORDERED_MIDDLE_BLANK_INTERVAL" ? "，需要复核。" : "。");
 }
 
 export function describeRiskReason(code: string, evidence: ReadonlyArray<readonly [string, unknown]> = []): string {

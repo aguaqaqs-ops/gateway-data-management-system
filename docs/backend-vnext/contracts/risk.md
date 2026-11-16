@@ -560,6 +560,8 @@ empty_baseline 进入已有 options 文档、evaluation digest 和 candidate cac
 
 ## 共享标准表规则（目标 v8）
 
+Owner 2026-11-16：十类装置测点表的普通修改以非空 `changed_columns` 为证据，风险判定先移除 `dev_addr`；剩余为空不产生测点行风险，仅余 `name`/`description` 为 LOW，其他列沿用原规则。空或不可得的修改列、COUNTS_ONLY 不能推断，保留原风险。`device` 总表的地址变化仍按原规则报告；`device_cfg`、增删、其他表和 Comparison 原始 records、计数、快照不变。规则参数明确十个表，ruleset/rule v9 和 risk-model v6 由规则校验器核对；候选 key 包含按表适用性及 ruleset 摘要，防止重用旧风险。Preview assemble-state v13、History assemble-state v10 由各自 checkpoint 解码器核对，防止恢复旧投影。
+
 `device_st/device_mx/device_co/device_sg/device_sp/device_cnt/device_sn/device_tap/device_other/device_disturb` 与 `device_cfg` 的普通 ROW_ADDED/ROW_DELETED 不生成风险；不影响比较记录、计数、整表增删、结构/降级或有序专项风险。所有普通表和有序表的修改列仅由 name、description 中一个或两个字段组成时发一次 LOW 风险，混合其他字段仍依原修改规则，缺修改列证据不猜 LOW。排除增删在 COUNTS_ONLY 和缺记录兜底前应用；正常空 outcome 为 complete=true。
 
 ROW_ADDED/ROW_DELETED 的冻结 params 各含十一项 `exclude_table:<exact_name>=true`，名称/描述规则适用于所有普通表和有序表；validator 严格核对参数集合和值。单一解析函数为 evaluator 和候选 key 提供按表增删适用性；key 同时包含本表 ordered_tail_bounds。ruleset/rule v8 与 risk-model v5 由规则校验器核对，规则摘要由 RiskEvaluation 和候选核对；不新增身份轴。

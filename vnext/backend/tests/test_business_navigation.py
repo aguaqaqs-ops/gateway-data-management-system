@@ -906,9 +906,36 @@ def test_device_changes_use_actual_side_context_and_keep_original_record_identit
     record = FilterRecord("device-row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 50}, RiskLevel.LOW)
     registry = replace(device(old, new), evidence=evidence(records=(record,), expected_record_counts=(0, 0, 1), locator_complete=True))
     changes = build(registry).document["device_definition_changes"]
-    assert changes == [{"record_identity": "device-row", "change_kind": "UPDATED", "before_item_key": "device:addr:49",
+    assert changes == [{"record_identity": "device-row", "change_kind": "UPDATED", "before_item_key": "device:addr:50",
                         "current_item_key": "device:addr:50", "before_dev_addr": 49, "current_dev_addr": 50,
                         "risk_level": "LOW", "risk_complete": True}]
+
+
+def test_device_address_change_merges_item_and_ignores_address_only_point_change() -> None:
+    registry = replace(device(({"dev_addr": 49, "gid": 1},), ({"dev_addr": 50, "gid": 1},)),
+        evidence=evidence(records=(FilterRecord("device-row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 50}),),
+                          expected_record_counts=(0, 0, 1), locator_complete=True))
+    record = FilterRecord("point", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 50},
+                          changed_columns=("dev_addr",))
+    points = replace(table("device_st", side(({"dev_addr": 49},)), side(({"dev_addr": 50},))),
+        evidence=evidence(records=(record,), expected_record_counts=(0, 0, 1), locator_complete=True))
+    result = build(registry, points)
+    tab, = tabs(result, "device_st")
+    assert tab["row_filter"] == {"before": {"column": "dev_addr", "values": [49]},
+                                 "current": {"column": "dev_addr", "values": [50]}}
+    assert tab["facts"]["change_kind"] == "UNCHANGED"
+    assert tab["facts"]["row_changes"] == {"added": 0, "deleted": 0, "modified": 0, "moved_in": 0, "moved_out": 0}
+
+
+def test_device_address_change_does_not_merge_duplicate_gid() -> None:
+    registry = replace(device(({"dev_addr": 49, "gid": 1}, {"dev_addr": 51, "gid": 1}),
+                              ({"dev_addr": 50, "gid": 1}, {"dev_addr": 51, "gid": 1})),
+        evidence=evidence(records=(FilterRecord("device-row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 50}),),
+                          expected_record_counts=(0, 0, 1), locator_complete=True))
+    result = build(registry)
+    change, = result.document["device_definition_changes"]
+    assert change["before_item_key"] == "device:addr:49"
+    assert change["current_item_key"] == "device:addr:50"
 
 
 def test_typed_row_pairs_and_ordered_intervals_remain_in_their_scopes(

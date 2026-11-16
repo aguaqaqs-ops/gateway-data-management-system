@@ -26,6 +26,22 @@ describe("read-only browsing commands and URL state", () => {
     for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URLSearchParams(encoded).has(legacy)).toBe(false);
   });
 
+  it("keeps orphan browsing bound to its whole-table tab, pair and bundle", () => {
+    const whole = executeBrowseCommand({ ...initialBrowseState, pairId: "p1", nodeKey: "device:table" }, { name: "select-tab", tabKey: "__whole__:device_st" });
+    const orphan = executeBrowseCommand(whole, { name: "set-unassigned", side: "BEFORE" });
+    const encoded = encodeBrowseState(orphan);
+    expect(new URLSearchParams(encoded).get("unassigned")).toBe("BEFORE");
+    expect(decodeBrowseState(encoded)).toEqual(orphan);
+    // Re-selecting the same tab keeps it; another table, another pair or a new bundle drops it.
+    expect(executeBrowseCommand(orphan, { name: "select-tab", tabKey: "__whole__:device_st" }).unassignedSide).toBe("BEFORE");
+    expect(executeBrowseCommand(orphan, { name: "select-tab", tabKey: "__whole__:device_cfg" }).unassignedSide).toBeNull();
+    expect(executeBrowseCommand(orphan, { name: "select-pair", pairId: "p2" }).unassignedSide).toBeNull();
+    expect(executeBrowseCommand(orphan, { name: "set-bundle", mode: "PREVIEW", bundleDigest: "sha256:new" }).unassignedSide).toBeNull();
+    // A filtered device tab never carries an orphan state, and unknown sides are ignored.
+    expect(decodeBrowseState("?tab=device_st&unassigned=CURRENT").unassignedSide).toBeNull();
+    expect(decodeBrowseState("?tab=__whole__:device_st&unassigned=BOTH").unassignedSide).toBeNull();
+  });
+
   it("falls back to Preview for unknown modes and retains pair identity", () => {
     const decoded = decodeBrowseState("?mode=UNKNOWN&view=opaque-view-id&pair=pair-a");
     expect(decoded.mode).toBe("PREVIEW");

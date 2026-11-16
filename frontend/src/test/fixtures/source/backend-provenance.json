@@ -1,0 +1,10 @@
+{
+  "archive": "producer-fixtures-794dce0e.tar",
+  "archive_sha256": "6371d3b489a596c567a3b43ed2687f19ba0d4040ccf7fbe814422b5dfa9185da",
+  "generator_commit": "794dce0e336fbcd4a59bbab22a5adaf9daa8b7dd",
+  "vnext_tree": "bd4a2be69c2b875560a2c4c857e079a89feed5ec",
+  "input_manifest_sha256": "f6be60fcb23944c7866d16291652811b32bd783ce0f4420c07bf9bba68f72837",
+  "index_sha256": "85a37bbb7fb2414b0933bff9ffecfe4899e9555885f17bb0e7485811780eacb0",
+  "imported_member": "backend/",
+  "file_digests": "backend.SHA256SUMS"
+}

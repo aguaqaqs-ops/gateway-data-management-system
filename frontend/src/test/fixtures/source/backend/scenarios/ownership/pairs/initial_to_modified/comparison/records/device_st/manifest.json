@@ -1,0 +1,1 @@
+{"content_digest":"sha256:8699caee12413941b27b84d463db838eeb9d4098fa7a65213cb48259769959be","contract_version":"backend-vnext/comparison-records/v1","family":"STANDARD","record_count":4,"record_format":"PARQUET","row_diff_detail_policy":"FULL_BEFORE_AFTER_VALUES","schema_version":"standard-records/v1","table_name":"device_st"}

@@ -95,7 +95,9 @@ describe("backend-generated FE2 bundle fixtures", () => {
     const formulas = await readLocalChangeRecords(bundle, presentation, "composite_signal_point");
     expect(formulas.some((row) => row.record_kind === "ROW_MODIFIED")).toBe(true);
     const annotations = await readLocalRiskAnnotations(bundle, presentation, "device");
-    expect(new Set(annotations.map((annotation) => annotation.risk_level))).toEqual(new Set(["MEDIUM_LOW", "MEDIUM_HIGH"]));
+    // The device row change is confined to description: ruleset v8 rates it STANDARD_NAME_UPDATE / LOW.
+    expect(new Set(annotations.map((annotation) => annotation.risk_level))).toEqual(new Set(["MEDIUM_LOW", "LOW"]));
+    expect(annotations.find((annotation) => annotation.risk_level === "LOW")?.reasons.map((reason) => reason.reason_code)).toEqual(["STANDARD_NAME_UPDATE"]);
   });
 
   it("keeps replacement snapshots side by side and produces only v1's pair-level HIGH risk", async () => {

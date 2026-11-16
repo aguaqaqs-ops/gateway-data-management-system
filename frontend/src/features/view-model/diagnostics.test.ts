@@ -97,8 +97,17 @@ describe("navigation and surface diagnostic copy", () => {
 
 describe("navigation diagnostic decoding", () => {
   const target = { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null };
-  const document = (code: string, params: Record<string, unknown>) => ({ contract_version: "backend-vnext/business-navigation/v3", diagnostics: [{ code, target, side: "CURRENT", params }] });
+  const document = (code: string, params: Record<string, unknown>) => ({ contract_version: "backend-vnext/business-navigation/v4", diagnostics: [{ code, target, side: "CURRENT", params }] });
   const serial = { channel_prefix: "b12_c2", registry_table: "com_cfg" };
+  const tableWide = (code: string, reason: string) => ({ contract_version: "backend-vnext/business-navigation/v4", diagnostics: [{ code, target: { group_key: "SECONDARY_DEVICES", item_key: null, tab_key: null, table_id: "device_st" }, side: null, params: { identity_column: "dev_addr", reason } }] });
+  it("accepts the table-wide risk and membership completeness diagnostics and words them as incomplete, not as risk", () => {
+    const risk = decodeNavigationDiagnostics(tableWide("DEVICE_TAB_RISK_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE")).diagnostics[0]!;
+    const membership = decodeNavigationDiagnostics(tableWide("DEVICE_MEMBERSHIP_UNAVAILABLE", "MEMBERSHIP_UNAVAILABLE")).diagnostics[0]!;
+    const tables = [{ table_id: "device_st", table_name: "device_st", display_name: "状态类", table_status: "MODIFIED" }];
+    expect(formatNavigationDiagnostic(risk, tables)).toBe("状态类的风险信息不完整（部分风险无法归属到具体装置），装置页签只列出已确认的风险");
+    expect(formatNavigationDiagnostic(membership, tables)).toBe("状态类的测点归属变化无法完整判断（无法完整判断测点归属是否变化），装置页签只列出已确认的归属变化");
+    for (const text of [formatNavigationDiagnostic(risk, tables), formatNavigationDiagnostic(membership, tables)]) expect(text).not.toMatch(/sha256|\/home|RISK_|MEMBERSHIP_/);
+  });
   it("accepts and formats serial and network diagnostics with prefixes", () => {
     const orphan = decodeNavigationDiagnostics(document("CHANNEL_TABLE_UNCLAIMED", serial)).diagnostics[0]!;
     const orphanText = formatNavigationDiagnostic(orphan, []);
@@ -115,7 +124,7 @@ describe("navigation diagnostic decoding", () => {
     expect(formatNavigationDiagnostic(decodeNavigationDiagnostics(document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b1_n3", registry_table: "net_cfg" })).diagnostics[0]!, [])).toContain("网口配置表");
   });
   it.each([
-    ["old version", { ...document("CHANNEL_TABLE_UNCLAIMED", serial), contract_version: "backend-vnext/business-navigation/v2" }],
+    ["old version", { ...document("CHANNEL_TABLE_UNCLAIMED", serial), contract_version: "backend-vnext/business-navigation/v3" }],
     ["unknown code", document("PROTOCOL_EXE_MISSING", serial)],
     ["extra key", document("CHANNEL_TABLE_UNCLAIMED", { ...serial, link_no: 2 })],
     ["missing key", document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b12_c2" })],
@@ -125,7 +134,11 @@ describe("navigation diagnostic decoding", () => {
     ["network with serial registry", document("CHANNEL_TABLE_UNCLAIMED", { channel_prefix: "b1_n2", registry_table: "com_cfg" })],
     ["missing actual side", { ...document("CHANNEL_TABLE_UNCLAIMED", serial), diagnostics: [{ ...document("CHANNEL_TABLE_UNCLAIMED", serial).diagnostics[0], side: null }] }],
     ["local facts with actual side", document("DEVICE_TAB_FACTS_UNAVAILABLE", { identity_column: "gid", reason: "TABLE_DEGRADED" })],
-    ["empty diagnostics", { contract_version: "backend-vnext/business-navigation/v3", diagnostics: [] }],
+    ["risk incomplete with actual side", document("DEVICE_TAB_RISK_UNAVAILABLE", { identity_column: "gid", reason: "RISK_ATTRIBUTION_UNAVAILABLE" })],
+    ["risk incomplete as a fallback reason", tableWide("DEVICE_TAB_FACTS_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE")],
+    ["membership incomplete with a risk reason", tableWide("DEVICE_MEMBERSHIP_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE")],
+    ["table-wide diagnostic on an item", { ...tableWide("DEVICE_TAB_RISK_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE"), diagnostics: [{ ...tableWide("DEVICE_TAB_RISK_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE").diagnostics[0], target: { group_key: "SECONDARY_DEVICES", item_key: "device:addr:1", tab_key: null, table_id: "device_st" } }] }],
+    ["empty diagnostics", { contract_version: "backend-vnext/business-navigation/v4", diagnostics: [] }],
     ["unknown reason", document("DEVICE_FILTER_VALUE_UNSUPPORTED", { identity_column: "gid", reason: "UNKNOWN" })],
     ["empty prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: [] })],
     ["too many prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: ["b12_c2_a", "b12_c2_b", "b12_c2_c"] })],
@@ -137,7 +150,7 @@ describe("navigation diagnostic decoding", () => {
 
 
 it("keeps a zero-tab channel diagnostic in its group while avoiding duplicate visible-item notes", () => {
-  const hidden = decodeNavigationDiagnostics({ contract_version: "backend-vnext/business-navigation/v3", diagnostics: [{ code: "PROTOCOL_TABLE_NOT_FOUND", target: { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null }, side: "CURRENT", params: { channel_prefix: "b1_c2", registry_table: "com_cfg", protocol: "规约", expected_prefixes: ["b1_c2_x"] } }] }).diagnostics;
+  const hidden = decodeNavigationDiagnostics({ contract_version: "backend-vnext/business-navigation/v4", diagnostics: [{ code: "PROTOCOL_TABLE_NOT_FOUND", target: { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null }, side: "CURRENT", params: { channel_prefix: "b1_c2", registry_table: "com_cfg", protocol: "规约", expected_prefixes: ["b1_c2_x"] } }] }).diagnostics;
   expect(groupNavigationDiagnostics(hidden, "COMMUNICATION_PROTOCOLS", [])).toEqual(hidden);
   expect(groupNavigationDiagnostics(hidden, "COMMUNICATION_PROTOCOLS", ["channel:c2"])).toEqual([]);
   expect(groupNavigationDiagnostics(hidden, "OTHER_TABLES", [])).toEqual([]);

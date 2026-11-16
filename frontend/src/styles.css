@@ -257,6 +257,23 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .diagnostic-note--navigation { flex-wrap: wrap; margin: 5px 8px; padding: 7px 8px; font-size: 11px; }
 .diagnostic-note--navigation code { flex: 1 1 100%; min-width: 0; margin: 2px 0 0 22px; overflow-wrap: anywhere; white-space: normal; }
 .diagnostic-note--navigation button { flex: none; padding: 2px 6px; border: 1px solid #c9b88e; border-radius: 4px; background: #fff; color: #5d4a1d; cursor: pointer; font-size: 10px; }
+.diagnostic-note__hint { margin-left: 4px; color: #827654; }
+/* Scope markers are neutral text tags: public or incomplete facts never use the personal risk colours. */
+.scope-marker { display: inline-flex; flex: none; min-height: 18px; align-items: center; padding: 0 5px; border: 1px dashed #b8c0ca; border-radius: 4px; background: transparent; color: var(--color-text-muted); font-size: 10px; font-weight: 500; white-space: nowrap; }
+.scope-marker--incomplete { border-color: #c9b88e; color: #6f5a24; }
+.scope-marker--unknown { border-style: dotted; }
+.scope-marker--public { border-style: solid; border-color: #d4dae1; }
+.nav-item__button .scope-marker { margin-left: 2px; }
+.public-notices { display: grid; gap: 4px; margin: 4px 8px 8px; }
+.public-notices__section { border: 1px solid var(--color-border); border-radius: 5px; background: #fafbfc; }
+.public-notices__section > summary { padding: 6px 8px; color: var(--color-text); cursor: pointer; font-size: 11px; font-weight: 600; }
+.public-notices__section > summary small { margin-left: 4px; color: var(--color-text-muted); font-weight: 500; }
+.public-notice { display: grid; gap: 2px; padding: 6px 8px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 11px; line-height: 1.45; }
+.public-notice__title { justify-self: start; padding: 0; border: 0; background: none; color: var(--color-accent); cursor: pointer; font-size: 11px; font-weight: 600; text-align: left; }
+.public-notice__reasons { display: grid; gap: 2px; }
+.public-notice__links { display: flex; flex-wrap: wrap; gap: 6px; }
+.public-notice code { overflow-wrap: anywhere; color: #827654; font-size: 10px; }
+.unassigned-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 8px; padding: 7px 10px; border: 1px solid #d4dae1; border-radius: 5px; background: #f5f7fa; color: var(--color-text); font-size: 12px; }
 .risk-legend { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 9px; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 5px; background: #fff; }
 .risk-legend > div:first-child { display: flex; align-items: center; gap: 8px; }
 .risk-legend strong { font-size: 12px; }

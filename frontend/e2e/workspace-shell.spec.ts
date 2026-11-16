@@ -3224,8 +3224,10 @@ for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
     await emptyItem.locator(".nav-item__button").click();
     await expect(page.locator(".table-info")).toBeVisible();
     if (mode !== "HISTORY") {
-      await expect(page.locator(".table-info").getByText("新增", { exact: true })).toHaveCount(1);
-      await expect(page.locator('.table-info .risk-badge[aria-label="低风险"]')).toHaveCount(1);
+      // The table-level addition and its LOW risk are public table facts, not this device's own result.
+      await expect(page.locator(".table-info .surface-change-badge")).toHaveCount(0);
+      await expect(page.locator(".table-info .risk-badge")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "表公共提示" })).toBeVisible();
     }
     for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-expanded`, width);
     await page.locator(".compare-more > summary").click();
@@ -3274,7 +3276,9 @@ for (const mode of ["PREVIEW", "REVIEW"] as const) {
       await waitForBrowse(page);
       await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 }).toEqual({ node: target.node, tab: target.tab });
       await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveAttribute("data-tab-key", target.tab);
-      await expect(page.locator(".table-info .risk-badge")).toHaveCount(1);
+      // A whole-table tab shows the table's own risk; a device tab only its located risk (none here) beside the public notice.
+      await expect(page.locator(".table-info .risk-badge")).toHaveCount(target.label === "whole" ? 1 : 0);
+      if (target.label === "filtered") await expect(page.getByRole("button", { name: "表公共提示" })).toBeVisible();
       for (const width of [1920, 1280]) await screenshot(page, `f-url-${mode.toLowerCase()}-${target.label}-restored`, width);
       // Explicitly expand then hide: the URL must move to a visible item.
       const toggle = page.locator(".overflow-tabs__empty-toggle");

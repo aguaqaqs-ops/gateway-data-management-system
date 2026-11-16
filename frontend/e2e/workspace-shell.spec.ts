@@ -1229,7 +1229,7 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
   await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
   await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
-  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有该操作的权限");
+  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有历史比较权限");
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
   await expect(page.getByRole("button", { name: "复制比较错误详情" })).toBeVisible();
   expect(apiRequests.some((request) => request.method === "POST" && request.path === "/v1/history-compares" && request.token === "Bearer dev-token-no-permission")).toBe(true);

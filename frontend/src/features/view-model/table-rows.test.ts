@@ -287,7 +287,7 @@ describe("browse rows from published locators", () => {
     ]);
     // Summaries are changes to jump to, but no business row is counted as added or deleted.
     expect(deriveChangeLocations(result.scoped).map((location) => [location.recordKind, location.position]))
-      .toEqual([["BLANK_INSERT_INTERVAL", 2], ["BLANK_DELETE_INTERVAL", 8]]);
+      .toEqual([["BLANK_INSERT_INTERVAL", 1.5], ["BLANK_DELETE_INTERVAL", 7.5]]);
     expect(result.rows.some((row) => row.kind === "added" || row.kind === "deleted")).toBe(false);
   });
 
@@ -318,6 +318,30 @@ describe("browse rows from published locators", () => {
       records: [blankRecord("BLANK_INSERT_INTERVAL", { before_start: 2, before_end: 3, current_start: 2, current_end: 5, row_count: 1 })], search: "空点区间",
     });
     expect(searched.rows.map((row) => row.kind)).toEqual(["blank-interval"]);
+  });
+
+  it("places a blank summary at the nearest real row by business no, on the same ruler as the navigator", () => {
+    // Sparse business no: 10, 15 (a real blank), 20, 30. Physical positions are 1..4.
+    const current = [10, 15, 20, 30].map((no) => ({ dev_addr: no, description: no === 15 ? "" : `点${no}`, no: String(no) }));
+    const records = [blankRecord("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 15, current_end: 15, row_count: 1 }),
+      record("ORDERED_ROW_ADDED", 0x30, { current_position: 30 })];
+    const result = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 4 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations: [], records,
+    });
+    expect(result.rows.map((row) => row.kind === "blank-interval" ? "[blank]" : String(row.values.no))).toEqual(["10", "[blank]", "15", "20", "30"]);
+    expect(result.rows.map((row) => row.ruler)).toEqual([1, 1.5, 2, 3, 4]);
+    // The navigator uses the ruler, not business no (30 would fall off a 4-row table).
+    expect(deriveChangeLocations(result.scoped).map((location) => [location.recordKind, location.position]))
+      .toEqual([["BLANK_INSERT_INTERVAL", 1.5], ["ORDERED_ROW_ADDED", 4]]);
+    // A gap beyond the last real row goes after it.
+    const tail = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 4 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations: [],
+      records: [blankRecord("BLANK_DELETE_INTERVAL", { before_start: 40, before_end: 41, current_start: null, current_end: null, row_count: 2 })],
+    });
+    expect(tail.rows.at(-1)?.kind).toBe("blank-interval");
+    expect(tail.rows.at(-1)?.ruler).toBe(4.5);
   });
 
   it("rejects a blank interval without the changed side's range", () => {

@@ -12,7 +12,12 @@ describe("risk reason copy", () => {
   it("describes name/description-only changes as LOW without claiming other rules are low", () => {
     expect(describeRiskReason("STANDARD_NAME_UPDATE")).toMatch(/名称或描述.*低风险/);
     expect(describeRiskReason("ORDERED_NAME_UPDATE")).toMatch(/名称或描述.*低风险/);
-    expect(describeRiskReason("ROW_MODIFIED")).not.toMatch(/低风险/);
+    // ROW_MODIFIED also covers rows whose changed columns are unknown (missing evidence, COUNTS_ONLY aggregate).
+    for (const evidence of [[], [["coverage", "ROW_COUNTS"]], [["count", 3]]] as Array<Array<[string, unknown]>>) {
+      const text = describeRiskReason("ROW_MODIFIED", evidence);
+      expect(text).toBe("修改了数据行（未确认只涉及名称或描述，按普通修改评估）。");
+      expect(text).not.toMatch(/以外|低风险/);
+    }
     expect(describeRiskReason("ORDERED_RISK_UNKNOWN")).toMatch(/无法可靠判定/);
   });
 

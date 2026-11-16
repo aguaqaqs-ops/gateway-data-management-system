@@ -30,7 +30,8 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
   SCHEMA_CHANGED: "表结构发生变化。",
   ROW_ADDED: "新增了数据行。",
   ROW_DELETED: "删除了数据行。",
-  ROW_MODIFIED: "修改了名称、描述以外的字段。",
+  // Also emitted without changed-column evidence (missing columns, COUNTS_ONLY): say no more than "a row changed".
+  ROW_MODIFIED: "修改了数据行（未确认只涉及名称或描述，按普通修改评估）。",
   STANDARD_NAME_UPDATE: "只修改了名称或描述（name、description），属于低风险。",
   ORDERED_MOVE: "测点在有序表中换了位置，转发顺序随之改变，需要复核。",
   ORDERED_REPLACEMENT: "有序表同一位置的测点被替换。",

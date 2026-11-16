@@ -43,8 +43,16 @@ export interface BrowseRow {
   partialValues?: boolean;
   /** Present exactly on "blank-interval" summary rows. */
   interval?: BlankIntervalSummary;
-  /** Grid placement of rows without a business row number (blank-interval summaries). */
+  /** Grid placement of rows without a snapshot row (blank-interval summaries), on the physical ruler. */
   sortPosition?: number;
+  /** 0-based index of the snapshot row this row shows, on the side the grid is ordered by. */
+  physicalIndex?: number;
+  /**
+   * 1-based position on the physical snapshot order, shared by the grid order
+   * and the change navigator; rows without a snapshot row sit half a step after
+   * the row above them. Business `no` may be sparse and is never used here.
+   */
+  ruler?: number;
   rowNumber: number | null;
   rowNumberTitle?: string;
   rowIdentity: string | null;
@@ -383,6 +391,15 @@ export function blankIntervalSummary(record: RowDiffRecord): BlankIntervalSummar
   return { direction, before, current, rowCount };
 }
 
+/** 1-based physical position of the first snapshot row whose business `no` is at least `no`; past the end if none. */
+function physicalPositionOfNo(rows: readonly Record<string, unknown>[], no: number): number {
+  for (let index = 0; index < rows.length; index += 1) {
+    const value = scalarPosition(rows[index]?.[ORDERED_POSITION_COLUMN]);
+    if (value !== null && value >= no) return index + 1;
+  }
+  return rows.length + 1;
+}
+
 const rangeText = (range: readonly [number, number] | null) => range === null ? "—" : range[0] === range[1] ? `${range[0]}` : `${range[0]}–${range[1]}`;
 
 /** One-line description of a blank-interval change: affected region and net count, never a per-position claim. */
@@ -527,10 +544,11 @@ export function buildBrowseRows(input: {
   const makeRow = (args: {
     key: string; kind: BrowseRowKind; side: "before" | "current" | null; source: Record<string, unknown>; rowNumber: number | null;
     rowNumberTitle?: string; identity?: string | null; record?: RowDiffRecord; values?: Record<string, unknown>;
-    pairKey?: string | null; formulaChanged?: boolean;
+    pairKey?: string | null; formulaChanged?: boolean; physical?: number;
   }): BrowseRow => {
     const record = args.record;
     return {
+      ...(args.physical !== undefined ? { physicalIndex: args.physical } : {}),
       key: args.key, kind: args.kind, side: args.side, rowNumber: args.rowNumber, ...(args.rowNumberTitle ? { rowNumberTitle: args.rowNumberTitle } : {}),
       rowIdentity: args.identity ?? null, riskLevel: args.identity ? risks.get(args.identity) ?? null : null,
       recordKind: typeof record?.record_kind === "string" ? record.record_kind : null,
@@ -580,9 +598,9 @@ export function buildBrowseRows(input: {
 
   const tableKind = input.table.change_kind ?? input.table.table_status;
   if (tableKind === "ADDED" || tableKind === "ADDED_TABLE") {
-    input.currentRows.forEach((source, index) => rows.push(makeRow({ key: `table-added:${index}`, kind: "added", side: "current", source, rowNumber: index + 1 })));
+    input.currentRows.forEach((source, index) => rows.push(makeRow({ key: `table-added:${index}`, kind: "added", side: "current", source, rowNumber: index + 1, physical: index })));
   } else if (tableKind === "DELETED" || tableKind === "DELETED_TABLE") {
-    input.beforeRows.forEach((source, index) => rows.push(makeRow({ key: `table-deleted:${index}`, kind: "deleted", side: "before", source, rowNumber: index + 1 })));
+    input.beforeRows.forEach((source, index) => rows.push(makeRow({ key: `table-deleted:${index}`, kind: "deleted", side: "before", source, rowNumber: index + 1, physical: index })));
   } else {
     const consumed = new Set<RowDiffRecord>();
     input.currentRows.forEach((source, index) => {
@@ -591,7 +609,7 @@ export function buildBrowseRows(input: {
       if (!candidate) {
         // Real snapshot rows stay as they are, blank points included: a blank
         // interval is summarised once, never painted onto the rows it spans.
-        rows.push(makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source, rowNumber: index + 1 }));
+        rows.push(makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source, rowNumber: index + 1, physical: index }));
         return;
       }
       consumed.add(candidate);
@@ -599,7 +617,7 @@ export function buildBrowseRows(input: {
       const identity = locatorIdentity(candidate);
       if (kind === "ORDERED_ROW_MOVED" && hasCurrentSnapshot) {
         rows.push(makeRow({ key: `record:moved:${index + 1}`, kind: "ordered", side: "current", source,
-          rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate }));
+          rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate, physical: index }));
         return;
       }
       if (MODIFIED_KINDS.has(kind)) {
@@ -649,16 +667,16 @@ export function buildBrowseRows(input: {
         const pair = [
           beforeRow,
           makeRow({ key: `${pairKey}:after`, kind: "modified-after", side: "current", source, rowNumber: index + 1,
-            identity, record: candidate, values: source, pairKey, formulaChanged }),
+            identity, record: candidate, values: source, pairKey, formulaChanged, physical: index }),
         ];
         for (const row of pair) { if (movedFrom !== null) row.beforePosition = movedFrom; if (movedTo !== null) row.currentPosition = movedTo; }
         rows.push(...pair);
       } else if (ADDED_KINDS.has(kind)) {
         rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: "added", side: "current",
-          source, rowNumber: index + 1, identity, record: candidate }));
+          source, rowNumber: index + 1, identity, record: candidate, physical: index }));
       } else if (DELETED_KINDS.has(kind)) {
         rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: "unchanged", side: "current",
-          source, rowNumber: index + 1, identity, record: candidate }));
+          source, rowNumber: index + 1, identity, record: candidate, physical: index }));
       }
     });
 
@@ -666,7 +684,7 @@ export function buildBrowseRows(input: {
       input.beforeRows.forEach((source, index) => {
         const candidate = recordByBeforeIndex.get(index);
         if (!candidate) {
-          rows.push(makeRow({ key: `before-only:${index + 1}`, kind: "unchanged", side: "before", source, rowNumber: index + 1 }));
+          rows.push(makeRow({ key: `before-only:${index + 1}`, kind: "unchanged", side: "before", source, rowNumber: index + 1, physical: index }));
           return;
         }
         consumed.add(candidate);
@@ -674,7 +692,7 @@ export function buildBrowseRows(input: {
         const identity = locatorIdentity(candidate);
         const rowKind = DELETED_KINDS.has(kind) ? "deleted" : "modified-before";
         const pairKey = rowKind === "modified-before" ? `pair:${identity ?? index + 1}` : null;
-        rows.push(makeRow({ key: `${rowKind}:${identity ?? index + 1}`, kind: rowKind, side: "before", source, rowNumber: index + 1, identity, record: candidate, pairKey }));
+        rows.push(makeRow({ key: `${rowKind}:${identity ?? index + 1}`, kind: rowKind, side: "before", source, rowNumber: index + 1, identity, record: candidate, pairKey, physical: index }));
       });
     }
 
@@ -710,23 +728,24 @@ export function buildBrowseRows(input: {
       } else if (kind === "BLANK_INSERT_INTERVAL" || kind === "BLANK_DELETE_INTERVAL") {
         const interval = blankIntervalSummary(record);
         if (!interval) continue;
-        const changed = interval.direction === "INSERT" ? interval.current : interval.before;
-        const anchor = interval.current ?? interval.before;
+        const orderRows = hasCurrentSnapshot ? input.currentRows : input.beforeRows;
+        const anchor = (hasCurrentSnapshot ? interval.current ?? interval.before : interval.before ?? interval.current) ?? [Number.MAX_SAFE_INTEGER];
         rows.push({
           key: `blank-interval:${blankIndex}`, kind: "blank-interval", side: null, rowNumber: null,
           rowIdentity: null, riskLevel: blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null,
           recordKind: kind, semanticKind: kind, beforePosition: null, currentPosition: null, changedColumns: [],
           values: {}, pairKey: null, interval,
-          // Sit just above the nearest real row at the gap's `no`.
-          sortPosition: (anchor ?? changed ?? [Number.MAX_SAFE_INTEGER])[0] - 0.5,
+          // Sit just above the first real row whose business `no` reaches the gap.
+          sortPosition: physicalPositionOfNo(orderRows, anchor[0]) - 0.5,
         });
         blankIndex += 1;
         consumed.add(record);
       }
     }
 
+    const physicalOrder = (row: BrowseRow) => row.physicalIndex !== undefined ? row.physicalIndex + 1 : row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
     const afterPositionByPair = new Map<string, number>(rows.filter((row) => row.kind === "modified-after" && row.pairKey)
-      .map((row) => [row.pairKey as string, row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER] as const));
+      .map((row) => [row.pairKey as string, physicalOrder(row)] as const));
     rows.sort((left, right) => {
       const leftDeleted = left.kind === "deleted" ? 1 : 0;
       const rightDeleted = right.kind === "deleted" ? 1 : 0;
@@ -735,11 +754,19 @@ export function buildBrowseRows(input: {
         if (row.kind === "blank-interval") return row.sortPosition ?? Number.MAX_SAFE_INTEGER;
         if (row.kind === "deleted") return hasBeforeSnapshot ? row.rowNumber ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
         if (row.kind === "modified-before" && row.pairKey) return afterPositionByPair.get(row.pairKey) ?? row.beforePosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
-        return row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
+        return physicalOrder(row);
       };
       return position(left) - position(right);
     });
     if (hasCurrentSnapshot) placeDeletedRowsInline(rows, input.deletionLayout ?? "interleave");
+  }
+  // A modified pair shares the position of its current half.
+  const pairPhysical = new Map(rows.flatMap((row) => row.pairKey && row.physicalIndex !== undefined ? [[row.pairKey, row.physicalIndex] as const] : []));
+  let last = 0;
+  for (const row of rows) {
+    const physical = row.physicalIndex ?? (row.pairKey ? pairPhysical.get(row.pairKey) : undefined);
+    if (physical !== undefined) last = physical + 1;
+    row.ruler = physical !== undefined ? physical + 1 : last + 0.5;
   }
 
   let scoped = rows;
@@ -829,7 +856,7 @@ export function deriveChangeLocations(rows: readonly BrowseRow[]): ChangeLocatio
       rowIdentity: row.rowIdentity,
       recordKind: row.recordKind,
       riskLevel: row.riskLevel,
-      position: range ? range[0] : row.currentPosition ?? row.beforePosition ?? row.rowNumber,
+      position: row.ruler ?? (range ? range[0] : row.currentPosition ?? row.beforePosition ?? row.rowNumber),
     });
   }
   return locations;

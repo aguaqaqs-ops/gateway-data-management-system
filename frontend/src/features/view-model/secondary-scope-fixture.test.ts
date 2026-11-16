@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadTableCase, type FixtureTableCase } from "../../test/helpers";
 import { tabScope, type NavigationPredicate } from "./model";
+import { itemChangeMark, scopeChangeMark } from "./scope-copy";
 import { buildBrowseRows, canReuseUnrecordedIdentity, deriveChangeLocations, validateRowLocations } from "./table-rows";
 
 /**
@@ -78,6 +79,26 @@ describe("ownership migration and registry definition changes", () => {
     expect(moved.filter((row) => row.kind === "modified-after")).toHaveLength(1);
     expect(moved.filter((row) => row.kind === "added")).toHaveLength(1);
     expect(old[0]?.rowIdentity).toBe(moved.find((row) => row.kind === "modified-before")?.rowIdentity);
+  });
+
+  it("shows migration and registry-only membership as neutral marks, never as created or deleted rows", async () => {
+    const table = await loadTableCase("ownership", "device_st");
+    const mark = (itemKey: string, tabKey: string) => scopeChangeMark(tabScope(tab(table, itemKey, tabKey)));
+    // device_cfg of 49: membership_changed with all row counts zero, although change_kind is DELETED.
+    expect(tab(table, "device:addr:49", "device_cfg").facts).toMatchObject({ change_kind: "DELETED", membership_changed: true,
+      row_changes: { added: 0, deleted: 0, modified: 0, moved_in: 0, moved_out: 0 } });
+    expect(mark("device:addr:49", "device_cfg")).toMatchObject({ kind: "marker", text: "归属变化" });
+    expect(mark("device:addr:49", "device_st")).toMatchObject({ kind: "marker", text: "移出" });
+    // Real content changes keep their badges.
+    expect(mark("device:addr:50", "device_st")).toEqual({ kind: "badge", changeKind: "ADDED" });
+    expect(mark("device:addr:51", "device_st")).toEqual({ kind: "badge", changeKind: "DELETED" });
+    expect(mark("device:addr:51", "device_cfg")).toEqual({ kind: "badge", changeKind: "UPDATED" });
+    const items = table.presentation.view.groups.flatMap((group) => group.items);
+    const itemMark = (key: string) => { const item = items.find((entry) => entry.itemKey === key)!; return itemChangeMark(item, item.tabs.filter((entry) => !entry.empty).map(tabScope)); };
+    expect(itemMark("device:addr:49")).toMatchObject({ kind: "marker", text: "迁移" });
+    expect(itemMark("device:addr:50")).toBeNull();
+    const pure = await loadTableCase("pure-row-changes", "device_st");
+    expect(scopeChangeMark(tabScope(tab(pure, "device:addr:49", "device_st")))).toEqual({ kind: "badge", changeKind: "UPDATED" });
   });
 
   it("lists definition changes and the public name-update risk apart from every device", async () => {

@@ -2637,6 +2637,16 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   await expect.poll(() => new URL(page.url()).searchParams.get("node")).toBe("device:addr:50");
   await expect(page.locator(".table-info")).toContainText("移入本装置 1 行");
   await shot("p3-ownership-moved-in");
+  // A registry-only membership change (all row counts zero) is not shown as a deletion.
+  await item("device:addr:49").locator(".nav-item__button").click();
+  const registryTab = page.locator('.overflow-tabs button[data-tab-key="device_cfg"]');
+  await expect(registryTab.locator(".scope-marker", { hasText: "归属变化" })).toBeVisible();
+  await expect(registryTab.locator(".surface-change-badge")).toHaveCount(0);
+  await expect(page.locator('.overflow-tabs button[data-tab-key="device_st"] .surface-change-badge')).toHaveCount(0);
+  await registryTab.click();
+  await expect(page.locator(".table-info")).toContainText("注册归属变化");
+  await expect(page.locator(".table-info .surface-change-badge")).toHaveCount(0);
+  await shot("p3-registry-membership");
 
   // EXACT local change beside incomplete risk.
   await open("ownership-risk-incomplete", { node: "device:addr:49", tab: "device_st" });
@@ -2674,6 +2684,23 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   await waitForBrowse(page);
   await expect(page.locator(".unassigned-banner")).toContainText("改后侧");
   await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("__whole__:device_st");
+  // Switching side stays on the same table; "查看整表" of the same table leaves the orphan subset.
+  const beforeNote = page.locator(".diagnostic-note--navigation", { hasText: "改前侧" }).filter({ hasText: "dev_addr" }).first();
+  await beforeNote.getByRole("button", { name: "浏览未归属行" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBe("BEFORE");
+  await expect(page.locator(".unassigned-banner")).toContainText("改前侧");
+  await expect(page.locator(".unassigned-banner")).toContainText("只列出有改前记录的行");
+  await shot("p3-unassigned-before");
+  await beforeNote.getByRole("button", { name: "查看整表" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBeNull();
+  await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("__whole__:device_st");
+  await expect(page.locator(".unassigned-banner")).toHaveCount(0);
+  await orphanNote.getByRole("button", { name: "浏览未归属行" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBe("CURRENT");
+  await page.locator(".public-notices .public-notice[data-table-id=device_st] .public-notice__title").click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBeNull();
+  await expect(page.locator(".unassigned-banner")).toHaveCount(0);
+  await orphanNote.getByRole("button", { name: "浏览未归属行" }).click();
   await item("device:addr:51").locator(".nav-item__button").click();
   await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBeNull();
   await expect(page.locator(".unassigned-banner")).toHaveCount(0);

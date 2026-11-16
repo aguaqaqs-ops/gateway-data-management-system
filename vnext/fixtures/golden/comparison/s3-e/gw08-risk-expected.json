@@ -1,5 +1,635 @@
 {
-  "ruleset_digest": "sha256:34ceb9daf5e11bcdbc680068a7eafe9618e99bab90d969f2eee57cd045b74754",
-  "ordered_risk_evaluation_digest": "sha256:1de37d81bd632f2f6bc81e889f0187ca90a27b489cea07a2edd14bde7951c3c5",
-  "keyless_risk_evaluation_digest": "sha256:39bce214543f11087624e817f5c756a043e5a7e1960573006ff204975284b353"
+  "ruleset_digest": "sha256:b4a1e59f602800e48e2d78c191115c1b6916ff6d20b976e83431b4a4961ca564",
+  "ordered_risk_evaluation_digest": "sha256:d4c165edb3a79174692aa97ccf799c723b87508830befdd48da1002b1bcdcaed",
+  "keyless_risk_evaluation_digest": "sha256:b4bf831a135b674df6c0005dc0803293295e19255a429d1c5946ab4d12c9d7e6",
+  "rules": {
+    "contract_version": "backend-vnext/risk-ruleset/v1",
+    "risk_model_version": "backend-vnext/risk-model/v5",
+    "risk_ruleset_id": "backend-vnext/comparison-risk",
+    "risk_ruleset_version": "v8",
+    "rules": [
+      {
+        "params": [],
+        "reason_code": "COMPARISON_FAILED",
+        "rule_id": "COMPARISON_FAILED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "HIGH",
+          "overrides": []
+        },
+        "target_scope": "TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "COMPOSITE_SIGNAL_CHANGE_REVIEW_REQUIRED",
+        "rule_id": "COMPOSITE_SIGNAL_POINT",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "UNKNOWN",
+          "overrides": []
+        },
+        "target_scope": "TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "KEY_DEGRADED",
+        "rule_id": "KEY_DEGRADED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "UNKNOWN",
+          "overrides": []
+        },
+        "target_scope": "DEGRADED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_CONTENT_UPDATE",
+        "rule_id": "ORDERED_CONTENT_UPDATE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_LOW",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED",
+        "rule_id": "ORDERED_DIFF_UNSUPPORTED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "UNKNOWN",
+          "overrides": []
+        },
+        "target_scope": "DEGRADED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_MIDDLE_BLANK_INTERVAL",
+        "rule_id": "ORDERED_MIDDLE_BLANK_INTERVAL",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_HIGH",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_MIDDLE_INSERT_DELETE",
+        "rule_id": "ORDERED_MIDDLE_INSERT_DELETE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_HIGH",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [
+          [
+            "channel_table_name",
+            true
+          ],
+          [
+            "name_contains:yk",
+            true
+          ]
+        ],
+        "reason_code": "ORDERED_MIDDLE_BLANK_INTERVAL",
+        "rule_id": "ORDERED_MIDDLE_YK_BLANK_INTERVAL",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "HIGH",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [
+          [
+            "channel_table_name",
+            true
+          ],
+          [
+            "name_contains:yk",
+            true
+          ]
+        ],
+        "reason_code": "ORDERED_MIDDLE_INSERT_DELETE",
+        "rule_id": "ORDERED_MIDDLE_YK_INSERT_DELETE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "HIGH",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_MOVE",
+        "rule_id": "ORDERED_MOVE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_HIGH",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_NAME_UPDATE",
+        "rule_id": "ORDERED_NAME_UPDATE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "LOW",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_REPLACEMENT",
+        "rule_id": "ORDERED_REPLACEMENT",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_LOW",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_RISK_UNKNOWN",
+        "rule_id": "ORDERED_RISK_UNKNOWN",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "UNKNOWN",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_TAIL_BLANK_INTERVAL",
+        "rule_id": "ORDERED_TAIL_BLANK_INTERVAL",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "LOW",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "ORDERED_TAIL_INSERT_DELETE",
+        "rule_id": "ORDERED_TAIL_INSERT_DELETE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "LOW",
+          "overrides": []
+        },
+        "target_scope": "ORDERED_TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "PROJECT_IDENTITY_MISMATCH",
+        "rule_id": "PROJECT_IDENTITY_MISMATCH",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "HIGH",
+          "overrides": []
+        },
+        "target_scope": "PAIR"
+      },
+      {
+        "params": [
+          [
+            "exclude_table:device_cfg",
+            true
+          ],
+          [
+            "exclude_table:device_cnt",
+            true
+          ],
+          [
+            "exclude_table:device_co",
+            true
+          ],
+          [
+            "exclude_table:device_disturb",
+            true
+          ],
+          [
+            "exclude_table:device_mx",
+            true
+          ],
+          [
+            "exclude_table:device_other",
+            true
+          ],
+          [
+            "exclude_table:device_sg",
+            true
+          ],
+          [
+            "exclude_table:device_sn",
+            true
+          ],
+          [
+            "exclude_table:device_sp",
+            true
+          ],
+          [
+            "exclude_table:device_st",
+            true
+          ],
+          [
+            "exclude_table:device_tap",
+            true
+          ]
+        ],
+        "reason_code": "ROW_ADDED",
+        "rule_id": "ROW_ADDED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_LOW",
+          "overrides": []
+        },
+        "target_scope": "STANDARD_ROWS"
+      },
+      {
+        "params": [
+          [
+            "exclude_table:device_cfg",
+            true
+          ],
+          [
+            "exclude_table:device_cnt",
+            true
+          ],
+          [
+            "exclude_table:device_co",
+            true
+          ],
+          [
+            "exclude_table:device_disturb",
+            true
+          ],
+          [
+            "exclude_table:device_mx",
+            true
+          ],
+          [
+            "exclude_table:device_other",
+            true
+          ],
+          [
+            "exclude_table:device_sg",
+            true
+          ],
+          [
+            "exclude_table:device_sn",
+            true
+          ],
+          [
+            "exclude_table:device_sp",
+            true
+          ],
+          [
+            "exclude_table:device_st",
+            true
+          ],
+          [
+            "exclude_table:device_tap",
+            true
+          ]
+        ],
+        "reason_code": "ROW_DELETED",
+        "rule_id": "ROW_DELETED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_LOW",
+          "overrides": []
+        },
+        "target_scope": "STANDARD_ROWS"
+      },
+      {
+        "params": [],
+        "reason_code": "ROW_MODIFIED",
+        "rule_id": "ROW_MODIFIED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_HIGH",
+          "overrides": []
+        },
+        "target_scope": "STANDARD_ROWS"
+      },
+      {
+        "params": [],
+        "reason_code": "SCHEMA_CHANGED",
+        "rule_id": "SCHEMA_CHANGED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_HIGH",
+          "overrides": []
+        },
+        "target_scope": "TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "STANDARD_NAME_UPDATE",
+        "rule_id": "STANDARD_NAME_UPDATE",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "LOW",
+          "overrides": []
+        },
+        "target_scope": "STANDARD_ROWS"
+      },
+      {
+        "params": [],
+        "reason_code": "TABLE_ADDED",
+        "rule_id": "TABLE_ADDED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "LOW",
+          "overrides": []
+        },
+        "target_scope": "TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "TABLE_DELETED",
+        "rule_id": "TABLE_DELETED",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "MEDIUM_HIGH",
+          "overrides": []
+        },
+        "target_scope": "TABLE"
+      },
+      {
+        "params": [],
+        "reason_code": "UNKNOWN_CHANGE_TARGET",
+        "rule_id": "UNKNOWN_CHANGE_TARGET",
+        "rule_version": "v8",
+        "severity_policy": {
+          "default_level": "UNKNOWN",
+          "overrides": []
+        },
+        "target_scope": "TABLE"
+      }
+    ]
+  },
+  "ordered_report": {
+    "annotation_refs": [
+      {
+        "artifact_id": "a1:comparison:5e88d9756f85171f813e2dc0d382284e7a461d45c16d84b269397968bebfdc2f",
+        "media_type": "application/vnd.gateway.risk-annotations+json",
+        "raw_sha256": "sha256:a42d274f3e62f622d64a38719ae23332dad8a55c2b4f22ba90ee65b137d6d437",
+        "size_bytes": 1506
+      }
+    ],
+    "diagnostics": [],
+    "overall": {
+      "annotation_count": 3,
+      "reason_codes": [
+        "ORDERED_MIDDLE_BLANK_INTERVAL",
+        "ORDERED_MOVE",
+        "ORDERED_TAIL_BLANK_INTERVAL"
+      ],
+      "risk_level": "MEDIUM_HIGH",
+      "table_count": 1
+    },
+    "risk_evaluation_digest": "sha256:d4c165edb3a79174692aa97ccf799c723b87508830befdd48da1002b1bcdcaed",
+    "risk_report_contract_version": "backend-vnext/risk/v2",
+    "tables": [
+      {
+        "annotation_count": 3,
+        "annotation_ref": {
+          "artifact_id": "a1:comparison:5e88d9756f85171f813e2dc0d382284e7a461d45c16d84b269397968bebfdc2f",
+          "media_type": "application/vnd.gateway.risk-annotations+json",
+          "raw_sha256": "sha256:a42d274f3e62f622d64a38719ae23332dad8a55c2b4f22ba90ee65b137d6d437",
+          "size_bytes": 1506
+        },
+        "diagnostics": [],
+        "reason_codes": [
+          "ORDERED_MIDDLE_BLANK_INTERVAL",
+          "ORDERED_MOVE",
+          "ORDERED_TAIL_BLANK_INTERVAL"
+        ],
+        "risk_level": "MEDIUM_HIGH",
+        "source_table_status": "MODIFIED",
+        "table_name": "t"
+      }
+    ]
+  },
+  "ordered_annotations": {
+    "annotations": [
+      {
+        "annotation_id": "t:00000000",
+        "diagnostics": [],
+        "reasons": [
+          {
+            "evidence": [],
+            "message": "ordered row moved",
+            "reason_code": "ORDERED_MOVE",
+            "rule_id": "ORDERED_MOVE"
+          }
+        ],
+        "risk_level": "MEDIUM_HIGH",
+        "target": {
+          "before_row_identity": null,
+          "changed_columns": [],
+          "coverage": null,
+          "current_row_identity": null,
+          "position": 2,
+          "position_range": null,
+          "row_identity": "sha256:8d4f32dd66af6ed90a7d58167dac4b71d6f94446d052512ecacd2830e18a7aeb",
+          "table_name": "t",
+          "target_type": "ROW"
+        }
+      },
+      {
+        "annotation_id": "t:00000001",
+        "diagnostics": [],
+        "reasons": [
+          {
+            "evidence": [
+              [
+                "count",
+                1
+              ],
+              [
+                "side",
+                "BEFORE"
+              ]
+            ],
+            "message": "blank interval changed in the middle of the table",
+            "reason_code": "ORDERED_MIDDLE_BLANK_INTERVAL",
+            "rule_id": "ORDERED_MIDDLE_BLANK_INTERVAL"
+          }
+        ],
+        "risk_level": "MEDIUM_HIGH",
+        "target": {
+          "before_row_identity": null,
+          "changed_columns": [],
+          "coverage": null,
+          "current_row_identity": null,
+          "position": null,
+          "position_range": [
+            2,
+            2
+          ],
+          "row_identity": null,
+          "table_name": "t",
+          "target_type": "ROW_INTERVAL"
+        }
+      },
+      {
+        "annotation_id": "t:00000002",
+        "diagnostics": [],
+        "reasons": [
+          {
+            "evidence": [
+              [
+                "count",
+                1
+              ],
+              [
+                "side",
+                "CURRENT"
+              ]
+            ],
+            "message": "blank interval changed at the end of the table",
+            "reason_code": "ORDERED_TAIL_BLANK_INTERVAL",
+            "rule_id": "ORDERED_TAIL_BLANK_INTERVAL"
+          }
+        ],
+        "risk_level": "LOW",
+        "target": {
+          "before_row_identity": null,
+          "changed_columns": [],
+          "coverage": null,
+          "current_row_identity": null,
+          "position": null,
+          "position_range": [
+            4,
+            4
+          ],
+          "row_identity": null,
+          "table_name": "t",
+          "target_type": "ROW_INTERVAL"
+        }
+      }
+    ],
+    "contract_version": "backend-vnext/risk-annotations/v1",
+    "table_name": "t"
+  },
+  "keyless_report": {
+    "annotation_refs": [
+      {
+        "artifact_id": "a1:comparison:f98f69ba18546eff22b67a31f6ab976dd8bb3e646844ca7b953ab7cc7f34b1d9",
+        "media_type": "application/vnd.gateway.risk-annotations+json",
+        "raw_sha256": "sha256:27339bf4d405dfbbcee13154a720c36bbe75b77dad3bf7f0061e758f1aa61ac1",
+        "size_bytes": 901
+      }
+    ],
+    "diagnostics": [],
+    "overall": {
+      "annotation_count": 2,
+      "reason_codes": [
+        "ROW_ADDED",
+        "ROW_DELETED"
+      ],
+      "risk_level": "MEDIUM_LOW",
+      "table_count": 1
+    },
+    "risk_evaluation_digest": "sha256:b4bf831a135b674df6c0005dc0803293295e19255a429d1c5946ab4d12c9d7e6",
+    "risk_report_contract_version": "backend-vnext/risk/v2",
+    "tables": [
+      {
+        "annotation_count": 2,
+        "annotation_ref": {
+          "artifact_id": "a1:comparison:f98f69ba18546eff22b67a31f6ab976dd8bb3e646844ca7b953ab7cc7f34b1d9",
+          "media_type": "application/vnd.gateway.risk-annotations+json",
+          "raw_sha256": "sha256:27339bf4d405dfbbcee13154a720c36bbe75b77dad3bf7f0061e758f1aa61ac1",
+          "size_bytes": 901
+        },
+        "diagnostics": [],
+        "reason_codes": [
+          "ROW_ADDED",
+          "ROW_DELETED"
+        ],
+        "risk_level": "MEDIUM_LOW",
+        "source_table_status": "MODIFIED",
+        "table_name": "t"
+      }
+    ]
+  },
+  "keyless_annotations": {
+    "annotations": [
+      {
+        "annotation_id": "t:00000000",
+        "diagnostics": [],
+        "reasons": [
+          {
+            "evidence": [
+              [
+                "count",
+                1
+              ]
+            ],
+            "message": "row added",
+            "reason_code": "ROW_ADDED",
+            "rule_id": "ROW_ADDED"
+          }
+        ],
+        "risk_level": "MEDIUM_LOW",
+        "target": {
+          "before_row_identity": null,
+          "changed_columns": [],
+          "coverage": "ROW_RECORDS_SUPPRESSED",
+          "current_row_identity": null,
+          "position": null,
+          "position_range": null,
+          "row_identity": null,
+          "table_name": "t",
+          "target_type": "TABLE"
+        }
+      },
+      {
+        "annotation_id": "t:00000001",
+        "diagnostics": [],
+        "reasons": [
+          {
+            "evidence": [
+              [
+                "count",
+                1
+              ]
+            ],
+            "message": "row deleted",
+            "reason_code": "ROW_DELETED",
+            "rule_id": "ROW_DELETED"
+          }
+        ],
+        "risk_level": "MEDIUM_LOW",
+        "target": {
+          "before_row_identity": null,
+          "changed_columns": [],
+          "coverage": "ROW_RECORDS_SUPPRESSED",
+          "current_row_identity": null,
+          "position": null,
+          "position_range": null,
+          "row_identity": null,
+          "table_name": "t",
+          "target_type": "TABLE"
+        }
+      }
+    ],
+    "contract_version": "backend-vnext/risk-annotations/v1",
+    "table_name": "t"
+  }
 }

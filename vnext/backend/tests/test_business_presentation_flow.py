@@ -304,8 +304,17 @@ def test_real_pair_device_gid_change_keeps_unchanged_cfg_before_and_locator_cont
         assert row["before_row_index"] is None and row["current_row_index"] == 0
         assert json.loads(row["before_filter_context_json"]) == {"gid": 7}
         assert row["current_filter_context_json"] is None
-    else:
-        assert tab["facts"]["change_kind"] == "UNCHANGED"
+    # The unchanged gid=7 row leaves device 49 when its registered gid becomes 8.
+    # A changed row is counted as modified/moved-out, not again as registry-only membership.
+    assert tab["facts"]["change_kind"] == "DELETED"
+    assert tab["facts"]["membership_complete"] is True
+    assert tab["facts"]["membership_changed"] is (not changed_cfg)
+    assert tab["facts"]["row_changes"] == {
+        "added": 0, "deleted": 0, "modified": int(changed_cfg),
+        "moved_in": 0, "moved_out": int(changed_cfg),
+    }
+    if not changed_cfg:
+        assert tab["facts"]["risk_level"] is None
     if schema_added:
         from gateway_backend.application.comparison_audit import ComparisonStructureAudit
         assert result.structure_audit_ref is not None

@@ -43,7 +43,7 @@ from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskOptions, RiskRulesetSnapshot,
-    V1_RISK_RULE_SPECS, evaluate_risk,
+    V1_RISK_RULE_SPECS, evaluate_risk, risk_ruleset_document,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArrowSnapshotTableReader, open_snapshot_table_artifact, publish_canonical_tables,
@@ -73,7 +73,7 @@ from tests.test_comparison_rule_roles import _plan as role_plan
 pytestmark = pytest.mark.unit
 
 
-def _risk_v7_golden() -> dict[str, str]:
+def _risk_v8_golden() -> dict[str, Any]:
     path = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison/s3-e/gw08-risk-expected.json"
     return json.loads(path.read_bytes())  # type: ignore[no-any-return]
 
@@ -562,20 +562,25 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert product.risk_handles == {}
         rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
         assert rules.risk_ruleset_digest is not None
-        assert rules.risk_ruleset_digest.value == _risk_v7_golden()["ruleset_digest"]
+        assert rules.risk_ruleset_digest.value == _risk_v8_golden()["ruleset_digest"]
+        assert risk_ruleset_document(rules) == _risk_v8_golden()["rules"]
         risk_store = InMemoryArtifactStore()
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
             ordered_record_views=product.handles,
             ordered_tail_bounds={"t": OrderedTailBounds(4, 4, 4, 3, True)},
         ), artifact_store=risk_store)
-        annotations = json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))["annotations"]
+        annotation_document = json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))
+        assert annotation_document == _risk_v8_golden()["ordered_annotations"]
+        assert new_risk.risk_report is not None
+        assert new_risk.risk_report.to_document() == _risk_v8_golden()["ordered_report"]
+        annotations = annotation_document["annotations"]
         assert {(row["reasons"][0]["reason_code"], tuple(row["target"]["position_range"])) for row in annotations
                 if row["target"]["target_type"] == "ROW_INTERVAL"} == {
             ("ORDERED_TAIL_BLANK_INTERVAL", (4, 4)), ("ORDERED_MIDDLE_BLANK_INTERVAL", (2, 2)),
         }
         assert new_risk.risk_evaluation is not None
-        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v7_golden()["ordered_risk_evaluation_digest"]
+        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v8_golden()["ordered_risk_evaluation_digest"]
         new_store = InMemoryArtifactStore()
         new_published = publish_records_closure_arrow(
             product.result, product.handles, new_store,
@@ -794,12 +799,16 @@ def test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status(
         assert fact.table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
         rules = RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS)
         assert rules.risk_ruleset_digest is not None
-        assert rules.risk_ruleset_digest.value == _risk_v7_golden()["ruleset_digest"]
+        assert rules.risk_ruleset_digest.value == _risk_v8_golden()["ruleset_digest"]
+        risk_store = InMemoryArtifactStore()
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
-        ), artifact_store=InMemoryArtifactStore())
+        ), artifact_store=risk_store)
+        assert new_risk.risk_report is not None
+        assert new_risk.risk_report.to_document() == _risk_v8_golden()["keyless_report"]
+        assert json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref)) == _risk_v8_golden()["keyless_annotations"]
         assert new_risk.risk_evaluation is not None
-        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v7_golden()["keyless_risk_evaluation_digest"]
+        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v8_golden()["keyless_risk_evaluation_digest"]
     finally:
         product.close()
 

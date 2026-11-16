@@ -40,7 +40,7 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
   ORDERED_NAME_UPDATE: "只修改了测点的名称或描述（name、description），属于低风险。",
   ORDERED_CONTENT_UPDATE: "修改了测点名称、描述以外的内容。",
   ORDERED_RISK_UNKNOWN: "有序表的变化无法可靠判定风险，需要复核。",
-  ORDERED_MIDDLE_BLANK_INTERVAL: "有序表中间的空点数量发生变化，其后存在保留的有效测点，需要复核。",
+  ORDERED_MIDDLE_BLANK_INTERVAL: "有序表中间的空点数量发生变化，需要复核。",
   ORDERED_TAIL_BLANK_INTERVAL: "在有序表末尾插入或删除了空点。",
   KEY_DEGRADED: "比较键降级，建议复核。",
   ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED: "有序表差异无法可靠比较，建议复核。",
@@ -63,7 +63,7 @@ function describeBlankInterval(code: string, evidence: ReadonlyArray<readonly [s
   const action = (side === "CURRENT" ? "净增 " : "净减 ") + (typeof count === "number" ? count + " 个" : "若干") + "空点";
   return code === "ORDERED_TAIL_BLANK_INTERVAL"
     ? "有序表末尾的空点区间" + action + "，其后没有保留的有效测点。"
-    : "有序表中间的空点区间" + action + "，其后存在保留的有效测点，需要复核。";
+    : "有序表中间的空点区间" + action + "，需要复核。";
 }
 
 export function describeRiskReason(code: string, evidence: ReadonlyArray<readonly [string, unknown]> = []): string {

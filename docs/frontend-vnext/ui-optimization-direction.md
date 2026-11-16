@@ -300,3 +300,9 @@ Owner 确认接受当前实现的以下布局与交互；以下具体决定覆�
 - 接受当前 S3 差异页顶栏与 S4 修改前后行对的布局，以及二次装置范围修正 P3 的新布局；相关业务事实和范围仍以[二次装置设计](../backend-vnext/secondary-device-change-and-risk-scope-design.md)为准。
 
 S4 高风险改动格已按语义色、主表和 Debug 草图修正为 `#F3B4AC`。另有低风险色条的现行 token `#2F9E59` 与语义色草图 `#2F9E5B` 不一致；该差异尚未获得 Owner 确认，继续保留为待判断项。
+
+### 9.1 比较托盘与表格焦点补充确认（Owner，2026-11-16）
+
+Owner 确认接受本次截图中的现行呈现：托盘选满三项后禁用第四项、不显示黄色提示；比较请求超时后保留选择并使用同一请求重试；运行状态显示在独立任务行；实际表格的选中单元格使用蓝框。
+
+截图位于测试节点 `ct109-gw-dms-07` 的 `/home/dev/gdds-test-tmp/sdr-fe-999b-screenshots/`：`s2-tray-full`、`s2-tray-request-timeout`、`history-compare-running` 和 `s4-grid-selected-cell` 各有 `-1280.png`、`-1920.png`。请求超时表示结果尚未确认，截图未覆盖比较操作的终局失败；满额时第四项禁用原因在原生 `title` 中，测试已核对，但截图未直接显示该文字。

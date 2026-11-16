@@ -2243,7 +2243,7 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
     operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, job_kind: "backend-vnext/submit", status: "FAILED" as const }
       : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
@@ -2297,7 +2297,7 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
     operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, job_kind: "backend-vnext/submit", status: "FAILED" as const }
       : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);

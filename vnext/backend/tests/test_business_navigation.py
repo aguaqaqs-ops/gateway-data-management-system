@@ -477,18 +477,25 @@ def test_registry_to_target_category_mismatch_downgrades_only_affected_side(
     assert not diagnostics(result, "DEVICE_ROWS_UNASSIGNED")
 
 
-@pytest.mark.parametrize("changes", [
-    {"risk_attribution_complete": False}, {"comparison_succeeded": False},
-    {"schema_only": True}, {"degraded": True},
+@pytest.mark.parametrize("changes,reason,may_reuse", [
+    ({"risk_attribution_complete": False}, None, True),
+    ({"comparison_succeeded": False}, "RECORDS_UNAVAILABLE", False),
+    ({"schema_only": True}, "TABLE_DEGRADED", False),
+    ({"degraded": True}, "TABLE_DEGRADED", False),
 ])
-def test_uncertain_empty_shared_table_without_device_remains_reachable(changes: dict[str, Any]) -> None:
+def test_uncertain_empty_shared_table_without_device_remains_reachable(
+    changes: dict[str, Any], reason: str | None, may_reuse: bool,
+) -> None:
     empty = replace(table("device_st", side(), side(), unchanged=True), evidence=evidence(**changes))
     result = build(empty)
     assert len(tabs(result, "device_st")) == 1
     assert tabs(result, "device_st")[0]["row_filter"] is None
     assert tabs(result, "device_st")[0]["facts"] is None
     assert not diagnostics(result, "DEVICE_TAB_FACTS_UNAVAILABLE")
-    assert not empty.may_reuse_unrecorded_identity
+    assert empty.local_fallback_reason == reason
+    assert empty.may_reuse_unrecorded_identity is may_reuse
+    if not empty.evidence.risk_attribution_complete:
+        assert result.document["table_notices"][0]["risk_complete"] is False
 
 
 @pytest.mark.parametrize("replacement", [False, True])

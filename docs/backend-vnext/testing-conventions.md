@@ -246,9 +246,11 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 
 ### 测试批次与 focused 运行
 
-权威 runner 将 backend 与 `repository_service` 分成并行主体和 serial 两遍：
-`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"` 后接
-`-m "serial and not parallel_safe" -n 0`。其余三个包单进程运行。`rust` 包最先运行，由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。
+权威 runner 先执行廉价与并行批次：依次运行 `rust`、三个小 Python 包、`backend` 并行批与
+`repository_service` 并行批（`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"`）。
+前序步骤全部执行完后若任一步失败，则跳过两个 serial 批，被跳过的包输出 `status=not_run` 并以非零退出；
+前序全部通过时再依次执行 `backend` 与 `repository_service` 的 serial 批
+（`-m "serial and not parallel_safe" -n 0`）。`rust` 包由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。
 两遍拆分避免 timing-sensitive 测试争用 CPU；`parallel_safe` 只包括下文经逐项隔离审查的例外，backend 当前没有此例外。其余三个 Python 包的 worker 启动开销超过并行收益，因此保持单进程。
 
 非串行worker默认`auto`；初始建议`GATEWAY_TEST_WORKERS=4`，按本次资源调整。阶段性验证不要跑全量；日常迭代用 marker 缩小范围：

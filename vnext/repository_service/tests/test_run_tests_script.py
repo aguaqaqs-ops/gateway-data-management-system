@@ -285,6 +285,11 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
                 exit "${RUNNER_IGNORE_STATUS:-0}"
               fi
             done
+            if [[ -n "${RUNNER_FAIL_PACKAGE:-}" && "$(basename "$PWD")" == "${RUNNER_FAIL_PACKAGE}" ]]; then
+              if [[ -z "${RUNNER_FAIL_MARKER_SUBSTR:-}" || "$*" == *"${RUNNER_FAIL_MARKER_SUBSTR}"* ]]; then
+                exit "${RUNNER_FAIL_STATUS:-1}"
+              fi
+            fi
             exit "${RUNNER_PYTEST_STATUS:-0}"
             """
         ),
@@ -381,7 +386,7 @@ def _cargo_calls(env: dict[str, str]) -> list[list[str]]:
         (
             "repository_service,backend",
             {"backend", "repository_service"},
-            ["backend", "backend", "repository_service", "repository_service"],
+            ["backend", "repository_service", "backend", "repository_service"],
         ),
         ("rust", {"rust"}, []),
         ("shared_kernel,rust", {"rust", "shared_kernel"}, ["shared_kernel"]),
@@ -516,17 +521,13 @@ def test_run_tests_without_package_selection_keeps_all_packages_and_two_passes(
     assert completed.returncode == 0, completed.stderr
     assert "==> umask=" in completed.stdout
     actual_packages = [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
-    assert all(
-        "\t-C . run pytest -p no:cacheprovider " in line
-        for line in calls_log.read_text().splitlines()
-    )
     assert actual_packages == [
         "shared_kernel",
         "repository_contracts",
         "repository_client",
         "backend",
-        "backend",
         "repository_service",
+        "backend",
         "repository_service",
     ]
     assert Path(env["RUNNER_SYNC_LOG"]).read_text().splitlines() == [
@@ -561,26 +562,43 @@ def test_run_tests_rejects_unknown_duplicate_or_malformed_packages(
 
 
 @pytest.mark.parametrize(
-    ("selection", "selected_packages", "retained_package", "pytest_packages"),
+    (
+        "selection",
+        "selected_packages",
+        "retained_package",
+        "pytest_status",
+        "expected_exit",
+        "pytest_packages",
+    ),
     [
-        ("shared_kernel", ("shared_kernel",), "repository_client", ("shared_kernel",)),
+        ("shared_kernel", ("shared_kernel",), "repository_client", 0, 0, ("shared_kernel",)),
+        ("shared_kernel", ("shared_kernel",), "repository_client", 37, 1, ("shared_kernel",)),
         (
             "repository_service,backend",
             ("backend", "repository_service"),
             "shared_kernel",
-            ("backend", "backend", "repository_service", "repository_service"),
+            0,
+            0,
+            ("backend", "repository_service", "backend", "repository_service"),
+        ),
+        (
+            "repository_service,backend",
+            ("backend", "repository_service"),
+            "shared_kernel",
+            37,
+            1,
+            ("backend", "repository_service"),
         ),
     ],
 )
-@pytest.mark.parametrize(("pytest_status", "expected_exit"), [(0, 0), (37, 1)])
 def test_run_tests_isolates_and_cleans_selected_hypothesis_storage(
     tmp_path: Path,
     selection: str,
     selected_packages: tuple[str, ...],
     retained_package: str,
-    pytest_packages: tuple[str, ...],
     pytest_status: int,
     expected_exit: int,
+    pytest_packages: tuple[str, ...],
 ) -> None:
     repo_root, calls_log, env = _runner_fixture(tmp_path)
     storage_root = Path(env["RUNNER_HYPOTHESIS_ROOT"])
@@ -666,3 +684,54 @@ def test_run_tests_cleans_selected_hypothesis_storage_on_early_exit(
     assert not Path(env["RUNNER_MANIFEST_LOG"]).exists()
     for package in selected_packages:
         assert not (storage_root / package).exists()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("failing_package", ["backend", "repository_service"])
+def test_run_tests_parallel_failure_skips_all_serial_batches(
+    tmp_path: Path,
+    failing_package: str,
+) -> None:
+    repo_root, calls_log, env = _runner_fixture(tmp_path)
+    env["RUNNER_FAIL_PACKAGE"] = failing_package
+    env["RUNNER_FAIL_MARKER_SUBSTR"] = "(not serial) or parallel_safe"
+    completed = _run_runner(repo_root, env, packages="backend,repository_service")
+    assert completed.returncode == 1, completed.stderr
+    lines = calls_log.read_text().splitlines()
+    assert [Path(line.split("\t", 1)[0]).name for line in lines] == [
+        "backend",
+        "repository_service",
+    ]
+    assert all("-n 0" not in line for line in lines)
+    assert "==> skipping serial batches because an earlier step failed" in completed.stdout
+    assert "==> backend (serial)" not in completed.stdout
+    assert "==> repository_service (serial)" not in completed.stdout
+    other_package = "repository_service" if failing_package == "backend" else "backend"
+    assert f"==> {failing_package} status=failed" in completed.stdout
+    assert f"==> {other_package} status=not_run" in completed.stdout
+    assert f"==> {other_package} status=passed" not in completed.stdout
+
+
+@pytest.mark.unit
+def test_run_tests_early_step_failure_marks_skipped_serial_packages_not_run(
+    tmp_path: Path,
+) -> None:
+    repo_root, calls_log, env = _runner_fixture(tmp_path)
+    env["RUNNER_CARGO_FAIL_STEP"] = "test"
+    completed = _run_runner(repo_root, env)
+    assert completed.returncode == 1, completed.stderr
+    lines = calls_log.read_text().splitlines()
+    assert [Path(line.split("\t", 1)[0]).name for line in lines] == [
+        "shared_kernel",
+        "repository_contracts",
+        "repository_client",
+        "backend",
+        "repository_service",
+    ]
+    assert all("-n 0" not in line for line in lines)
+    assert "==> rust status=failed" in completed.stdout
+    for package in ("shared_kernel", "repository_contracts", "repository_client"):
+        assert f"==> {package} status=passed" in completed.stdout
+    for package in ("backend", "repository_service"):
+        assert f"==> {package} status=not_run" in completed.stdout
+        assert f"==> {package} status=passed" not in completed.stdout

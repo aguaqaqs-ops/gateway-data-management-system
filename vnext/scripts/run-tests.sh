@@ -5,10 +5,10 @@ printf '==> umask=%s\n' "$(umask)"
 
 # Authoritative test entrypoint for the vNext packages.
 #
-# The rust package (cargo fmt, clippy and test in vnext/rust) runs first.
-# backend and repository_service run in two passes: the bulk of each suite in
-# parallel, then timing sensitive serial tests on their own so they never
-# compete for CPU. The three smaller Python packages run in one process.
+# Cheap and parallel batches run first: rust, the three smaller Python
+# packages, backend parallel, and repository_service parallel. If any of those
+# steps fails, both serial batches are skipped and skipped packages report
+# not_run. Otherwise backend serial and repository_service serial run in order.
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/gateway-index-env.sh
@@ -104,7 +104,7 @@ fi
 
 declare -A PACKAGE_STATUS=()
 for package in "${SELECTED_PACKAGES[@]}"; do
-    PACKAGE_STATUS["${package}"]=passed
+    PACKAGE_STATUS["${package}"]=not_run
 done
 
 BACKEND_COMPOSE_TEST_FILES=(
@@ -280,6 +280,8 @@ for package in "${SELECTED_PACKAGES[@]}"; do
     fi
 done
 
+RUNNER_PYTEST_ARGS=("$@")
+
 run_locked_pytest() {
     local package="${PWD##*/}"
     local storage_path
@@ -304,6 +306,71 @@ run_rust_step() {
     return "${step_status}"
 }
 
+run_parallel_batch() {
+    local package="$1"
+    echo "==> ${package} (parallel)"
+    local parallel_start=${SECONDS}
+    local parallel_status=0
+    if ! (
+        cd "${VNEXT_ROOT}/${package}"
+        run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "${RUNNER_PYTEST_ARGS[@]}"
+    ); then
+        test_exit=1
+        parallel_status=1
+        PACKAGE_STATUS["${package}"]=failed
+    fi
+    echo "==> ${package} (parallel) elapsed_seconds=$((SECONDS - parallel_start)) status=${parallel_status}"
+}
+
+run_serial_batches() {
+    local package="$1"
+    shift
+    local compose_files=("$@")
+    echo "==> ${package} (serial)"
+    local serial_start=${SECONDS}
+    local serial_status=0
+    if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
+        # Docker secret bind mounts cannot be remounted from an LXC-provided
+        # tmpfs in the authoritative Compose path. Keep those host paths on the
+        # real filesystem while using tmpfs for all other test-owned workspaces.
+        local compose_ignores=()
+        local compose_file
+        for compose_file in "${compose_files[@]}"; do
+            compose_ignores+=("--ignore=${compose_file}")
+        done
+        if ! (
+            cd "${VNEXT_ROOT}/${package}"
+            run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${compose_ignores[@]}" "${RUNNER_PYTEST_ARGS[@]}"
+        ); then
+            test_exit=1
+            serial_status=1
+        fi
+        PYTEST_TMP_ARGS=()
+        if ! (
+            cd "${VNEXT_ROOT}/${package}"
+            run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${compose_files[@]}" "${RUNNER_PYTEST_ARGS[@]}"
+        ); then
+            test_exit=1
+            serial_status=1
+        fi
+        PYTEST_TMP_ARGS+=(--basetemp "${GATEWAY_TEST_BASETEMP}")
+    else
+        if ! (
+            cd "${VNEXT_ROOT}/${package}"
+            run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${RUNNER_PYTEST_ARGS[@]}"
+        ); then
+            test_exit=1
+            serial_status=1
+        fi
+    fi
+    if [[ "${serial_status}" -eq 0 ]]; then
+        PACKAGE_STATUS["${package}"]=passed
+    else
+        PACKAGE_STATUS["${package}"]=failed
+    fi
+    echo "==> ${package} (serial) elapsed_seconds=$((SECONDS - serial_start)) status=${serial_status}"
+}
+
 test_exit=0
 if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" ]]; then
     echo "==> rust"
@@ -312,7 +379,9 @@ if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" ]]; then
     run_rust_step fmt fmt --all --check || rust_status=1
     run_rust_step clippy clippy --workspace --locked --offline --all-targets -- -D warnings || rust_status=1
     run_rust_step test test --workspace --locked --offline || rust_status=1
-    if [[ "${rust_status}" -ne 0 ]]; then
+    if [[ "${rust_status}" -eq 0 ]]; then
+        PACKAGE_STATUS[rust]=passed
+    else
         test_exit=1
         PACKAGE_STATUS[rust]=failed
     fi
@@ -324,120 +393,34 @@ for package in "${FAST_PACKAGES[@]}"; do
         continue
     fi
     echo "==> ${package}"
-    if ! (cd "${VNEXT_ROOT}/${package}" && run_locked_pytest -q "$@"); then
+    if (cd "${VNEXT_ROOT}/${package}" && run_locked_pytest -q "${RUNNER_PYTEST_ARGS[@]}"); then
+        PACKAGE_STATUS["${package}"]=passed
+    else
         test_exit=1
         PACKAGE_STATUS["${package}"]=failed
     fi
 done
 
 if [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
-echo "==> backend (parallel)"
-backend_parallel_start=${SECONDS}
-backend_parallel_status=0
-if ! (
-    cd "${VNEXT_ROOT}/backend"
-    run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "$@"
-); then
-    test_exit=1
-    backend_parallel_status=1
-    PACKAGE_STATUS[backend]=failed
-fi
-echo "==> backend (parallel) elapsed_seconds=$((SECONDS - backend_parallel_start)) status=${backend_parallel_status}"
-
-echo "==> backend (serial)"
-backend_serial_start=${SECONDS}
-backend_serial_status=0
-if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
-    # Docker secret bind mounts cannot be remounted from an LXC-provided
-    # tmpfs. Keep Compose inputs on the real filesystem.
-    BACKEND_COMPOSE_IGNORES=()
-    for compose_file in "${BACKEND_COMPOSE_TEST_FILES[@]}"; do
-        BACKEND_COMPOSE_IGNORES+=("--ignore=${compose_file}")
-    done
-    if ! (
-        cd "${VNEXT_ROOT}/backend"
-        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${BACKEND_COMPOSE_IGNORES[@]}" "$@"
-    ); then
-        test_exit=1
-        backend_serial_status=1
-        PACKAGE_STATUS[backend]=failed
-    fi
-    PYTEST_TMP_ARGS=()
-    if ! (
-        cd "${VNEXT_ROOT}/backend"
-        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${BACKEND_COMPOSE_TEST_FILES[@]}" "$@"
-    ); then
-        test_exit=1
-        backend_serial_status=1
-        PACKAGE_STATUS[backend]=failed
-    fi
-    PYTEST_TMP_ARGS+=(--basetemp "${GATEWAY_TEST_BASETEMP}")
-else
-    if ! (
-        cd "${VNEXT_ROOT}/backend"
-        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@"
-    ); then
-        test_exit=1
-        backend_serial_status=1
-        PACKAGE_STATUS[backend]=failed
-    fi
-fi
-echo "==> backend (serial) elapsed_seconds=$((SECONDS - backend_serial_start)) status=${backend_serial_status}"
+    run_parallel_batch backend
 fi
 
 if [[ -n "${SELECTED_PACKAGE_SET[repository_service]:-}" ]]; then
-echo "==> repository_service (parallel)"
-repository_service_parallel_start=${SECONDS}
-repository_service_parallel_status=0
-if ! (
-    cd "${VNEXT_ROOT}/repository_service"
-    run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "$@"
-); then
-    test_exit=1
-    repository_service_parallel_status=1
-    PACKAGE_STATUS[repository_service]=failed
+    run_parallel_batch repository_service
 fi
-echo "==> repository_service (parallel) elapsed_seconds=$((SECONDS - repository_service_parallel_start)) status=${repository_service_parallel_status}"
 
-echo "==> repository_service (serial)"
-repository_service_serial_start=${SECONDS}
-repository_service_serial_status=0
-if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
-    # Docker secret bind mounts cannot be remounted from an LXC-provided
-    # tmpfs in the authoritative Compose path. Keep those host paths on the
-    # real filesystem while using tmpfs for all other test-owned workspaces.
-    COMPOSE_IGNORES=()
-    for compose_file in "${REPOSITORY_SERVICE_COMPOSE_TEST_FILES[@]}"; do
-        COMPOSE_IGNORES+=("--ignore=${compose_file}")
-    done
-    if ! (
-        cd "${VNEXT_ROOT}/repository_service"
-        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${COMPOSE_IGNORES[@]}" "$@"
-    ); then
-        test_exit=1
-        repository_service_serial_status=1
-        PACKAGE_STATUS[repository_service]=failed
-    fi
-    PYTEST_TMP_ARGS=()
-    if ! (
-        cd "${VNEXT_ROOT}/repository_service"
-        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${REPOSITORY_SERVICE_COMPOSE_TEST_FILES[@]}" "$@"
-    ); then
-        test_exit=1
-        repository_service_serial_status=1
-        PACKAGE_STATUS[repository_service]=failed
-    fi
-else
-    if ! (
-        cd "${VNEXT_ROOT}/repository_service"
-        run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "$@"
-    ); then
-        test_exit=1
-        repository_service_serial_status=1
-        PACKAGE_STATUS[repository_service]=failed
-    fi
+skip_serial=0
+if [[ "${test_exit}" -ne 0 ]] && [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" || -n "${SELECTED_PACKAGE_SET[repository_service]:-}" ]]; then
+    skip_serial=1
+    echo "==> skipping serial batches because an earlier step failed"
 fi
-echo "==> repository_service (serial) elapsed_seconds=$((SECONDS - repository_service_serial_start)) status=${repository_service_serial_status}"
+
+if [[ "${skip_serial}" -eq 0 && -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
+    run_serial_batches backend "${BACKEND_COMPOSE_TEST_FILES[@]}"
+fi
+
+if [[ "${skip_serial}" -eq 0 && -n "${SELECTED_PACKAGE_SET[repository_service]:-}" ]]; then
+    run_serial_batches repository_service "${REPOSITORY_SERVICE_COMPOSE_TEST_FILES[@]}"
 fi
 
 if ! gateway_assert_lockfiles_unchanged "${VNEXT_ROOT}" "${LOCK_SNAPSHOT}"; then

@@ -291,3 +291,12 @@ owner 确认的取舍：
 - [frontend-surface-simplification.md](../backend-vnext/frontend-surface-simplification.md)：用户可见能力覆盖矩阵
 - `legacy/frontend/FRONTEND_BACKGROUND.md`：legacy 前端业务背景与错误语义
 - `legacy/frontend/src/App.tsx`、`src/styles.css`、`src/components/`、`src/grid/`：现状来源
+
+## 9. 现行界面视觉确认（Owner，2026-11-16）
+
+Owner 确认接受当前实现的以下布局与交互；以下具体决定覆盖相应旧布局约定，不改变业务语义：
+
+- 工作台组态树采用“比较、节点、时间”三列，不提供列宽拖拽；1280px 下详情面板需手动折叠。这覆盖 §1.1 的四列示例、§2 C1 的自动折叠约定及相应 S1 草图。
+- 接受当前 S3 差异页顶栏与 S4 修改前后行对的布局，以及二次装置范围修正 P3 的新布局；相关业务事实和范围仍以[二次装置设计](../backend-vnext/secondary-device-change-and-risk-scope-design.md)为准。
+
+S4 高风险改动格已按语义色、主表和 Debug 草图修正为 `#F3B4AC`。另有低风险色条的现行 token `#2F9E59` 与语义色草图 `#2F9E5B` 不一致；该差异尚未获得 Owner 确认，继续保留为待判断项。

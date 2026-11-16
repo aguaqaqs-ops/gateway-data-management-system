@@ -209,9 +209,9 @@ RiskEvaluationInput 使用现有字段位置的目标形态 `ordered_tail_bounds
 | Risk ruleset/rule v7→v8，risk-model v4→v5 | 表适用和空点风险改变；rules validator、candidate key及RiskEvaluation digest核对；不额外增加版本轴 |
 | BusinessNavigation v3→v4 | 字段/摘要语义变化，pydantic strict/extra=forbid、前端decoder、golden核对 |
 | Preview assemble-state v10→v11；History v7→v8 | checkpoint恢复解码拒绝旧组装状态；不改变READY closure wire格式 |
-| History job contract v2→v3；Preview job contract v4→v5 | History受理指纹绑定job contract；Preview既有capability_contract_versions写入risk model、risk ruleset digest、navigation版本并由worker/result reader核对，job decoder拒绝旧版本；不改变调用方请求幂等指纹或Comparison core contract |
+| History job contract v2→v3；Preview job contract v4→v5 | History受理指纹绑定job contract；Preview既有capability_contract_versions写入risk model、risk ruleset digest、navigation版本，由新Preview worker和新Submit受理前核当前语义；冻结结果reader只核其原绑定一致，job decoder拒绝旧执行版本；不改变调用方请求幂等指纹或Comparison core contract |
 
-不修改 canonical storage、原始SQL、普通records/locator物理schema；有序新边界为operation-local输入，不建独立artifact。Risk candidate key显式绑定§4/§7输入。Surface projection raw digest与bundle闭包重算；已发布旧bundle不被原地重写。History新语义不跨键复用旧成功作业。Preview当前没有跨键成功结果复用：新键新建operation，旧键相同请求仍返回原operation，不把服务器语义版本塞入HTTP请求幂等指纹。旧结果不作为当前语义的可提交Preview：既有结果读取、T1/finalize与审核绑定校验增加当前job/capability版本检查，不符走现有PreviewBindingConflict/结果不可用路径并要求新键重新预览，不原地改旧bundle或同键改绑。活跃旧作业版本不符按既有失败路径，不自动删除数据或重置控制库。
+不修改 canonical storage、原始SQL、普通records/locator物理schema；有序新边界为operation-local输入，不建独立artifact。Risk candidate key显式绑定§4/§7输入。Surface projection raw digest与bundle闭包重算；已发布旧bundle不被原地重写。History新语义不跨键复用旧成功作业。Preview当前没有跨键成功结果复用：新键新建operation，旧键相同请求仍返回原operation，不把服务器语义版本塞入HTTP请求幂等指纹。旧结果不用于新Submit的当前语义准入：在新T1受理前检查当前job/capability版本，不符走现有PreviewBindingConflict并要求新键重新预览，不原地改旧bundle或同键改绑。T1已受理的Attempt、effect后的finalize及Submission审核继续核原冻结Preview/READY/closure与原绑定一致，不重新读当前global规则判准入；不得要求这类已绑定提交改用新Preview。结果reader区分当前工作区的可提交资格与冻结Submission的审核读取，后者只核原冻结事实完整性，不增加当前版本门槛。活跃旧作业版本不符按既有失败路径，不自动删除数据或重置控制库。
 
 ## 9 验收与风险
 

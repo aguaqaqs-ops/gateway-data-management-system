@@ -34,12 +34,12 @@ P1/P2可由同一新实施上下文承担两个内聚包，P3/P4各自新上下�
 
 - risk_evaluation/contracts.py：ruleset/rule v8、risk-model v5及新name rule/reason；_rules.py核参数；candidate key绑定所有新事实。
 - business_navigation/contracts.py及前端model.ts：navigation v4；同时改diagnostics schema/文案。
-- application/preview_jobs.py：job v5、assemble-state v11；workspace/preview.py在已有capability_contract_versions填写 `{risk_model: <version>, risk_ruleset_digest: <digest>, business_navigation: <version>}`；worker decoder核当前值，不接受仅传空map；该map属于服务器job语义，不加入调用方HTTP请求幂等指纹。结果使用入口由preview.operation_id读取已绑定且已核scope的OperationRecord.job_payload，校验其job/capability版本；不假定PreviewResult已有capability map，不为此增加DB列。provider_versions不为本问题滥增字段。
+- application/preview_jobs.py：job v5、assemble-state v11；workspace/preview.py在已有capability_contract_versions填写 `{risk_model: <version>, risk_ruleset_digest: <digest>, business_navigation: <version>}`；worker decoder核当前值，不接受仅传空map；该map属于服务器job语义，不加入调用方HTTP请求幂等指纹。新Preview执行和新Submit的T1受理前由preview.operation_id读取已绑定且已核scope的OperationRecord.job_payload，核当前job/capability版本；不假定PreviewResult已有capability map，不为此增加DB列。已有Attempt/finalize和Submission审核读取仅核原冻结身份与完整闭包，不核当前global版本。provider_versions不为本问题滥增字段。
 - application/history/contracts.py：job v3；compare_jobs.py：assemble-state v8。History既有accept fingerprint与reuse candidate都含job contract，更新相关预检及worker版本核对测试，不改其DB表结构。
 - application/preview_binding.py、workspace/preview.py、history/compare.py、compare_bindings.py及结果reader：逐条核新作业、同键重试、跨键成功复用、checkpoint恢复、旧成功bundle读取。旧受理的幂等键不重新绑定到新作业：保持原指纹冲突/原操作语义；新请求不能以旧成功作业满足新版本。
-- Preview无跨键READY复用选择，不新增这一机制。新键照常新建operation；同键同请求继续返回原operation，不因服务器版本改变产生新的幂等冲突，也不重绑定。既有Preview结果reader、T1/finalize和审核绑定入口核当前job/capability版本，旧结果走原PreviewBindingConflict/不可用错误，提示用新键重做Preview；不是只留给前端v4解码失败。History跨键复用则先核job contract，再走既有完整结果预检。未改READY闭包格式，避免额外轴。
+- Preview无跨键READY复用选择，不新增这一机制。新键照常新建operation；同键同请求继续返回原operation，不因服务器版本改变产生新的幂等冲突，也不重绑定。只有新Preview执行、新Submit的T1受理前核当前job/capability版本，旧结果不满足新Submit准入时走原PreviewBindingConflict并提示新键重新预览。T1已受理的Attempt、effect后finalize及Submission审核严格沿用原冻结Preview/READY/closure及原绑定一致性，不读当前global规则、不要求替换Preview；冻结结果reader不增加当前版本资格检查。原有语义版本完整性检查继续保留，不是放宽完整闭包或权限校验。History跨键复用则先核job contract，再走既有完整结果预检。未改READY闭包格式，避免额外轴。
 
-P0退出：源码依据说明每条身份由谁计算、在哪里检查；参数/版本变更golden齐全。Preview HTTP请求request_fingerprint保持原preimage；capability map/job version只用于服务器执行与结果可用性。增加同键跨服务器版本仍指原operation、新键新operation、旧结果不能提交三条最小断言，不新增第二个请求指纹。
+P0退出：源码依据说明每条身份由谁计算、在哪里检查；参数/版本变更golden齐全。Preview HTTP请求request_fingerprint保持原preimage；capability map/job version只用于服务器执行与结果可用性。增加同键跨服务器版本仍指原operation、新键新operation、旧结果不能新受理Submit、已受理Attempt在规则变化后仍按冻结身份finalize/审核四条最小断言，不新增第二个请求指纹。
 
 ## 4 P1 具体变更
 
@@ -107,7 +107,7 @@ application/pair_pipeline.py新增operation-local tail bounds准备函数，替�
 | V6 | typed scope与残余row identity不丢；变化EXACT+风险不完整；正常非筛选ordered ROW/ROW_PAIR/ROW_INTERVAL不新增装置待定位或不完整诊断 | business_navigation tests、test_business_presentation_flow.py |
 | V7 | Tail判定：尾部追加/删除/已有空尾/全空/稀疏/新增点后缀/间隙内保留点/move | test_risk_evaluation.py及现有ordered fixture，复用旧负例 |
 | V8 | v4decoder、summary/筛选/空页签/公共风险/定义与孤儿URL恢复 | model.test.ts、table-rows.test.ts、ComparisonPage相关测试 |
-| V9 | 新旧job/checkpoint/成功复用身份；同键不改绑；权限/crossscope不回退 | 现有preview binding/history compare及job tests，最小反例 |
+| V9 | 新旧job/checkpoint/成功复用身份；同键不改绑；新T1拒绝旧语义而已受理Attempt的finalize/审核仍按冻结身份；权限/crossscope不回退 | 现有preview binding/history compare及job tests，最小反例 |
 | V10 | 真实1→2与一个空点表；Preview/History相同pair；bundle/浏览器一致 | 受控真实旅程及frontend真实backend e2e |
 
 实施时先用rg定位既有测试模块的真实文件名；上表owner不要求新建同名模块。纯逻辑参数化测试不引入Dolt init；有Dolt lifecycle加integration；定时预算测试serial并-n0。测试不以finding轮次命名，不重复跨层完整矩阵。V7/V8增加空点间隙跨非骨架有效行、稀疏no、occupancy差小于范围跨度的摘要断言：不虚构空点逐行变化、不将interval风险染到新增有效点、风险筛选仍能找到摘要。

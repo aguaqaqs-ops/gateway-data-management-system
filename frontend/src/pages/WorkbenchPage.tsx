@@ -663,7 +663,7 @@ export function WorkbenchPage({ identityControl, headerControl }: { identityCont
               ? <p className="workspace-state-note">工作区已关闭，不能上传。</p>
               : workspace.active_submission_id
                 // The Preview now belongs to the submission: its diff is opened from that node.
-                ? <p className="workspace-state-note">本次上传已提交为{activeSubmissionRow?.label ?? "提交"}，等待审核。差异请在该提交上查看；撤回或审核完成后才能重新上传。</p>
+                ? <p className="workspace-state-note">本次上传已提交为{activeSubmissionRow?.label ?? "提交"}。差异请在该提交上查看。{occupancyReason && ` ${occupancyReason}。`}</p>
                 : workspace.current_preview_result_id
                   ? <>
                     <p className="workspace-state-note">{workspace.active_submit_attempt_id ? "提交正在处理，完成后会出现在组态树中。" : "本次上传已生成预览，尚未提交。在预览中确认差异后提交。"}</p>

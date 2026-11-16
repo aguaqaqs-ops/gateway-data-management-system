@@ -123,7 +123,7 @@ async function installFixtureRoutes(page: Page, options: {
     if (await rejectInvalidRequest(route, request)) return;
     workspacePostCount += 1;
     const postHold = options.workspacePostHold;
-    if (postHold && workspacePostCount === (postHold.onCall ?? 1)) {
+    if (postHold && (postHold.onCall === undefined || workspacePostCount === postHold.onCall)) {
       options.workspacePostHold = undefined;
       postHold.onHold();
       await postHold.release;

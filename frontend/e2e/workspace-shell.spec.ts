@@ -2262,13 +2262,11 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(notice.getByText("原始代码")).toBeVisible();
   // The upload gate is released (only the directory prerequisite remains), so
-  // selecting a directory makes both upload entries available.
-  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  // selecting a directory makes the upload action available.
+  await openReuploadCard(page);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
   await expect(cardUpload).toBeEnabled({ timeout: 15000 });
-  const toolbarUpload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(toolbarUpload).toBeEnabled({ timeout: 15000 });
   // The retry affordance lives inside the notice; the workbench has other
   // "重试" buttons (compare tray, history drawer) that must not be clicked.
   const attemptReadsBeforeRetry = apiRequests.filter((request) =>
@@ -2280,7 +2278,6 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(cardUpload).toBeEnabled();
-  await expect(toolbarUpload).toBeEnabled();
 });
 
 test("工作台续做提示重试时读不到提交结果仍保留刷新提示", async ({ page }) => {
@@ -2313,12 +2310,10 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   const notice = page.locator(".workspace-notice[role=\"alert\"]");
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
-  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await openReuploadCard(page);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
   await expect(cardUpload).toBeEnabled({ timeout: 15000 });
-  const toolbarUpload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(toolbarUpload).toBeEnabled({ timeout: 15000 });
   const attemptReadsBeforeRetry = apiRequests.filter((request) =>
     request.method === "GET" && request.path.includes("/submit-attempts/")).length;
   await notice.getByRole("button", { name: "重试", exact: true }).click();
@@ -2328,7 +2323,6 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
   await expect(cardUpload).toBeEnabled();
-  await expect(toolbarUpload).toBeEnabled();
 });
 
 test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", async ({ page }) => {

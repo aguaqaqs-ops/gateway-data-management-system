@@ -1331,6 +1331,8 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path,
         )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
+        from tests.support.preview_fixtures import seed_completed_preview_operation
+        seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated = replace(
             workspace,
             optimistic_version=1,
@@ -2450,6 +2452,8 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
         )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
+        from tests.support.preview_fixtures import seed_completed_preview_operation
+        seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated = replace(
             workspace,
             optimistic_version=1,

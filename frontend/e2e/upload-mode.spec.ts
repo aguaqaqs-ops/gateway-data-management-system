@@ -338,7 +338,7 @@ test("W1/W2 撤回成功后回到上传步骤并恢复上传", async ({ page }) 
   await expect(page).toHaveURL(/page=workspace/);
   await expect(page.getByText("已撤回，可以重新上传")).toBeVisible();
   await chooseUploadDirectory(page);
-  await expect(page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true })).toBeEnabled();
+  await expect(page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
   await screenshot(page, "fe3b-upload-restored", 1280);
 });
 

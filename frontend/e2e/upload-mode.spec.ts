@@ -414,12 +414,13 @@ test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page
   };
   await installModeRoutes(page, state);
   await page.goto("/?page=workspace");
-  await expect(page.getByText("该提交已归档").first()).toBeVisible();
+  await openWorkspaceDetails(page);
+  await expect(page.getByText("该提交已归档", { exact: false }).first()).toBeVisible();
   await screenshot(page, "fe3b-w10-stale-workspace", 1280);
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
-  await expect(page.getByText("该提交已归档").first()).toBeVisible();
+  await expect(page.getByText("该提交已归档", { exact: false }).first()).toBeVisible();
   await screenshot(page, "fe3b-w10-stale-preview", 1280);
 });
 
@@ -480,12 +481,12 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(details.getByText(/已归档，成为归档基线 \d+/)).toBeVisible();
   await expect(details.getByText("终局状态", { exact: true })).toHaveCount(0);
   await expect(details.getByText("审核状态")).toBeVisible();
-  await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
+  await expect(page.locator(".workspace-details__actions").getByText("该提交已归档")).toBeVisible();
   await screenshot(page, "fe3b-d1-archived", 1280);
 
   await page.locator("tr", { hasText: "提交 3" }).click();
   await expect(details.getByText("归档时选中了其他提交")).toBeVisible();
-  await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
+  await expect(page.locator(".workspace-details__actions").getByText("该提交已关闭（未归档）")).toBeVisible();
   await screenshot(page, "fe3b-d2-closed-at-archive", 1280);
 
   const d3Row = page.locator("tr", { hasText: "提交 4" });
@@ -499,21 +500,21 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await screenshot(page, "fe4a-d3-manual-close-collapsed", 1280);
   await details.getByRole("button", { name: "展开" }).click();
   await expect(details.getByText("第一行")).toBeVisible();
-  await expect(page.locator(".workspace-actions").getByRole("button", { name: "归档主线" })).toBeDisabled();
-  await expect(page.locator(".workspace-actions").getByText("该提交已关闭（未归档）")).toBeVisible();
+  await expect(page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" })).toBeDisabled();
+  await expect(page.locator(".workspace-details__actions").getByText("该提交已关闭（未归档）")).toBeVisible();
   await screenshot(page, "fe3b-d3-manual-close", 1280);
 
   const d4Row = page.locator("tr", { hasText: "提交 5" });
   await d4Row.click();
   await expect(d4Row.locator(".status-tag--warning")).toHaveCount(0);
-  await expect(page.locator(".workspace-actions").getByText("该提交已归档")).toBeVisible();
+  await expect(page.locator(".workspace-details__actions").getByText("该提交已归档")).toBeVisible();
   await screenshot(page, "fe3b-d4-priority", 1280);
 
   const d5Row = page.locator("tr", { hasText: "提交 6" });
   await expect(d5Row).toBeVisible();
   await d5Row.click();
   await expect(d5Row.locator(".status-tag--warning")).toHaveText("基线已更新");
-  await expect(page.locator(".workspace-actions").getByText("该提交所基于的基线已不是当前基线")).toBeVisible();
+  await expect(page.locator(".workspace-details__actions").getByText("该提交所基于的基线已不是当前基线")).toBeVisible();
   await expect(page.getByText("不能归档")).toHaveCount(0);
   await screenshot(page, "fe3b-d5-flag", 1280);
 });

@@ -135,7 +135,8 @@ describe("exact local change beside incomplete risk", () => {
     const incomplete = await loadTableCase("ownership-risk-incomplete", "device_st");
     const complete = await loadTableCase("ownership", "device_st");
     const device = tab(incomplete, "device:addr:49", "device_st");
-    expect(tabScope(device)).toMatchObject({ kind: "LOCAL_EXACT", changeKind: "DELETED", riskLevel: "MEDIUM_HIGH", riskComplete: false });
+    // The moved point changes dev_addr and name; v9 ignores the address and rates the name change LOW.
+    expect(tabScope(device)).toMatchObject({ kind: "LOCAL_EXACT", changeKind: "DELETED", riskLevel: "LOW", riskComplete: false });
     expect(device.notice).toMatchObject({ table_id: "device_st", risk_complete: false });
     expect(incomplete.presentation.view.tableNotices.map((notice) => notice.table_id)).toEqual(["device_cfg", "device_st"]);
     expect(incomplete.presentation.navigationDiagnostics.filter((item) => item.code === "DEVICE_TAB_RISK_UNAVAILABLE").map((item) => item.target.table_id))

@@ -1,18 +1,18 @@
 {
-  "ruleset_digest": "sha256:b4a1e59f602800e48e2d78c191115c1b6916ff6d20b976e83431b4a4961ca564",
-  "ordered_risk_evaluation_digest": "sha256:d4c165edb3a79174692aa97ccf799c723b87508830befdd48da1002b1bcdcaed",
-  "keyless_risk_evaluation_digest": "sha256:b4bf831a135b674df6c0005dc0803293295e19255a429d1c5946ab4d12c9d7e6",
+  "ruleset_digest": "sha256:ea8eddef0969af8b31c8d773105b354f1e37c7c54224df1c19185284315ca090",
+  "ordered_risk_evaluation_digest": "sha256:b86fc566ca9138ec0d540c45a583962fce7087681b4d60bd723cf9252c56c93d",
+  "keyless_risk_evaluation_digest": "sha256:c0a3d85c63c0297b86104f192a4dae51498d64b05155d0a8da80f063fe3edecb",
   "rules": {
     "contract_version": "backend-vnext/risk-ruleset/v1",
-    "risk_model_version": "backend-vnext/risk-model/v5",
+    "risk_model_version": "backend-vnext/risk-model/v6",
     "risk_ruleset_id": "backend-vnext/comparison-risk",
-    "risk_ruleset_version": "v8",
+    "risk_ruleset_version": "v9",
     "rules": [
       {
         "params": [],
         "reason_code": "COMPARISON_FAILED",
         "rule_id": "COMPARISON_FAILED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "HIGH",
           "overrides": []
@@ -23,7 +23,7 @@
         "params": [],
         "reason_code": "COMPOSITE_SIGNAL_CHANGE_REVIEW_REQUIRED",
         "rule_id": "COMPOSITE_SIGNAL_POINT",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "UNKNOWN",
           "overrides": []
@@ -34,7 +34,7 @@
         "params": [],
         "reason_code": "KEY_DEGRADED",
         "rule_id": "KEY_DEGRADED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "UNKNOWN",
           "overrides": []
@@ -45,7 +45,7 @@
         "params": [],
         "reason_code": "ORDERED_CONTENT_UPDATE",
         "rule_id": "ORDERED_CONTENT_UPDATE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_LOW",
           "overrides": []
@@ -56,7 +56,7 @@
         "params": [],
         "reason_code": "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED",
         "rule_id": "ORDERED_DIFF_UNSUPPORTED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "UNKNOWN",
           "overrides": []
@@ -67,7 +67,7 @@
         "params": [],
         "reason_code": "ORDERED_MIDDLE_BLANK_INTERVAL",
         "rule_id": "ORDERED_MIDDLE_BLANK_INTERVAL",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_HIGH",
           "overrides": []
@@ -78,7 +78,7 @@
         "params": [],
         "reason_code": "ORDERED_MIDDLE_INSERT_DELETE",
         "rule_id": "ORDERED_MIDDLE_INSERT_DELETE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_HIGH",
           "overrides": []
@@ -98,7 +98,7 @@
         ],
         "reason_code": "ORDERED_MIDDLE_BLANK_INTERVAL",
         "rule_id": "ORDERED_MIDDLE_YK_BLANK_INTERVAL",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "HIGH",
           "overrides": []
@@ -118,7 +118,7 @@
         ],
         "reason_code": "ORDERED_MIDDLE_INSERT_DELETE",
         "rule_id": "ORDERED_MIDDLE_YK_INSERT_DELETE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "HIGH",
           "overrides": []
@@ -129,7 +129,7 @@
         "params": [],
         "reason_code": "ORDERED_MOVE",
         "rule_id": "ORDERED_MOVE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_HIGH",
           "overrides": []
@@ -140,7 +140,7 @@
         "params": [],
         "reason_code": "ORDERED_NAME_UPDATE",
         "rule_id": "ORDERED_NAME_UPDATE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "LOW",
           "overrides": []
@@ -151,7 +151,7 @@
         "params": [],
         "reason_code": "ORDERED_REPLACEMENT",
         "rule_id": "ORDERED_REPLACEMENT",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_LOW",
           "overrides": []
@@ -162,7 +162,7 @@
         "params": [],
         "reason_code": "ORDERED_RISK_UNKNOWN",
         "rule_id": "ORDERED_RISK_UNKNOWN",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "UNKNOWN",
           "overrides": []
@@ -173,7 +173,7 @@
         "params": [],
         "reason_code": "ORDERED_TAIL_BLANK_INTERVAL",
         "rule_id": "ORDERED_TAIL_BLANK_INTERVAL",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "LOW",
           "overrides": []
@@ -184,7 +184,7 @@
         "params": [],
         "reason_code": "ORDERED_TAIL_INSERT_DELETE",
         "rule_id": "ORDERED_TAIL_INSERT_DELETE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "LOW",
           "overrides": []
@@ -195,7 +195,7 @@
         "params": [],
         "reason_code": "PROJECT_IDENTITY_MISMATCH",
         "rule_id": "PROJECT_IDENTITY_MISMATCH",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "HIGH",
           "overrides": []
@@ -251,7 +251,7 @@
         ],
         "reason_code": "ROW_ADDED",
         "rule_id": "ROW_ADDED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_LOW",
           "overrides": []
@@ -307,7 +307,7 @@
         ],
         "reason_code": "ROW_DELETED",
         "rule_id": "ROW_DELETED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_LOW",
           "overrides": []
@@ -315,10 +315,51 @@
         "target_scope": "STANDARD_ROWS"
       },
       {
-        "params": [],
+        "params": [
+          [
+            "ignore_address_table:device_cnt",
+            true
+          ],
+          [
+            "ignore_address_table:device_co",
+            true
+          ],
+          [
+            "ignore_address_table:device_disturb",
+            true
+          ],
+          [
+            "ignore_address_table:device_mx",
+            true
+          ],
+          [
+            "ignore_address_table:device_other",
+            true
+          ],
+          [
+            "ignore_address_table:device_sg",
+            true
+          ],
+          [
+            "ignore_address_table:device_sn",
+            true
+          ],
+          [
+            "ignore_address_table:device_sp",
+            true
+          ],
+          [
+            "ignore_address_table:device_st",
+            true
+          ],
+          [
+            "ignore_address_table:device_tap",
+            true
+          ]
+        ],
         "reason_code": "ROW_MODIFIED",
         "rule_id": "ROW_MODIFIED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_HIGH",
           "overrides": []
@@ -329,7 +370,7 @@
         "params": [],
         "reason_code": "SCHEMA_CHANGED",
         "rule_id": "SCHEMA_CHANGED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_HIGH",
           "overrides": []
@@ -340,7 +381,7 @@
         "params": [],
         "reason_code": "STANDARD_NAME_UPDATE",
         "rule_id": "STANDARD_NAME_UPDATE",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "LOW",
           "overrides": []
@@ -351,7 +392,7 @@
         "params": [],
         "reason_code": "TABLE_ADDED",
         "rule_id": "TABLE_ADDED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "LOW",
           "overrides": []
@@ -362,7 +403,7 @@
         "params": [],
         "reason_code": "TABLE_DELETED",
         "rule_id": "TABLE_DELETED",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "MEDIUM_HIGH",
           "overrides": []
@@ -373,7 +414,7 @@
         "params": [],
         "reason_code": "UNKNOWN_CHANGE_TARGET",
         "rule_id": "UNKNOWN_CHANGE_TARGET",
-        "rule_version": "v8",
+        "rule_version": "v9",
         "severity_policy": {
           "default_level": "UNKNOWN",
           "overrides": []
@@ -387,8 +428,8 @@
       {
         "artifact_id": "a1:comparison:5e88d9756f85171f813e2dc0d382284e7a461d45c16d84b269397968bebfdc2f",
         "media_type": "application/vnd.gateway.risk-annotations+json",
-        "raw_sha256": "sha256:a42d274f3e62f622d64a38719ae23332dad8a55c2b4f22ba90ee65b137d6d437",
-        "size_bytes": 1506
+        "size_bytes": 1506,
+        "raw_sha256": "sha256:a42d274f3e62f622d64a38719ae23332dad8a55c2b4f22ba90ee65b137d6d437"
       }
     ],
     "diagnostics": [],
@@ -402,7 +443,7 @@
       "risk_level": "MEDIUM_HIGH",
       "table_count": 1
     },
-    "risk_evaluation_digest": "sha256:d4c165edb3a79174692aa97ccf799c723b87508830befdd48da1002b1bcdcaed",
+    "risk_evaluation_digest": "sha256:b86fc566ca9138ec0d540c45a583962fce7087681b4d60bd723cf9252c56c93d",
     "risk_report_contract_version": "backend-vnext/risk/v2",
     "tables": [
       {
@@ -410,8 +451,8 @@
         "annotation_ref": {
           "artifact_id": "a1:comparison:5e88d9756f85171f813e2dc0d382284e7a461d45c16d84b269397968bebfdc2f",
           "media_type": "application/vnd.gateway.risk-annotations+json",
-          "raw_sha256": "sha256:a42d274f3e62f622d64a38719ae23332dad8a55c2b4f22ba90ee65b137d6d437",
-          "size_bytes": 1506
+          "size_bytes": 1506,
+          "raw_sha256": "sha256:a42d274f3e62f622d64a38719ae23332dad8a55c2b4f22ba90ee65b137d6d437"
         },
         "diagnostics": [],
         "reason_codes": [
@@ -532,8 +573,8 @@
       {
         "artifact_id": "a1:comparison:f98f69ba18546eff22b67a31f6ab976dd8bb3e646844ca7b953ab7cc7f34b1d9",
         "media_type": "application/vnd.gateway.risk-annotations+json",
-        "raw_sha256": "sha256:27339bf4d405dfbbcee13154a720c36bbe75b77dad3bf7f0061e758f1aa61ac1",
-        "size_bytes": 901
+        "size_bytes": 901,
+        "raw_sha256": "sha256:27339bf4d405dfbbcee13154a720c36bbe75b77dad3bf7f0061e758f1aa61ac1"
       }
     ],
     "diagnostics": [],
@@ -546,7 +587,7 @@
       "risk_level": "MEDIUM_LOW",
       "table_count": 1
     },
-    "risk_evaluation_digest": "sha256:b4bf831a135b674df6c0005dc0803293295e19255a429d1c5946ab4d12c9d7e6",
+    "risk_evaluation_digest": "sha256:c0a3d85c63c0297b86104f192a4dae51498d64b05155d0a8da80f063fe3edecb",
     "risk_report_contract_version": "backend-vnext/risk/v2",
     "tables": [
       {
@@ -554,8 +595,8 @@
         "annotation_ref": {
           "artifact_id": "a1:comparison:f98f69ba18546eff22b67a31f6ab976dd8bb3e646844ca7b953ab7cc7f34b1d9",
           "media_type": "application/vnd.gateway.risk-annotations+json",
-          "raw_sha256": "sha256:27339bf4d405dfbbcee13154a720c36bbe75b77dad3bf7f0061e758f1aa61ac1",
-          "size_bytes": 901
+          "size_bytes": 901,
+          "raw_sha256": "sha256:27339bf4d405dfbbcee13154a720c36bbe75b77dad3bf7f0061e758f1aa61ac1"
         },
         "diagnostics": [],
         "reason_codes": [

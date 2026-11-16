@@ -39,6 +39,8 @@ export interface BrowseRow {
   side: "before" | "current" | null;
   /** Same-side identity context from the locator when that side has no snapshot; used only to match filters. */
   identityContext?: Record<string, unknown> | null;
+  /** Real before-side filter evidence for a current row whose address-only change is hidden. */
+  beforeScope?: { values: Record<string, unknown>; identityContext?: Record<string, unknown> | null };
   /** Values come from a record or context, not a snapshot row: absent columns are unavailable, not NULL. */
   partialValues?: boolean;
   /** Present exactly on "blank-interval" summary rows. */
@@ -468,7 +470,7 @@ function matchesContextPredicate(predicate: NavigationPredicate | null, context:
   return predicate.values.includes(value as string | number);
 }
 
-function matchesSide(predicate: NavigationPredicate | null, row: BrowseRow, encodings: ReadonlyMap<string, SnapshotColumnEncoding>, where: string): boolean {
+function matchesSide(predicate: NavigationPredicate | null, row: Pick<BrowseRow, "values" | "identityContext">, encodings: ReadonlyMap<string, SnapshotColumnEncoding>, where: string): boolean {
   if (row.identityContext) return matchesContextPredicate(predicate, row.identityContext, where);
   return matchesTypedPredicate(predicate, row.values, encodings, where);
 }
@@ -634,6 +636,14 @@ export function buildBrowseRows(input: {
         const row = makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source,
           rowNumber: index + 1, identity, record: candidate, physical: index });
         row.riskLevel = null;
+        const entry = located(candidate);
+        const beforeIndex = entry?.beforeRowIndex ?? null;
+        if (hasBeforeSnapshot && beforeIndex !== null && input.beforeRows[beforeIndex]) {
+          row.beforeScope = { values: input.beforeRows[beforeIndex] };
+        } else if (entry?.beforeFilterContext) {
+          assertContextAgrees(entry.beforeFilterContext, recordValues(candidate.before_values), `表 ${input.table.table_name} 的修改行 ${identity ?? index + 1}`);
+          row.beforeScope = { values: {}, identityContext: entry.beforeFilterContext };
+        }
         rows.push(row);
         return;
       }
@@ -814,6 +824,7 @@ export function buildBrowseRows(input: {
       if (row.side === "before") return matchesSide(filter.before, row, beforeEncodings, "改前筛选");
       if (row.side === "current") {
         if (matchesSide(filter.current, row, currentEncodings, "改后筛选")) return true;
+        if (row.beforeScope && matchesSide(filter.before, row.beforeScope, beforeEncodings, "改前筛选")) return true;
         return reusable && row.recordKind === null && matchesTypedPredicate(filter.before, row.values, currentEncodings, "改前筛选");
       }
       // A blank-interval summary belongs to the ordered table, not to a device filter.
@@ -824,7 +835,10 @@ export function buildBrowseRows(input: {
     const encodings = side === "before" ? beforeEncodings : currentEncodings;
     const where = side === "before" ? "改前未归属" : "改后未归属";
     for (const predicate of predicates) assertPredicateCompatible(predicate, encodings, where);
-    scoped = keepPairs((row) => row.side === side && !predicates.some((predicate) => matchesSide(predicate, row, encodings, where)));
+    scoped = keepPairs((row) => {
+      const candidate = row.side === side ? row : side === "before" ? row.beforeScope : undefined;
+      return candidate !== undefined && !predicates.some((predicate) => matchesSide(predicate, candidate, encodings, where));
+    });
   }
   const query = input.search?.trim().toLocaleLowerCase();
   let visible = scoped.filter((row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query));

@@ -102,6 +102,25 @@ describe("device point address changes", () => {
     expect(browse(name, ["dev_addr"], true).rows.map((row) => row.kind)).toEqual(["collapsed"]);
   });
 
+  it.each([true, false])("matches the real before side when a snapshot is available: %s", (hasBefore) => {
+    const base = {
+      table: table({ table_name: "device_st" }), beforeRows: hasBefore ? [{ dev_addr: 1, description: "旧" }] : [],
+      currentRows: [{ dev_addr: 2, description: "当前" }], hasBeforeSnapshot: hasBefore,
+      records: [record("ROW_MODIFIED", 0x11, { changed_columns: ["dev_addr"], before_values: [{ column_name: "dev_addr", value: { kind: "int", text: "1" } }] })],
+      locator: parseRowLocator([locatorRow(0x11, hasBefore ? 0 : null, 0, hasBefore ? {} : { before: { dev_addr: 1 } })]),
+      annotations: [], beforeEncodings: browseEncodings(), currentEncodings: browseEncodings(),
+    };
+    const oldSide = buildBrowseRows({ ...base, rowFilter: { before: { column: "dev_addr", values: [1] }, current: null } });
+    expect(oldSide.rows).toHaveLength(1);
+    expect(oldSide.rows[0]).toMatchObject({ kind: "unchanged", side: "current", values: { dev_addr: 2, description: "当前" } });
+    expect(deriveChangeLocations(oldSide.scoped)).toEqual([]);
+    expect(buildBrowseRows({ ...base, rowFilter: { before: { column: "dev_addr", values: [2] }, current: null } }).rows).toEqual([]);
+    expect(buildBrowseRows({ ...base, unassigned: { side: "before", predicates: [{ column: "dev_addr", values: [2] }] } }).rows).toHaveLength(1);
+    expect(buildBrowseRows({ ...base, unassigned: { side: "before", predicates: [{ column: "dev_addr", values: [1] }] } }).rows).toEqual([]);
+    const only = buildBrowseRows({ ...base, rowFilter: { before: { column: "dev_addr", values: [1] }, current: null }, onlyInteresting: true });
+    expect(only.rows.map((row) => row.kind)).toEqual(["collapsed"]);
+  });
+
   it("shows other changed fields and retains conservative handling for missing evidence and other tables", () => {
     const mixed = browse("device_st", ["dev_addr", "description"]);
     expect(mixed.rows.map((row) => row.kind)).toEqual(["modified-before", "modified-after"]);

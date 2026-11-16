@@ -1,20 +1,34 @@
 {
   "contract_version": "backend-vnext/risk/v2",
-  "model_version": "backend-vnext/risk-model/v5",
+  "model_version": "backend-vnext/risk-model/v6",
   "cases": {
     "whole_table_added": {
       "status": "READY",
       "risk_level": "LOW",
-      "reason_codes": ["TABLE_ADDED"],
+      "reason_codes": [
+        "TABLE_ADDED"
+      ],
       "annotation_count": 1,
-      "evidence": [["row_count", 3]]
+      "evidence": [
+        [
+          "row_count",
+          3
+        ]
+      ]
     },
     "whole_table_deleted": {
       "status": "READY",
       "risk_level": "MEDIUM_HIGH",
-      "reason_codes": ["TABLE_DELETED"],
+      "reason_codes": [
+        "TABLE_DELETED"
+      ],
       "annotation_count": 1,
-      "evidence": [["row_count", 5]]
+      "evidence": [
+        [
+          "row_count",
+          5
+        ]
+      ]
     },
     "added_columns_only": {
       "status": "READY",
@@ -25,8 +39,12 @@
     "incompatible_enum_set_label_change": {
       "status": "READY",
       "risk_level": "MEDIUM_HIGH",
-      "risk_levels": ["MEDIUM_HIGH"],
-      "reason_codes": ["SCHEMA_CHANGED"],
+      "risk_levels": [
+        "MEDIUM_HIGH"
+      ],
+      "reason_codes": [
+        "SCHEMA_CHANGED"
+      ],
       "annotation_count": 1
     }
   }

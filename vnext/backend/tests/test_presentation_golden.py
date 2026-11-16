@@ -17,7 +17,7 @@ from gateway_backend.capabilities.business_navigation.contracts import validate_
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.capabilities.row_location import LOCATOR_SCHEMA
 
-GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v5"
+GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v6"
 MANIFEST: dict[str, Any] = json.loads((GOLDEN / "manifest.json").read_bytes())
 SCENARIOS = tuple(item["scenario"] for item in MANIFEST["scenarios"])
 CODE_INVENTORY: dict[str, Any] = json.loads((Path(__file__).resolve().parents[2] / "fixtures/presentation-inputs/diagnostic-codes.json").read_bytes())

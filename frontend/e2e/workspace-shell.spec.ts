@@ -1001,18 +1001,21 @@ test("加载中显示骨架，bundle 接口失败显示可重试错误页", asyn
   await screenshot(page, "bundle-error", 1280);
 });
 
-test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 详情面板", async ({ page }) => {
+test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 详情面板", async ({ page }) => {
   const { apiRequests, apiResponses } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
-  await expect(page.locator(".workspace-table thead th")).toHaveCount(4);
+  await expect(page.locator(".workspace-table thead th")).toHaveText(["比较", "节点", "时间"]);
   await expect(page.locator(".workspace-page")).toHaveClass(/details-open/);
-  await expect(page.locator(".workspace-context-bar")).toContainText("工作区 gateway-17");
-  await expect(page.locator(".workspace-context-bar").getByRole("button", { name: "原始组态备份" })).toBeEnabled();
-  await expect(page.locator(".workspace-context-bar").getByRole("button", { name: "本次归档组态" })).toBeEnabled();
-  await expect(page.locator(".workspace-context-bar").getByRole("button", { name: "上传" })).toBeDisabled();
-  await expect(page.locator(".workspace-context-bar")).toContainText("需先选择本次归档组态目录");
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await expect(page.locator(".workspace-details")).toContainText("本次上传已生成预览");
+  await page.locator(".workspace-reupload summary").click();
+  const upload = page.getByLabel("上传与预览");
+  await expect(upload.locator('[data-slot="initial"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
+  await expect(upload.locator('[data-slot="modified"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
+  await expect(upload.getByRole("button", { name: "上传并生成预览" })).toBeDisabled();
+  await expect(upload).toContainText("需先选择本次归档组态目录");
   await screenshot(page, "s1-workbench", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
@@ -1033,22 +1036,13 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("提交");
   await expect(page.locator(".workspace-table tbody tr")).toHaveCount(5);
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("");
-  await page.getByRole("button", { name: "提交时间", exact: true }).click();
-  const widthBefore = await page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
-  const resize = page.getByRole("button", { name: "调整节点 / 描述列宽" });
-  const resizeBounds = await resize.boundingBox();
-  if (!resizeBounds) throw new Error("workspace table column resize handle is missing");
-  await page.mouse.move(resizeBounds.x + resizeBounds.width / 2, resizeBounds.y + resizeBounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(resizeBounds.x + resizeBounds.width / 2 + 48, resizeBounds.y + resizeBounds.height / 2);
-  await page.mouse.up();
-  await expect.poll(() => page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width))).toBeGreaterThan(widthBefore);
+  await page.getByRole("button", { name: "时间", exact: true }).click();
 
   await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await expect(page.locator(".workspace-context-bar")).toContainText("待审核");
-  await expect(page.locator(".workspace-context-bar")).toContainText("提交尚未审核通过");
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await expect(page.locator(".workspace-details")).toContainText("待审核");
+  await expect(page.locator(".workspace-details")).toContainText("提交尚未审核通过");
+  await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await expect(page.locator(".compare-tray")).toContainText("2 / 3");
   await expect(page.locator(".workspace-table")).toContainText("比较 1");
   await expect(page.locator(".workspace-table")).toContainText("比较 2");
@@ -1072,10 +1066,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   }
 
   await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "原始组态备份" }).click();
-  expect(new URL(page.url()).searchParams.get("page")).not.toBe("compare");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
-  await page.locator(".workspace-details").getByRole("button", { name: "查看本次组态差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "继续预览并提交" }).click();
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("workspaceId")).toBe("workspace-fe2b");
   expect(new URL(page.url()).searchParams.get("previewResultId")).toBe("preview-full");

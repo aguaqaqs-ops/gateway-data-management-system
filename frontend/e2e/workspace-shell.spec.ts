@@ -166,6 +166,7 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     if (request.method() !== "GET") return route.fallback();
     const url = new URL(request.url());
+    if (url.pathname !== "/v1/history") return route.fallback();
     if (options.unauthorized) {
       const error = { code: "AUTHENTICATION_REQUIRED", message: "会话无效或已过期" };
       apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 401, body: JSON.stringify(error) });
@@ -188,6 +189,10 @@ async function installFixtureRoutes(page: Page, options: {
     apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 200, body: JSON.stringify(body) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
+
+  await page.route("**/v1/history-compares?*", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null } satisfies Schemas["HistoryCompareListResponse"]),
+  }));
 
   const reviewReplayKeys = new Set<string>();
   let reviewStatus: Schemas["ReviewFactsResponse"]["status"] = "PENDING";

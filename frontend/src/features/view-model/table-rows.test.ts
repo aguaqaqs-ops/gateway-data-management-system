@@ -338,6 +338,27 @@ describe("browse rows from published locators", () => {
     expect(ambiguous.rows.some((row) => row.kind === "blank-interval")).toBe(true);
   });
 
+  it("marks every proven inserted blank and leaves a region with retained blanks ambiguous", () => {
+    const current = [
+      { no: "1", gid: "2" }, { no: "2", gid: "4000000000" }, { no: "3", gid: "4000000001" },
+      { no: "4", gid: "3" }, { no: "13", gid: "30" }, { no: "14", gid: "4000000002" }, { no: "15", gid: "31" },
+    ];
+    const records = [
+      blankRecord("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 2, current_end: 3, row_count: 2 }),
+      blankRecord("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 14, current_end: 14, row_count: 1 }),
+    ];
+    const input = { table: table({ ordered_extension: {} }), beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
+      currentCanonicalBlanks: true, locator: new Map(), annotations: [], records };
+    const result = buildBrowseRows(input);
+    expect(result.rows.filter((row) => row.kind === "added").map((row) => row.values.no)).toEqual(["2", "3", "14"]);
+    expect(deriveChangeLocations(result.scoped).map((location) => location.position)).toEqual([2, 3, 6]);
+    const ambiguous = buildBrowseRows({ ...input, records: [blankRecord("BLANK_INSERT_INTERVAL", {
+      before_start: 2, before_end: 2, current_start: 2, current_end: 3, row_count: 1,
+    })] });
+    expect(ambiguous.rows.filter((row) => row.kind === "added")).toHaveLength(0);
+    expect(ambiguous.rows.filter((row) => row.kind === "blank-interval")).toHaveLength(1);
+  });
+
   it("summarises each blank interval once and never invents per-position blank rows", () => {
     // Before: 1 2 _ _ 5 _ _ 8. Insert two blanks after 1 and shrink the 6-7 run to one blank.
     const current = ["1", "", "", "2", "", "", "5", "", "8"].map((label, index) => ({ dev_addr: label, description: label || "空点", no: String(index + 1) }));

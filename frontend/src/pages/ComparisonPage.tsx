@@ -213,6 +213,10 @@ function orderedMovedCount(table: SurfaceTable): number {
   return typeof moved === "number" && moved > 0 ? moved : 0;
 }
 
+function hasDeletedAppearance(row: BrowseRow): boolean {
+  return row.kind === "deleted" || (row.kind === "blank-interval" && row.interval?.direction === "DELETE");
+}
+
 function rowLabel(row: BrowseRow): string {
   if (row.kind === "collapsed") return row.expanded ? "▴ 收起 " + (row.collapsedCount ?? 0) + " 行未变更" : "▾ " + (row.collapsedCount ?? 0) + " 行未变更 · 展开";
   if (row.kind === "blank-interval" && row.interval) return blankIntervalLabel(row.interval);
@@ -1421,10 +1425,10 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlighted, store
     const changed = row.changedColumns.includes(columnId);
     const boldStyle = row.kind === "modified-after" && changed ? `600 ${theme.baseFontStyle}` : undefined;
     const cellTheme = risk
-      ? { bgCell: changed ? risk.cell : risk.bg, textDark: row.kind === "modified-before" || row.kind === "deleted" ? "#535D69" : risk.text, ...(boldStyle ? { baseFontStyle: boldStyle } : {}) }
+      ? { bgCell: changed ? risk.cell : risk.bg, textDark: row.kind === "modified-before" || hasDeletedAppearance(row) ? "#535D69" : risk.text, ...(boldStyle ? { baseFontStyle: boldStyle } : {}) }
       : changed ? { bgCell: "#E6E9ED", textDark: "#1B2229", ...(boldStyle ? { baseFontStyle: boldStyle } : {}) } : undefined;
     return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value, columnShape), displayData: normalizeDisplayScalar(value, columnShape), allowOverlay: false,
-      style: row.kind === "modified-before" || row.kind === "deleted" ? "faded" : "normal",
+      style: row.kind === "modified-before" || hasDeletedAppearance(row) ? "faded" : "normal",
       ...(columnId === "__number" ? { contentAlign: "right" as const } : {}),
       themeOverride: columnId === "__number" ? numberTheme : cellTheme };
   }, [columns, numberTheme, orderedColumns, pairRows, rows, table.table_name, theme.baseFontStyle]);
@@ -1435,7 +1439,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlighted, store
     const row = rows[args.row]; if (!row) return;
     if (args.col === 0 && row.riskLevel) { args.ctx.fillStyle = riskTokens(row.riskLevel).rail; args.ctx.fillRect(args.rect.x, args.rect.y, 4, args.rect.height); }
     if (args.col === 1 && row.pairKey) { const pair = pairRows.get(row.pairKey) ?? []; const at = pair.indexOf(args.row); if (pair.length === 2 && Math.abs((pair[0] ?? 0) - (pair[1] ?? 0)) === 1) { args.ctx.strokeStyle = "#68798A"; args.ctx.lineWidth = 1.5; args.ctx.beginPath(); const x = args.rect.x + 14; const center = args.rect.y + args.rect.height / 2; args.ctx.moveTo(x, at === 0 ? center : args.rect.y); args.ctx.lineTo(x, at === 0 ? args.rect.y + args.rect.height : center); args.ctx.stroke(); } }
-    if (row.kind === "deleted" && args.col >= (debug ? 5 : 2)) { args.ctx.strokeStyle = "#535D69"; args.ctx.lineWidth = 1; args.ctx.beginPath(); const y = args.rect.y + args.rect.height / 2; args.ctx.moveTo(args.rect.x + 8, y); args.ctx.lineTo(args.rect.x + args.rect.width - 8, y); args.ctx.stroke(); }
+    if (hasDeletedAppearance(row) && args.col >= (debug ? 5 : 2)) { args.ctx.strokeStyle = "#535D69"; args.ctx.lineWidth = 1; args.ctx.beginPath(); const y = args.rect.y + args.rect.height / 2; args.ctx.moveTo(args.rect.x + 8, y); args.ctx.lineTo(args.rect.x + args.rect.width - 8, y); args.ctx.stroke(); }
     if (isHighlighted(row)) { args.ctx.strokeStyle = "#1F5FBF"; args.ctx.lineWidth = 1; args.ctx.beginPath(); args.ctx.moveTo(args.rect.x, args.rect.y + .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + .5); args.ctx.moveTo(args.rect.x, args.rect.y + args.rect.height - .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + args.rect.height - .5); if (args.col === 0) { args.ctx.moveTo(args.rect.x + .5, args.rect.y); args.ctx.lineTo(args.rect.x + .5, args.rect.y + args.rect.height); } if (args.col === columns.length - 1) { args.ctx.moveTo(args.rect.x + args.rect.width - .5, args.rect.y); args.ctx.lineTo(args.rect.x + args.rect.width - .5, args.rect.y + args.rect.height); } args.ctx.stroke(); }
   }, [columns.length, debug, isHighlighted, markPainted, pairRows, rows]);
   // A single click on an unchanged-run row toggles it; Enter/Space (activation)

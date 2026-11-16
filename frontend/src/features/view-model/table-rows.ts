@@ -768,10 +768,10 @@ export function buildBrowseRows(input: {
       } else if (kind === "BLANK_INSERT_INTERVAL" || kind === "BLANK_DELETE_INTERVAL") {
         const interval = blankIntervalSummary(record);
         if (!interval) continue;
-        // A single canonical blank in the affected region, with net increase
-        // one, proves that row is the inserted blank. Other cases remain a
-        // region: a range can include valid points, retained blanks or gaps.
-        if (interval.direction === "INSERT" && interval.current && interval.rowCount === 1 && hasCurrentSnapshot && input.currentCanonicalBlanks) {
+        // If the canonical blanks in this region equal the net increase,
+        // none can be retained blanks. Otherwise their individual identities
+        // are ambiguous and the interval must remain a summary.
+        if (interval.direction === "INSERT" && interval.current && interval.rowCount !== null && interval.rowCount > 0 && hasCurrentSnapshot && input.currentCanonicalBlanks) {
           const [start, end] = interval.current;
           const positions = input.currentRows.map((row) => scalarPosition(row[ORDERED_POSITION_COLUMN]));
           const overlaps = records.some((other) => {
@@ -786,13 +786,18 @@ export function buildBrowseRows(input: {
               return position !== null && position !== undefined && position >= start && position <= end
                 && gid !== null && gid >= 4_000_000_000 && gid <= 4_294_967_295 ? [index] : [];
             });
-            const row = candidates.length === 1 ? rows.find((item) => item.side === "current" && item.physicalIndex === candidates[0] && item.kind === "unchanged") : undefined;
-            if (row) {
-              row.kind = "added";
-              row.recordKind = kind;
-              row.semanticKind = kind;
-              row.interval = interval;
-              row.riskLevel = blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null;
+            const candidateRows = candidates.flatMap((index) => {
+              const row = rows.find((item) => item.side === "current" && item.physicalIndex === index && item.kind === "unchanged");
+              return row ? [row] : [];
+            });
+            if (candidates.length === interval.rowCount && candidateRows.length === candidates.length) {
+              for (const row of candidateRows) {
+                row.kind = "added";
+                row.recordKind = kind;
+                row.semanticKind = kind;
+                row.interval = interval;
+                row.riskLevel = blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null;
+              }
               consumed.add(record);
               continue;
             }

@@ -1,13 +1,13 @@
 {
   "format": "backend-presentation-golden/v1",
-  "generator_commit": "3b58026ffa0a43ad0db6a61ff7ad1e5332dc6af9",
-  "generator_vnext_tree": "f1b165985e5da1bbc0c1e346099cdc3b4e204ae5",
+  "generator_commit": "4352a3f0f02772905a0ea35cf7b4a1b9d8c314d9",
+  "generator_vnext_tree": "5439a5959a4b3dd629ae98703e9448cdbf5dce32",
   "input_manifest_sha256": "f6be60fcb23944c7866d16291652811b32bd783ce0f4420c07bf9bba68f72837",
   "scenarios": [
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:f33155b5b371ee4f3536b5441cb732f731703463e81709538fdb200729ca6109",
+      "bundle_digest": "sha256:e59d8b2a4049dbf88845b9a2586730d235d0e6bc863c052ed51077bf4aac3081",
       "comparison_exclusions": {},
       "coverage": [
         "ordinary-two-pairs",
@@ -111,9 +111,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "eda7c528744a51427e301dce64caa7ee9f84eeff53eb979872888edd575caae9",
-        "manifest.json": "a0190781bd7ad61dea6f70312d32ac6fa05ca0a12dbe803c4de6f3442fc0e59f",
-        "pairs/baseline_to_initial/comparison-surface.json": "1f7b09e537fad2b8314b55c9263c7a2945211ef8916b104ad59c799d85de8f7b",
+        "artifact-closure.json": "953818d5dee51ce6bff4f43a63777ad59edd60f9589f25f5140a527333403e31",
+        "manifest.json": "a3219a2f24d9f154aec8fd73a0f6ec547806d14c7de57fe70e60be38a4e2f2f4",
+        "pairs/baseline_to_initial/comparison-surface.json": "702815329f11125b06e376186a5833e62f170a02a253b36b1db5dc3e50ce1f03",
         "pairs/baseline_to_initial/comparison/locators/device.parquet": "160a8feb3783a213cf9fb9b0806b214e7672846a1798a9dc13f06377909d9058",
         "pairs/baseline_to_initial/comparison/locators/keyless_demo.parquet": "fbd89ac344e5d4dd2d955a2f6bbb77cceaf056167cda89d9b7c0eb5ec2838a72",
         "pairs/baseline_to_initial/comparison/records/b1_n1_iec104_syx_list/blank/manifest.json": "fa31a615f38e0ffbc6f1d88306b39d19748fe84b04ed94c7256ddcbe796fbaaa",
@@ -143,7 +143,7 @@
         "pairs/baseline_to_initial/tables/before/device.parquet": "41a3e7cbee3deecd9e13b4612438900ddb139ef6cb8ba8ada1b17d54e448703f",
         "pairs/baseline_to_initial/tables/current/keyless_demo.parquet": "244fb4a33d738ec4c03a17b1532c71f983487d9b7d2923177a532bceeed5045b",
         "pairs/baseline_to_initial/tables/current/schema_demo.parquet": "41a35fd6c88656eefef0cb2c2897d885a355e77782c066058902301c3e7f4199",
-        "pairs/initial_to_modified/comparison-surface.json": "34c3e661aacd1ae21a7c41e9d682ed1d0651ad59a8088283963b4c9b1546a960",
+        "pairs/initial_to_modified/comparison-surface.json": "d3c2fe065137ee2422430a0aeebbcda1dcdf8c99b2bd70c733b7b847a71df858",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "9855bf02e9df59461649d5e5029ae064af7705466110b98687af66a12ee09845",
         "pairs/initial_to_modified/comparison/locators/keyless_demo.parquet": "1daf5b1f77c1a6fa3f66a5534e5c5baededcdd8de08b0b18ba1a92be8b96d365",
         "pairs/initial_to_modified/comparison/locators/schema_demo.parquet": "d6e6d9c6f412ca17a3fde6221c028753adf80a1ca0d95a8aed611af83c135588",
@@ -193,7 +193,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:a6886c57eaf4914728c7a7959e37ac99039f4410b5743644d3e3709366a271d4",
+      "bundle_digest": "sha256:49e13b62e253f03f8ebbfca35f24e0b47a718208a31fc2aeab238de38df582c0",
       "comparison_exclusions": {},
       "coverage": [
         "modified-only",
@@ -269,9 +269,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "4f498a067143b3354fb7560c9779ccfa3952e7e0f75014da8f42560582c7c86a",
-        "manifest.json": "2d082e7b52642dbd8b7575bf4c0495eaa87d362724553f666c14eb9c0c003f56",
-        "pairs/initial_to_modified/comparison-surface.json": "0791e93a4aa1f20b861cb1fbbe3c9db5be55deb42cc01198c334ea2d6fa51220",
+        "artifact-closure.json": "e61e68d39a87a82a3be99432d29c331d5fa33ede732ef41431053ff7de53e644",
+        "manifest.json": "8a641a5464a863852ee00745d4bbeb8dd3057dc983abaad5a18e2409635d7192",
+        "pairs/initial_to_modified/comparison-surface.json": "81f580177267e5563944be7534f2b83cc42612faddd7fa8f44fb35dffab2fc3c",
         "pairs/initial_to_modified/comparison/locators/composite_signal_point.parquet": "d23b46b8913a03c1d343ae16ff422d407388a63cac63b1d1368d9a1a54c324ab",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "160a8feb3783a213cf9fb9b0806b214e7672846a1798a9dc13f06377909d9058",
         "pairs/initial_to_modified/comparison/locators/keyless_demo.parquet": "018a107604511ff7f3fe6d741471219154216eb0b3d4f1155825ce363d8e3c3b",
@@ -326,7 +326,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:d9e213f0db3b42ac664c04af6b1089d17c345d447b1405db2ea96371d8d45511",
+      "bundle_digest": "sha256:5412e2b21ae7f060a401350cf6b06e221e28f1339bf55ee30e44eefc3c27c2a9",
       "comparison_exclusions": {},
       "coverage": [
         "replacement",
@@ -365,9 +365,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "2fb04bb2f8e5a4bded114892b3678e6fbc301c98095be626cd0590057c9bd009",
-        "manifest.json": "17c057838ab7c86b2aacc3cba8a546c3aeaa530542f7fbc8b37f37290bae3dd8",
-        "pairs/initial_to_modified/comparison-surface.json": "6e9e9646ca02eb9a3008ca3d7cb45fd2ab2abf3412a8945a95f890325bcd06c2",
+        "artifact-closure.json": "64918081fe20f8ecd6d66e72abb1356dcbc447cd14dc7cc4cb8b1a6e76bfc7ff",
+        "manifest.json": "601b253f857f64809133c3caf17c1f140712eb05bad731a7719887f33a9a06ae",
+        "pairs/initial_to_modified/comparison-surface.json": "c128935634f47d09d057c72903d7f90d0fbde8f331a6e04bf71cd8b3d05b79a2",
         "pairs/initial_to_modified/identity/assessment.json": "e2413a7bffb8dc11c702f7968285f3c1d7e989fc9d6986b5007394875b96379a",
         "pairs/initial_to_modified/projections/business_navigation.json": "3ee9d25f7ea3262a444765faef8dd41cd806d95b0b01df6dac16e1753eea0664",
         "pairs/initial_to_modified/tables/before/composite_signal_point.parquet": "c62a55567e34bfc1606fa3533a867029b85d389c0f0dbb3a08619f13bd85e46e",
@@ -386,7 +386,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:2ce1465f0bf52b6f5ae95de1b476e79cc113d1bc00567bc8187805d0f635b530",
+      "bundle_digest": "sha256:eff89761595d4d45cc5fe6f7d6aa859e89e14fdcd0e4e68160ce53d10de8d250",
       "comparison_exclusions": {},
       "coverage": [
         "history-three-nodes",
@@ -489,9 +489,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "db96fcbea3aa389ec592c25f5712aabf87b25ce7ac1049576da1ae85d4a30093",
-        "manifest.json": "3545141ed5425c0d5c9e1f91dbb88014e9fa8e2723974d5a69421800a6b74c55",
-        "pairs/left_to_middle/comparison-surface.json": "3fa678fb08c9d33f518fd55f1aeb380a6b526ef508c9f56de353d61d308a82a9",
+        "artifact-closure.json": "25125c6197f2a9b5e5ba6822d18048b8e2739795402e54e208d403543cd2d421",
+        "manifest.json": "1f143f9dd27ef7744323c1e62c99d7157fb9d4a070a024dc0ad55e975cbf4172",
+        "pairs/left_to_middle/comparison-surface.json": "ffe4896fdc61f16d87fbb15e1945abffa0d273793f5280c35ba453d47b0a11e6",
         "pairs/left_to_middle/comparison/locators/device.parquet": "160a8feb3783a213cf9fb9b0806b214e7672846a1798a9dc13f06377909d9058",
         "pairs/left_to_middle/comparison/locators/keyless_demo.parquet": "8eb415623a0fe0ff0daa6b84befb4a26295ea13ef514f9555daa0ea5d96958b9",
         "pairs/left_to_middle/comparison/records/b1_n1_iec104_syx_list/blank/manifest.json": "fa31a615f38e0ffbc6f1d88306b39d19748fe84b04ed94c7256ddcbe796fbaaa",
@@ -521,7 +521,7 @@
         "pairs/left_to_middle/tables/before/device.parquet": "41a3e7cbee3deecd9e13b4612438900ddb139ef6cb8ba8ada1b17d54e448703f",
         "pairs/left_to_middle/tables/before/keyless_demo.parquet": "5503ef912b83cd227c8cd9c90cc3d34355d3baf856ae7b2c1290d0ebe7d49ac1",
         "pairs/left_to_middle/tables/before/schema_demo.parquet": "7341b5c2a6a99d73300dba1a11e6a6def835e76b1cbbf988d9f90dc08064a7c5",
-        "pairs/middle_to_right/comparison-surface.json": "2bd3f985f7460d06b76219680a8702872ff4ce9ad6b9dec7d28cc916e502f811",
+        "pairs/middle_to_right/comparison-surface.json": "ec6e272ef0679f2de69c44ec20e1fcc8a0af8009f18acfeb40d4e084b2f737fb",
         "pairs/middle_to_right/comparison/locators/device.parquet": "9855bf02e9df59461649d5e5029ae064af7705466110b98687af66a12ee09845",
         "pairs/middle_to_right/comparison/locators/keyless_demo.parquet": "0453c4954d4ab151a1a0f65dcca4fdbeed4d7645387c53a68f6583b7144b5ff4",
         "pairs/middle_to_right/comparison/locators/schema_demo.parquet": "b04e3eb40b6670e2edf779bec59e9eb8c1f31918d4b8c8eb76adb608e9fc45e1",
@@ -576,7 +576,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:d53eaeb848e34fd4bca41797ba36f506d6f24f2e74e0894a7e42a64ea0889fba",
+      "bundle_digest": "sha256:7e289d5400bfae97c22a53f5c68b23badc94afb5ec24056840c638639d9e50b4",
       "comparison_exclusions": {},
       "coverage": [
         "ordered-normal"
@@ -617,9 +617,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "9b052993483b71bd0b0525d37245a91d5943337545cde829316d880752032470",
-        "manifest.json": "6e1d32ce513f79b21a9f08b57823c8b56717af7899762991f0db28a71d2dec2f",
-        "pairs/initial_to_modified/comparison-surface.json": "4bb9e0ff933c61e0b6ccfe69b9eb72f2cda12267fabe94d448d4f9742a1c84bc",
+        "artifact-closure.json": "6937e6491701ffb85d11f7ffe6ce051592eda7e97ebba552df6bd131abdb91e3",
+        "manifest.json": "065c5a74ed0122f3356783828e83ce30bc1ab81aacd261a970d55712ee7ecb23",
+        "pairs/initial_to_modified/comparison-surface.json": "71d1f8de2861cd58e09b9c0d06adbc7fac9ce12d291221283b027a31215400d8",
         "pairs/initial_to_modified/comparison/locators/b1_n1_iec104_yc_list.parquet": "a94665f0a8ca317b95985e4d8223c15c028f89d7aeb1627bdad2aa06b76ddb60",
         "pairs/initial_to_modified/comparison/records/b1_n1_iec104_yc_list/manifest.json": "c614359cb39a96ca874c7b008fd725b20eb56029d75b8ce5862325d71b335f75",
         "pairs/initial_to_modified/comparison/records/b1_n1_iec104_yc_list/rows.bin": "c06d6f48afec31e10421cfd216b82738ea7d6d8157544d6d3d65a2a34ca8776c",
@@ -642,7 +642,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:4c93211be5fbc385c8a55d2b7d00763539e82324dfa6d2b24d9d2ddad8c8aed9",
+      "bundle_digest": "sha256:12d5d90f47ff1fc7dfcd07775ebd378db8ad04764f12416b1e80e048fe5499b5",
       "comparison_exclusions": {},
       "coverage": [
         "bundle-closure-digests"
@@ -711,9 +711,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "a0ac80f6cf26bc626439af8ec0f49456c563a4d1531022fe616ccb85a113b20c",
-        "manifest.json": "21c72cc4f3334626da789b912ff8fb0828c8919964d1d9468d07fecdaa0ca6e8",
-        "pairs/initial_to_modified/comparison-surface.json": "34c3e661aacd1ae21a7c41e9d682ed1d0651ad59a8088283963b4c9b1546a960",
+        "artifact-closure.json": "1fec83a7a1c624667c2f11c1f2b7cd500c4fdcff61f97874e4d4f26b59d950fe",
+        "manifest.json": "8d12521b1fbb42bba115b776c8318443a476a721edad5e0ac9bf8d41f92d2f7a",
+        "pairs/initial_to_modified/comparison-surface.json": "d3c2fe065137ee2422430a0aeebbcda1dcdf8c99b2bd70c733b7b847a71df858",
         "pairs/initial_to_modified/comparison/locators/composite_signal_point.parquet": "d23b46b8913a03c1d343ae16ff422d407388a63cac63b1d1368d9a1a54c324ab",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "9855bf02e9df59461649d5e5029ae064af7705466110b98687af66a12ee09845",
         "pairs/initial_to_modified/comparison/locators/keyless_demo.parquet": "1daf5b1f77c1a6fa3f66a5534e5c5baededcdd8de08b0b18ba1a92be8b96d365",
@@ -774,7 +774,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:7213e7ce30d320da04dfa4f3a5f732653c3d7683928ded38dd914222d808b18b",
+      "bundle_digest": "sha256:e91b92a99fa076557ea5fa1d040c904e1847631f705b4dd4731c6c9c2ec6811e",
       "comparison_exclusions": {},
       "coverage": [
         "gid-change-unrecorded-cfg",
@@ -829,9 +829,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "bf032d95433a756cf5cef2e1222d8da76c7238fde131c6f04e843d813e025479",
-        "manifest.json": "ce225bc127982f1f3265771ceca3cb6f398574f18531c72ed748bd29ca74643d",
-        "pairs/initial_to_modified/comparison-surface.json": "56ed3cbb8265e7ba9b75dbbe65b256d2da297db4ce9748c5abcad26bbbcf3953",
+        "artifact-closure.json": "bd91ec1ecc97bc9d81da198a52f6fb6cbbccdac0bee4e7003bb150fbca4c9f1e",
+        "manifest.json": "3209442f386726d5719f65c918155162731425a2bc077c76bcebb50a7ec0207f",
+        "pairs/initial_to_modified/comparison-surface.json": "7eebe4ed25b01eb8f8b97dc809016c986d264ace81d48ed8d51c991bb47ecf6f",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "e5f11daa78474d7cff90071d8e73201e75cce5b4aa44ab048eaee6c41649baf0",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "895257d114adfb8b5ff31b87ae2b86ebe8f96f73be9609b195e10323e45e4802",
@@ -869,7 +869,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:8e4309c17dac8ff8506eae10c8f15fb2afa31b904af7d0a2602ce36319efc6a2",
+      "bundle_digest": "sha256:f3c801b9a445ab20ead6b627abe5f71d10f3a8cd961005a7c3e31f5b0b3cee15",
       "comparison_exclusions": {},
       "coverage": [
         "duplicate-address-multiple-gid",
@@ -924,9 +924,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "89b294debe33505c5ceac414bcbc6fc99a6c2876a0cbbabd513d809b3f20eeac",
-        "manifest.json": "bd6a81802d891af91ee0f572c34bd64484f63debe93b4989f316066778dea17b",
-        "pairs/initial_to_modified/comparison-surface.json": "994e120a7502eb31c7a0a4f3487c69b678c5dee7d8fc76f3f25f72902f846ec2",
+        "artifact-closure.json": "edc0786e7fa890bf7b5e8e212886e5f4849f916338d5433de05717103be62595",
+        "manifest.json": "e3eb8d4166fd6de1da7235fec944b5496b926bc6032725043a71197d2a4bfac1",
+        "pairs/initial_to_modified/comparison-surface.json": "5ba64164e6b76dec54e62a608ca6381312ded27b1cf02493003db33462970449",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "9bc7062cbffa34bb2d46abcdd0473fbd9e248011196db950af2acf92abb5836b",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "e7655343ed7f0db4b7d5aceeea6125c58b8448e9ada4cdbba28d24d3a7d1cf2a",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "6e2156f7df6b3def54b278d05e219d9ecd185ee15eb477c5f7dfc67a1aeae0e1",
@@ -975,7 +975,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:de9e56c7b63d328ebfd4e2e2a8ae02969efe0e701d0d77d5aa2af389582fd2bf",
+      "bundle_digest": "sha256:93706ea2b3320892d772270b143c61285a0d10063990d6db684db9d8265a3abf",
       "comparison_exclusions": {},
       "coverage": [
         "text-digits-not-integer",
@@ -1017,9 +1017,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "d63d3d8159938907d9ebc22004352a75655be2fff5a35e7ac2888c65d570c64e",
-        "manifest.json": "156d74379799ef2f49a1e8600c69af757d11da971cef33c35ccc162d182e9bab",
-        "pairs/initial_to_modified/comparison-surface.json": "ad3cc95b53f922177ae3ac79c366c0556cde818d170d8c095a652cd2aa007b16",
+        "artifact-closure.json": "faa82038827172ba4206bba3a6991ed2b0120d730090d9be4980fa40a7f8fc95",
+        "manifest.json": "71d2d2421b7df91898a40253ce4dd0074dd09b59e4441e1fc1fa90b317a0176f",
+        "pairs/initial_to_modified/comparison-surface.json": "74f6de1e049034e4a4fa50266bafbac64897ab2b1ce2e4077df6e58d07eb71e6",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "5bae0b2b083ecf809f08e1279938a7b0c90b960a0c29c158fbe3f620044d41f2",
         "pairs/initial_to_modified/comparison/records/closure.json": "2a25ac0ce7654d52fcb22e13defe423af4da4726c423c78e6dc45a58ecd01a7c",
         "pairs/initial_to_modified/comparison/records/device_cfg/manifest.json": "cb9afc945d98b0889ece8475ef316b39eae124edf09110c262ad0acb1824ccbc",
@@ -1050,7 +1050,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:dd40c2faa650f8b377dce3cbb234ebee1941e342dc2472ceefeb371a224515c0",
+      "bundle_digest": "sha256:0796bcc2308ee0ec548c1c661c84725ff026925b9719d825bec6077a61039dcc",
       "comparison_exclusions": {},
       "coverage": [
         "safe-integer-boundary",
@@ -1097,9 +1097,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "b32cb5b22346ee4ad57271f351ef47c1cc8894fcebdf04bd2c0206464ba000a2",
-        "manifest.json": "323ed04da09abfef4bec10709746f0be0c380324ff59b1c9795147df3f0a325e",
-        "pairs/initial_to_modified/comparison-surface.json": "55195facebaae16f31dedb9ec40008934e6dcc5407c3f1c520a7284f4d0add53",
+        "artifact-closure.json": "dae713009e7ba34035c9f6772c1c7d456a0da2702d67376c0a3c2a6e5e14360e",
+        "manifest.json": "8355e3be7298f8d6dada5e198b1bc94a6a6f05f2c21c78919157088ef57a15f5",
+        "pairs/initial_to_modified/comparison-surface.json": "88b4c2a0ef3f525bfbec190e77d73cdf33de13972357aa4111854bae7f5e37cc",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "7a15703f2c5e45308a4dd543cbd9cdd75aeeacde4bc6660238790186c1a2e087",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "67e0a9c76405a86a25451ea131a97a6830186b1a95f714332fc3df820cd1ae7e",
         "pairs/initial_to_modified/comparison/records/closure.json": "54601cdefa132982ca5fc4f1c1847f171f9949628d2cec8501a716547d0c8036",
@@ -1136,7 +1136,7 @@
         }
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:6592a381f0471d907e5d2fca51a017a2412f17607ebf8972a94a6433460af698",
+      "bundle_digest": "sha256:6cf185353857b31ec6f7783bb298b4702e4939663f7fa69c9aa0ca6ee9ca4e26",
       "comparison_exclusions": {},
       "coverage": [
         "before-only-column",
@@ -1191,9 +1191,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "6c8ef5ecfee59c74b16ccdc6d94751e7d13976bed5c9a2f263c64a98dc048ca3",
-        "manifest.json": "a32962797a3e762a8b630a32830cdd125d14675eef269b4df6d2042e2537dd28",
-        "pairs/left_to_right/comparison-surface.json": "83090c64e26433618e6b14f91f657f799c6fd8b6613327ece71490ada0213b3d",
+        "artifact-closure.json": "c5763b38c27ff8ccb6638a8f60bdfb9b57c560763ad089b3a0568cae3b94939c",
+        "manifest.json": "3b3ad70955da59c0c0aaae2da02b81a048abe1f3521d42d453d7afedcde33fa7",
+        "pairs/left_to_right/comparison-surface.json": "1174f44a6b0ab73b1bdcdf70aed6361ac9877cb2e5b09fefb8623c556eb1b3ec",
         "pairs/left_to_right/comparison/locators/keyless_demo.parquet": "872746f7b52b2ef61f1b6782b5ebbe9d11d9b5cc01cbb958b293cf3030426804",
         "pairs/left_to_right/comparison/records/b1_n1_sg_cfg/manifest.json": "7a90708beaebbe4f573f2d68e5556823d693591f6cddc5103e82613e99bcdbc5",
         "pairs/left_to_right/comparison/records/b1_n1_sg_cfg/rows.bin": "ad0dde20dca0f6f481c5caa9f3ad0e91248052af0200ee0b090bc1dcf69aed8e",
@@ -1226,7 +1226,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:7672c6a44f032f6c28a87dcb071a64464294d24b79c03f9b5a8bac9d2eb2f223",
+      "bundle_digest": "sha256:9f89e1f5ec3d08f3a0a3dae38b83a80c32ee894f97775786445f1ce8d73890ab",
       "comparison_exclusions": {},
       "coverage": [
         "whole-table-addition",
@@ -1272,9 +1272,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "2fe20ea7f716e234b8dce1236b268faef82899616c6b2872317eb7ba92ccec58",
-        "manifest.json": "7ee6b33bfda957feda6fcb06e6ff143e5c4a6dde8087e23cc952dd684698b62b",
-        "pairs/initial_to_modified/comparison-surface.json": "8ce8d8b94c32102acf77f0ceb851093c284a0eb10484f13dea8eacdb2d71d9bd",
+        "artifact-closure.json": "aee93e01c811e3b372c938f4248b882caedbdfbbf0fed2d289fe248c2bdcbe2d",
+        "manifest.json": "5cbde23bfc82cd5cfe571678c7a266b4a12b33c2edb85d09fe2e860160b31bb1",
+        "pairs/initial_to_modified/comparison-surface.json": "6f53db8254e5af07611e5b67994e1e3ad8395cbe4ba86599d28147da0b75ef73",
         "pairs/initial_to_modified/comparison/records/closure.json": "f4f0616d248281c15ae6bb50df9b00242dc69d76b214e345b125dab491d9e4d6",
         "pairs/initial_to_modified/identity/assessment.json": "c91b59df0c8b9f4844b6f581db2c092afa9df40e06af59743316aa3f6e5b1fbd",
         "pairs/initial_to_modified/projections/business_navigation.json": "0422ac2f0554b3e6240618f3bea808c2f47b871a36e4131c14195211ff34c7e5",
@@ -1305,7 +1305,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:c591cb6ebdb83531e108a8408f9aa3b624f6c4f31ecca68cdbbac0e9d5d3fe15",
+      "bundle_digest": "sha256:4b4a1adb2bfdfb9d2fe7eddeb13e9ee12321e08939128d77702620ba050df00d",
       "comparison_exclusions": {},
       "coverage": [
         "comment-only-preview",
@@ -1339,9 +1339,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "7bc83cb37769520f58ab2bd69e0c4c2215018d8854781c4a81e116f15d762af4",
-        "manifest.json": "2407dab5ff88c05cb4bb623213bd456cba839681f12817a3e6280e837e01f3f7",
-        "pairs/initial_to_modified/comparison-surface.json": "5b931c8b96efe9e3d19d982fe50628f5647031f23ca204ef8f02d4e3fdb5f4b9",
+        "artifact-closure.json": "ac2593e2b3e3a92ab003954c4e9de1eeab091c506e7899075888279765e7feae",
+        "manifest.json": "6b022b557169d1b4366c3e5588abc761521aa71daaca151b93cf6e2442971fe9",
+        "pairs/initial_to_modified/comparison-surface.json": "3a0037fa3b1ec76e76cc932a0731267ddb229bcb72a4cb8c70b21a9557ce6feb",
         "pairs/initial_to_modified/comparison/records/closure.json": "e28232b27f05178d83c3802b176eb692eefdbc7fd531241cdceab04c65b343f3",
         "pairs/initial_to_modified/identity/assessment.json": "4e14ebcf09aae59deb1f4b9428afce907465a2d37a9521b2cf2ee327e9d19898",
         "pairs/initial_to_modified/projections/business_navigation.json": "16f7a9096872b837c12595edd006e6f2d25c655cf709fa253bc48efd1c10e5b3",
@@ -1394,7 +1394,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:ac686fb166564afc1c36c340231becc85b955316acca12c0a4efc62692e727f8",
+      "bundle_digest": "sha256:aeb52e379864bb36f901adc913c53750c776fdea1d673c09088ab07702e32005",
       "comparison_exclusions": {},
       "coverage": [
         "before-formula",
@@ -1442,9 +1442,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "b809f397aceda5fa56b085647e79ca370c9d756700f085636d680c5c97c00c50",
-        "manifest.json": "be4c5eeb66c55cd1c5e5e0bbd95bcce9230f8427680e67e93a02166532c34c42",
-        "pairs/initial_to_modified/comparison-surface.json": "3756e821dd70487dceb6f5172fd767c1d232a60cb12d074428663b7dc39c5b30",
+        "artifact-closure.json": "7b0ffd5bea9ce852f07a556dacb79e0e5b5fd36276089344408a75082bb30a6b",
+        "manifest.json": "b5582b169528c57ecfc6fc9ef787d8e2e113fe2a232d9e849438ab81606896aa",
+        "pairs/initial_to_modified/comparison-surface.json": "db6a67fbb0914670ea284debecf64a6bcd908d1d902ef0dbdfe0b9ae2c53e068",
         "pairs/initial_to_modified/comparison/locators/composite_signal_point.parquet": "d23b46b8913a03c1d343ae16ff422d407388a63cac63b1d1368d9a1a54c324ab",
         "pairs/initial_to_modified/comparison/records/closure.json": "f28b425921a9e934750bb82a4d2661a7b4b92860690982aeac443625b9abbcea",
         "pairs/initial_to_modified/comparison/records/composite_signal_point/manifest.json": "f881f9ef5742ade862a7e40a6f22a48391e8af4c2d6440937fa959d42847bd04",
@@ -1481,7 +1481,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:5330a489f538773aa11107abcd4195082bedb885ccb334adb50d9c97b693953e",
+      "bundle_digest": "sha256:888792e63211ecf0c4fa9a66f6024db66313e9044ea0b699011f4b9a9f33df6a",
       "comparison_exclusions": {},
       "coverage": [
         "gid-change-unrecorded-cfg",
@@ -1525,9 +1525,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "35728f2a08d0da0a3f54ac242597683355e93296c3b5a44d111bdf4083be2d0e",
-        "manifest.json": "f2a2295b11e89ed2b6ab75572d17433f4f90dbee217132df2e70a7a71625cf4b",
-        "pairs/initial_to_modified/comparison-surface.json": "9175e612627860a31dc44f36b0934193aa83aee5b8aaafabb715e6eaa7f28bcd",
+        "artifact-closure.json": "7474ec16802d4064547016301ba504c4d0aec59763acb07b6eee47be9e51d4c3",
+        "manifest.json": "1b5702720b58692bc6df2995b0ef4cce1c8794ec5c878b35b7280d435247f3dc",
+        "pairs/initial_to_modified/comparison-surface.json": "e14ea99b20fe9bc1f5213112373e54120956f46334d2b2aa8eaa76ca5b20a17b",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/records/closure.json": "d3909368e9fe66de4737f46e974a5abb82d0c8886bb41fc8e4112199985f50b0",
         "pairs/initial_to_modified/comparison/records/device/manifest.json": "655f29520d8f36b55b8c7d566625db98d88b9e66cfccdb3e3d4d7e8faef63727",
@@ -1566,7 +1566,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:26b70ea398c78ab14672559d3f10d393083e8ea938908fd07a1e74598b95b5b1",
+      "bundle_digest": "sha256:d32791fc68192a4660447b0f4ea4717a306971cf0008d771a03a27dda9e362f3",
       "comparison_exclusions": {
         "device_st": [
           "dev_addr"
@@ -1613,9 +1613,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "08499ea40b388648804b697ab6b033f450d913edb5f734bec6c6c6d1a18ae5ff",
-        "manifest.json": "5851ab7dea5814c4e4ad1e87b47b2a9a45f9137aa9ae9057d0abff2705422330",
-        "pairs/initial_to_modified/comparison-surface.json": "ca294e13c0ae892074216454747d905dabfc3a932e939b084e3cf7481dfb89e2",
+        "artifact-closure.json": "47905f8fbcf57aa1e717751707108acdbe170eaa7a9d6d047901e54306dd648d",
+        "manifest.json": "7ec1e3c8c0bb71ca59c397b1c1228d7a535c36977daf4de8d3781a89c798ecdb",
+        "pairs/initial_to_modified/comparison-surface.json": "2baaa52a21f8f62f604e726788bd6b469ca9625aa2be9671ebe5b8f48e3bf40c",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/records/closure.json": "88df60d6de4dee4f695cf94156fd48e6f8c08590a0c5aaeacc5879cff5488ea0",
         "pairs/initial_to_modified/comparison/records/device/manifest.json": "655f29520d8f36b55b8c7d566625db98d88b9e66cfccdb3e3d4d7e8faef63727",
@@ -1643,7 +1643,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:bababdc7a67ba357f10dccfca71b2b448c1606246719743a70400cc8df4d600c",
+      "bundle_digest": "sha256:0ababd5d53d8e8a67191df581b21b2d89ed4b2aeb73b41d35c9da79df4450ed0",
       "comparison_exclusions": {},
       "coverage": [
         "keyed-physical-identity-column-missing",
@@ -1688,9 +1688,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "759c7625d74bc95f5a4594260890fe3414abd7b7aa2e70b6a54bcebe4d0aea4d",
-        "manifest.json": "2eea3577f7eb150dcbba707fb7ac16e8ee2eac2fd3d99e7a88e9f25b1d014a21",
-        "pairs/initial_to_modified/comparison-surface.json": "f93e82a1de450d21133b0d2f25f3dd85e39c708860ba73fa5b489a2ef7147c3c",
+        "artifact-closure.json": "054bb02f4fecbfb355dbf619711d30cc2256b567deb88b93bd93cfa36d32a1e7",
+        "manifest.json": "88d2107c799e0ddd6d9715399d78ffe8609f72d88d4e04d6e4cdcb469cb64a5e",
+        "pairs/initial_to_modified/comparison-surface.json": "aa197519aff76baf874473b01cf6d02e13294fc28e9474e962d3c59e3411a5e9",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/records/closure.json": "c7094c8a0eac64b53dd9d028b6d63e1dcc5e02ab776ca00225ebe69b09bbb3a7",
         "pairs/initial_to_modified/comparison/records/device/manifest.json": "655f29520d8f36b55b8c7d566625db98d88b9e66cfccdb3e3d4d7e8faef63727",
@@ -1716,7 +1716,7 @@
     {
       "assertions": {},
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:90bfdfbf743f899b16a658fd715febbdc2637cf380b728c24f0966156efbef60",
+      "bundle_digest": "sha256:5d400e077cc8b11e7a68b86704fec01ca029125fdca7c63b25cbb5a8cc7e6205",
       "comparison_exclusions": {},
       "coverage": [
         "all-empty-navigation-discovery"
@@ -1747,9 +1747,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "c71242da46063e98f30e1f627a289db320020c50e9c5c70d52fe9e4335ca8512",
-        "manifest.json": "84863b177791b10b3a3862ddfc036ad20a372507309052a2647a6a702aefd8fe",
-        "pairs/initial_to_modified/comparison-surface.json": "bba348baef01edaa6091ccae2f15f8991d6283110ad2d84dfa7f896d8e732c32",
+        "artifact-closure.json": "9586bfc910a93c06c78d44e5497bfbc5744b6f7f77b6f5a050f2d4420a90937e",
+        "manifest.json": "a2824495d56112e5c3488feb035525995111a2c8a65bf9cd0eb7c582aa0b2424",
+        "pairs/initial_to_modified/comparison-surface.json": "3098c7325de4ec5acecdd479bd4f1910dd3577ebac5e1b4d6892b1511eda6255",
         "pairs/initial_to_modified/comparison/records/closure.json": "bc9342aec58f9bc19e6a3e32faef5838853d7845acd72d6badd78907ef0e6f68",
         "pairs/initial_to_modified/identity/assessment.json": "1c136d8d686c2252541e7e91681c2e5d54b301c5c98561ffc63f11c5e7c3f4e7",
         "pairs/initial_to_modified/projections/business_navigation.json": "bd1f075c99aaf0b93b76e364c944e93256febf929650f649eb6de7ebc06fba0f",
@@ -1860,7 +1860,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:a570ede0abba82a95a936eab2196c1c67d294a1d0a230fe37e4e3b2a7062d490",
+      "bundle_digest": "sha256:23bea36e0957c2601b5c3b0da3ffa4b6c03fbb5f0605d03862e7e01d8cdbcfc0",
       "comparison_exclusions": {},
       "coverage": [
         "network-serial-mixed",
@@ -1911,9 +1911,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "4b637e55bbe1927054dad9593d14923430c94a855620c840071b79bacf3fd783",
-        "manifest.json": "f57c45983eb5b7b82217eb468e679bd61bd6b72c9026313b7aff8804d8ac84c2",
-        "pairs/initial_to_modified/comparison-surface.json": "443264c80a5a0e36510c07824f4ee0629f4516ba47cf22b96ebb8c8f93aaefce",
+        "artifact-closure.json": "914a3a514ef7ac70684850e5b19e2a2ed25c9c1eca9dcb08a4e9468fa0509d3f",
+        "manifest.json": "90edcc7bbfc1c2b341ba395e09f4644b9553a666506e21537b616f1123b7ceed",
+        "pairs/initial_to_modified/comparison-surface.json": "31caf8d6e6acd6e93eb82bc5e35f9ff0df756843e0ccf659e0679e4507a5ddfc",
         "pairs/initial_to_modified/comparison/records/b1_c2_short/manifest.json": "daaf8007314877937c8486db0080d96ae855686c7b03798f1159b5e134ae5789",
         "pairs/initial_to_modified/comparison/records/b1_c2_short/rows.bin": "2744be6f69927648333ca6ba1a5a91a9395e3f857955a23608e4d5ddfe1d08fc",
         "pairs/initial_to_modified/comparison/records/b1_n2_flip/manifest.json": "decce5795db601ffddc1072b98af067c27eb14e8dbe51247acfab1e01c87f826",
@@ -1945,7 +1945,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:73a163500f81eb163a3be58e4e348cc5eece2124a67d55fb5019769fd5fbf903",
+      "bundle_digest": "sha256:04440d6188e21c62cad0e24b851be71018a87e14410bd9a267102480c39eeb13",
       "comparison_exclusions": {},
       "coverage": [
         "device-address-migration",
@@ -2001,9 +2001,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "1223b0c148cf0d44ead0a2d6cead3a9f63dac21887fad2c9e845509e60b80ae7",
-        "manifest.json": "184a3ab004b19fb204e4129cf0fd207d567f8e74471d21c7ff08404e780b5849",
-        "pairs/initial_to_modified/comparison-surface.json": "88df9ba97784281b1e10870367b5c5510805bdf6d76e55429eed7f60c6949edd",
+        "artifact-closure.json": "2a6df5a3eec73f0808f1855850f592940cb3648e3c030b71cae8a954eb03eb19",
+        "manifest.json": "5ab9dff23f2d4b531c1abc23e019d37d5d8c684814feaf6060130369b5487405",
+        "pairs/initial_to_modified/comparison-surface.json": "13d4b0247e91ba10173099073dcea310575a9c19ba8039aac0a74fa54a63a167",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "e5f11daa78474d7cff90071d8e73201e75cce5b4aa44ab048eaee6c41649baf0",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "cd8b2014a62420474ad839f96ca2bbf8d06bac9338dc86297169ba88a713aaf3",
@@ -2041,7 +2041,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:50d64d391383afd613bc5193f8a212a1b9ae0bee418873f2a1fa20b6f1536d4b",
+      "bundle_digest": "sha256:f3750d25372b6e1f2ea5e7ff430a8f0d412cb4aa1a50d15202c3cf492ef6360a",
       "comparison_exclusions": {},
       "coverage": [
         "device-address-migration",
@@ -2092,9 +2092,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "b603612fd98f05f5442fc8e78446cdf9d4023c1073724fb36b68ccf574020b49",
-        "manifest.json": "44a25a7eb5ac7e3956bde84b517f6e7dc0854ce57b8193ac3de347670394eb56",
-        "pairs/initial_to_modified/comparison-surface.json": "3cb6505431409555547f830181502f0ce1641f8c6a7043c5991a202448c6cb72",
+        "artifact-closure.json": "4cc7293d798fc47f467c9029540281e59d035ec24fc87af08cf1ca87a4322e0a",
+        "manifest.json": "8eac4dc9cce8bfb836731739a1701f58a4931107c1aa2b08a03b610f2d3d2120",
+        "pairs/initial_to_modified/comparison-surface.json": "160208dcb2964294e04d686479726e274ec547af3c04c7ff2e31e191bdd92308",
         "pairs/initial_to_modified/comparison/locators/device.parquet": "f8af9db92fb9787ab1a30471522eb9ca4b619358a20b29d33ec9337cfed1bedf",
         "pairs/initial_to_modified/comparison/locators/device_cfg.parquet": "e5f11daa78474d7cff90071d8e73201e75cce5b4aa44ab048eaee6c41649baf0",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "cd8b2014a62420474ad839f96ca2bbf8d06bac9338dc86297169ba88a713aaf3",
@@ -2126,7 +2126,7 @@
         ]
       },
       "assertions_result": "PASS",
-      "bundle_digest": "sha256:394b14052aabac9c7682b13e041e61851c0e894161426eec45e5e0ec25f03ee5",
+      "bundle_digest": "sha256:457744f09dbd5a55b54e529e28dc0a570d81f61fb63b679afc3a343b2aaaab9e",
       "comparison_exclusions": {},
       "coverage": [
         "pure-add-delete-no-risk",
@@ -2165,9 +2165,9 @@
         "status"
       ],
       "members": {
-        "artifact-closure.json": "73f2553e1604af9ec8ba3ce4f3e382de440ae93184785c1301921a3fbc1840e3",
-        "manifest.json": "957f7cffaa9c1fca2715bdd6d3e5a4f06e229e13837479102501a6b1f31e3c80",
-        "pairs/initial_to_modified/comparison-surface.json": "f6d03511e49d61b478be8db0df1f7603155c9767eaa4e55b1bfbe02756f4ffff",
+        "artifact-closure.json": "5ee49a41a127e15fbffe76f776cd14973a950b04a9529800aa8ee342ae2115e6",
+        "manifest.json": "e693ff2066e131782e5dc671b17e417d2bb2b1860e74694701080c89838b70b4",
+        "pairs/initial_to_modified/comparison-surface.json": "40f333c79c7785dda721a5320fd020724f2adeaf70b27a9c7389c330d6721458",
         "pairs/initial_to_modified/comparison/locators/device_st.parquet": "c4c3d82337714798ba4e9af218bbd2037ddfe8b2d4c5d18097315be3f4b64a44",
         "pairs/initial_to_modified/comparison/records/closure.json": "3c24ff8bd75f21c0fab2f1717271d87afaa653e053cda26e7ff4243959f60aac",
         "pairs/initial_to_modified/comparison/records/device_st/manifest.json": "63a07ce06f2ab6595a0d338dca4b521bdb98efbba9e10705f104849931a1ab77",
@@ -2185,28 +2185,28 @@
     }
   ],
   "files": {
-    "bundle/channel-rules.json": "926503978f51cb7ac721021a556d5119819f2580fefb578f933d61873f171ff5",
-    "bundle/comment-only.json": "c456b39a54bc247c297437c0d29a5e71aef1b990f5ccb113da75cba1cb75d969",
-    "bundle/digest-cross-implementation.json": "9bd89d8ff511d729cb3684bf5c6310d292a8110ae407a17bf9d08f7134590aa9",
-    "bundle/duplicates-orphans.json": "2256c241cb2dd36d534eef931813a1b3065e8716885923e1a5a3369038c187b2",
-    "bundle/empty-tabs.json": "2f4df3845cd1ce2ebd29364250ca2a12c284604b55aedce17c500dbefcd9e2cb",
-    "bundle/excluded-identity.json": "6cf60f0df95ab7c24573d6a867dd1910d5f290e0a153808c2ae5b3c1b4d03892",
-    "bundle/formula-unchanged-device.json": "2e9d6f4be5d206ac52e97cd5189765c0fda73498421a2d08c33123e4efe470aa",
-    "bundle/history-three-nodes.json": "d664a7815c0927966bc54cce5e2f4966b78877c70dceeb10a8368abbbf93a4a2",
-    "bundle/identity-changes.json": "479de637c8710f5d96b5894f61c1b9a1ef3b4a8b41db04fee76589d05e73441a",
-    "bundle/identity-unrecorded-exact.json": "2d8f2c93d25823a5f283c20e440546fc5f6b03b395fe0a032e8842ba965a1b51",
-    "bundle/integer-boundary.json": "ef61ba037c89edcd5146345dccb2bb1703bcadb721b0c4f46827a7eda8ac7de1",
-    "bundle/missing-identity-column.json": "a9aedacb52effd3a32e39ce03478a26f01f399323691ea6afa757ac9f3564e5c",
-    "bundle/ownership-risk-incomplete.json": "6afb8cf0657e9c4d04d2ec8e34cb737c90ba4fd4799dd8d95afa22e91127de8a",
-    "bundle/ownership.json": "66c367bd6e2a71ac75d2e18e1a232fc0beba272fb5aa357ef4a0989dbc011809",
-    "bundle/preview-full.json": "8a1410bddc3e6bef60e13607048331f1797c32498a506a0b52e46820125b57ad",
-    "bundle/preview-modified-only.json": "8b50834e803d54b71878e4332ba8fc23ba13de179c553c7fa3b6042f56bbfd13",
-    "bundle/preview-replacement.json": "f8802533b19d8401908803a4417e36162f0d75437daffaf284b85a7f55741481",
-    "bundle/preview-workbench-normal.json": "c3b36aa1265704304ce7c784678885296857d23e0974ef2d93d70877efc81988",
-    "bundle/pure-row-changes.json": "6f4beec0e3712b90922a0d1396bf2131fcc8e4c3b6fadc94e6b9efa6c917c119",
-    "bundle/schema-keyless.json": "fb342514962c73bf69ac24d539f1bcab501cfa587b86754bef58fc119b8a8026",
-    "bundle/table-addition.json": "df1e5844aa96ac43d13ad67b08c4f80fe3502746bdeb6f270ad1592e3eafe07f",
-    "bundle/text-identities.json": "09c823bb108912f93fa6de8abe2376b88d1af7904266578dd6a10ee58ae9a329",
+    "bundle/channel-rules.json": "9e9d9b3bdf1988c9f21784d803f0737a462e06a201910142279117038782c7a1",
+    "bundle/comment-only.json": "440e2ed5c76e31c92059fd1f64b792034d731fd790a7f83c8a467216fff1263a",
+    "bundle/digest-cross-implementation.json": "07fff170e2b4826a75cac08c0e87a45cb7737ba1290e098a0ae62162c02f3489",
+    "bundle/duplicates-orphans.json": "702a0eddb04f3b6aa4560762d59547b7274315aa395835f55b1ad8b8c185b04b",
+    "bundle/empty-tabs.json": "725d850078befc2819716e9df065825057dcad5977e00fff31f6441bf3d5ff7d",
+    "bundle/excluded-identity.json": "c6a70e537d5373802d2f9d3ea0e5cec8dea7e0f3063b80481601a6ea94fba923",
+    "bundle/formula-unchanged-device.json": "0a4bc7470ac7ccc239139ec6d81779e14534291eba49d8e24878b9c5b9f2fc64",
+    "bundle/history-three-nodes.json": "63cf9da6330eff6ed58960e492bce36a07da801f3879e28016a5e4173beacedb",
+    "bundle/identity-changes.json": "72ed277366990b265866c558fe361c6f0bbc1273ddab514d74723c6fc3cd430e",
+    "bundle/identity-unrecorded-exact.json": "1b879afb37b37d3264ef35dc49327b4f97b7644a93e873eeb522a4e5c2487f1a",
+    "bundle/integer-boundary.json": "378a693b9e565a8a49ab24ec1d61f9829aebc5a4af952bd117836d98ebb7da1a",
+    "bundle/missing-identity-column.json": "3ddd6de7199b324a826d940047b0586a03421bb6afc9299d0727db1cf0e68bbe",
+    "bundle/ownership-risk-incomplete.json": "93881076678ade11d4451c97eff2d400f5c2beba0b08ea89043be25bac1e9aa9",
+    "bundle/ownership.json": "9faff8152ac015232980114b0e9f7a5bb23f473191136ff5588a5df85385f5e5",
+    "bundle/preview-full.json": "7b0929fc6fece10e7de96b6cc87cda4a643d40ab4ddba3b4e071318e74ce66c5",
+    "bundle/preview-modified-only.json": "04bea81f25780e0f86dd6e19272738f907707875d4ed30290cb0b4d69fdedb0f",
+    "bundle/preview-replacement.json": "fedba7665acc990ac06eafb9eeed42e42149684ab3747a0c87f9345887c82c13",
+    "bundle/preview-workbench-normal.json": "cceb7359c4889d128904ca268552cb7a78b67465b4bab11e9e73d3e25d7462c8",
+    "bundle/pure-row-changes.json": "b623569311a2305da61499a8040742508b84a307b15532764b78b1cf8633028d",
+    "bundle/schema-keyless.json": "8e7bf97922ce6eca65eb3f2925675315a16545f62ceb6280aee3c6044835be52",
+    "bundle/table-addition.json": "c7e66e4a3a6debab794e30bd047ac41e6eeaa8e531b9a7d19866515ec37d16a8",
+    "bundle/text-identities.json": "26b1f47dc1ea5b6d3ce04cae83530aed395a1b9507cb81e6d3299d8fc0ae9467",
     "navigation/channel-rules.json": "079653fc653487c1f8860610231642ce0aa955da0217980e03ba57d030611f70",
     "navigation/comment-only.json": "568cdaa839fc2659bd4cb59c0703f0f98518e25483a5b9450af1a02a221a24f4",
     "navigation/digest-cross-implementation.json": "2ca8c0aef6c2ba9db3b9e066d0ae2c5020b2573107ba6e592468de18f9828f27",
@@ -2273,27 +2273,27 @@
     "row-location/schema-keyless.json": "715128c58b39e0019b31c79534ef57e596bf99641dd502434714fbabde65ca82",
     "row-location/table-addition.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "row-location/text-identities.json": "ee2c1ed9dae3e852eb902ffc3df50257b51d2b0ba8b302f768956717ca47a82c",
-    "surface/channel-rules.json": "f9f2526fa12cd30f5cd5cf8e56070846dca56c38bfd4a543fe3a5db7437e9dd9",
-    "surface/comment-only.json": "1fb9b260c66216ed7c887f8aa197acd5ff2e3cbe6845bca5b8853102eb531c37",
-    "surface/digest-cross-implementation.json": "690a6638baade0e7e0ae259d4a4a9ae8cb382c5a1e0506aa0ba2235f61105fd3",
-    "surface/duplicates-orphans.json": "712aefe1c10bd86800bfb340c0938abf6a4d67d0c4213ae8d66d84978e7bdbdd",
-    "surface/empty-tabs.json": "545da161ddf70df48fa08530d968d1af799671d65ecdab8297ef465fa5094857",
-    "surface/excluded-identity.json": "aaa460980d883b910d050e239d2bcd213c616f7867c7bb2352a4e3d54d2ac7e3",
-    "surface/formula-unchanged-device.json": "521ccb58febd9e52b900321345e649e1fe63b1cf14d7dc996d61f48ecdf500bf",
-    "surface/history-three-nodes.json": "ddfd45268d63b7112e963c45018ede0cc27cbd972442b5937a10f9da1f5a7c1e",
-    "surface/identity-changes.json": "fd920ace0cd4010fbe1c73d59e2d149862506bf532cb24566453b38e344431c3",
-    "surface/identity-unrecorded-exact.json": "9091542a069b718aefd61b4cb2f14ef6942afbf862e063f3ad980382ae16f310",
-    "surface/integer-boundary.json": "eddf5dfa344da871a92013364e00d003d3b7a8a7bc8325b0cd49a74e6e517ca5",
-    "surface/missing-identity-column.json": "82134c6c5e5f31b4de70e414b5a237fe2a0b87575cfd2134e0937370b41a37d4",
-    "surface/ownership-risk-incomplete.json": "20fc5c4e909f6ac3007ac9ac0afb8237fa8243a98b33915c1b7bdd1d27ff1c17",
-    "surface/ownership.json": "939d6038e07a8dfc636b20d314c031a8efa97b3a2a0ce25ace66df114c0922fd",
-    "surface/preview-full.json": "535fab1f22c2a8c6d65519d4e0c4e0e2b633e1ff8524f1bf39c081230d4be59d",
-    "surface/preview-modified-only.json": "d1e91d929d82707f1535ef5d2b4b9fe8aa8e4211e18e4937eb9ea23df7389290",
-    "surface/preview-replacement.json": "753ff98026c73972936ee778a1184d131759720cecc966502139595ca92015e6",
-    "surface/preview-workbench-normal.json": "34729251e0d725374d2ceb72b643cd322b04daf7a69ca61a1b7daf52d43a8ca7",
-    "surface/pure-row-changes.json": "69c6afc2b403e8459d0b9e39dd575681363425e8a3080843f6a071892366d475",
-    "surface/schema-keyless.json": "cbc963c161c92ea97e23ad095ffd4e31ecc7a5807ab3975854e37bd61a820acd",
-    "surface/table-addition.json": "618a00931d9649e5bc355a8419d18cbc2debd4fd15ba14302a76cf48fc3f051d",
-    "surface/text-identities.json": "35617ccc94b4a11c0f192544d25bdd76a1e20263f1b06a484371d0665a042728"
+    "surface/channel-rules.json": "b532480f930632550648560515c4b2193b230c6e3ef3a41f21d48f6a0b27550c",
+    "surface/comment-only.json": "3735fec4cb4eefcd308caf57c9dae7856e31b632d8e3f24f6f3e326541154162",
+    "surface/digest-cross-implementation.json": "6bcb3767c71cafed8338245d9e8637d289835d3069b24b5805e5ac7f4a3a4439",
+    "surface/duplicates-orphans.json": "8aa63c6358486964f1b1b49f8811635dbfd1aa25fbbee8e3fabe6fe54c173dbd",
+    "surface/empty-tabs.json": "14439d2dbc5f837bf11d13d7061e6f24a1a1ca5d8c740fd1b1e6278a6762bc7a",
+    "surface/excluded-identity.json": "8fa5386555744695b4caf33afcbfdec49f2871ea485c9ccdbbc3005cc8a93575",
+    "surface/formula-unchanged-device.json": "c9a0f58862f1137e13b79b3d24ec0e464d6e1a5abe41da68c6bb4e1066d795b6",
+    "surface/history-three-nodes.json": "156a7c6faa87e0d252efc66a482a77bac05295f95ab81b056535ecd4b1a0c3ad",
+    "surface/identity-changes.json": "4a992081fc7d840c8e1c15f9722c6d293090171cd133b8384e0d5455f194e318",
+    "surface/identity-unrecorded-exact.json": "b0eac75e24b461b19a90b8b60570f3d9af2a28cbd1ddb77f46054e6e8b052478",
+    "surface/integer-boundary.json": "ad2f414a320982c1cd06a23b2e2a7b11ef551f8adff19918b469dac59e918470",
+    "surface/missing-identity-column.json": "628aaa1f2b8f9d3f7ff51813b8b176ff178839fbb5c11c1f48854a4b8b5a4aee",
+    "surface/ownership-risk-incomplete.json": "7ca7ea63ca1bb3a1384719a4108582727998a3548d62e70b7fea28c683ac4fcc",
+    "surface/ownership.json": "96efa1e2f01c0905afba4fb322041a16ac6cfc9280f3b56e6d58fae00da49a9c",
+    "surface/preview-full.json": "bdc7932ef34e747553d8e93dda2d63881a90bc5f52cff445473254b8af06516d",
+    "surface/preview-modified-only.json": "6f7c7e0f67cef4fd068bad46d63f8848b0ce5f58ffd42ef6c631ff01b0ee20b1",
+    "surface/preview-replacement.json": "4aebbe89f0e4b64b31fe7c9a0ff4afeed09fafec24b7a2026c85f40002dadced",
+    "surface/preview-workbench-normal.json": "58f1af99b9bdd93fc7e387625e739598f8d27c17fce722d766f0105fed82a9c6",
+    "surface/pure-row-changes.json": "36a19b8c8e0b6e7e0fe0eca751140c32a87c7a4b851147f1e2c7241175c100cd",
+    "surface/schema-keyless.json": "d8a32c0e7b3e7e1b42ea287534a74949ddde56b5b4738ab03e7c4054128e68a2",
+    "surface/table-addition.json": "4ced42ed67f3c5345fc8bbea344195f15558ae6ab73be71f4b2d108605da63d8",
+    "surface/text-identities.json": "58d2be26530a7e41c898fab4d0d5b028fee11517af415ee93756efde4f46e1d3"
   }
 }

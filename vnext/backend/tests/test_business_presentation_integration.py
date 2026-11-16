@@ -92,6 +92,12 @@ def test_real_risk_degradation_replays_into_public_whole_table_facts_fallback(
         assert tab["facts"]["change_kind"] == "UPDATED" and not tab["facts"]["risk_complete"]
         assert tab["facts"]["before_row_count"] == tab["facts"]["current_row_count"] == 1
         assert tab["facts"]["table_scope"] is None
+    notice, = (notice for notice in replay_document["table_notices"] if notice["table_id"] == "device_cfg")
+    assert notice["table_scope"] is None and notice["risk_complete"] is False
+    if limit in {"table", "pair"}:
+        assert notice["unlocated_row_risk"]["risk_level"] == "UNKNOWN"
+        expected = "RISK_TABLE_BUDGET_EXCEEDED" if limit == "table" else "RISK_ANNOTATION_LIMIT_EXCEEDED"
+        assert expected in notice["unlocated_row_risk"]["reason_codes"]
     unavailable = [d for d in replay_diagnostics if d["code"] == "DEVICE_TAB_RISK_UNAVAILABLE"]
     assert len(unavailable) == 1 and unavailable[0]["params"]["reason"] == "RISK_ATTRIBUTION_UNAVAILABLE"
 

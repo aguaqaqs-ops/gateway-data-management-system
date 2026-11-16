@@ -892,3 +892,34 @@ def test_typed_row_pairs_and_ordered_intervals_remain_in_their_scopes(
     assert attribution.rows["device_st"] == {before.value: RiskLevel.HIGH, current.value: RiskLevel.HIGH}
     assert attribution.unlocated["device_st"] is None and attribution.complete["device_st"]
     assert attribution.unlocated["ordered"] is None and attribution.complete["ordered"]
+
+
+@pytest.mark.parametrize("name", ("device_cfg", "ordered"))
+@pytest.mark.parametrize("diagnostic", (
+    None,
+    "RISK_TABLE_BUDGET_EXCEEDED",
+    "RISK_ANNOTATION_LIMIT_EXCEEDED",
+    "RISK_DIAGNOSTICS_TRUNCATED",
+))
+def test_risk_budget_degradation_is_not_a_structural_table_fact(
+    name: str, diagnostic: str | None,
+) -> None:
+    from gateway_backend.application.business_presentation import RiskAttribution
+    from gateway_backend.capabilities.risk_evaluation.contracts import (
+        RiskAnnotation, RiskReason, RiskReasonCode, RiskRuleId, RiskTarget, RiskTargetType,
+    )
+
+    evidence = () if diagnostic is None else (("diagnostic", diagnostic),)
+    reason = RiskReason(RiskReasonCode.KEY_DEGRADED, "review required", RiskRuleId.KEY_DEGRADED, evidence)
+    annotation = RiskAnnotation("degraded", RiskLevel.UNKNOWN,
+        RiskTarget(RiskTargetType.TABLE, table_name=name), (reason,))
+    attribution = RiskAttribution()
+    attribution.observe(name, (annotation,), diagnostic is None)
+    if name == "device_cfg" and diagnostic is not None:
+        assert attribution.table_levels.get(name) is None
+        assert attribution.unlocated[name] is RiskLevel.UNKNOWN
+        assert attribution.unlocated_reasons[name] == {"KEY_DEGRADED"}
+        assert attribution.complete[name] is False
+    else:
+        assert attribution.table_levels[name] is RiskLevel.UNKNOWN
+        assert attribution.unlocated[name] is None

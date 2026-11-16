@@ -92,9 +92,19 @@ class RiskAttribution:
             row_coverage = {"ROW_COUNTS", "ROW_RECORDS_SUPPRESSED", "ROW_RECORDS_UNAVAILABLE"}
             structural_reasons = {"TABLE_ADDED", "TABLE_DELETED", "SCHEMA_CHANGED", "KEY_DEGRADED",
                                   "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED", "COMPARISON_FAILED"}
+            # Risk's budget fallback uses KEY_DEGRADED for an incomplete evaluation,
+            # not as evidence that Comparison's table or key actually degraded.
+            risk_budget_fallback = (
+                len(annotation.reasons) == 1 and reason_codes == {"KEY_DEGRADED"}
+                and dict(annotation.reasons[0].evidence).get("diagnostic") in {
+                    "RISK_TABLE_BUDGET_EXCEEDED", "RISK_ANNOTATION_LIMIT_EXCEEDED",
+                    "RISK_DIAGNOSTICS_TRUNCATED",
+                }
+            )
             unknown_table = (target.target_type is RiskTargetType.TABLE
                 and (target.coverage not in row_coverage and
-                     (target.coverage is not None or not reason_codes <= structural_reasons)))
+                     (risk_budget_fallback or target.coverage is not None
+                      or not reason_codes <= structural_reasons)))
             if shared and (target.target_type is RiskTargetType.TABLE and target.coverage in row_coverage
                     or unknown_table or target.target_type not in {RiskTargetType.TABLE, RiskTargetType.COMPARISON,
                                                                     RiskTargetType.ROW, RiskTargetType.ROW_PAIR}):

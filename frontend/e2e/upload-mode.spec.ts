@@ -280,6 +280,13 @@ const VALID_UPLOAD_DIRECTORY = [
   { path: "comps/logic/logics.xml", content: "<logics/>" },
 ];
 
+async function openWorkspaceDetails(page: Page) {
+  await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
+  const expand = page.getByRole("button", { name: "展开详情面板" });
+  if (await expand.isVisible()) await expand.click();
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+}
+
 async function selectModifiedDirectory(page: Page) {
   if ((await page.getByTestId("upload-modified-input").count()) === 0) {
     await page.getByRole("button", { name: "展开详情面板" }).click();
@@ -363,9 +370,9 @@ test("W4 已通过提交不能撤回也不能上传", async ({ page }) => {
   };
   await installModeRoutes(page, state);
   await page.goto("/?page=workspace");
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(upload).toBeDisabled();
-  await expect(page.getByText("该提交已通过审核，归档或关闭后才能重新上传")).toBeVisible();
+  await openWorkspaceDetails(page);
+  await expect(page.locator(".upload-card")).toHaveCount(0);
+  await expect(page.getByText("该提交已通过审核，归档或关闭后才能重新上传", { exact: false })).toBeVisible();
   await screenshot(page, "fe3b-w4-approved-upload", 1280);
   await page.goto(previewUrl());
   await waitForPreview(page);
@@ -381,23 +388,16 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   };
   await installModeRoutes(page, state);
   await page.goto("/?page=workspace");
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(upload).toBeDisabled();
-  await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible();
+  await openWorkspaceDetails(page);
+  await expect(page.locator(".upload-card")).toHaveCount(0);
+  await expect(page.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible();
   await screenshot(page, "fe3b-w8-upload-disabled", 1280);
-  // B1: the UploadStepCard start button shares the toolbar occupancy reason,
-  // while the directory picker stays enabled.
-  await selectModifiedDirectory(page);
-  const stepCard = page.locator(".upload-card");
-  const stepUpload = stepCard.getByRole("button", { name: "上传并生成预览" });
-  await expect(stepUpload).toBeDisabled();
-  await expect(stepCard.getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible();
-  await expect(stepCard.getByRole("button", { name: "选择目录" }).first()).toBeEnabled();
   state.workspace = workspace({});
   await page.reload();
   await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toHaveCount(0);
+  await openWorkspaceDetails(page);
+  await page.locator(".workspace-reupload summary").click();
   await selectModifiedDirectory(page);
-  await expect(upload).toBeEnabled();
   await expect(page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
 });
 

@@ -11,7 +11,8 @@ from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
-from gateway_backend.application.preview_jobs import (
+from gateway_backend.application.preview_semantics import current_preview_capabilities
+from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_CONTRACT_VERSION,
     PREVIEW_JOB_KIND,
     PREVIEW_STEP_MATERIALIZE,
@@ -82,6 +83,7 @@ def accept_start_preview(
     comparison_ruleset_digest: str,
     now: datetime,
     options: Mapping[str, object] | None = None,
+    operation_queue_limit: int = 32,
 ) -> StartPreviewAcceptanceResult:
     assert_preview_job_registered(job_registry)
     resolved_options = dict(options or {})
@@ -187,6 +189,9 @@ def accept_start_preview(
             completed_at=None,
             optimistic_version=0,
         )
+        if unit_of_work.count_queued_operations() >= operation_queue_limit:
+            from gateway_backend.operations.store import OperationQueueFull
+            raise OperationQueueFull
         unit_of_work.operations.insert_operation_with_initial_step(operation, step)
         unit_of_work.workspace.save_preview_acceptance(
             PreviewAcceptanceRecord(
@@ -255,7 +260,7 @@ def build_preview_job_payload(
         "input_digest": upload_revision.request_fingerprint,
         "ruleset_version": PREVIEW_FROZEN_RULESET_VERSION,
         "comparison_ruleset_digest": comparison_ruleset_digest,
-        "capability_contract_versions": {},
+        "capability_contract_versions": current_preview_capabilities(),
         "provider_versions": {},
         "ready_closure_contract_version": "v1",
         "idempotency_identity": {

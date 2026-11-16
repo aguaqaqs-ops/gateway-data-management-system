@@ -16,8 +16,16 @@ export function bundleLoadErrorCode(error: unknown): "BUNDLE_INTEGRITY_MISMATCH"
  */
 export function bundleErrorTitle(code: string): string | undefined {
   switch (code) {
+    case "SUBMISSION_RESULT_INTEGRITY_FAILURE":
+      return "提交绑定的比较结果完整性校验失败";
+    case "SUBMISSION_RESULT_UNAVAILABLE":
+      return "提交绑定的比较结果不可用";
     case "BUNDLE_INTEGRITY_FAILURE":
       return "比较结果完整性校验失败";
+    case "HISTORY_INTEGRITY_FAILURE":
+      return "历史比较结果的绑定校验失败";
+    case "HISTORY_COMPARE_RESULT_EXPIRED":
+      return "历史比较结果已过保留期";
     case "ARTIFACT_UNAVAILABLE":
       return "比较结果已不可用";
     case "SERVICE_NOT_READY":

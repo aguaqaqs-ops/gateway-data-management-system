@@ -310,9 +310,9 @@ bundle-root/
 - Repository-ref materialization 先用 canonical identity 的 `raw_content_digest`、目录 schema、ordered
   row metadata、repository scope 与 writer version 计算 key 并查询缓存。命中时校验并使用缓存行文件，
   不打开 Dolt 表 reader；未命中或缓存文件校验失败时才读取规范表、导出并回填。
-- Snapshot Parquet cache hit 恢复到 bundle 时必须复制为当前 bundle 的 bundle-relative
-  Parquet artifact ref，并进入统一 artifact closure；cache-local artifact ref 不得出现在
-  surface、preview index 或 bundle manifest 中。
+- Snapshot Parquet cache hit 恢复到 bundle 时必须登记为当前 bundle 的 bundle-relative
+  Parquet closure member。符合下述未变成员复用条件的正式 ArtifactRef 可保持原身份；
+  cache-local path 不得出现在 surface、preview index 或 bundle manifest 中。
 - 如果 history/formal comparison bundle 缺少 snapshot table refs，但存在 ordered records，前端可以
   以 `FORMAL_ORDERED_RECORDS` 直接读取 `ordered_extension.ordered_records_ref` 指向的 Parquet records。
   该 fallback 只展示 ordered 差异记录本身，不要求 `current_table_ref`。
@@ -343,6 +343,13 @@ ArchiveComparisonEnvelope optional future
 - Envelope 不应改变 `ComparisonSurface` 或 `ComparisonBundle` core payload。
 - History compare 不伪装成 preview bundle；preview 的 submit/source binding 不进入 history bundle。
 
+GW08 提交结果重看读取 Submission 已保护的原 Preview bundle，保持 Preview 的 pair/side
+闭包与提交时冻结规则；它不转换成 History bundle，也不声称 FULL 两 pair 的净变化。
+相同有序节点、scope、规则、比较 Contract 和 History job Contract 的 History 结果在有效期内可返回原 operation
+及原 bundle，不重写 manifest、side binding 或 bundle digest。新 History pair 及缓存未命中
+仍遵守本 Contract 的每节点完整两侧和 cache/export 校验；提交不可变性不允许仅凭
+Preview bundle 地址或单个 content digest 补齐缺失的 History 侧。
+
 ## Artifact Closure
 
 Bundle READY 前必须闭合所有可读取 artifacts：
@@ -364,13 +371,13 @@ Bundle v4 的 closure entry 至少包含 `logical_path`、final `artifact_ref`�
 和 pair/shared scope。`SNAPSHOT_TABLE` entry 使用按 `(pair_id, side, table_name)` 排序的非空
 `table_bindings`；同一内容文件可绑定到多个 pair/table。其他 kind 使用 `pair_id` / `table_name`
 表达单一 scope。Bundle assembler 会对 JSON closure 中嵌套的 ArtifactRef 做确定性 rewrite，
-拒绝未声明 ref、重复 entry、环依赖、非法 path 或 integrity mismatch。写入 manifest、closure
-和所有 referenced artifacts 并完成回读校验前，不返回 READY/DEGRADED public result。
+拒绝未声明 ref、重复 entry、环依赖、非法 path 或 integrity mismatch。新成员写入、manifest/closure
+发布及全部 final referenced artifacts（含复用成员）的完整回读校验完成前，不返回 READY/DEGRADED public result。
 
 规则：
 
 - Bundle 不得引用 cache-local path。
-- Cache hit 恢复到 bundle 时必须重写为 bundle-relative refs。
+- Cache hit 恢复到 bundle 时必须进入 bundle-relative closure；是否改变 ArtifactRef 按下述复用规则。
 - Closure 缺失时 bundle 不能对外 READY。
 - Bundle digest 可以包含 closure manifest digest；closure refs 本身可重写。
 - Core closure 不闭合 upload-specific 的 `preview_index.json`、`diff_summary.json`；它们由 preview bundle delivery 层根据当前 Preview delivery contract 生成。
@@ -425,9 +432,58 @@ Bundle 只闭合 surface 引用的已发布 ordered records、blank/interval 与
 
 新bundle manifest/closure、被实际rewrite的新交付成员归export。未改变身份且直接引用的成员保持原ref/location；bundle-relative logical_path是交付路径，不是磁盘类别。producer `_bundle_artifact_id` 与transport重算原closure ID必须共用相同export codec，含surface-source内部临时ref也需合法新格式。bundle_id不是ArtifactRef，不因同名前缀套codec。
 
+### 未变成员复用（Preview publication 优化）
+
+assembler 先校验 source exact ref、完整原始字节与 JSON canonical/引用闭合，再递归确定最终 ref。
+未改变字节的 durable/comparison/export 正式成员保持四字段 ArtifactRef 完全相等；canonical
+成员继续复制到 export，不将 canonical/scratch 对象直接作为 bundle 成员。JSON 子 ref 实际变化
+时重写其父内容并产生 export ref，递归到所需层级；无变化的 JSON 保持原字节/ref。
+新 surface、bundle manifest 和 closure 仍发布为 export。不改变 Bundle v4 的字段或摘要 preimage；
+ref rewrite 减少可能改变 JSON raw SHA、size 及其传递的 surface/bundle digest，更新相应 golden。
+
+相同内容 snapshot 仍合并为一个 shared logical_path，并保留全部 table_bindings。该组以非canonical
+优先、再按 artifact_id 字典序选择稳定代表，所有 alias 与父 JSON 指向代表的最终 ref；每个 source
+仍独立校验，不用声明的 hash 代替原始内容校验。此规则不合并不同内容或普通成员的不同合法路径。
+
+只有 `destination_store is source_store` 且上述规划已确认 final ref 直接复用既存正式成员时省略
+该成员的 put/即时读回；不查询 exists、不增加 storage fast path。独立 destination（即使是包装器）
+必须复制全部 final 成员，使用相同最终 ref 映射，并在该 destination 完成全部 final 校验。
+READY/DEGRADED 的完整读验、资源预算与取消边界保留。原 READY/publication 事务接收完整 final refs
+并按原保护与 Submit 移交规则管理复用成员；cache/source 的旧保护不是本 bundle 的保护替代物。
+不增加保留生命周期或第二权威来源。
+
 下载仍在headers前核授权绑定、完整metadata/成员及size/raw SHA，跨root持有有序borrow，不新建持久tar。原单root“FD合计≤2”在多root目标下改为至多4个root FD加当前1个artifact FD；不预开所有成员，无整包bytes/mmap。正常/未消费响应/断连/取消/异常都释放所有borrow。清理遇借用retryable；头后I/O失败中断，不补成功尾部。READY完整final refs仍在原publication/protection事务中闭合。
 
 artifact_id不直接进入semantic digest的规则不变，但被rewrite的JSON metadata含新ref，其raw SHA/size会变，并可经surface integrity、closure integrity传递至surface/bundle digest。不得以“排除了ID”断言所有旧semantic golden不变，不得删除raw完整性输入来保旧摘要。同一新版本仅改挂载时所有身份/摘要保持相等；A摘要表给出直接/传递变化边界。
 
 
 S1a ref校验补充：所有四字段backend `ArtifactRef` 使用统一严格a1 codec；旧cache/flow/repository前缀不是合法artifact ID，也不保留为独立前缀判别路径。location只定位root，不替代kind/scope/完整closure/READY校验；合法opaque ref可由export/cache恢复后正式移交，不能按hash前的调用方标签猜授权。bundle-relative logical_path继续使用原路径约束，cache-local/host/repository/flow路径禁令不变。
+
+## 后台结构审计与 READY（2026-11-13）
+
+后台 `comparison-structure-audit` 是 ArtifactStore 产物，独立于前端 bundle 完整闭包；不得加入 bundle manifest、risk annotations 或普通 diagnostics。每个 pair 的共享 pipeline 在成功发布隐藏展示前写入及 exact-ref 校验，缓存命中同样恢复证据并建立当前 pair 的审计。Preview assemble-state v4 / History assemble-state v2 保存每对 `structure_audit_bindings={pair_id,comparison_digest,audit_artifact_id|null}`；严格解码，READY 创建、checkpoint 重放及最终 publish 均核对引用在完整 closure 内、审计可读且 pair/comparison 绑定相等。缺失、损坏和错绑定拒绝发布。
+
+现有 READY closure 的原始 SHA/size 和原有 operation/Preview/History 保护覆盖审计；closure 本身形状/preimage 不变。D 的 Submit 衔接必须在既有事务内把 **完整 READY closure 输出（含审计和审核 bundle）** 转为提交所有保护，再释放 Attempt/临时引用；终态与 workspace 复用不得释放该提交记录仍持有的审核闭包。C 仅建立并验证结果闭包，提交所有保护移交由 Submit/Review owning lifecycle 实施。
+
+### Submission 审核结果的闭包与保留
+
+Submission 复用其不可变 PreviewResult 的 bundle；新增审核读取不改变 bundle v4 preimage，不把后台结构审计加入下载包。PreviewResult 的 comparison_pairs 冻结每组 snapshot/comparison/risk/surface/ruleset digest 和可空审计 ID；AcceptSubmit 和每次审核读取将其与 READY 的 exact refs、manifest pair digest、bundle closure 及严格审计文档核对。Preview assemble-state 由 v4 升至 v5，持久 Preview 绑定直接采用新字段，不兼容旧记录。
+
+AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manifest/final closure 与全部成员、后台审计），并把 READY root exact ref 记录为原 Submit Operation 输入。finalize 原事务先转为 submission-review/submission_id 所有，再释放 Attempt/checkpoint。该保护随 Submission 保留，不随退回、撤回、归档关闭或工作区复用释放；没有提交消费者的失败 Attempt 仍仅按原临时生命周期收尾。
+
+审核摘要与下载都先执行 submission 的当前权限和 exact scope，再核固定结果与完整后台闭包。当前规则变化不重算旧结果。本地缓存不得免除这次服务器授权及摘要身份核对；缺失与完整性错误明确返回，不以空结果或新 History 替代。JSON 元数据读取沿 bundle 的 16 MiB 上限，整表成员以流式 chunks 验证。
+
+审核页面直接读取 `/v1/submissions/{submission_id}/result` 与 `/result/bundle`，不创建或轮询 History。FULL 的 `baseline_to_initial` / `initial_to_modified` 与 Preview 同义，组名与提示共用 Preview 的“原始组态视图”/“本次组态视图”及两侧来源说明，默认 `initial_to_modified`；MODIFIED_ONLY 仍使用单一 `initial_to_modified`（基线→修改）。URL 中有效 pair 选择可恢复，失效选择回到服务端默认。两组的表/行统计、风险和导航各自展示，不计算净变化。页面复用当前比较视图切换与本地浏览；每次打开、刷新（含冲突确认框中的“刷新审核信息”）以及审核动作后的上下文刷新，先重新授权并核对提交 ID、bundle digest 和完整有序 pair digest tuple，再使用已有本地 bundle。失败清空可浏览状态并提供重新读取，不以缓存掩盖权限、缺失或完整性错误。仅服务器明确返回 `SUBMISSION_RESULT_UNAVAILABLE` 或 `SUBMISSION_RESULT_INTEGRITY_FAILURE` 时，允许退回与本人撤回（权限、PENDING 状态及处置限制照旧），审核通过禁用；其他失败仅可重试。核对期间保留已显示的比较视图，但禁用三项审核动作；核对失败仍清空视图，会话切换与重试仍重新读取服务器。
+
+摘要不新增用于预告当前基线的字段。审批沿用原 Review version、基线 CAS 与 canonical eligibility；`BASELINE_VERSION_CONFLICT` 明确提示所基于的基线已更新、不能通过，并保留退回/本人撤回路径。结果本身仍保持原绑定。
+
+
+Operation.artifact_refs 继续只存有限 root refs（含接受时的 READY exact ref），不塞入完整输出清单。worker 在 finalize 前读取已接受 READY 的 root+outputs；finalize 请求必需携带这些 exact refs，事务内重新构造 READY canonical bytes，与接受时 root 的大小及 raw SHA 核对，并核完整 Attempt 保护后移交。由 READY 唯一确定的成员不成为第二权威来源；删、换、加成员或缺少保护均拒绝并回滚。Preview result/READY job contract 升为 v3 以拒绝缺少固定 pair 绑定的旧结果，assemble-state 为 v5；bundle 内容形状与 preimage 仍为 v4。
+
+`SubmitAttempt.preview_ready_closure_digest` 沿既有字段升级到 v2：`v2:` + raw SHA256(JCS(binding preimage))。preimage 的 `binding_contract_version` 为 `backend-vnext/preview-ready-binding/v2`；包括 Preview ID、workspace/upload/generation/repository、baseline node/commit/head version、ruleset/contract/provider versions、全部 Preview digests、canonical content/facts digest 与 canonical exact refs/digests、identity set 与完整 identity pairs、comparison_pairs（含各 snapshot/rules/comparison/risk/final surface 与审计 null/ID）、bundle/READY ID、producer operation ID。exact ref 表达为 `[artifact_id, media_type, size_bytes, raw_sha256]`；不纳入读取时派生 stale 或 workspace 指针。字段由 `application/preview_binding.py` 拥有。T1 writer、finalize/replay 和每次提交结果读取重算核对，防止同一 READY 下的 pair/规则/审计缺省绑定或 scope 被错换；这是原受理绑定摘要的目标 preimage，不增加另一权威结果或兼容路径。
+
+## 新语义与冻结结果
+
+普通展示的删除值先取真实 before snapshot，否则取已验证的 record.before_values；locator context 只供身份筛选与一致性核对，不是完整行。Navigation v4 的公共风险、归属与定义变化遵循其 owning Contract，均进入已有 projection、surface 与 bundle 闭包。
+
+Preview job v5 在服务器 job payload 的 capability_contract_versions 绑定 risk model、risk ruleset digest 和 business navigation；worker 及新 Submit 的 T1 准入核当前值，不加入 HTTP 请求幂等指纹。同键同请求继续返回原 operation，新键新建；旧结果不满足新受理时要求新键重新预览。已受理 Attempt、finalize 与 Submission 审核只核原冻结 Preview/READY/closure 和绑定完整性，不核当前 global 版本。History job v3 的受理指纹与跨键复用检查绑定 job contract。Preview assemble-state v11 与 History v8 的解码器拒绝旧状态，不改变 READY 闭包格式。

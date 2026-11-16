@@ -105,6 +105,7 @@ def source_descriptor(table: dict[str, Any]) -> SourceTableDescriptor:
     return SourceTableDescriptor(
         display_name=table["display_name"], canonical_name=table["canonical_name"],
         primary_key_canonical_names=tuple(table["primary_key"]), reader_ready=True,
+        comment=table.get("comment"),
         columns=tuple(SourceColumnDescriptor(
             display_name=c["display_name"], canonical_name=c["canonical_name"], ordinal=c["ordinal"],
             sql_type=c["sql_type"], logical_type=SqlLogicalType(c["logical_type"]), nullable=c["nullable"],
@@ -198,7 +199,10 @@ def main() -> int:
                 table_ruleset_version=rules.table_ruleset_version, row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
                 scalar_encoding_version=1, raw_content_digest=DigestRef(materialized["output"]["raw_content_digest"]),
             )
-            record = resolve_table_rule(rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns).record
+            record = resolve_table_rule(
+                rules, descriptor.table_name, table_comment=source.comment,
+                primary_key_columns=descriptor.primary_key_columns,
+            ).record
             view = derive_storage_rule_view(record, descriptor)
             if view is None:
                 materialized["output"]["tables"][0]["arrow_stream"].close()

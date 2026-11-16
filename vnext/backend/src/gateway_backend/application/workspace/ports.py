@@ -32,6 +32,8 @@ class WorkspaceCreateTransaction(Protocol):
 
 
 class WorkspaceControlTransaction(ControlTransaction, WorkspaceCreateTransaction, Protocol):
+    def count_queued_operations(self) -> int: ...
+
     @property
     def baseline(self) -> BaselineRepository: ...
 

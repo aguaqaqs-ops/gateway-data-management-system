@@ -8,6 +8,8 @@ Table Access owner 的 `SourceTableDescriptor`、`SourceColumnDescriptor` 增加
 
 raw table-set materialization 的进程内结果独立携带 `PresentationMetadata={tables:[{table_name,comment,columns:[{name,comment}]}]}`，canonical projection 按保留表/列变换。表 canonical name UTF-8 序，列 DDL 序，覆盖最终 canonical 全部表列，缺注释显式 null；derived 无源字段为 null。不得把 comment 写进 canonical descriptor wrapper、IPC/Parquet metadata、逐表 cache identity 或 table-set closure 的第二份载荷。持久化唯一 owner 是 CanonicalizationManifest.presentation，详见 [Canonical Storage](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#be-b-presentation-目标b0-固定b1-激活)。
 
+Projection 使用同侧真实表 COMMENT 解析通道引用表属性；只将解析后的存储和比较语义绑定到相应规则身份，原始文案仍仅保存在完整 manifest presentation。
+
 Rust parser/native adapter 同轮传递 comment，测试专用独立 oracle 覆盖 COMMENT 子集，不恢复 Python 生产 parser。请求/scalar/materialization 算法形状不变的 selector 保持原值；实际受影响的 durable payload 按[消费者矩阵](../refactoring/formal/plans/be-b-second-step-design.md#71-b0-contractselector-与消费者矩阵)同步更改 producer/decoder，旧载荷拒绝。
 
 本文定义 `SnapshotTableSet`、`SnapshotTableReader`、`SnapshotTableArtifact` 和 raw table artifact cache 的边界。它们是 Snapshot 行数据访问层，不是 repository/Dolt 写入层。

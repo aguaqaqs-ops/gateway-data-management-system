@@ -246,8 +246,10 @@ class FakeRepositoryTableAccessProvider:
         per_read_rows: Sequence[RepositoryRows] = (),
         base_catalog: RepositoryTableCatalog | None = None,
         per_read_catalog_without: Sequence[Sequence[str]] = (),
+        table_comments: Mapping[str, str] | None = None,
     ) -> None:
         self.catalog = catalog
+        self.table_comments = dict(table_comments or {})
         self._base_catalog = base_catalog or catalog
         self.declared_rows = declared_rows if declared_rows is not None else (rows or {})
         self.rows = rows if rows is not None else self.declared_rows
@@ -393,6 +395,7 @@ def canonical_binding_for_catalog(
     *,
     ruleset: TableRulesetSnapshot | None = None,
     is_initial: bool = False,
+    table_comments: Mapping[str, str] | None = None,
 ) -> CanonicalBinding:
     active = _complete_ruleset(ruleset or default_ruleset())
     if active.ruleset_digest is None:
@@ -405,6 +408,7 @@ def canonical_binding_for_catalog(
                     active,
                     table.table_name,
                     primary_key_columns=table.primary_key_columns,
+                    table_comment=(table_comments or {}).get(table.table_name),
                 ).record
                 key_columns = (
                     record.compare_key_columns

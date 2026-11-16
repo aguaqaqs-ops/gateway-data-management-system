@@ -68,6 +68,7 @@ def create_or_get_workspace(
             workspace=existing,
             replay=True,
             occupancy=transaction.submission.get_workspace_occupancy(existing.workspace_id),
+            active_preview_operation_id=repository.find_active_preview_operation(existing),
         )
 
     workspace_id = f"ws-{uuid4()}"
@@ -87,7 +88,9 @@ def create_or_get_workspace(
     )
     assert_open_uniqueness(existing, scope=scope, workspace_id=workspace_id)
     saved = repository.save_workspace(workspace, expected_version=0)
-    return CreateOrGetWorkspaceResult(workspace=saved, replay=False, occupancy=None)
+    return CreateOrGetWorkspaceResult(
+        workspace=saved, replay=False, occupancy=None, active_preview_operation_id=None
+    )
 
 
 def accept_upload(

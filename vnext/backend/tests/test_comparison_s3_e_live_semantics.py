@@ -16,6 +16,7 @@ from gateway_backend.capabilities.comparison import (
     OrderedTableProcessingMode, SchemaChangeSource, SchemaEvolution, plan_comparison,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
+from gateway_backend.capabilities.comparison.production import ComparisonTaskSession, comparison_row_demands
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskEvaluationStatus, RiskOptions, RiskReasonCode,
     RiskRulesetSnapshot, V1_RISK_RULE_SPECS, evaluate_risk,
@@ -27,7 +28,7 @@ from gateway_backend.capabilities.snapshot_materialization.canonical_store impor
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy, OrderedPolicy, STORAGE_PROJECTION_VERSION, StorageRuleView,
 )
-from tests.support.comparison_s3_e_live import canonical_bound, native_product
+from tests.support.comparison_s3_e_live import canonical_bound, native_product, ordered_canonical_bound
 from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
 from tests.support.table_rules import comparison_ruleset_for, fallback_record
 
@@ -393,27 +394,58 @@ def test_comparison_digest_is_repeatable_and_directional() -> None:
     assert first.tables[0].row_deleted_count == reverse.tables[0].row_added_count
 
 
-def test_blank_position_renumber_keeps_occupancy_without_records() -> None:
-    before = (
-        "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a'),(NULL,2,'x'),(NULL,3,'y'),(2,100,'b');"
-    )
-    current = (
-        "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a'),(NULL,20,'x'),(NULL,30,'y'),(2,100,'b');"
-    )
+def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b'),(3,3,'c');"
+    current = schema + " INSERT INTO t VALUES (1,2,'a'),(2,1,'b'),(3,3,'c');"
     product = native_product(before, current, ordered=True)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
         table, = product.result.facts.tables
-        assert table.blank_extension is not None
-        assert (table.blank_extension.before_occupancy_digest
-                == table.blank_extension.current_occupancy_digest)
-        assert table.blank_extension.blank_summary.blank_changed_count == 0
-        assert all(product.handles["t"].family_summary(family)[0] == 0 for family in (
-            "STANDARD", "ORDERED", "BLANK",
-        ))
+        assert table.ordered_extension is not None
+        assert table.ordered_extension.ordered_summary.row_moved_count == 1
+        result = evaluate_risk(RiskEvaluationInput(
+            comparison_facts=product.result.facts,
+            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
+            ordered_record_views=product.handles,
+        ), artifact_store=InMemoryArtifactStore())
+        assert result.status is RiskEvaluationStatus.READY
+        assert result.risk_report is not None
+        assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_MOVE,)
+        assert result.risk_report.tables[0].risk_level.value == "MEDIUM_HIGH"
+        assert result.risk_report.tables[0].annotation_count == 1
+    finally:
+        product.close()
+
+
+def test_cached_ordered_change_still_demands_snapshots_for_risk(monkeypatch: pytest.MonkeyPatch) -> None:
+    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
+    before_sql = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
+    current_sql = schema + " INSERT INTO t VALUES (1,1,'a'),(NULL,2,'x'),(2,3,'b');"
+    before, current = ordered_canonical_bound(before_sql), ordered_canonical_bound(current_sql)
+    from tests.support.table_rules import ordered_record
+    planned = plan_comparison(ComparisonRequest(
+        pair_id="cached-blank", before=before, current=current,
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+    ))
+    assert isinstance(planned, ComparisonPlan)
+    product = native_product(before_sql, current_sql, ordered=True)
+    try:
+        assert isinstance(product.result, DetailedFactsResult)
+        assert product.result.facts is not None
+        fact, = product.result.facts.tables
+        assert fact.blank_extension is not None and fact.blank_extension.blank_summary.blank_changed_count
+        session = ComparisonTaskSession((planned,))
+        try:
+            monkeypatch.setattr(session, "prepare_persistent", lambda _plan: None)
+            monkeypatch.setattr(session, "persistent_lookup", lambda _plan, _task: (fact, None))
+            demands = comparison_row_demands(planned, session)
+            assert len(demands) == 2
+            assert demands[0] is planned.tasks[0].before_table
+            assert demands[1] is planned.tasks[0].current_table
+        finally:
+            session.close()
     finally:
         product.close()
 
@@ -441,27 +473,6 @@ def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> 
         with closing(product.handles["t"].record_batches("BLANK")) as reader:
             kinds = tuple(sorted(row["record_kind"] for batch in reader for row in batch.to_pylist()))
         assert kinds == ("BLANK_DELETE_INTERVAL", "BLANK_INSERT_INTERVAL")
-    finally:
-        product.close()
-
-
-def test_absolute_order_renumber_is_a_position_shift_without_records() -> None:
-    schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
-    before = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
-    current = schema + " INSERT INTO t VALUES (1,10,'a'),(2,20,'b');"
-    product = native_product(before, current, ordered=True)
-    try:
-        assert isinstance(product.result, DetailedFactsResult)
-        assert product.result.facts is not None
-        table, = product.result.facts.tables
-        assert table.ordered_extension is not None
-        summary = table.ordered_extension.ordered_summary
-        assert table.row_modified_count == 0
-        assert summary.row_moved_count == 0
-        assert summary.position_changed_count == 2
-        assert table.ordered_extension.table_processing_mode is OrderedTableProcessingMode.SHIFT_REPAIRED
-        assert product.handles["t"].family_summary("STANDARD")[0] == 0
-        assert product.handles["t"].family_summary("ORDERED")[0] == 0
     finally:
         product.close()
 
@@ -516,27 +527,12 @@ def test_ordered_identity_change_emits_add_delete_without_positional_fallback() 
         product.close()
 
 
-def test_missing_order_key_degrades_ordered_replay() -> None:
+def test_invalid_order_key_is_rejected_by_projection() -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
     before = schema + " INSERT INTO t VALUES (1,NULL,'a');"
     current = schema + " INSERT INTO t VALUES (1,1,'a');"
-    product = native_product(before, current, ordered=True)
-    try:
-        assert isinstance(product.result, DetailedFactsResult)
-        assert product.result.facts is not None
-        table, = product.result.facts.tables
-        assert table.status is ComparisonTableStatus.DEGRADED
-        assert "ORDER_KEY_MISSING" in table.diagnostics
-        assert table.ordered_extension is not None
-        assert table.ordered_extension.replay_guarantee.value == "UNSUPPORTED"
-        assert product.handles["t"].family_summary("STANDARD")[0] == 1
-        assert product.handles["t"].family_summary("ORDERED")[0] == 0
-        assert product.handles["t"].family_summary("BLANK")[0] == 0
-        with closing(product.handles["t"].record_batches("STANDARD")) as reader:
-            records = [row for batch in reader for row in batch.to_pylist()]
-        assert tuple(row["record_kind"] for row in records) == ("TABLE_DEGRADED",)
-    finally:
-        product.close()
+    with pytest.raises(ValueError, match="ordered projection failed"):
+        native_product(before, current, ordered=True)
 
 
 def test_ordered_excluded_value_change_is_visible_without_row_record() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 from dataclasses import replace
 from pathlib import Path
 
@@ -38,11 +39,12 @@ from gateway_backend.capabilities.table_rules.registry import (
     COMPOSITE_SIGNAL_POINT_TABLE_NAME,
     DEFAULT_BROWSE_ONLY_TABLE_NAMES,
     DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS,
-    DEVICE_CFG_UPDATE_ONLY_TABLE_NAME,
+    DEVICE_CFG_TABLE_NAME,
     migrated_table_rule_records,
 )
 from gateway_shared_kernel import DigestRef
 from tests.support.table_rules import (
+    CONFIGURATION_TABLE_NAMES,
     keyless_record,
     net_cfg_record,
     ordered_syx_record,
@@ -62,7 +64,7 @@ _GOLDEN = (
 def test_empty_compare_keys_mean_ddl_pk_or_keyless() -> None:
     snapshot = TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION)
     assert snapshot.compare_keys == ()
-    assert snapshot.table_ruleset_version == 1
+    assert snapshot.table_ruleset_version == TABLE_RULESET_VERSION
 
 
 def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() -> None:
@@ -78,7 +80,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
         if record.selector.value == DEFAULT_BROWSE_ONLY_TABLE_NAMES[0]
     )
     device_cfg = next(
-        record for record in records if record.selector.value == DEVICE_CFG_UPDATE_ONLY_TABLE_NAME
+        record for record in records if record.selector.value == DEVICE_CFG_TABLE_NAME
     )
     raw_fallback = next(
         record
@@ -108,7 +110,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
                 canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
             )
         )
-    assert RULESET_VERSION == "v4"
+    assert RULESET_VERSION == "v7"
 
 
 def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() -> None:
@@ -139,27 +141,15 @@ def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() 
         assert record.compare_key_columns == columns
 
     added_browse_names = {
-        "cnt_manage_cfg",
         "dev104_cfg",
-        "iec101_cfg",
-        "iec104_cfg",
-        "iec104gw_cfg",
-        "iec61850c_cfg",
-        "jdxx_cfg",
         "nbridge_cfg",
         "nr103d_cfg",
         "nr103ht_cfg",
-        "sc_cfg",
-        "scada_cfg",
-        "sg_manage_cfg",
         "sntp_cfg",
-        "vqc_cfg",
-        "wave_cfg",
-        "wf_cfg",
     }
-    assert len(added_browse_names) == 17
+    assert len(added_browse_names) == 5
     assert added_browse_names <= set(DEFAULT_BROWSE_ONLY_TABLE_NAMES)
-    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 30
+    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 7
     assert all(
         by_selector[(TableRuleSelectorKind.EXACT, name)].precedence_class
         is SelectorPrecedenceClass.BROWSE_ONLY
@@ -190,7 +180,7 @@ def test_composite_signal_rule_matches_canonical_storage_and_comparison_contract
 
 def test_compare_keys_are_canonical_table_and_key_columns() -> None:
     snapshot = TableRulesetSnapshot(
-        table_ruleset_version=1,
+        table_ruleset_version=TABLE_RULESET_VERSION,
         compare_keys=(
             TableCompareKey(canonical_table="orders", key_columns=("id", "seq")),
         ),
@@ -210,7 +200,7 @@ def test_ruleset_rejects_duplicate_canonical_table() -> None:
     first = TableCompareKey(canonical_table="t", key_columns=("id",))
     second = TableCompareKey(canonical_table="t", key_columns=("code",))
     with pytest.raises(ValueError, match="compare_keys must not repeat canonical_table"):
-        TableRulesetSnapshot(table_ruleset_version=1, compare_keys=(first, second))
+        TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION, compare_keys=(first, second))
 
 
 def test_additive_r3_snapshot_defaults_match_s0_identity() -> None:
@@ -250,7 +240,7 @@ def test_golden_valid_ruleset_document_round_trips() -> None:
 
 def _duplicate_selector_document() -> dict[str, object]:
     record = net_cfg_record().to_document()
-    document = table_ruleset_document(TableRulesetSnapshot(table_ruleset_version=1))
+    document = table_ruleset_document(TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION))
     document["rules"] = [record, record]
     return document
 
@@ -264,7 +254,7 @@ def _unknown_field_document() -> dict[str, object]:
 def _digest_mismatch_snapshot() -> None:
     snapshot = snapshot_from_records(skip_record())
     TableRulesetSnapshot(
-        table_ruleset_version=1,
+        table_ruleset_version=TABLE_RULESET_VERSION,
         rules=snapshot.rules,
         ruleset_digest=DigestRef("sha256:" + "22" * 32),
     )
@@ -279,7 +269,7 @@ MALFORMED_RULESET_CASES: tuple[tuple[str, Callable[[], dict[str, object]], str],
     (
         "unknown fields",
         _unknown_field_document,
-        "unknown fields",
+        "Extra inputs are not permitted",
     ),
 )
 
@@ -393,3 +383,65 @@ def test_golden_duplicate_selector_is_rejected() -> None:
     )
     with pytest.raises(ValueError, match="duplicate selectors are forbidden"):
         table_ruleset_from_document(payload)
+
+
+@pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
+def test_configuration_contract_separates_storage_and_comparison_keys(table_name: str) -> None:
+    records = [r for r in migrated_table_rule_records() if r.selector.value == table_name]
+    assert len(records) == 1
+    record = records[0]
+    assert record.static_role is TableStaticRole.STANDARD_DIFF
+    assert record.compare_key_columns == ("page_no", "no")
+    assert record.compare_key_mode is TableCompareKeyMode.EXPLICIT_KEY
+    assert record.artifact_scope is TableArtifactScope.ALL_CHANGES
+    assert record.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert record.ignored_columns == ()
+    assert record.dropped_columns == ()
+    assert record.compare_excluded_columns == ()
+
+
+@pytest.mark.parametrize("field,value", (
+    ("selector", TableRuleSelector(TableRuleSelectorKind.EXACT, "other_cfg")),
+    ("compare_key_columns", ("no",)),
+    ("compare_key_mode", TableCompareKeyMode.RAW_PRIMARY_KEY),
+    ("artifact_scope", TableArtifactScope.UPDATE_ONLY),
+))
+def test_configuration_storage_exception_does_not_generalize(field: str, value: Any) -> None:
+    record = next(r for r in migrated_table_rule_records() if r.selector.value == "iec104_cfg")
+    with pytest.raises(ValueError, match="restricted to snapshot-only"):
+        replace(record, **{field: value})
+
+
+@pytest.mark.parametrize("fault", ("missing_selector_condition", "extra_selector_field",
+                                  "non_string_condition", "old_contract", "old_ruleset",
+                                  "old_storage_projection"))
+def test_ruleset_document_rejects_old_or_malformed_selector_contract(fault: str) -> None:
+    document = table_ruleset_document(snapshot_from_records(net_cfg_record()))
+    rules = document["rules"]
+    assert isinstance(rules, list)
+    selector = rules[0]["selector"]
+    if fault == "missing_selector_condition":
+        del selector["table_comment_contains"]
+    elif fault == "extra_selector_field":
+        selector["unexpected"] = "value"
+    elif fault == "non_string_condition":
+        selector["table_comment_contains"] = 1
+    elif fault == "old_contract":
+        document["contract_version"] = "gateway-vnext.table-ruleset:v1"
+    elif fault == "old_ruleset":
+        document["ruleset_version"] = "v6"
+    else:
+        document["storage_projection_version"] = "3"
+    with pytest.raises(ValueError):
+        table_ruleset_from_document(document)
+
+
+def test_selector_comment_condition_is_bound_to_ruleset_digest() -> None:
+    unconditional = ordered_syx_record()
+    conditional = replace(
+        unconditional, selector=replace(unconditional.selector, table_comment_contains="引用表"),
+    )
+    plain = snapshot_from_records(unconditional)
+    reference = snapshot_from_records(conditional)
+    assert plain.ruleset_digest != reference.ruleset_digest
+    assert table_ruleset_from_document(table_ruleset_document(reference)).rules == reference.rules

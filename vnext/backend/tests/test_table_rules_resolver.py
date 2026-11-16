@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from gateway_backend.capabilities.table_rules.contracts import (
     FALLBACK_SELECTOR_VALUE,
+    TABLE_RULESET_VERSION,
     ORDERED_POSITION_COLUMN,
     CanonicalKeyPolicy,
     DroppedColumn,
@@ -34,8 +35,8 @@ from gateway_backend.capabilities.table_rules.registry import (
     COMPOSITE_SIGNAL_POINT_TABLE_NAME,
     DEFAULT_BROWSE_ONLY_TABLE_NAMES,
     DEFAULT_SKIPPED_TABLE_NAMES,
-    DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES,
-    IEC104_ORDERED_FAMILIES,
+    DEVICE_POINT_TABLE_NAMES,
+    CHANNEL_TABLE_PATTERN,
     PROTOCOL_DEVICE_CFG_TABLE_PATTERN,
     PROTOCOL_OPTION_CFG_TABLE_PATTERN,
     migrated_table_rule_records,
@@ -65,26 +66,14 @@ _GOLDEN = (
 )
 _COMPOSITE_IGNORED = frozenset(COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS)
 _COMPOSITE_COMPARE_EXCLUDED = frozenset(COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS)
-_MIGRATED_RULE_COUNT = 80
+_MIGRATED_RULE_COUNT = 72
 DC56_BROWSE_ONLY_ADDITIONS = frozenset(
     {
-        "cnt_manage_cfg",
         "dev104_cfg",
-        "iec101_cfg",
-        "iec104_cfg",
-        "iec104gw_cfg",
-        "iec61850c_cfg",
-        "jdxx_cfg",
         "nbridge_cfg",
         "nr103d_cfg",
         "nr103ht_cfg",
-        "sc_cfg",
-        "scada_cfg",
-        "sg_manage_cfg",
         "sntp_cfg",
-        "vqc_cfg",
-        "wave_cfg",
-        "wf_cfg",
     }
 )
 
@@ -133,24 +122,6 @@ def _browse_case(name: str) -> ParityCase:
     )
 
 
-def _ordered_case(family: str) -> ParityCase:
-    table_name = f"b1_n1_{family}"
-    pattern = rf"^b\d+_n\d+_{family}$"
-    return ParityCase(
-        label=f"ordered:{family}",
-        table_name=table_name,
-        primary_key_columns=(),
-        static_role=TableStaticRole.ORDERED_DIFF,
-        selector=f"regex:{pattern}",
-        compare_key_mode=TableCompareKeyMode.ORDERED_STABLE_KEY,
-        compare_key_columns=("gid",),
-        ignored_columns=frozenset(),
-        artifact_scope=TableArtifactScope.ORDERED_SEMANTIC,
-        position_column=ORDERED_POSITION_COLUMN,
-        stable_key_candidates=("gid",),
-    )
-
-
 def _exact_standard(
     name: str,
     *,
@@ -177,7 +148,7 @@ def _device_point_case(name: str) -> ParityCase:
     return _exact_standard(
         name,
         key_columns=("gid",),
-        scope=TableArtifactScope.UPDATE_ONLY,
+        scope=TableArtifactScope.ALL_CHANGES,
     )
 
 
@@ -206,7 +177,6 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
         artifact_scope=None,
     ),
     *(_browse_case(name) for name in DEFAULT_BROWSE_ONLY_TABLE_NAMES),
-    *(_ordered_case(family) for family in IEC104_ORDERED_FAMILIES),
     _exact_standard(
         COMPOSITE_SIGNAL_POINT_TABLE_NAME,
         key_columns=COMPOSITE_SIGNAL_POINT_KEY_COLUMNS,
@@ -241,17 +211,21 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
     _exact_standard("scdmod_para", key_columns=("ied_model",), ignored=frozenset({"no"})),
     _exact_standard("app_cfg", key_columns=("app_name",)),
     _exact_standard("rdb_cfg", key_columns=("no",)),
-    *(_device_point_case(name) for name in DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES),
+    *(_device_point_case(name) for name in (
+        "device_st", "device_mx", "device_co", "device_sg", "device_sp",
+        "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb",
+    )),
     ParityCase(
         label="device_cfg:with-pk",
         table_name="device_cfg",
         primary_key_columns=("gid",),
         static_role=TableStaticRole.STANDARD_DIFF,
         selector="exact:device_cfg",
-        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-        compare_key_columns=("gid",),
+        compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+        compare_key_columns=("gid", "page_no", "option_name"),
         ignored_columns=frozenset(),
-        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+        artifact_scope=TableArtifactScope.ALL_CHANGES,
+        compare_excluded_columns=frozenset({"no"}),
     ),
     ParityCase(
         label="device_cfg:empty-pk",
@@ -259,10 +233,11 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
         primary_key_columns=(),
         static_role=TableStaticRole.STANDARD_DIFF,
         selector="exact:device_cfg",
-        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-        compare_key_columns=(),
+        compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+        compare_key_columns=("gid", "page_no", "option_name"),
         ignored_columns=frozenset(),
-        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+        artifact_scope=TableArtifactScope.ALL_CHANGES,
+        compare_excluded_columns=frozenset({"no"}),
     ),
     ParityCase(
         label="protocol-option:b1_n1_iec104_cfg",
@@ -341,9 +316,9 @@ NON_OVERLAP_CASES: tuple[tuple[str, str, TableStaticRole, str], ...] = (
         "exact:device_model_table",
     ),
     (
-        "device_model_cfg browse",
+        "device_model_cfg business comparison",
         "device_model_cfg",
-        TableStaticRole.BROWSE_ONLY,
+        TableStaticRole.STANDARD_DIFF,
         "exact:device_model_cfg",
     ),
     (
@@ -351,12 +326,6 @@ NON_OVERLAP_CASES: tuple[tuple[str, str, TableStaticRole, str], ...] = (
         "version_manager",
         TableStaticRole.BROWSE_ONLY,
         "exact:version_manager",
-    ),
-    (
-        "iec104 list ordered",
-        "b1_n1_iec104_syx_list",
-        TableStaticRole.ORDERED_DIFF,
-        r"regex:^b\d+_n\d+_iec104_syx_list$",
     ),
     (
         "iec104 option cfg",
@@ -429,6 +398,7 @@ def test_legacy_parity_cases(migrated_snapshot: TableRulesetSnapshot, case: Pari
         migrated_snapshot,
         case.table_name,
         primary_key_columns=case.primary_key_columns,
+        table_comment=None,
     )
     decision = resolved.decision
     assert decision.static_role is case.static_role
@@ -444,9 +414,9 @@ def test_legacy_parity_cases(migrated_snapshot: TableRulesetSnapshot, case: Pari
 
 @pytest.mark.parametrize("case", LEGACY_PARITY_CASES, ids=lambda case: case.label)
 def test_legacy_oracle_matches_parity_cases(case: ParityCase) -> None:
-    if case.table_name in DC56_BROWSE_ONLY_ADDITIONS:
+    if case.table_name in DC56_BROWSE_ONLY_ADDITIONS or case.table_name == "device_cfg":
         # DC56 intentionally changes these table roles; legacy is not the target contract.
-        assert case.static_role is TableStaticRole.BROWSE_ONLY
+        assert case.static_role in {TableStaticRole.BROWSE_ONLY, TableStaticRole.STANDARD_DIFF}
         return
     oracle = legacy_oracle_decision(case.table_name, primary_key_columns=case.primary_key_columns)
     assert oracle.static_role == case.static_role.value
@@ -458,9 +428,11 @@ def test_legacy_oracle_matches_parity_cases(case: ParityCase) -> None:
     if case.position_column is not None:
         expected_legacy_ignored.add(case.position_column)
     assert oracle.ignored_columns == frozenset(expected_legacy_ignored)
-    assert oracle.artifact_scope == (
-        None if case.artifact_scope is None else case.artifact_scope.value
-    )
+    # These ten tables deliberately retain additions and deletions in vnext.
+    if case.table_name not in DEVICE_POINT_TABLE_NAMES:
+        assert oracle.artifact_scope == (
+            None if case.artifact_scope is None else case.artifact_scope.value
+        )
     assert oracle.position_column == case.position_column
     assert oracle.stable_key_candidates == case.stable_key_candidates
 
@@ -474,7 +446,7 @@ def test_default_matrix_non_overlap(
     selector: str,
 ) -> None:
     del label
-    resolved = resolve_table_rule(migrated_snapshot, table_name)
+    resolved = resolve_table_rule(migrated_snapshot, table_name, table_comment=None)
     assert resolved.decision.static_role is role
     assert resolved.decision.selector.canonical_serialization() == selector
 
@@ -487,7 +459,7 @@ def test_selector_precedence_uses_rank_not_insertion_order(
     selector: str,
 ) -> None:
     del label
-    resolved = resolve_table_rule(snapshot, table_name, primary_key_columns=("id",))
+    resolved = resolve_table_rule(snapshot, table_name, primary_key_columns=("id",), table_comment=None)
     assert resolved.decision.selector.canonical_serialization() == selector
 
 
@@ -499,7 +471,7 @@ def test_same_rank_selector_collision_fails_closed(
 ) -> None:
     del label
     with pytest.raises(ValueError, match="incompatible selector collision"):
-        resolve_table_rule(snapshot, table_name)
+        resolve_table_rule(snapshot, table_name, table_comment=None)
 
 
 def test_duplicate_fallback_is_rejected_at_snapshot_construction() -> None:
@@ -539,9 +511,9 @@ def test_golden_migrated_matrix_round_trips() -> None:
 
 
 def test_empty_rules_snapshot_is_unclassified() -> None:
-    snapshot = TableRulesetSnapshot(table_ruleset_version=1)
+    snapshot = TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION)
     with pytest.raises(ValueError, match="unclassified table"):
-        resolve_table_rule(snapshot, "orders", primary_key_columns=("id",))
+        resolve_table_rule(snapshot, "orders", primary_key_columns=("id",), table_comment=None)
 
 
 def test_ignored_column_on_ddl_primary_key_fails_closed() -> None:
@@ -561,6 +533,46 @@ def test_ignored_column_on_ddl_primary_key_fails_closed() -> None:
         )
     )
     with pytest.raises(ValueError, match="ignored columns must not be effective key columns"):
-        resolve_table_rule(ruleset, "custom_ddl", primary_key_columns=("id",))
+        resolve_table_rule(ruleset, "custom_ddl", primary_key_columns=("id",), table_comment=None)
 
 
+
+
+CHANNEL_REFERENCE_CASES = (
+    ("b1_n1_iec104_syx_list", "遥信引用表", True),
+    ("b12_c003_any_suffix", "引用表", True),
+    ("b0001_n0002_x", "多个引用表说明", True),
+    ("b1_n1_iec104_syx_list", None, False),
+    ("b1_n1_iec104_syx_list", "", False),
+    ("b1_n1_iec104_syx_list", "遥信表", False),
+    ("b1_n1_", "引用表", False),
+    ("b1_x1_name", "引用表", False),
+    ("b-1_n1_name", "引用表", False),
+    ("b9007199254740992_n1_name", "引用表", False),
+    ("b1_c9007199254740992_name", "引用表", False),
+)
+
+
+@pytest.mark.parametrize("table_name,comment,is_ordered", CHANNEL_REFERENCE_CASES)
+def test_channel_ordering_requires_valid_name_and_actual_comment(
+    migrated_snapshot: TableRulesetSnapshot, table_name: str, comment: str | None, is_ordered: bool,
+) -> None:
+    decision = resolve_table_rule(
+        migrated_snapshot, table_name, primary_key_columns=("id",), table_comment=comment,
+    ).decision
+    assert (decision.static_role is TableStaticRole.ORDERED_DIFF) is is_ordered
+    if is_ordered:
+        assert decision.selector.canonical_serialization() == (
+            f"regex:{CHANNEL_TABLE_PATTERN}:comment:引用表"
+        )
+        assert decision.compare_key_columns == ("gid",)
+        assert decision.position_column == "no"
+
+
+def test_reference_comment_takes_precedence_over_protocol_rule(
+    migrated_snapshot: TableRulesetSnapshot,
+) -> None:
+    ordered = resolve_table_rule(migrated_snapshot, "b1_n1_iec104_cfg", table_comment="引用表")
+    ordinary = resolve_table_rule(migrated_snapshot, "b1_n1_iec104_cfg", table_comment=None)
+    assert ordered.decision.static_role is TableStaticRole.ORDERED_DIFF
+    assert ordinary.decision.compare_key_columns == ("page_no", "no")

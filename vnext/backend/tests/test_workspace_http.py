@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.review_result_fixtures import review_artifact_refs
+
 from pathlib import Path
 from typing import Any, cast
 
@@ -35,6 +37,7 @@ def test_create_workspace_returns_201(env: WorkspaceHttpTestEnvironment) -> None
     assert body["state"] == "OPEN"
     assert body["generation"] == 0
     assert body["optimistic_version"] == 0
+    assert body["active_preview_operation_id"] is None
     assert body["active_submit_attempt_id"] is None
     assert body["active_submission_id"] is None
 
@@ -236,6 +239,7 @@ def test_workspace_finalize_atomically_switches_attempt_pointer_to_submission(tm
     versions = _read_finalize_versions(env.db_path, attempt)
     with ControlDbUnitOfWork(env.db_path) as transaction:
         finalize_submit_transaction(request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
             submit_attempt_id=attempt.submit_attempt_id, facts=_finalize_facts(seed),
             submission_id="sub-finalized", created_at=TS1,
             expected_attempt_version=versions[0], expected_await_step_version=versions[1],

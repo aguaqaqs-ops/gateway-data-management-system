@@ -65,7 +65,7 @@ ORDERED_SYX_VOCABULARY_DDL = (
     "`gid` INT NOT NULL, "
     "`no` INT NOT NULL, "
     "PRIMARY KEY (`gid`)"
-    ");\n"
+    ") COMMENT='遥信引用表';\n"
 )
 ORDERED_SYX_SIZED_DDL = (
     "CREATE TABLE `b1_n1_iec104_syx_list` ("
@@ -73,7 +73,7 @@ ORDERED_SYX_SIZED_DDL = (
     "`no` INT NOT NULL, "
     "`value` VARCHAR(8) NULL, "
     "PRIMARY KEY (`gid`)"
-    ");\n"
+    ") COMMENT='遥信引用表';\n"
 )
 
 
@@ -962,7 +962,7 @@ from dataclasses import replace
 from pathlib import Path
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.compare_jobs import _sides_from_materialize_checkpoint
-from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit, presentation_for_commit
 from gateway_backend.application.canonical_metadata.manifest_reader import ArtifactBackedCanonicalizationManifestReader
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalScope
 from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
@@ -1034,7 +1034,7 @@ def checkpoint_readers():
                         readers.callback(table.reader.close)
                     if table.batch_reader is not None:
                         readers.callback(table.batch_reader.close)
-                loaded[commit] = replace(bound, table_set=tables)
+                loaded[commit] = replace(bound, table_set=tables, presentation=presentation_for_commit(metadata))
             yield store, loaded, rule_set
 """
 
@@ -1056,6 +1056,8 @@ with checkpoint_readers() as (store, sides, rule_set):
     result = _run_pair_pipeline(
         pair_id='pair-0',
         before=sides[{before_commit!r}], current=sides[{current_commit!r}],
+        before_presentation=sides[{before_commit!r}].presentation,
+        current_presentation=sides[{current_commit!r}].presentation,
         rule_set=rule_set, store=store, control=ExecutionControl(),
         on_cancel=lambda: None, repository_id=repository_id,
     )

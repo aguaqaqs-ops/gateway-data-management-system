@@ -129,6 +129,9 @@ class InMemoryWorkspaceRepository:
     ) -> PreviewAcceptanceRecord | None:
         return self._preview_idempotency.get((workspace_id, idempotency_key))
 
+    def find_active_preview_operation(self, workspace: Workspace) -> str | None:
+        return None
+
     def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
         return tuple(
             record

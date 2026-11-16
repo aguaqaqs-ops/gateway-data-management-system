@@ -30,7 +30,7 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 from . import db, importer
 
-PERMISSIONS = ["workspace_read", "upload_submit_workspace", "preview_workspace", "review_submission", "withdraw_own_submission", "archive_submission", "read_project_history"]
+PERMISSIONS = ["workspace_read", "upload_submit_workspace", "preview_workspace", "review_submission", "withdraw_own_submission", "archive_submission", "read_project_history", "statistics_read_group"]
 MAX_SESSION = 1048576
 MAX_MANAGEMENT_OUTPUT = 65536
 

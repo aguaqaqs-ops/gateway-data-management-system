@@ -95,7 +95,7 @@ def test_unknown_compare_key_column_fails_the_table() -> None:
 def test_ruleset_version_mismatch_fails_closed() -> None:
     result = materialize_sql(
         parse_fixture("sql/valid/s2-minimal-create-insert/input.sql"),
-        ruleset=TableRulesetSnapshot(table_ruleset_version=2),
+        ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION + 1),
     )
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.diagnostics[0].code is MaterializationDiagnosticCode.RULESET_VERSION_MISMATCH

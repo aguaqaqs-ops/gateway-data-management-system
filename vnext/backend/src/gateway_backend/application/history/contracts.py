@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.comparison.contracts import COMPARISON_CONTRACT_VERSION
 from gateway_backend.device_identity import validate_scope_identity
 
 from collections.abc import Sequence
@@ -24,11 +25,12 @@ MAX_HISTORY_PAGE_LIMIT = 500
 MAX_HISTORY_CURSOR_BYTES = 1024
 
 HISTORY_COMPARE_JOB_KIND = "backend-vnext/history-compare"
-HISTORY_COMPARE_JOB_CONTRACT_VERSION = "backend-vnext/history-compare/v1"
-HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v3"
+HISTORY_COMPARE_JOB_CONTRACT_VERSION = "backend-vnext/history-compare/v3"
+HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION = COMPARISON_CONTRACT_VERSION
 HISTORY_COMPARE_MIN_NODES = 2
 HISTORY_COMPARE_MAX_NODES = 3
 HISTORY_COMPARE_VIEW_KIND = "HISTORY"
+DEFAULT_HISTORY_RESULT_RETENTION_SECONDS = 86_400
 
 
 class HistoryCompareDiagnosticCode(StrEnum):
@@ -223,8 +225,11 @@ class HistoryCompareAcceptanceRecord:
     nodes: tuple[HistoryCompareNodeBinding, ...]
     operation_id: str
     created_at: datetime
+    result_retention_seconds: int = DEFAULT_HISTORY_RESULT_RETENTION_SECONDS
 
     def __post_init__(self) -> None:
+        if self.result_retention_seconds <= 0:
+            raise ValueError("result_retention_seconds must be positive")
         validate_scope_identity(self.gateway_device_external_key)
         validate_scope_identity(self.business_project_id)
         for label in (

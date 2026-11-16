@@ -15,7 +15,8 @@ export type WorkspaceTreeRow = {
   compareOrder?: number;
   createdAt: string | null;
   submitAt: string | null;
-  reviewAt: string | null;
+  /** The one time the tree shows: baseline creation, submit time, or the workspace's last update. */
+  time: string | null;
   refKind?: Schemas["HistoryNodeResponse"]["ref_kind"];
   refId?: string;
   parentRef?: Schemas["HistoryNodeRefResponse"] | null;
@@ -27,6 +28,8 @@ export type WorkspaceTreeRow = {
   previewResultId?: string | null;
   uploadRevisionId?: string | null;
   workspaceState?: Schemas["WorkspaceResponse"]["state"];
+  /** Set while the workspace's current Preview is bound to a submission awaiting review. */
+  activeSubmissionId?: string | null;
   submissionDisposition?: Schemas["HistoryNodeResponse"]["submission_disposition"];
   dispositionSourceKind?: Schemas["HistoryNodeResponse"]["disposition_source_kind"];
   dispositionResultId?: string | null;
@@ -78,11 +81,43 @@ function nodeKey(refKind: string, refId: string): string {
   return `${refKind}:${refId}`;
 }
 
+// The backend keeps current_preview_result_id after Submit until review,
+// withdrawal or close, so a submission (or a submit in progress) wins over
+// the Preview pointer.
 function workspaceStatus(workspace: Schemas["WorkspaceResponse"]): string {
   if (workspace.state === "CLOSED") return "已关闭";
+  if (workspace.active_submission_id) return "已提交·待审核";
+  if (workspace.active_submit_attempt_id) return "提交中";
   if (workspace.current_preview_result_id) return "可提交";
   if (workspace.current_upload_revision_id) return "已上传";
   return "未上传";
+}
+
+function workspaceStatusTone(workspace: Schemas["WorkspaceResponse"]): WorkspaceTreeRow["statusTone"] {
+  if (workspace.state === "CLOSED") return "neutral";
+  if (workspace.active_submission_id || workspace.active_submit_attempt_id) return "pending";
+  if (workspace.current_preview_result_id) return "success";
+  return workspace.current_upload_revision_id ? "info" : "neutral";
+}
+
+function workspaceRow(workspace: Schemas["WorkspaceResponse"], parentKey: string | null, depth: number): WorkspaceTreeRow {
+  return {
+    key: `workspace:${workspace.workspace_id}`,
+    kind: "workspace",
+    label: `工作区 ${workspace.gateway_device_external_key}`,
+    status: workspaceStatus(workspace),
+    statusTone: workspaceStatusTone(workspace),
+    depth,
+    parentKey,
+    hasChildren: false,
+    createdAt: workspace.created_at,
+    submitAt: null,
+    time: workspace.updated_at,
+    previewResultId: workspace.current_preview_result_id,
+    uploadRevisionId: workspace.current_upload_revision_id,
+    workspaceState: workspace.state,
+    activeSubmissionId: workspace.active_submission_id,
+  };
 }
 
 export function buildWorkspaceTree(
@@ -130,7 +165,7 @@ export function buildWorkspaceTree(
       hasChildren: false,
       createdAt: node.created_at,
       submitAt: node.node_kind === "SUBMISSION" ? node.created_at : null,
-      reviewAt: null,
+      time: node.created_at,
       refKind: node.ref_kind,
       refId: node.ref_id,
       parentRef: node.parent,
@@ -154,24 +189,7 @@ export function buildWorkspaceTree(
     const key = nodeKey(baseline.ref_kind, baseline.ref_id);
     appendNode(baseline, null, 0);
     appended.add(key);
-    if (isHead(baseline)) {
-      rows.push({
-        key: `workspace:${workspace.workspace_id}`,
-        kind: "workspace",
-        label: `工作区 ${workspace.gateway_device_external_key}`,
-        status: workspaceStatus(workspace),
-        statusTone: workspace.state === "CLOSED" ? "neutral" : workspace.current_preview_result_id ? "success" : workspace.current_upload_revision_id ? "info" : "neutral",
-        depth: 1,
-        parentKey: key,
-        hasChildren: false,
-        createdAt: workspace.created_at,
-        submitAt: null,
-        reviewAt: null,
-        previewResultId: workspace.current_preview_result_id,
-        uploadRevisionId: workspace.current_upload_revision_id,
-        workspaceState: workspace.state,
-      });
-    }
+    if (isHead(baseline)) rows.push(workspaceRow(workspace, key, 1));
     const descendants = history.nodes.filter((node) => node.node_kind !== "BASELINE_NODE" && baselineOwner(node)?.ref_id === baseline.ref_id)
       .sort((left, right) => left.created_at.localeCompare(right.created_at));
     for (const node of descendants) {
@@ -190,30 +208,13 @@ export function buildWorkspaceTree(
 
   const parentKeys = new Set(rows.flatMap((row) => row.parentKey ? [row.parentKey] : []));
   for (const row of rows) row.hasChildren = parentKeys.has(row.key);
-  if (!rows.some((row) => row.kind === "workspace")) {
-    rows.unshift({
-      key: `workspace:${workspace.workspace_id}`,
-      kind: "workspace",
-      label: `工作区 ${workspace.gateway_device_external_key}`,
-      status: workspaceStatus(workspace),
-      statusTone: "neutral",
-      depth: 0,
-      parentKey: null,
-      hasChildren: false,
-      createdAt: workspace.created_at,
-      submitAt: null,
-      reviewAt: null,
-      previewResultId: workspace.current_preview_result_id,
-      uploadRevisionId: workspace.current_upload_revision_id,
-      workspaceState: workspace.state,
-    });
-  }
+  if (!rows.some((row) => row.kind === "workspace")) rows.unshift(workspaceRow(workspace, null, 0));
   return rows;
 }
 
 export function sortWorkspaceTreeRows<T extends WorkspaceTreeRow>(
   rows: T[],
-  sort: { column: "label" | "createdAt" | "submitAt" | "reviewAt"; direction: 1 | -1 } | null,
+  sort: { column: "label" | "time"; direction: 1 | -1 } | null,
 ): T[] {
   if (!sort) return rows;
   const children = new Map<string | null, T[]>();
@@ -234,7 +235,7 @@ export function sortWorkspaceTreeRows<T extends WorkspaceTreeRow>(
   return result;
 }
 
-export type WorkbenchActionId = "original-backup" | "current-archive" | "upload" | "view-diff" | "join-compare" | "remove-compare" | "archive-mainline";
+export type WorkbenchActionId = "continue-preview" | "open-submission" | "view-submission-diff" | "open-review" | "compare-parent" | "archive-mainline";
 
 export interface WorkbenchAction {
   id: WorkbenchActionId;
@@ -243,26 +244,27 @@ export interface WorkbenchAction {
   reason: string | null;
 }
 
-export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonCount: number, isCompared: boolean, comparisonLocked = false): WorkbenchAction[] {
+/**
+ * Node actions shown at the top of the details panel (and on the row when the
+ * panel is collapsed). Upload controls live in the workspace panel itself;
+ * compare selection is the per-row checkbox (see compareToggle).
+ *
+ * The workspace offers its Preview only before Submit: once a submission
+ * holds that Preview, its diff belongs to the submission node.
+ *
+ * A submission offers two different diffs: the frozen submission-time Preview
+ * result (read-only, Submission result permission) and an explicit History
+ * compare from its parent node (current rules, read_project_history).
+ */
+export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonLocked = false): WorkbenchAction[] {
   if (!row) return [];
   const blocked = (id: WorkbenchActionId, label: string, reason: string): WorkbenchAction => ({ id, label, enabled: false, reason });
   const enabled = (id: WorkbenchActionId, label: string): WorkbenchAction => ({ id, label, enabled: true, reason: null });
   if (row.kind === "workspace") {
-    const open = row.workspaceState === "OPEN";
-    return [
-      open ? enabled("original-backup", "原始组态备份") : blocked("original-backup", "原始组态备份", "工作区已关闭，不能选择原始组态备份目录"),
-      open ? enabled("current-archive", "本次归档组态") : blocked("current-archive", "本次归档组态", "工作区已关闭，不能选择本次归档组态目录"),
-      open ? enabled("upload", "上传") : blocked("upload", "上传", "工作区已关闭，不能上传"),
-    ];
+    if (row.workspaceState === "CLOSED") return [];
+    if (row.activeSubmissionId) return [enabled("open-submission", "转到提交")];
+    return row.previewResultId ? [enabled("continue-preview", "继续预览并提交")] : [];
   }
-  const compareAction = comparisonLocked
-    ? blocked(isCompared ? "remove-compare" : "join-compare", isCompared ? "移出比较" : "加入比较", "历史比较执行中，暂不能调整比较节点")
-    : isCompared
-      ? enabled("remove-compare", "移出比较")
-      : comparisonCount >= 3
-        ? blocked("join-compare", "加入比较", "比较托盘最多选择 3 个节点")
-        : enabled("join-compare", "加入比较");
-  if (row.kind === "baseline") return [compareAction];
   if (row.kind === "submission") {
     const dispositionReason = row.submissionDisposition === "ARCHIVED_BASELINE"
       ? "该提交已归档"
@@ -270,10 +272,11 @@ export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonC
         ? "该提交已关闭（未归档）"
         : null;
     return [
+      enabled("view-submission-diff", "查看提交时差异"),
+      ...(row.reviewStatus === "PENDING" ? [enabled("open-review", "去审核")] : []),
       comparisonLocked
-        ? blocked("view-diff", "查看差异", "历史比较执行中，暂不能发起新比较")
-        : row.parentRef ? enabled("view-diff", "查看差异") : blocked("view-diff", "查看差异", "提交缺少基线节点"),
-      compareAction,
+        ? blocked("compare-parent", "比较父节点 → 此提交", "历史比较执行中，暂不能发起新比较")
+        : row.parentRef ? enabled("compare-parent", "比较父节点 → 此提交") : blocked("compare-parent", "比较父节点 → 此提交", "提交缺少基线节点"),
       dispositionReason
         ? blocked("archive-mainline", "归档主线", dispositionReason)
         : row.reviewStatus === "APPROVED" && row.eligibilityNote == null
@@ -282,6 +285,14 @@ export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonC
     ];
   }
   return [];
+}
+
+/** The per-row compare checkbox: only baselines and submissions can be compared. */
+export function compareToggle(row: WorkspaceTreeRow, comparisonCount: number, isCompared: boolean, comparisonLocked = false): { available: boolean; enabled: boolean; reason: string | null } {
+  if (row.kind !== "baseline" && row.kind !== "submission" || !row.refId) return { available: false, enabled: false, reason: null };
+  if (comparisonLocked) return { available: true, enabled: false, reason: "历史比较执行中，暂不能调整比较节点" };
+  if (!isCompared && comparisonCount >= 3) return { available: true, enabled: false, reason: "比较托盘最多选择 3 个节点" };
+  return { available: true, enabled: true, reason: null };
 }
 
 /** B7: a provisioned device whose History still has only the initial baseline. */

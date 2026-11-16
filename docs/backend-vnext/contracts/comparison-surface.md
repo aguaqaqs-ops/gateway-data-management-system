@@ -354,3 +354,7 @@ Surface 不包含 flow state，不新增 surface cache。Snapshot Parquet cache 
 ## 实现与验证
 
 公共类型在 `gateway_backend.capabilities.surface_assembly.contracts`。`SurfaceAssemblyResult` 仅 READY 携带 surface。`test_surface_contracts.py`、`test_surface_assembly.py` 和后端 presentation golden 分别拥有 shape/ref、语义与互通。导航完整性与缺快照上下文以 Business Navigation/Row Location owning Contract 为准，不复制一套算法。
+
+## 纯结构变化的统一展示（2026-11-13）
+
+Surface v4 形状及 digest preimage 不变。消费 Comparison v4 的统一业务展示投影：只有 owning Comparison 策略严格证明共有值不变的列增删才展示 UNCHANGED，schema_summary/对应 diagnostics 与风险/变化统计不输出；content_changed 不得再改回 UPDATED。表浏览、canonical 内容绑定和原始后台比较身份保持。未知、UPDATE_ONLY 原始增删、有序移动/位置/空白及真实共有字段变化均维持原有展示。原始事实和判定依据进入后台结构审计，不进入普通 diagnostics、risk annotations 或下载 bundle。

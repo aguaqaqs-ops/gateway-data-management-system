@@ -84,7 +84,7 @@ def _parse_entry_row(key: ComputationCacheKey, row: tuple[object, ...]) -> Compu
     if len(raw_members.encode()) > MAX_CACHE_MEMBER_REFS_BYTES:
         raise ValueError("cache member references exceed bound")
     members = json.loads(raw_members)
-    if (not isinstance(members, list) or len(members) > 7
+    if (not isinstance(members, list) or len(members) > 9
             or any(not isinstance(ref, dict) for ref in members)
             or canonicalize_json_value(members).decode() != raw_members):
         raise ValueError("cache member references are malformed")

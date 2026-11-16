@@ -108,6 +108,14 @@ def _schema_view(
     )
 
 
+def _pure_column_change(schema: _SchemaView) -> bool:
+    """Only added/deleted columns; no inferred rename or shared type evolution."""
+    return bool(schema.before_only or schema.current_only) and not (
+        schema.incompatible or schema.key_changed or schema.source_key_changed
+        or schema.enum_set_added
+    )
+
+
 def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> list[str]:
     diagnostics: list[str] = []
     if schema.before_only:
@@ -116,6 +124,9 @@ def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> 
         diagnostics.append("CURRENT_ONLY_COLUMNS")
     if schema.incompatible:
         diagnostics.append("INCOMPATIBLE_SELECTED_COLUMNS")
+    if (any(name not in schema.before_columns for name in schema.before_key)
+            or any(name not in schema.current_columns for name in schema.current_key)):
+        diagnostics.append("EFFECTIVE_KEY_MISSING")
     if schema.key_changed:
         diagnostics.append("EFFECTIVE_KEY_CHANGED")
     if schema.source_key_changed:
@@ -130,6 +141,10 @@ def _ignored_values_changed(
     current: SnapshotTableDescriptor,
     policy: _ComparisonTablePolicy,
 ) -> bool:
+    from gateway_backend.capabilities.table_rules.contracts import BUSINESS_SEQUENCE_COLUMNS
+
+    if policy.compare_excluded_columns == (BUSINESS_SEQUENCE_COLUMNS.get(policy.table_name),):
+        return False
     return (
         bool(policy.compare_excluded_columns)
         and before.raw_content_digest is not None
@@ -312,6 +327,8 @@ def _can_table_early_exit(
         and before_facts.raw_content_digest == current_facts.raw_content_digest
         and before_facts.storage_projection_version is not None
         and before_facts.storage_projection_version == current_facts.storage_projection_version
+        and policy.rule_digest_before is not None
+        and policy.rule_digest_before == policy.rule_digest_current
         and (
             not policy.allow_keyless_key_transition
             or policy.effective_key_before == policy.effective_key_current
@@ -417,6 +434,7 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
         "table_name": fact.table_name,
         "status": fact.status.value,
         "content_changed": fact.content_changed,
+        "shared_value_equality": fact.shared_value_equality,
         "schema_changes": {
             "before_only": list(fact.schema_changes.before_only_columns),
             "current_only": list(fact.schema_changes.current_only_columns),

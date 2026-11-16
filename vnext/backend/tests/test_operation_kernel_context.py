@@ -15,6 +15,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from tests.support.table_access_sql import sql_request
 
@@ -40,7 +41,7 @@ def test_parser_and_materializer_share_the_operation_budget_and_stream_lifetime(
         parsed = parse_arrow_sql(request)
         result = materialize_sql_snapshot(SqlSnapshotMaterializationRequest(
             parse_result=parsed, sql_source_digest=request.source.sql_source_digest,
-            ruleset=migrated_table_ruleset_snapshot(), table_ruleset_version=1,
+            ruleset=migrated_table_ruleset_snapshot(), table_ruleset_version=TABLE_RULESET_VERSION,
             materialization_stage=MaterializationStage.FINAL,
             policy=MaterializationPolicy.READERS_REQUIRED, context=ParserInvocationContext(context.cancel_probe),
         ))

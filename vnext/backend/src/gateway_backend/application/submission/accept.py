@@ -106,7 +106,8 @@ def validate_accept_submit(
         raise PreviewDerivedStale
 
     preview_digest = preview_canonical_business_digest(preview_result)
-    if preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
+    if (preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
+            and preview_result.canonical.rules_semantically_equal):
         raise NoCanonicalChange
 
     _assert_identity_confirmations(command, preview_result)
@@ -263,7 +264,8 @@ def assert_accept_preflight_post_noop_guards(
 
 def assert_no_canonical_change(*, loaded: AcceptPreflightLoadedFacts) -> None:
     preview_digest = preview_canonical_business_digest(loaded.preview_result)
-    if loaded.preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
+    if (loaded.preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
+            and loaded.preview_result.canonical.rules_semantically_equal):
         raise NoCanonicalChange
 
 
@@ -357,7 +359,8 @@ def validate_accept_submit_with_frozen(
         raise PreviewDerivedStale
 
     preview_digest = preview_canonical_business_digest(preview_result)
-    if preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
+    if (preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
+            and preview_result.canonical.rules_semantically_equal):
         raise NoCanonicalChange
 
     _assert_identity_confirmations(command, preview_result)

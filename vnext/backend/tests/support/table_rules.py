@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.capabilities.table_rules.contracts import (
     FALLBACK_SELECTOR_VALUE,
+    TABLE_RULESET_VERSION,
     CanonicalKeyPolicy,
     DroppedColumn,
     OrderedPolicy,
@@ -22,6 +23,14 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+
+
+# Independent Contract vectors: include tables absent from available real dumps.
+CONFIGURATION_TABLE_NAMES = (
+    "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg",
+    "iec61850c_cfg", "jdxx_cfg", "sc_cfg", "scada_cfg",
+    "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
+)
 
 
 def _runtime_comparison_ruleset_digest() -> str:
@@ -145,7 +154,7 @@ def keyless_record(name: str = "notes") -> TableRuleRecord:
 
 def snapshot_from_records(*records: TableRuleRecord) -> TableRulesetSnapshot:
     draft = table_ruleset_document(
-        TableRulesetSnapshot(table_ruleset_version=1)
+        TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION)
     )
     draft["rules"] = [record.to_document() for record in records]
     return table_ruleset_from_document(draft)

@@ -38,6 +38,7 @@ class CreateOrGetWorkspaceResult:
     workspace: Workspace
     replay: bool
     occupancy: WorkspaceSubmitOccupancy | None
+    active_preview_operation_id: str | None
 
 
 @dataclass(frozen=True, slots=True)

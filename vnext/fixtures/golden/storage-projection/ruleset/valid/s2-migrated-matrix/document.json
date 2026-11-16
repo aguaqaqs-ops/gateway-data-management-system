@@ -1,5 +1,5 @@
 {
-  "contract_version": "gateway-vnext.table-ruleset:v1",
+  "contract_version": "gateway-vnext.table-ruleset:v2",
   "rules": [
     {
       "artifact_scope": null,
@@ -14,7 +14,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "device_model_table"
+        "value": "device_model_table",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -34,7 +35,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_dataset"
+        "value": "scdmod_dataset",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -54,7 +56,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_fcda"
+        "value": "scdmod_fcda",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -74,7 +77,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_ld"
+        "value": "scdmod_ld",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -94,7 +98,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_log"
+        "value": "scdmod_log",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -114,7 +119,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_rpt"
+        "value": "scdmod_rpt",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -134,7 +140,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_sgcb"
+        "value": "scdmod_sgcb",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -154,7 +161,8 @@
       "precedence_class": "SKIP",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_yk"
+        "value": "scdmod_yk",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SKIP",
@@ -174,7 +182,8 @@
       "precedence_class": "SNAPSHOT_ONLY",
       "selector": {
         "kind": "REGEX",
-        "value": "^forwardtable_.*$"
+        "value": "^forwardtable_.*$",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "SNAPSHOT_ONLY",
@@ -194,7 +203,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "board_cfg"
+        "value": "dev104_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -214,7 +224,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "cnt_manage_cfg"
+        "value": "nbridge_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -234,7 +245,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "dev104_cfg"
+        "value": "nr103d_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -254,7 +266,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "dev_grp"
+        "value": "nr103ht_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -274,7 +287,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "dev_list"
+        "value": "project",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -294,7 +308,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "device_model_cfg"
+        "value": "sntp_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -314,467 +329,8 @@
       "precedence_class": "BROWSE_ONLY",
       "selector": {
         "kind": "EXACT",
-        "value": "iec101_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec104_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec104gw_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "iec61850c_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "jdxx_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "model_grp"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "nbridge_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "nr103d_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "nr103ht_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "primary_equipment_object_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "project"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "prot_list"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "prot_right"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "rule_61850dev_praser_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "rule_61850dev_praser_default_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "rule_61850point_praser_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "sc_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "scada_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "sg_manage_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "sntp_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "version_manager"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "vqc_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "wave_cfg"
-      },
-      "stable_key_candidates": [],
-      "static_role": "BROWSE_ONLY",
-      "structural_columns": [],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
-      "compare_key_columns": [],
-      "compare_key_mode": null,
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "NONE",
-      "position_column": null,
-      "precedence_class": "BROWSE_ONLY",
-      "selector": {
-        "kind": "EXACT",
-        "value": "wf_cfg"
+        "value": "version_manager",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "BROWSE_ONLY",
@@ -796,215 +352,8 @@
       "precedence_class": "ORDERED_DIFF",
       "selector": {
         "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_dyk_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_dyx_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_sc_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_syk_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_syx_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_yc_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_ym_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_yp_list$"
-      },
-      "stable_key_candidates": [
-        "gid"
-      ],
-      "static_role": "ORDERED_DIFF",
-      "structural_columns": [
-        "no"
-      ],
-      "table_storage": "PROJECT"
-    },
-    {
-      "artifact_scope": "ORDERED_SEMANTIC",
-      "canonical_key_policy": "EXPLICIT",
-      "compare_key_columns": [
-        "gid"
-      ],
-      "compare_key_mode": "ORDERED_STABLE_KEY",
-      "compare_excluded_columns": [],
-      "dropped_columns": [],
-      "ignored_columns": [],
-      "ordered_policy": "GID_NO_V1",
-      "position_column": "no",
-      "precedence_class": "ORDERED_DIFF",
-      "selector": {
-        "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_iec104_yt_list$"
+        "value": "^b[0-9]+_[nc][0-9]+_.+$",
+        "table_comment_contains": "引用表"
       },
       "stable_key_candidates": [
         "gid"
@@ -1030,7 +379,57 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "app_cfg"
+        "value": "app_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "board"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "board_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "cnt_manage_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1059,7 +458,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "com_cfg"
+        "value": "com_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1081,7 +481,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "comm_user_data"
+        "value": "comm_user_data",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1124,7 +525,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "composite_signal_point"
+        "value": "composite_signal_point",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1132,7 +534,58 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "dev_addr",
+        "grp"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "dev_grp",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "model"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "id"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "dev_list",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1146,7 +599,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_cnt"
+        "value": "device_cnt",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1154,7 +608,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1168,7 +622,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_co"
+        "value": "device_co",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1176,7 +631,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1190,7 +645,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_disturb"
+        "value": "device_disturb",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1198,7 +654,34 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "model_name",
+        "page_no",
+        "option_name"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "device_model_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1212,7 +695,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_mx"
+        "value": "device_mx",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1220,7 +704,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1234,7 +718,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_other"
+        "value": "device_other",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1242,7 +727,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1256,7 +741,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_sg"
+        "value": "device_sg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1264,7 +750,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1278,7 +764,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_sn"
+        "value": "device_sn",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1286,7 +773,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1300,7 +787,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_sp"
+        "value": "device_sp",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1308,7 +796,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1322,7 +810,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_st"
+        "value": "device_st",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1330,7 +819,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -1344,7 +833,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "device_tap"
+        "value": "device_tap",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1366,7 +856,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_cs"
+        "value": "forwardtbl_lst_cs",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1388,7 +879,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_dz"
+        "value": "forwardtbl_lst_dz",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1410,7 +902,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_qt"
+        "value": "forwardtbl_lst_qt",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1432,7 +925,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_yc"
+        "value": "forwardtbl_lst_yc",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1454,7 +948,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_yk"
+        "value": "forwardtbl_lst_yk",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1476,7 +971,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_ym"
+        "value": "forwardtbl_lst_ym",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1498,7 +994,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_yt"
+        "value": "forwardtbl_lst_yt",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1520,7 +1017,128 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "forwardtbl_lst_yx"
+        "value": "forwardtbl_lst_yx",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec101_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec104_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec104gw_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "iec61850c_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "jdxx_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1542,7 +1160,34 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "mms_rp_cdc_index"
+        "value": "mms_rp_cdc_index",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "model_name",
+        "grp"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "model_grp",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1572,7 +1217,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "net_cfg"
+        "value": "net_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1595,7 +1241,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "out_time_cfg"
+        "value": "out_time_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1617,7 +1264,85 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "pointref_forwardtbl"
+        "value": "pointref_forwardtbl",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "equipment_type",
+        "property_name"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "primary_equipment_object_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "prot_no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "id"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "prot_list",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "commit_id",
+        "right_tab"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "prot_right",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1639,7 +1364,127 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "rdb_cfg"
+        "value": "rdb_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [],
+      "compare_key_mode": "FULL_ROW_MULTISET",
+      "compare_excluded_columns": [
+        "id"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rule_61850dev_praser_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [],
+      "compare_key_mode": "FULL_ROW_MULTISET",
+      "compare_excluded_columns": [
+        "id"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rule_61850dev_praser_default_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "val_gdd"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "rule_id"
+      ],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "rule_61850point_praser_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "sc_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "scada_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1668,7 +1513,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "scdmod_para"
+        "value": "scdmod_para",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1676,11 +1522,113 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
-      "compare_key_columns": [],
-      "compare_key_mode": "RAW_PRIMARY_KEY",
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
       "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "sg_manage_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "vqc_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "wave_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
+      "compare_key_columns": [
+        "page_no",
+        "no"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [],
+      "dropped_columns": [],
+      "ignored_columns": [],
+      "ordered_policy": "NONE",
+      "position_column": null,
+      "precedence_class": "STANDARD_EXACT",
+      "selector": {
+        "kind": "EXACT",
+        "value": "wf_cfg",
+        "table_comment_contains": null
+      },
+      "stable_key_candidates": [],
+      "static_role": "STANDARD_DIFF",
+      "structural_columns": [],
+      "table_storage": "PROJECT"
+    },
+    {
+      "artifact_scope": "ALL_CHANGES",
+      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "compare_key_columns": [
+        "gid",
+        "page_no",
+        "option_name"
+      ],
+      "compare_key_mode": "EXPLICIT_KEY",
+      "compare_excluded_columns": [
+        "no"
+      ],
       "dropped_columns": [],
       "ignored_columns": [],
       "ordered_policy": "NONE",
@@ -1688,7 +1636,8 @@
       "precedence_class": "STANDARD_DEVICE_CFG",
       "selector": {
         "kind": "EXACT",
-        "value": "device_cfg"
+        "value": "device_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1711,7 +1660,8 @@
       "precedence_class": "STANDARD_PROTOCOL_OPTION",
       "selector": {
         "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_(?:iec104|iec61850c|nr103d|dev103|dev104|nbridge)_cfg$"
+        "value": "^b\\d+_n\\d+_(?:iec104|iec61850c|nr103d|dev103|dev104|nbridge)_cfg$",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1733,7 +1683,8 @@
       "precedence_class": "STANDARD_PROTOCOL_DEVICE",
       "selector": {
         "kind": "REGEX",
-        "value": "^b\\d+_n\\d+_(?:iec104|iec61850c|nr103d|dev103|dev104|nbridge)_dev_cfg$"
+        "value": "^b\\d+_n\\d+_(?:iec104|iec61850c|nr103d|dev103|dev104|nbridge)_dev_cfg$",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1753,7 +1704,8 @@
       "precedence_class": "STANDARD_RAW_PK_FALLBACK",
       "selector": {
         "kind": "FALLBACK",
-        "value": "*"
+        "value": "*",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -1762,7 +1714,7 @@
     }
   ],
   "ruleset_id": "backend-vnext/table-ruleset",
-  "ruleset_version": "v4",
-  "storage_projection_version": "3",
-  "table_ruleset_version": 1
+  "ruleset_version": "v7",
+  "storage_projection_version": "4",
+  "table_ruleset_version": 2
 }

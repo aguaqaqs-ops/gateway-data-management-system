@@ -1,6 +1,6 @@
 # Risk Contract
 
-> 当前实现合同为 `backend-vnext/risk/v2`：schema-only additions 不产生 schema-change 风险，整表新增/删除风险证据带表行数。
+> 当前实现合同为 `backend-vnext/risk/v2`：严格证明共有值未变的纯增删列不产生 schema 风险；整表新增/删除风险证据带表行数。
 
 本文定义 backend vNext 第一版 risk engine contract。Risk 只消费 `ComparisonFacts` 和可选 records artifacts，输出 flow-neutral `RiskEvaluation`、`RiskReport` 和可选 annotation artifacts。
 
@@ -423,12 +423,13 @@ ComparisonFacts + optional records access + RiskRulesetSnapshot
 
 | Rule | 输入 | 默认风险 |
 | --- | --- | --- |
-| `TABLE_ADDED` | `ADDED_TABLE`；证据 `row_count` 为新增表行数 | `MEDIUM_LOW` |
+| `TABLE_ADDED` | `ADDED_TABLE`；证据 `row_count` 为新增表行数 | `LOW` |
 | `TABLE_DELETED` | `DELETED_TABLE`；证据 `row_count` 为删除表行数 | `MEDIUM_HIGH` |
 | `SCHEMA_CHANGED` | schema changes | `MEDIUM_HIGH` |
 | `ROW_ADDED` | added rows | `MEDIUM_LOW` |
 | `ROW_DELETED` | deleted rows | `MEDIUM_LOW` |
-| `ROW_MODIFIED` | modified rows | `MEDIUM_HIGH` |
+| `ROW_MODIFIED` | modified rows except name/description-only | `MEDIUM_HIGH` |
+| `STANDARD_NAME_UPDATE` | standard row changes confined to name/description | `LOW` |
 | `KEY_DEGRADED` | missing/duplicate/effective key changed | `UNKNOWN` |
 | `ORDERED_DIFF_UNSUPPORTED` | ordered table provider missing/degraded | `UNKNOWN` |
 | `COMPARISON_FAILED` | comparison failed | `HIGH` |
@@ -436,7 +437,7 @@ ComparisonFacts + optional records access + RiskRulesetSnapshot
 规则：
 
 - 默认风险等级可由 `RiskRulesetSnapshot` 调整。
-- `schema_evolution=COLUMNS_ADDED` 不产生 `SCHEMA_CHANGED` 风险；`COLUMNS_REMOVED` 与 `INCOMPATIBLE` 按 schema-change 规则评估。
+- 风险使用 Comparison v4 的统一投影：已证明的纯增删列不产生 `SCHEMA_CHANGED`；未知结构变化可投影为 `SCHEMA_ONLY_CHANGED`，不能仅凭 `COLUMNS_ADDED` 名称免除风险。兼容 ENUM/SET 演进及真实共有值变化按原行/content 口径；其余可见 `COLUMNS_REMOVED` 与 `INCOMPATIBLE` 继续按 schema-change 规则评估。
 - `ORDERED_DIFF_UNSUPPORTED` 的默认 reason code 建议为 `ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED`。
 - ignored columns 不直接产生 row risk；可作为 diagnostics 或 LOW notice。
 
@@ -455,8 +456,8 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 | --- | --- | --- |
 | `ORDERED_REPLACEMENT` | `MEDIUM_LOW` | `ROW_PAIR` |
 | `ORDERED_MOVE` | `MEDIUM_HIGH` | `ROW` |
-| `ORDERED_MIDDLE_INSERT_DELETE` | `MEDIUM_HIGH` | `ROW` / `ROW_INTERVAL` |
-| `ORDERED_MIDDLE_BLANK_INTERVAL` | `MEDIUM_HIGH` | `ROW_INTERVAL` |
+| `ORDERED_MIDDLE_INSERT_DELETE` | `MEDIUM_HIGH`；表名匹配通道命名且含 `yk` 时 `HIGH` | `ROW` / `ROW_INTERVAL` |
+| `ORDERED_MIDDLE_BLANK_INTERVAL` | `MEDIUM_HIGH`；表名匹配通道命名且含 `yk` 时 `HIGH` | `ROW_INTERVAL` |
 | `ORDERED_TAIL_INSERT_DELETE` | `LOW` | `ROW` / `ROW_INTERVAL` |
 | `ORDERED_TAIL_BLANK_INTERVAL` | `LOW` | `ROW_INTERVAL` |
 | `ORDERED_NAME_UPDATE` | `LOW` | `ROW` |
@@ -468,6 +469,21 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 - `ROW_INTERVAL` 用于 tail/middle interval 和 blank interval 定位。
 - reason code、默认风险和 target 需要与 `contracts/ordered-diff.md` 保持一致。
 - Surface/bundle 只消费 risk output，不重新判定 tail/middle/move 风险。
+
+当前 ruleset v8 对有序表使用专项规则，不重复应用普通行风险。`ORDERED_ROW_MOVED` 逐行产生 `ORDERED_MOVE`。有序比较层在同一对骨架锚点之间忽略空点；两侧非空新增/删除数量相同且该区间无移动实体时，按相对顺序给新增行附上删除行身份与原位置。风险层核对对应删除记录后配成 `ORDERED_REPLACEMENT`，目标位置取新增侧 `no`；有空点变化而缺少可信配对证据时不按相同绝对 `no` 猜测替换。无空点变化时保留相同 `no` 的配对。单独的新增、删除按该位置是否超出另一侧实际最大 `no` 区分尾部与中间。修改列仅由 `name`、`description` 中一个或两个字段组成时使用 LOW 专项，包含其他列时使用 `ORDERED_CONTENT_UPDATE`。无法确定修改列、缺少必要记录或仅有不可解释的位置变化时输出 `ORDERED_RISK_UNKNOWN`；非 EXACT 的有序或空点重放也输出 UNKNOWN，degraded 沿用 review-required 诊断。
+
+对 `BLANK_INSERT_INTERVAL` 和 `BLANK_DELETE_INTERVAL` 分别读取改后侧或改前侧的最后保留有效位置：证据完整且该位置不存在或小于区间 start 时为尾部 LOW，否则为中间 MEDIUM_HIGH。保留有效点包括移动行，不包括 canonical blank 或本侧纯增删位置；证据不完整产生 ORDERED_RISK_UNKNOWN。区间可能跨越非骨架行或稀疏 no，row_count 是两侧空点数净差的绝对值，而非范围跨度；风险 target 表示受影响区域，evidence.count 保留净变化数，不将整个范围声称为逐点变化。
+
+对中间普通行增删和中间空点增删，有序表名经 Table Rules 通道名解析器匹配 `b数字_n数字_...` 或 `b数字_c数字_...` 且含小写字面 `yk` 时使用 HIGH 专项规则；其余表保持 MEDIUM_HIGH，尾部、移动与替换规则不变。此风险选择只依表名和有序事实，不依赖 Navigation 的通道注册归属；Owner 已确认两者口径可暂时不同。单表候选 key 绑定该匹配结果，规则参数及 HIGH 专项由 ruleset digest 与 validator 核对。边界或记录证据不足仍按原契约报告 UNKNOWN。
+
+
+风险输入按表携带 `ordered_tail_bounds={before_max_position,current_max_position,before_last_retained_position,current_last_retained_position,complete}`。两侧扫描排除实际增删记录位置并核对记录数量、位置及非降级证据；候选 key 绑定当前表的边界和完整性。History 缓存命中仍须恢复必要 reader。Preview assemble-state v11、History assemble-state v8 由 checkpoint 解码器核对。
+
+风险读取与缓存：Comparison handle 的 `risk_record_batches(family)` 对 STANDARD、ORDERED、BLANK 分别返回最小 typed Arrow facts 投影；ORDERED 直接遍历原生 `ordered_facts_order`，BLANK 直接遍历 `blank_facts_order`（相邻稳定锚顺序，不另按位置排序）。ORDERED 保留 kind、identity、两侧 position、changed_columns，以及仅新增行可有的 replacement_before_identity/position；BLANK 保留 kind、两侧区间端点和净 row_count。每批最多 1024 行，构建前向原生 operation 预约，封存前完成构建，Arrow buffer 保留 owner/lease 至最后消费者退出。Artifact 视图及其排序不变。风险按规则族重读这些视图：移动、修改、已证明的替换、剩余新增/删除、空白区间；同族标注遵循 facts 序，替换与剩余增删按位置输出，配对索引和每批 Python 转换均先预约必要内存，必要时回收可选风险候选。
+
+`comparison-table-cache/v3` 由任务身份与恢复 codec 核对，拒绝没有替换配对列的旧风险投影；持久闭包最多九个视图（三族 facts、artifact、risk），恢复保留原批次边界与顺序，仍受同 operation M 约束。风险候选沿用既有有序事件回放，v8 ruleset、适用性/尾部边界及完整比较任务身份使旧规则/旧比较缓存身份不能命中；标注编号、过滤与 cap 始终由当前 emit 决定。`COUNTS_ONLY` 对专项原因按首次出现次序聚合为 TABLE/ROW_COUNTS，行/替换计一项，空白区间计净变化行数；不发布逐条标注文件。v3 防止读取缺少配对证据的旧视图，由 comparison cache 恢复器核对；v8 防止旧风险规则复用，由风险规则校验器核对。
+
+前端配合：`ROW_INTERVAL` 标注没有普通行身份，消费者应按 evidence 中的 `side` 及 `position_range` 将风险映射到对应快照的 `no` 区间，同时保留表级和视图级汇总；新增的 `ORDERED_*` reason code 需要对应的用户文案。此项不由后端行 locator 推断，也不在本次改动前端。
 
 ## 非目标
 
@@ -521,3 +537,29 @@ S3 风险上限重放必须保留当前控制流：在等级过滤前检查上�
 状态：S1a risk 位置接线已实现并经 G 核收，证据与适用边界见 [S1a 总结](../refactoring/formal/plans/p7-s1a-summary.md)；[A 入口](../refactoring/formal/plans/p7-s1a-a-entry-and-contract.md)保留当时仅固定目标的历史事实。risk content/annotation manifest/closure与持久neutral candidates/envelope显式归comparison；READY/Attempt用途只增加保护，不搬为durable。正常cold/restored风险顺序、cap、编号、level过滤与当前closure校验保持，不增统计成功前提。
 
 artifact refs继续不直接进入risk_evaluation_digest；不含ref的内容/manifest与风险事实摘要保持原公式。含新ref的closure、report、cache envelope原bytes/SHA以及消费它们完整性的surface/bundle摘要按实际载荷传递重算。不得放宽closure校验、删除raw SHA输入或复用旧绑定来保旧golden。同盘/分盘配置本身不进入候选key或业务摘要。
+
+## 纯结构变化与后台审计（2026-11-13）
+
+Risk 消费 Comparison v4 的 `comparison.presentation` 统一投影；严格证明共有业务值未变的列增删不输出 schema 风险。其他行风险、诊断及 ordered 语义不删除；未知或只浏览默认零计数不能放行。Risk 文档形状/preimage 不变；comparison digest 已绑定 v4 证据与 standard-reference v3，既有 risk cache/candidate identity 核对该输入，不新增独立版本轴。
+
+
+## 人工联调业务规则修订（Owner 2026-11-14）
+
+普通新增整表的 TABLE_ADDED 默认等级为 LOW，非首次导入同样适用；其他行级增删改规则不变。
+整个改前快照的表集合为空时，导入不产生任何风险标记，比较变化和原始诊断照常发布。
+空基线由共享 pair pipeline 根据完整 before.summary.tables 判定，不以单表缺失或筛选后的 task 集合推断。
+该事实通过 RiskOptions.empty_baseline 传入；无风险表不补 UNKNOWN，各表仍发布完整的空风险归属供导航消费。
+
+risk-model/v4、ruleset version v4 与 rule version v4 标识本轮规则，规则校验器核对 model，ruleset/evaluation digest 与消费者绑定结果。
+empty_baseline 进入已有 options 文档、evaluation digest 和 candidate cache key，防止同一新增表任务在空基线和
+增量场景间误用判定。Preview assemble-state v7、History assemble-state v4 由现有 checkpoint decoder 核对，
+防止恢复旧风险/导航结果；没有双读或迁移。比较事实与比较缓存不变，继续复用中性比较结果。
+
+本修订属于 C 类可重算派生产物，不改提交、归档或审批事务。规则、空基线、缓存隔离和 Preview/History
+贯通由风险与业务投影 focused 测试覆盖；全量及最终容器门禁按 Owner 授权集中后验，不在本包重复执行。
+
+## 共享标准表规则（目标 v8）
+
+`device_st/device_mx/device_co/device_sg/device_sp/device_cnt/device_sn/device_tap/device_other/device_disturb` 与 `device_cfg` 的普通 ROW_ADDED/ROW_DELETED 不生成风险；不影响比较记录、计数、整表增删、结构/降级或有序专项风险。所有普通表和有序表的修改列仅由 name、description 中一个或两个字段组成时发一次 LOW 风险，混合其他字段仍依原修改规则，缺修改列证据不猜 LOW。排除增删在 COUNTS_ONLY 和缺记录兜底前应用；正常空 outcome 为 complete=true。
+
+ROW_ADDED/ROW_DELETED 的冻结 params 各含十一项 `exclude_table:<exact_name>=true`，名称/描述规则适用于所有普通表和有序表；validator 严格核对参数集合和值。单一解析函数为 evaluator 和候选 key 提供按表增删适用性；key 同时包含本表 ordered_tail_bounds。ruleset/rule v8 与 risk-model v5 由规则校验器核对，规则摘要由 RiskEvaluation 和候选核对；不新增身份轴。

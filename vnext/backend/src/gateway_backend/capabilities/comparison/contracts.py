@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Callable, ClassVar, Protocol, TypeAlias, runtime_checkable
+from typing import Literal, Callable, ClassVar, Protocol, TypeAlias, runtime_checkable
 
 import pyarrow as pa
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BATCH_READER_CONTRACT_VERSION,
     BATCH_SCHEMA_METADATA_VERSION,
@@ -32,7 +33,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 COMPARISON_BATCH_PORT_VERSION = 1
-COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v3"
+COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v4"
 RECORDS_ARTIFACT_CONTRACT_VERSION = "backend-vnext/comparison-records/v1"
 RECORDS_CLOSURE_CONTRACT_VERSION = "backend-vnext/comparison-records-closure/v1"
 RECORDS_PARQUET_FORMAT = "PARQUET"
@@ -442,6 +443,7 @@ class OrderedRecord:
     row_identity: DigestRef | None = None
     before_position: int | None = None
     current_position: int | None = None
+    replacement_before: tuple[DigestRef, int] | None = None
     before_values: tuple[tuple[str, object], ...] = ()
     current_values: tuple[tuple[str, object], ...] = ()
     changed_columns: tuple[str, ...] = ()
@@ -613,6 +615,8 @@ class _ComparisonTablePolicy:
     effective_key_before: tuple[str, ...] = ()
     effective_key_current: tuple[str, ...] = ()
     comparison_role: str = "STANDARD"
+    rule_digest_before: str | None = None
+    rule_digest_current: str | None = None
     storage_facts_before: ComparisonStorageFacts | None = None
     storage_facts_current: ComparisonStorageFacts | None = None
 
@@ -774,6 +778,7 @@ class ComparisonTableFact:
     records: tuple[ComparisonRecord, ...] = ()
     diagnostics: tuple[str, ...] = ()
     content_changed: bool = False
+    shared_value_equality: Literal["BOUND_EMPTY_DESCRIPTORS", "NATIVE_SHARED_VALUES"] | None = None
     table_fact_digest: DigestRef | None = None
     ordered_extension: OrderedExtension | None = None
     blank_extension: BlankExtension | None = None
@@ -917,6 +922,7 @@ class BoundSnapshotInput:
     summary: SnapshotSummary
     table_set: SnapshotTableSet | None = None
     storage_facts: tuple[ComparisonStorageFacts, ...] = ()
+    presentation: PresentationMetadata | None = None
 
     def __post_init__(self) -> None:
         if type(self.snapshot) is not Snapshot:

@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use arrow_array::{Array, RecordBatch};
+use arrow_array::{Array, LargeStringArray, RecordBatch, StringArray};
 use arrow_schema::SchemaRef;
 use gateway_shared_kernel::{DigestKind, canonicalize_identifier, encode_uleb128, semantic_digest};
 
@@ -38,6 +38,8 @@ pub struct StandardOptions {
     pub emit_add_delete: bool,
     /// COLUMNS_ADDED compares the shared projection after compare exclusions.
     pub columns_added: bool,
+    /// Full-row business identity omits explicitly excluded generated columns.
+    pub keyless_exclude_columns: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,8 +227,13 @@ fn compare_standard_table_inner(
         .and_then(|bytes| bytes.checked_add(batch_overhead))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let mut lease = context.reserve(scratch)?;
-    let before_rows = read_rows(before, &columns, context)?;
-    let current_rows = read_rows(current, &columns, context)?;
+    let checked_key = if options.mode == StandardMode::Keyed {
+        before_key.as_slice()
+    } else {
+        &[]
+    };
+    let before_rows = read_rows(before, &columns, checked_key, context)?;
+    let current_rows = read_rows(current, &columns, checked_key, context)?;
     let mut records = Vec::new();
     let (added, deleted, modified) = match options.mode {
         StandardMode::Keyed => compare_keyed(
@@ -246,7 +253,7 @@ fn compare_standard_table_inner(
             &current_rows,
             &columns,
             &excluded,
-            options.columns_added,
+            options.columns_added || options.keyless_exclude_columns,
             options.emit_add_delete,
             context,
             &mut lease,
@@ -373,6 +380,7 @@ fn validate_projection(schema: &SchemaRef, columns: &[String]) -> Result<(), Ord
 fn read_rows(
     batches: &[RecordBatch],
     columns: &[String],
+    checked_key: &[String],
     context: &KernelContext,
 ) -> Result<Vec<EncodedRow>, OrderedCompareError> {
     let mut output = Vec::new();
@@ -403,6 +411,23 @@ fn read_rows(
             for (column_index, index) in indices.iter().enumerate() {
                 if column_index % 32 == 0 {
                     context.check()?;
+                }
+                if checked_key.contains(&columns[column_index]) {
+                    let values = batch.column(*index);
+                    if values.is_null(row) {
+                        return Err(OrderedCompareError::new("NULL_EFFECTIVE_KEY"));
+                    }
+                    if values
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .is_some_and(|array| array.value(row).is_empty())
+                        || values
+                            .as_any()
+                            .downcast_ref::<LargeStringArray>()
+                            .is_some_and(|array| array.value(row).is_empty())
+                    {
+                        return Err(OrderedCompareError::new("EMPTY_EFFECTIVE_KEY"));
+                    }
                 }
                 let field = batch.schema().field(*index).clone();
                 let frame = encode_cell(batch.column(*index).as_ref(), row, &field)?.frame;
@@ -520,9 +545,11 @@ impl StandardIdentityScanner {
         }
         let columns = match options.mode {
             StandardMode::Keyed => before,
-            StandardMode::Keyless => {
-                keyless_identity_columns(&selected, &excluded, options.columns_added)
-            }
+            StandardMode::Keyless => keyless_identity_columns(
+                &selected,
+                &excluded,
+                options.columns_added || options.keyless_exclude_columns,
+            ),
         };
         Ok(Self {
             columns,
@@ -575,7 +602,7 @@ impl StandardIdentityScanner {
                 .map(|f| f.name().clone())
                 .collect::<Vec<_>>(),
         )?;
-        let rows = read_rows(side.batches, &all, &self.context)?;
+        let rows = read_rows(side.batches, &all, &[], &self.context)?;
         let mut identities = Vec::with_capacity(row_count);
         let mut canonical_order_keys = Vec::with_capacity(row_count);
         for row in &rows {
@@ -912,6 +939,7 @@ mod tests {
             mode,
             emit_add_delete: true,
             columns_added: false,
+            keyless_exclude_columns: false,
         }
     }
 
@@ -1126,6 +1154,29 @@ mod tests {
         let result = compare(&[before], &[current], &policy, &context())?;
         assert_eq!(result.row_modified_count, 0);
         assert!(result.records.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn keyless_multiset_ignores_excluded_values_and_keeps_duplicate_counts()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut policy = options(StandardMode::Keyless);
+        policy.compare_excluded_columns = vec!["name".to_string()];
+        policy.keyless_exclude_columns = true;
+        let same = compare(
+            &[batch(&[1, 1], &["old", "older"])?],
+            &[batch(&[1, 1], &["new", "newer"])?],
+            &policy,
+            &context(),
+        )?;
+        assert_eq!((same.row_added_count, same.row_deleted_count), (0, 0));
+        let added = compare(
+            &[batch(&[1], &["old"])?],
+            &[batch(&[1, 1], &["new", "newer"])?],
+            &policy,
+            &context(),
+        )?;
+        assert_eq!((added.row_added_count, added.row_deleted_count), (1, 0));
         Ok(())
     }
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.capabilities.storage_projection._digest import manifest_document
 
-from tests.support.native_projection import project_storage
+from tests.support.native_projection import project_storage as _project_storage
 
 from collections.abc import Callable
 
@@ -65,6 +65,10 @@ pytestmark = pytest.mark.unit
 TableInput = tuple[FakeSnapshotTableReader, ArtifactSourceBinding]
 _ENUM_SQL = "ENUM('','active','paused')"
 _SET_SQL = "SET('read','write','admin')"
+
+
+def project_storage(request: ProjectionRequest) -> ProjectionResult:
+    return _project_storage(request, table_comments={"b1_n1_iec104_syx_list": "引用表"})
 
 
 def _request(

@@ -249,7 +249,8 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         repository_id TEXT NOT NULL
             CHECK (typeof(repository_id) = 'text' AND length(repository_id) BETWEEN 1 AND 255),
         binding BLOB NOT NULL
-            CHECK (typeof(binding) = 'blob'),
+            CHECK (typeof(binding) = 'blob' AND json_valid(CAST(binding AS TEXT))
+                AND json_type(CAST(binding AS TEXT), '$.comparison_pairs') IS 'array'),
         operation_id TEXT NOT NULL UNIQUE
             CHECK (typeof(operation_id) = 'text' AND length(operation_id) BETWEEN 1 AND 255),
         created_at_us INTEGER NOT NULL
@@ -898,13 +899,44 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         operation_id TEXT NOT NULL UNIQUE
             CHECK (typeof(operation_id) = 'text' AND length(CAST(operation_id AS BLOB)) BETWEEN 1 AND 255),
         created_at_us INTEGER NOT NULL
-            CHECK (typeof(created_at_us) = 'integer')
+            CHECK (typeof(created_at_us) = 'integer'),
+        result_retention_seconds INTEGER NOT NULL
+            CHECK (typeof(result_retention_seconds) = 'integer' AND result_retention_seconds > 0)
     )
     """,
 
     """
     CREATE UNIQUE INDEX history_compare_acceptance_scope_idempotency ON
         history_compare_acceptance_records( gateway_device_external_key, business_project_id, idempotency_key )
+    """,
+
+    """
+    CREATE INDEX history_compare_acceptance_scope_order ON history_compare_acceptance_records
+        (gateway_device_external_key, business_project_id, created_at_us DESC, operation_id DESC)
+    """,
+    """
+    CREATE INDEX history_compare_acceptance_fingerprint ON history_compare_acceptance_records
+        (gateway_device_external_key, business_project_id, request_fingerprint, created_at_us, operation_id)
+    """,
+    """
+    CREATE UNIQUE INDEX history_compare_acceptance_alias_binding ON history_compare_acceptance_records
+        (operation_id, gateway_device_external_key, business_project_id, request_fingerprint)
+    """,
+    """
+    CREATE TABLE history_compare_aliases (
+        gateway_device_external_key TEXT NOT NULL CHECK (length(gateway_device_external_key) BETWEEN 1 AND 255 AND instr(gateway_device_external_key, char(0)) = 0),
+        business_project_id TEXT NOT NULL CHECK (length(business_project_id) BETWEEN 1 AND 255 AND instr(business_project_id, char(0)) = 0),
+        idempotency_key TEXT NOT NULL CHECK (length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 255),
+        operation_id TEXT NOT NULL,
+        request_fingerprint TEXT NOT NULL CHECK (length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 512),
+        PRIMARY KEY (gateway_device_external_key, business_project_id, idempotency_key),
+        FOREIGN KEY (operation_id, gateway_device_external_key, business_project_id, request_fingerprint)
+            REFERENCES history_compare_acceptance_records
+                (operation_id, gateway_device_external_key, business_project_id, request_fingerprint)
+    )
+    """,
+    """
+    CREATE INDEX history_compare_aliases_operation ON history_compare_aliases(operation_id)
     """,
 
     # Artifact protection.
@@ -948,6 +980,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (expires_at_us IS NULL OR typeof(expires_at_us) = 'integer'),
         PRIMARY KEY (artifact_id, owner_kind, owner_id)
     )
+    """,
+
+    """
+    CREATE INDEX artifact_protection_owner ON artifact_protection_intents(owner_kind, owner_id)
     """,
 
     """

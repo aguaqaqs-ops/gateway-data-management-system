@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_with_built_ref
+from gateway_backend.artifacts import ArtifactLocation, ArtifactRef, InMemoryArtifactStore, build_artifact_id, put_with_built_ref
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     PACKAGE_VERSION,
@@ -489,7 +489,7 @@ def test_missing_and_corrupt_refs_fail_closed() -> None:
     other = put_with_built_ref(
         store,
         b"{}",
-        artifact_id="a1:durable:4f2c0fbed4705f68a25f17ba052cc92e335db54c86b586fa25e3ee4b97f7f293",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "invalid-manifest", "empty-object"),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     )
     with pytest.raises(PublicationError) as corrupt_exc:

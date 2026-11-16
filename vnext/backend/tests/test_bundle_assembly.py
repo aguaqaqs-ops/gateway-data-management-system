@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id, parse_artifact_id
 
 import json
 from dataclasses import replace
@@ -31,6 +31,8 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
+    BundleTableBinding,
+    BundleTableSide,
     assemble_bundle,
     validate_bundle,
 )
@@ -74,7 +76,7 @@ class _TamperStore(InMemoryArtifactStore):
 
     def locate(self, ref: ArtifactRef) -> bytes:
         raw = super().locate(ref)
-        return raw + b"tampered" if ref.artifact_id == self._tamper_id else raw
+        return bytes([raw[0] ^ 1]) + raw[1:] if ref.artifact_id == self._tamper_id and raw else raw
 
 
 class _FailingDestinationStore(InMemoryArtifactStore):
@@ -90,8 +92,26 @@ class _FailingDestinationStore(InMemoryArtifactStore):
         return super().put(raw_bytes, ref)
 
 
-def _raw_ref(name: str, raw: bytes, media_type: str = "application/json") -> ArtifactRef:
-    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name), media_type, len(raw), raw_blob_digest(raw))
+class _RecordingStore(InMemoryArtifactStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.put_refs: list[ArtifactRef] = []
+        self.locate_refs: list[ArtifactRef] = []
+
+    def put(self, raw_bytes: bytes, ref: ArtifactRef) -> ArtifactRef:
+        self.put_refs.append(ref)
+        return super().put(raw_bytes, ref)
+
+    def locate(self, ref: ArtifactRef) -> bytes:
+        self.locate_refs.append(ref)
+        return super().locate(ref)
+
+
+def _raw_ref(
+    name: str, raw: bytes, media_type: str = "application/json", *,
+    location: ArtifactLocation = ArtifactLocation.DURABLE,
+) -> ArtifactRef:
+    return ArtifactRef(build_artifact_id(location, "test-fixture", name), media_type, len(raw), raw_blob_digest(raw))
 
 
 def _surface_result(
@@ -175,6 +195,90 @@ def test_input_order_changes_do_not_change_bundle_document_or_digest() -> None:
     assert one.bundle.to_document() == two.bundle.to_document()
 
 
+@pytest.mark.parametrize("location", (
+    ArtifactLocation.DURABLE, ArtifactLocation.COMPARISON, ArtifactLocation.EXPORT,
+))
+@pytest.mark.parametrize("independent_destination", (False, True))
+def test_unchanged_members_retain_exact_refs_and_only_same_store_skips_writes(
+    location: ArtifactLocation, independent_destination: bool,
+) -> None:
+    source = _RecordingStore()
+    seed_navigation(source)
+    raw = b"unchanged member"
+    ref = _raw_ref("unchanged", raw, "application/octet-stream", location=location)
+    source.put(raw, ref)
+    source.put_refs.clear()
+    target = _RecordingStore() if independent_destination else source
+    binding = BundleArtifactBinding(
+        ref, "pairs/pair/diagnostics.bin", BundleArtifactKind.DIAGNOSTICS, pair_id="pair",
+    )
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result(root_ref=ref),
+                                 BundleArtifactClosure((binding,))),)),
+        source_store=source,
+        destination_store=target,
+    )
+
+    assert result.status is BundleAssemblyStatus.READY
+    assert result.bundle is not None
+    assert ref in result.referenced_artifacts
+    assert source.locate_refs.count(ref) == (1 if independent_destination else 2)
+    if independent_destination:
+        assert target.locate_refs.count(ref) == 2
+    assert target.locate(ref) == raw
+    assert len(target.put_refs) == (5 if independent_destination else 3)
+    assert (ref in target.put_refs) is independent_destination
+    assert (NAVIGATION_REF in target.put_refs) is independent_destination
+    validate_bundle(result.bundle, target)
+
+
+def test_final_validation_rejects_same_size_corrupt_member_from_adapter() -> None:
+    source = seed_navigation(_TamperStore(""))
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)), source_store=source,
+    )
+    assert result.bundle is not None
+    source._tamper_id = NAVIGATION_REF.artifact_id
+
+    with pytest.raises(ValueError, match="ARTIFACT_INTEGRITY_MISMATCH"):
+        validate_bundle(result.bundle, source)
+
+
+def test_independent_destination_rejects_corrupt_write_readback() -> None:
+    source = seed_navigation(InMemoryArtifactStore())
+    target = _TamperStore(NAVIGATION_REF.artifact_id)
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
+        source_store=source,
+        destination_store=target,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.bundle is None
+    assert result.diagnostics == ("ARTIFACT_CHANGED_DURING_PUBLICATION",)
+
+
+def test_reused_member_corrupted_during_publication_is_rejected_before_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = seed_navigation(InMemoryArtifactStore())
+    original_put = source.put
+
+    def corrupt_reused_member(raw: bytes, ref: ArtifactRef) -> ArtifactRef:
+        published = original_put(raw, ref)
+        source._artifacts[NAVIGATION_REF.artifact_id] = (NAVIGATION_REF, b"corrupt")
+        return published
+
+    monkeypatch.setattr(source, "put", corrupt_reused_member)
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)), source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.bundle is None
+    assert result.diagnostics == ("size_bytes mismatch",)
+
+
 def test_multi_pair_shared_snapshot_is_published_once() -> None:
     raw = b"snapshot rows"
     snapshot_ref = _raw_ref("snapshot-source", raw, "application/vnd.apache.parquet")
@@ -226,6 +330,7 @@ def test_multi_pair_shared_snapshot_is_published_once() -> None:
     expected = golden["cases"]["identical_snapshot_rows_across_pairs"]
     actual = {
         "binding_count": len(snapshot_entries),
+        "artifact_location": parse_artifact_id(snapshot_entries[0]["artifact_ref"]["artifact_id"]).value,
         "entries": [
             {
                 key: item[key]
@@ -235,6 +340,9 @@ def test_multi_pair_shared_snapshot_is_published_once() -> None:
         ],
     }
     assert actual == expected
+    assert artifact_ref_from_dict(snapshot_entries[0]["artifact_ref"]) == min(
+        (snapshot_ref, snapshot_ref_two), key=lambda ref: ref.artifact_id,
+    )
 
 
 def test_snapshot_table_reference_shared_between_sides_keeps_both_bindings() -> None:
@@ -284,6 +392,40 @@ def test_snapshot_table_reference_shared_between_sides_keeps_both_bindings() -> 
     ]
 
 
+def test_snapshot_shared_path_collision_cannot_alias_different_content() -> None:
+    source = seed_navigation(InMemoryArtifactStore())
+    parquet = "application/vnd.apache.parquet"
+    shared_raw = b"shared rows"
+    other_raw = b"different rows"
+    shared_refs = (_raw_ref("shared-one", shared_raw, parquet),
+                   _raw_ref("shared-two", shared_raw, parquet))
+    other_ref = _raw_ref("other-snapshot", other_raw, parquet)
+    for ref in shared_refs:
+        source.put(shared_raw, ref)
+    source.put(other_raw, other_ref)
+    pair_closure = BundleArtifactClosure(tuple(
+        BundleArtifactBinding(ref, f"pairs/pair/tables/current/table{index}.parquet",
+                              BundleArtifactKind.SNAPSHOT_TABLE, pair_id="pair",
+                              table_name=f"table{index}")
+        for index, ref in enumerate(shared_refs)
+    ))
+    conflicting_shared = BundleArtifactBinding(
+        other_ref,
+        f"shared/snapshot-tables/{shared_refs[0].raw_sha256.value.removeprefix('sha256:')}.parquet",
+        BundleArtifactKind.SNAPSHOT_TABLE, shared=True,
+        table_bindings=(BundleTableBinding("pair", "different", BundleTableSide.CURRENT),),
+    )
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, _surface_result(), pair_closure),),
+                 shared=BundleArtifactClosure((conflicting_shared,))),
+        source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.bundle is None
+    assert result.diagnostics == ("DUPLICATE_FINAL_LOGICAL_PATH",)
+
+
 def test_multi_pair_identical_artifact_refs_are_shared() -> None:
     records_raw = b"shared record bytes"
     records_ref = _raw_ref("records-shared", records_raw, media_type="application/octet-stream")
@@ -331,10 +473,13 @@ def test_multi_pair_identical_artifact_refs_are_shared() -> None:
     assert record_entries[0]["shared"] is True
 
 
-def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None:
+@pytest.mark.parametrize("child_location", (ArtifactLocation.COMPARISON, ArtifactLocation.CANONICAL))
+def test_nested_json_refs_follow_only_required_rewrites_and_remain_replayable(
+    child_location: ArtifactLocation,
+) -> None:
     source = seed_navigation(InMemoryArtifactStore())
     child_raw = b"record bytes"
-    child_ref = _raw_ref("records-source", child_raw, "application/octet-stream")
+    child_ref = _raw_ref("records-source", child_raw, "application/octet-stream", location=child_location)
     closure_raw = canonicalize_json_value({"records_ref": artifact_ref_to_dict(child_ref)})
     closure_ref = _raw_ref("closure-source", closure_raw)
     source.put(child_raw, child_ref)
@@ -374,7 +519,17 @@ def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None
     rewritten_raw = source.locate(
         artifact_ref_from_dict(rewritten_closure["artifact_ref"])
     )
-    assert b"records-source" not in rewritten_raw
+    final_parent = artifact_ref_from_dict(rewritten_closure["artifact_ref"])
+    final_child = artifact_ref_from_dict(json.loads(rewritten_raw)["records_ref"])
+    if child_location is ArtifactLocation.CANONICAL:
+        assert parse_artifact_id(final_child.artifact_id) is ArtifactLocation.EXPORT
+        assert final_parent != closure_ref
+        assert parse_artifact_id(final_parent.artifact_id) is ArtifactLocation.EXPORT
+        assert rewritten_raw != closure_raw
+    else:
+        assert final_child == child_ref
+        assert final_parent == closure_ref
+        assert rewritten_raw == closure_raw
     validate_bundle(result.bundle, source)
 
 

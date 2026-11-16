@@ -34,6 +34,7 @@ EXPECTED_TABLES = frozenset(
         "computation_cache_entries",
         "computation_cache_uses",
         "history_compare_acceptance_records",
+        "history_compare_aliases",
         "operation_records",
         "preview_idempotency_records",
         "preview_result_records",
@@ -68,6 +69,11 @@ EXPECTED_INDEXES = frozenset(
         "computation_cache_entries_expiry",
         "computation_cache_uses_expiry",
         "history_compare_acceptance_scope_idempotency",
+        "history_compare_acceptance_fingerprint",
+        "history_compare_acceptance_scope_order",
+        "history_compare_acceptance_alias_binding",
+        "history_compare_aliases_operation",
+        "artifact_protection_owner",
         "operation_records_status_readback",
         "provisioned_scope_mappings_one_active_device",
         "provisioned_scope_mappings_one_repository",
@@ -344,8 +350,8 @@ SCOPE_WRITE_STATEMENTS = (
     """INSERT INTO history_compare_acceptance_records (
         acceptance_id, gateway_device_external_key, business_project_id, repository_id,
         idempotency_key, request_fingerprint, comparison_ruleset_digest, nodes_json,
-        operation_id, created_at_us
-    ) VALUES ('acceptance', ?, ?, 'repo', 'key', 'fingerprint', 'digest', '[]', 'operation', 0)""",
+        operation_id, created_at_us, result_retention_seconds
+    ) VALUES ('acceptance', ?, ?, 'repo', 'key', 'fingerprint', 'digest', '[]', 'operation', 0, 86400)""",
 )
 
 

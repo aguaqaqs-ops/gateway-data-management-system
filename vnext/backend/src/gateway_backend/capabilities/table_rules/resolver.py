@@ -26,6 +26,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     canonicalize_rule_identifier,
 )
 from gateway_backend.capabilities.table_rules.registry import PRECEDENCE_RANK
+from gateway_backend.capabilities.table_rules.channel import is_ordered_reference_table
 
 _PROTOCOL_CLASSES = frozenset(
     {
@@ -46,6 +47,7 @@ def resolve_table_rule(
     snapshot: TableRulesetSnapshot,
     table_name: str,
     *,
+    table_comment: str | None,
     primary_key_columns: tuple[str, ...] = (),
 ) -> ResolvedTableRule:
     if type(snapshot) is not TableRulesetSnapshot:
@@ -53,7 +55,7 @@ def resolve_table_rule(
     if type(primary_key_columns) is not tuple:
         raise ValueError("primary_key_columns must be a tuple")
     canonical_table = canonicalize_rule_identifier(table_name)
-    winner = _winning_record(snapshot, table_name)
+    winner = _winning_record(snapshot, table_name, table_comment)
     return ResolvedTableRule(
         canonical_table=canonical_table,
         decision=_decision_from_record(winner, primary_key_columns),
@@ -71,6 +73,7 @@ def resolve_comparison_rule_view(
     rule_set: ComparisonRuleSet,
     table_name: str,
     *,
+    table_comment: str | None,
     primary_key_columns: tuple[str, ...] = (),
 ) -> ComparisonRuleView | None:
     if type(rule_set) is not ComparisonRuleSet:
@@ -78,6 +81,7 @@ def resolve_comparison_rule_view(
     resolved = resolve_table_rule(
         rule_set.snapshot,
         table_name,
+        table_comment=table_comment,
         primary_key_columns=primary_key_columns,
     )
     record = resolved.record
@@ -134,8 +138,8 @@ def resolve_comparison_rule_view(
     )
 
 
-def _winning_record(snapshot: TableRulesetSnapshot, table_name: str) -> TableRuleRecord:
-    matches = [rule for rule in snapshot.rules if _selector_matches(rule, table_name)]
+def _winning_record(snapshot: TableRulesetSnapshot, table_name: str, table_comment: str | None) -> TableRuleRecord:
+    matches = [rule for rule in snapshot.rules if _selector_matches(rule, table_name, table_comment)]
     if matches:
         return _unique_winner(matches)
     fallbacks = [
@@ -156,13 +160,20 @@ def _unique_winner(matches: list[TableRuleRecord]) -> TableRuleRecord:
     return winners[0]
 
 
-def _selector_matches(rule: TableRuleRecord, table_name: str) -> bool:
+def _selector_matches(rule: TableRuleRecord, table_name: str, table_comment: str | None) -> bool:
     selector = rule.selector
+    if selector.table_comment_contains is not None:
+        if selector.table_comment_contains == "引用表":
+            if not is_ordered_reference_table(table_name, table_comment):
+                return False
+        elif table_comment is None or selector.table_comment_contains not in table_comment:
+            return False
     if selector.kind is TableRuleSelectorKind.EXACT:
         return canonicalize_rule_identifier(table_name) == selector.value
     if selector.kind is TableRuleSelectorKind.FALLBACK:
         return False
     compiled = _compile_selector(selector.value)
+    table_name = canonicalize_rule_identifier(table_name)
     if rule.precedence_class in _PROTOCOL_CLASSES:
         return compiled.fullmatch(table_name) is not None
     return compiled.search(table_name) is not None

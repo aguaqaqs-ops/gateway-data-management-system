@@ -1,10 +1,10 @@
 {
   "contract_version": "backend-vnext/risk/v2",
-  "model_version": "backend-vnext/risk-model/v3",
+  "model_version": "backend-vnext/risk-model/v5",
   "cases": {
     "whole_table_added": {
       "status": "READY",
-      "risk_level": "MEDIUM_LOW",
+      "risk_level": "LOW",
       "reason_codes": ["TABLE_ADDED"],
       "annotation_count": 1,
       "evidence": [["row_count", 3]]

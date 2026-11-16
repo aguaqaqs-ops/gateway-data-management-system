@@ -31,18 +31,6 @@ export function ReturnToDirectoryLink({ href }: { href: string }) {
   </a>;
 }
 
-/**
- * First row of the comparison header for handoff sessions. Injected test
- * sessions carry no display, so this row is absent for them.
- */
-export function DeviceBar({ state }: { state: GatewaySessionState }) {
-  if (state.kind !== "handoff") return null;
-  return <div className="device-bar">
-    <DevicePath display={state.session.display} />
-    <ReturnToDirectoryLink href={state.session.returnUrl} />
-  </div>;
-}
-
 const MESSAGES = {
   none: "未选择设备，请从设备目录进入",
   invalid: "跳转信息无效，请从设备目录重新进入",

@@ -1,0 +1,19 @@
+[Unit]
+Description=08 single-device handoff directory
+After=gdds08-a-stack.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/dev/gdds-gw-dms-08-v2/source
+Environment=PYTHONPATH=/home/dev/gdds-gw-dms-08-v2/source/directory/service
+Environment=GDDS_DIRECTORY_DB=/home/dev/gdds-gw-dms-08-v2/a/private/directory.sqlite
+Environment=GDDS_DIRECTORY_STATIC_DIR=/home/dev/gdds-gw-dms-08-v2/directory/dist
+Environment=GDDS_DIRECTORY_PUBLIC_URL=https://192.168.233.209:28443/
+Environment=GDDS_DIRECTORY_GATEWAY_FRONTEND_URL=https://192.168.233.209:28443/
+Environment=GDDS_DIRECTORY_LISTEN=127.0.0.1:18100
+ExecStart=/home/dev/gdds-gw-dms-08-v2/tools/python/bin/python3.14 -B -m gdds_directory serve
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

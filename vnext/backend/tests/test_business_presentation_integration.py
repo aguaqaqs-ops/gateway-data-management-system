@@ -14,6 +14,7 @@ import gateway_backend.application.pair_pipeline as pipeline
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.capabilities.business_navigation import validate_navigation
 from gateway_backend.capabilities.comparison import ComparisonRequest
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskExecutionPolicy, RiskEvaluationResult
 from gateway_backend.capabilities.risk_evaluation import evaluate_risk as original_evaluate
 from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyStatus
@@ -63,6 +64,7 @@ def test_real_risk_degradation_replays_into_public_whole_table_facts_fallback(
     store = InMemoryArtifactStore()
     with closing(session):
         warm = pipeline.run_preview_pair_pipeline(pair_id="baseline_to_initial", view_id="baseline_to_initial",
+            before_presentation=PresentationMetadata(), current_presentation=PresentationMetadata(),
             before=before, current=current, store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
             rule_set=rules, assess_identity=False, repository_id="replacement-fixture", dedup_session=session)
         warm_document, _ = _navigation(warm, store)
@@ -73,23 +75,30 @@ def test_real_risk_degradation_replays_into_public_whole_table_facts_fallback(
             RiskExecutionPolicy(max_annotations_per_table=1) if limit == "table" else
             RiskExecutionPolicy(max_annotations_per_pair=1))
         replay = pipeline.run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+            before_presentation=PresentationMetadata(), current_presentation=PresentationMetadata(),
             store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
             rule_set=rules, assess_identity=False, repository_id="replacement-fixture", dedup_session=session)
         replay_document, replay_diagnostics = _navigation(replay, store)
         assert cache_hits > 0 and session.hits > 0
     cold = pipeline.run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        before_presentation=PresentationMetadata(), current_presentation=PresentationMetadata(),
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
         rule_set=rules, assess_identity=False, repository_id="replacement-fixture")
     assert _navigation(cold, store) == (replay_document, replay_diagnostics)
     tabs = [tab for item in replay_document["groups"][1]["items"] for tab in item["tabs"] if tab["table_id"] == "device_cfg"]
     assert len(tabs) == 2
     for tab in tabs:
-        assert tab["facts"]["basis"] == "TABLE_FALLBACK"
-        assert tab["facts"]["change_kind"] is None and tab["facts"]["risk_level"] is None
+        assert tab["facts"]["basis"] == "EXACT"
+        assert tab["facts"]["change_kind"] == "UPDATED" and not tab["facts"]["risk_complete"]
         assert tab["facts"]["before_row_count"] == tab["facts"]["current_row_count"] == 1
-        expected_scope = None if limit == "artifact" else {"change": False, "risk_level": "UNKNOWN"}
-        assert tab["facts"]["table_scope"] == expected_scope
-    unavailable = [d for d in replay_diagnostics if d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE"]
+        assert tab["facts"]["table_scope"] is None
+    notice, = (notice for notice in replay_document["table_notices"] if notice["table_id"] == "device_cfg")
+    assert notice["table_scope"] is None and notice["risk_complete"] is False
+    if limit in {"table", "pair"}:
+        assert notice["unlocated_row_risk"]["risk_level"] == "UNKNOWN"
+        expected = "RISK_TABLE_BUDGET_EXCEEDED" if limit == "table" else "RISK_ANNOTATION_LIMIT_EXCEEDED"
+        assert expected in notice["unlocated_row_risk"]["reason_codes"]
+    unavailable = [d for d in replay_diagnostics if d["code"] == "DEVICE_TAB_RISK_UNAVAILABLE"]
     assert len(unavailable) == 1 and unavailable[0]["params"]["reason"] == "RISK_ATTRIBUTION_UNAVAILABLE"
 
 
@@ -142,6 +151,7 @@ def test_history_locator_follows_reordered_export_cache_file_through_shared_bund
     pairs = []
     for index, pair_id in enumerate(("left_to_middle", "middle_to_right")):
         result = pipeline.run_history_pair_pipeline(pair_id=pair_id, before=sources[index], current=sources[index + 1],
+            before_presentation=PresentationMetadata(), current_presentation=PresentationMetadata(),
             store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
             rule_set=rules, repository_id="replacement-fixture", export_cache=cache)
         surface = result.surface_result.surface
@@ -200,6 +210,7 @@ def test_actual_exception_becomes_stable_code_in_downloadable_records(
     monkeypatch.setattr(native, "compare_records_batches", fail_native)
     store = InMemoryArtifactStore()
     result = pipeline.run_preview_pair_pipeline(pair_id="initial_to_modified", before=before, current=current,
+        before_presentation=PresentationMetadata(), current_presentation=PresentationMetadata(),
         store=store, control=ExecutionControl(), on_cancel=lambda: pytest.fail("cancel"),
         rule_set=comparison_ruleset_for(standard_rule_record("t")), assess_identity=False,
         repository_id="replacement-fixture")

@@ -344,8 +344,9 @@ backend Compose旅程共用host `127.0.0.1:8000`，同节点必须串行。现ha
    exit code；运行期间未写worktree，也未提交或重建其他镜像。若client e2e镜像revision label与HEAD不符，
    允许门禁在本机正常重建该镜像并更新本机tag；实施者不得手工`docker rmi`。在dirty worktree或临时index tree上的运行不能作为`V`。
 2. **区间不触及容器边界**：`V..HEAD`没有改动上文“必须重建”前五项所列的内容，也没有改动
-   Docker/Compose e2e测试、container harness或其support模块。脚本首版按保守口径逐提交扫描，
-   区间内`vnext/`有任何改动（含改后改回）即重跑容器包。
+   Docker/Compose e2e测试、container harness或其support模块。脚本按保守口径逐提交扫描完整分支历史，
+   区间内`vnext/`改动（含改后改回）重跑容器包；merge 有`V`或其后代的 parent 时只与这些 parent 比较，
+   否则与所有 parent 比较，无 parent 的区间提交保守重跑，避免把`V`已包含的改动重复归给合并。
 3. **镜像身份相等**：
    - 带`gateway.p2r1.build-input-revision`与`gateway.p2r1.source-tree-sha256` label的镜像
      （repository-service）：在最终HEAD用`build_context_digest.py identity`重算，两项都等于`V`

@@ -12,6 +12,14 @@ import pytest
 from gdds_directory import db, provision
 
 
+def test_test_identity_has_all_public_permissions() -> None:
+    session = provision._session("dev-1", "prj-1", 180)
+    assert set(session["permissions"]) == {
+        "workspace_read", "upload_submit_workspace", "preview_workspace", "review_submission",
+        "withdraw_own_submission", "archive_submission", "read_project_history", "statistics_read_group",
+    }
+
+
 def database(path: Path) -> sqlite3.Connection:
     path.parent.chmod(0o700)
     conn = db.connect(path)

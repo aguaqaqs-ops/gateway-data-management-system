@@ -29,7 +29,9 @@ import pyarrow.parquet as pq
 from gateway_compute._native import _init_kernel_native
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.application import pair_pipeline
 from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
+from gateway_backend.capabilities.risk_evaluation.contracts import RiskExecutionPolicy
 from gateway_backend.application.preview_jobs import _comparison_storage_facts, _publish_canonical_table_set_closure, surface_artifact_closure
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -47,6 +49,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
     SqlSnapshotMaterializationRequest, materialize_business_snapshot, materialize_canonical_snapshot,
 )
 from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set, publish_canonicalization_manifest
+from gateway_backend.capabilities.storage_projection.package import canonicalization_manifest_from_bytes
 from gateway_backend.capabilities.table_access import (
     KernelExecutionContext, NeverCancel, OperationMemoryBudget, PARSER_INPUT_CONTRACT_VERSION,
     ParserInvocationContext, SqlParseRequest, SqlSourceInput, XmlParseRequest, XmlSourceInput,
@@ -160,7 +163,9 @@ def validate_scenario_assertions(surface: Any, store: InMemoryArtifactStore, exp
     diagnostics = [] if projection.diagnostics_ref is None else json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
     codes = {d["code"] for d in diagnostics}
     if not set(expected.get("required_codes", [])).issubset(codes) or set(expected.get("forbidden_codes", [])) & codes:
-        raise AssertionError("scenario navigation diagnostic codes disagree")
+        raise AssertionError(f"scenario navigation diagnostic codes disagree: actual={sorted(codes)}, "
+                             f"required={expected.get('required_codes', [])}, "
+                             f"forbidden={expected.get('forbidden_codes', [])}")
     for wanted in expected.get("required_diagnostics", []):
         if not any(d["code"] == wanted["code"] and d["side"] == wanted["side"]
             and d["target"]["table_id"] == wanted["table_id"] and d["params"].get("reason") == wanted["reason"] for d in diagnostics):
@@ -171,7 +176,26 @@ def validate_scenario_assertions(surface: Any, store: InMemoryArtifactStore, exp
             facts = [tab["facts"] for tab in tabs if tab["table_id"] == table and tab["row_filter"] is not None]
             if not facts or any(fact is None or fact["basis"] != basis for fact in facts):
                 raise AssertionError(f"scenario {table} did not publish {basis} facts")
+    for wanted in expected.get("whole_tabs", []):
+        matches = [tab for group in navigation["groups"] if group["group_key"] == wanted["group"]
+                   for item in group["items"] if item["item_key"] == wanted["item"]
+                   for tab in item["tabs"] if tab["table_id"] == wanted["table"]]
+        if len(matches) != 1 or matches[0]["label"] != wanted["label"] or matches[0]["row_filter"] is not None:
+            raise AssertionError(f"missing unique whole-table navigation: {wanted}")
+        if sum(tab["table_id"] == wanted["table"] for tab in tabs) != 1:
+            raise AssertionError(f"table claimed more than once: {wanted}")
+    for wanted in expected.get("channel_diagnostics", []):
+        if not any(d["code"] == wanted["code"] and d["side"] == wanted["side"]
+                   and d["params"] == wanted["params"] for d in diagnostics):
+            raise AssertionError(f"missing channel diagnostic: {wanted}")
     tables = {t.table_id: t for t in surface.tables}
+    for name in expected.get("ordered_modified_tables", []):
+        table = tables[name]
+        if table.ordered_extension is None or table.row_change_stats.row_modified_count <= 0:
+            raise AssertionError(f"ordered modified rows missing: {name}")
+    for name, code in expected.get("table_diagnostics", {}).items():
+        if code not in tables[name].diagnostics.diagnostics_summary:
+            raise AssertionError(f"missing table diagnostic {code}: {name}")
     for name in expected.get("before_alias_tables", []):
         refs = tables[name].table_refs
         if refs.before_table_ref is None or refs.before_table_ref != refs.current_table_ref:
@@ -214,18 +238,113 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
             rules = table_ruleset_from_document(document)
         common["rule_set"] = comparison_rule_set(rules)
         history = scenario["flow"] == "HISTORY"
-        if history:
-            result = run_history_pair_pipeline(**common)
-        else:
-            result = run_preview_pair_pipeline(**common, view_id=pair["id"])
+        with ExitStack() as fixture_controls:
+            if "risk_artifact_limit" in scenario:
+                original_evaluate = pair_pipeline.evaluate_risk
+                policy = RiskExecutionPolicy(max_annotation_artifact_bytes_per_table=scenario["risk_artifact_limit"])
+                def evaluate_with_limit(*args: Any, **kwargs: Any) -> Any:
+                    return original_evaluate(*args, **kwargs, execution_policy=policy)
+                fixture_controls.enter_context(patch.object(pair_pipeline, "evaluate_risk", evaluate_with_limit))
+            if history:
+                result = run_history_pair_pipeline(**common)
+            else:
+                result = run_preview_pair_pipeline(**common, view_id=pair["id"])
         surface = result.surface_result.surface
         if surface is None or len([p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION"]) != 1:
             raise ValueError("production pair did not publish exactly one navigation")
         validate_scenario_assertions(surface, store, scenario.get("assertions", {}))
+        pair_assertions = scenario.get("pair_assertions", {}).get(pair["id"], {})
+        for name, families in pair_assertions.get("record_kinds", {}).items():
+            if result.records_closure is None:
+                raise AssertionError(f"missing comparison records closure: {name}")
+            for family, required in families.items():
+                entry = next((e for e in result.records_closure.records
+                              if e.table_name == name and e.family.value == family), None)
+                if entry is None:
+                    raise AssertionError(f"missing {family} records: {name}")
+                rows = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
+                if not set(required) <= {row["record_kind"] for row in rows}:
+                    raise AssertionError(f"missing {family} record kinds: {name}")
+        if scenario["id"] == "pure-row-changes":
+            if result.records_closure is None:
+                raise AssertionError("pure changes lack records")
+            entry = next(e for e in result.records_closure.records
+                         if e.table_name == "device_st" and e.family.value == "STANDARD")
+            records = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
+            if sorted(row["record_kind"] for row in records) != ["ROW_ADDED", "ROW_DELETED"]:
+                raise AssertionError("pure changes contain unexpected row records")
+            deleted = next(row for row in records if row["record_kind"] == "ROW_DELETED")
+            before_values = {item["column_name"]: item["value"] for item in deleted["before_values"]}
+            if set(before_values) != {"gid", "dev_addr", "name", "detail", "note"}:
+                raise AssertionError("deleted row does not carry all before values")
+            if (before_values["gid"]["text"] != "2" or before_values["dev_addr"]["text"] != "49"
+                    or before_values["name"]["text"] != "删除点" or before_values["detail"]["text"] != "完整旧值"
+                    or before_values["note"]["kind"] != "null" or deleted["current_values"]):
+                raise AssertionError("deleted row before values disagree with source")
+            table = next(t for t in surface.tables if t.table_id == "device_st")
+            if table.table_refs.before_table_ref is not None or table.row_locator_ref is None:
+                raise AssertionError("pure changes do not exercise missing before snapshot")
+            locator = pq.read_table(pa.BufferReader(store.locate(table.row_locator_ref))).to_pylist()
+            located = next(row for row in locator if row["row_identity"] == deleted["row_identity"])
+            if located["before_row_index"] is not None or json.loads(located["before_filter_context_json"]) != {"dev_addr": 49}:
+                raise AssertionError("deleted row locator does not preserve before context")
+            if table.risk_refs.risk_level is not None or table.risk_refs.annotation_count != 0:
+                raise AssertionError("pure added/deleted rows unexpectedly have risk")
+            projection = next(p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION")
+            navigation = json.loads(store.locate(projection.projection_ref))
+            facts = [tab["facts"] for group in navigation["groups"] for item in group["items"]
+                     for tab in item["tabs"] if tab["table_id"] == "device_st" and tab["facts"] is not None]
+            if not facts or any(f["basis"] != "EXACT" or not f["risk_complete"] or f["risk_level"] is not None for f in facts):
+                raise AssertionError("pure changes need exact facts and complete empty risk")
+        if scenario["id"] == "preview-full" and pair["id"] == "baseline_to_initial":
+            if result.records_closure is None:
+                raise AssertionError("blank interval fixture lacks records")
+            entry = next(e for e in result.records_closure.records
+                         if e.table_name == "b1_n1_iec104_syx_list" and e.family.value == "BLANK")
+            rows = pq.read_table(pa.BufferReader(store.locate(entry.records_ref))).to_pylist()
+            if len(rows) != 1:
+                raise AssertionError("blank fixture should have one interval")
+            row = rows[0]
+            interval = row["interval"]
+            if (row["record_kind"] != "BLANK_DELETE_INTERVAL" or row["before_occupancy"] != 2
+                    or row["current_occupancy"] != 1 or interval["before_start"] != 2
+                    or interval["before_end"] != 4 or interval["current_start"] != 3
+                    or interval["current_end"] != 3 or interval["row_count"] != 1):
+                raise AssertionError("blank interval bounds and occupancy disagree")
+            table = next(t for t in surface.tables if t.table_id == "b1_n1_iec104_syx_list")
+            if table.risk_refs.annotation_ref is None:
+                raise AssertionError("blank interval fixture lacks risk annotations")
+            annotations = json.loads(store.locate(table.risk_refs.annotation_ref))["annotations"]
+            interval_risks = [annotation for annotation in annotations
+                              if annotation["target"]["target_type"] == "ROW_INTERVAL"]
+            if (len(interval_risks) != 1 or interval_risks[0]["target"]["position_range"] != [2, 4]
+                    or not any(["count", 1] in reason["evidence"] for reason in interval_risks[0]["reasons"])):
+                raise AssertionError("blank interval risk must identify region and occupancy difference")
+        for name in pair_assertions.get("pseudo_gid_tables", []):
+            for source in (before, current):
+                document = canonicalization_manifest_from_bytes(store.locate(source.canonicalization_manifest_ref))
+                entry = next(t for t in document.tables if t.name == name)
+                if entry.gid_pseudo_count is None or entry.gid_pseudo_count < 1:
+                    raise AssertionError(f"missing canonical pseudo gid: {name}")
         label = {"scenario": scenario["id"], "pair_id": pair["id"]}
         for projection in surface.projections:
             if projection.projection_kind == "BUSINESS_NAVIGATION":
-                golden["navigation"].append({**label, "document": json.loads(store.locate(projection.projection_ref))})
+                document = json.loads(store.locate(projection.projection_ref))
+                if scenario["id"] in {"ownership", "ownership-risk-incomplete"}:
+                    tabs = [tab for group in document["groups"] for item in group["items"]
+                            for tab in item["tabs"] if tab["table_id"] == "device_st" and tab["facts"] is not None]
+                    if not any(tab["facts"]["row_changes"]["moved_in"] for tab in tabs):
+                        raise AssertionError("ownership fixture lacks an address migration")
+                    if not document["device_definition_changes"]:
+                        raise AssertionError("ownership fixture lacks device definition changes")
+                    if not any(notice["table_id"] == "device_st" and notice["unlocated_row_risk"] is not None
+                               for notice in document["table_notices"]):
+                        raise AssertionError("ownership fixture lacks public risk")
+                    if scenario["id"] == "ownership-risk-incomplete" and not any(
+                        not tab["facts"]["risk_complete"] and tab["facts"]["basis"] == "EXACT" for tab in tabs
+                    ):
+                        raise AssertionError("fixture lacks exact changes with incomplete risk")
+                golden["navigation"].append({**label, "document": document})
                 golden["navigation-diagnostics"].append({**label, "document": None if projection.diagnostics_ref is None
                     else json.loads(store.locate(projection.diagnostics_ref))})
         physical_tables = []
@@ -362,21 +481,23 @@ def generate(input_root: Path, output_root: Path) -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     _init_kernel_native(1)
     records = []
-    rejected_sources = []
+    retained_sources = []
     with fixed_fixture_inputs(), tempfile.TemporaryDirectory(prefix="presentation-fixtures-") as temporary:
         scratch = ScratchSpace(Path(temporary), max_bytes=2 * 1024**3)
-        for source in manifest.get("rejected_source_inputs", []):
+        for source in manifest.get("retained_source_inputs", []):
             with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
-                with scratch.session(owner="operation:presentation-fixture-rejection") as session, scratch_scope(session):
-                    try:
-                        materialize(inputs[source["sql"]], inputs[source["xml"]], InMemoryArtifactStore())
-                    except ValueError as exc:
-                        message = str(exc)
-                        if source["expected_code"] not in message or source["expected_table"] not in message:
-                            raise
-                        rejected_sources.append({**source, "actual_result": "FAILED", "actual_message": message})
-                    else:
-                        raise ValueError("frozen source no longer reproduces its documented projection rejection")
+                with scratch.session(owner="operation:presentation-fixture-retained") as session, scratch_scope(session):
+                    result = materialize(inputs[source["sql"]], inputs[source["xml"]], InMemoryArtifactStore())
+                    assert result.bound.table_set is not None
+                    table = next(t for t in result.bound.table_set.tables
+                                 if t.descriptor.table_name == source["expected_table"])
+                    if source["missing_column"] in {c.name for c in table.descriptor.columns}:
+                        raise ValueError("frozen source no longer retains its missing column")
+                    facts = next(f for f in result.bound.storage_facts
+                                 if f.storage_rule_view.canonical_table == source["expected_table"])
+                    if facts.storage_rule_view.ordered_policy.value != "NONE":
+                        raise ValueError("frozen source unexpectedly has ordered storage")
+                    retained_sources.append({**source, "actual_result": "COMPLETE"})
         for scenario in manifest["scenarios"]:
             print("scenario=" + scenario["id"], flush=True)
             with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)):
@@ -403,7 +524,7 @@ def generate(input_root: Path, output_root: Path) -> None:
             "history_node_ref_ids": "fixture-history-ref-<node-index>; roles match History producer",
             "bundle_inputs": "Preview role/English label; History ref_id/node-i; snapshot_digest=null in both",
             "kernel_threads": 1, "memory_budget_bytes": 8 * 1024**3},
-        "rejected_frozen_sources": rejected_sources, "scenarios": records}
+        "retained_frozen_sources": retained_sources, "scenarios": records}
     write_member(output_root, "index.json", canonicalize_json_value(index))
     print(json.dumps({"generator_commit": commit, "scenario_count": len(records), "index_sha256":
         hashlib.sha256((output_root / "index.json").read_bytes()).hexdigest()}, sort_keys=True))

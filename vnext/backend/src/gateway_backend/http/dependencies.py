@@ -254,6 +254,7 @@ class WorkspaceHttpDependencies:
     operation_reader: OperationReaderPort
     comparison_ruleset_digest: str
     now: Callable[[], datetime]
+    operation_queue_limit: int = 32
     submission_reader: SubmissionReaderPort = field(default_factory=FailClosedSubmissionReader)
     artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
     internal_bearer_port: InternalBearerPort = field(
@@ -283,6 +284,9 @@ class HistoryHttpDependencies:
     bundle_reader: BundleReaderPort
     comparison_ruleset_digest: str
     now: Callable[[], datetime]
+    history_result_retention_seconds: int = 86_400
+    history_scope_active_limit: int = 2
+    operation_queue_limit: int = 32
 
 
 def get_history_http(request: Request) -> HistoryHttpDependencies:

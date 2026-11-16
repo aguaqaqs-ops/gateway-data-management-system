@@ -4,7 +4,7 @@
 
 Ordered diff 是 comparison 的扩展事实，不是前端 UI contract，也不是 Dolt native provider contract。实现设计见 `../capabilities/ordered-diff-compute.md`。
 
-旧实现映射和 feature parity 目标见 `../contracts/ordered-diff.md`。vNext 可以优化模块边界和实现阶段，但 IEC104 ordered family 的业务规则、pseudo blank 处理和 tail/middle/move 风险语义需要完整保留。
+通道表按真实 COMMENT 中的“引用表”判定有序；pseudo blank 与 tail/middle/move 比较语义继续保留。通道命名有序表中表名含小写 `yk` 的中间增删风险分级见 [Risk Contract](risk.md)。
 
 ## 范围
 
@@ -90,7 +90,7 @@ range 一致；该 range 是 physical identity，不展示为真实业务 gid。
 
 规则：
 
-- 第一批 ordered diff 仍以 IEC104 list family 为主。
+- 有序分类不依赖具体协议或注册行，适用于网络与串口通道引用表。
 - 缺失/空 `gid` 的 blank row 需要按 pseudo blank 处理，不默认降级。
 - 位置字段 `no` 参与 ordered sequence，不参与 content update 判定。
 
@@ -209,6 +209,7 @@ OrderedInterval:
 - records 输出必须 canonical order。
 - Canonical order 第一版建议为 `record_kind` priority、position tuple、row identity。
 - `semantic_kind` 必须保留旧 ordered semantic kind，供 risk/surface/bundle 恢复旧行为。
+- 有序比较器可在 operation 内的 ORDERED 风险投影上给新增实测点附带旧侧替换伙伴的身份和 `no`。配对以共同骨架锚点划分区间，忽略空点并按区间内非空行相对顺序一对一核对；含移动或两侧变更行数不等的区间不推断新配对。该证据由 risk 消费并与删除记录交叉核对，不改变公开 ordered records 的增删事实与 replay 语义。
 - `entity_key_kind=PSEUDO_BLANK` 表示由缺失/空 stable key 派生的 blank row。
 - 如果同一事件可表达为 move 或 delete+add，由 `move_policy` 决定；不能在同一 policy 下不稳定输出。
 - row values 只包含 projection selected/value columns，不包含 ignored columns。
@@ -375,3 +376,7 @@ Surface / Bundle：
 facts ordered records 按 kind、`current_position or before_position or 0`、identity（缺省空）排序；这是现行 facts 序，与 Comparison Records 产物的统一排序不同。gid/no 校验、伪 gid provenance、相邻真实 identity 锚定的空白区间及 occupancy digest 均保留；排序中的首尾空锚按空字符串处理。
 
 未变化表仍按本次有效 pair 策略（含共有列）对当前侧计算单侧 ordered/occupancy 摘要并同时填两侧；不得读取 before 行或运行 LIS/生成 records，不在上传阶段提前计算依赖 pair 的摘要。具体 Arrow 接口与验证见 [S3 设计](../refactoring/formal/plans/p6-s3-design.md)。
+
+## 空点区间与风险
+
+blank interval 的两侧 start/end 是同一骨架间隙的空点包围范围，可能跨非骨架行或稀疏 no；row_count 为两侧占用数净差的绝对值，不是区间跨度。风险目标表示受影响区域且 evidence.count 保持净变化数，不切分区间或伪造逐点变更。尾部分类按 [Risk](risk.md) 的保留有效位置和完整性执行，不改变有序比较或替换配对。

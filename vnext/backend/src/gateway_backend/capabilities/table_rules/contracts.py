@@ -15,16 +15,46 @@ import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Mapping
+from pydantic import BaseModel, ConfigDict
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-TABLE_RULESET_VERSION = 1
+TABLE_RULESET_VERSION = 2
 RULESET_ID = "backend-vnext/table-ruleset"
-RULESET_VERSION = "v4"
-TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
-STORAGE_PROJECTION_VERSION = "3"
+RULESET_VERSION = "v7"
+TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v2"
+STORAGE_PROJECTION_VERSION = "4"
 FALLBACK_SELECTOR_VALUE = "*"
+# These exact configuration tables keep their DDL storage identity while
+# comparison aligns options by page and sequence. No suffix-wide policy.
+CONFIGURATION_DIFF_TABLE_NAMES: tuple[str, ...] = (
+    "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg",
+    "iec61850c_cfg", "jdxx_cfg", "sc_cfg", "scada_cfg",
+    "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
+)
+CONFIGURATION_COMPARE_KEY_COLUMNS = ("page_no", "no")
+# Generated sequence columns are retained for storage but excluded from
+# business comparison. These exact tables have no ordering semantics.
+BUSINESS_SEQUENCE_KEYS: dict[str, tuple[str, ...]] = {
+    "device_cfg": ("gid", "page_no", "option_name"),
+    "board_cfg": ("board",),
+    "prot_list": ("prot_no",),
+    "dev_list": ("model",),
+    "device_model_cfg": ("model_name", "page_no", "option_name"),
+    "dev_grp": ("dev_addr", "grp"),
+    "model_grp": ("model_name", "grp"),
+    "primary_equipment_object_cfg": ("equipment_type", "property_name"),
+    "prot_right": ("commit_id", "right_tab"),
+    "rule_61850point_praser_cfg": ("val_gdd",),
+    "rule_61850dev_praser_cfg": (),
+    "rule_61850dev_praser_default_cfg": (),
+}
+BUSINESS_SEQUENCE_COLUMNS = {
+    name: ("id" if name in {"prot_list", "dev_list", "rule_61850dev_praser_cfg", "rule_61850dev_praser_default_cfg"}
+           else "rule_id" if name == "rule_61850point_praser_cfg" else "no")
+    for name in BUSINESS_SEQUENCE_KEYS
+}
 ORDERED_POSITION_COLUMN = "no"
 ORDERED_IDENTITY_COLUMN = "gid"
 _PAIRED_QUOTES = frozenset({"'", '"', "`"})
@@ -38,7 +68,7 @@ _DOCUMENT_TOP_LEVEL_KEYS = frozenset(
         "table_ruleset_version",
     }
 )
-_SELECTOR_KEYS = frozenset({"kind", "value"})
+_SELECTOR_KEYS = frozenset({"kind", "value", "table_comment_contains"})
 _DROPPED_COLUMN_KEYS = frozenset({"name", "reason"})
 _RULE_RECORD_KEYS = frozenset(
     {
@@ -61,6 +91,48 @@ _RULE_RECORD_KEYS = frozenset(
 )
 
 
+class _StrictRuleDocument(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class _SelectorDocument(_StrictRuleDocument):
+    kind: str
+    value: str
+    table_comment_contains: str | None
+
+
+class _DroppedColumnDocument(_StrictRuleDocument):
+    name: str
+    reason: str
+
+
+class _RecordDocument(_StrictRuleDocument):
+    selector: _SelectorDocument
+    precedence_class: str
+    static_role: str
+    table_storage: str
+    canonical_key_policy: str
+    ordered_policy: str
+    compare_key_mode: str | None
+    compare_key_columns: list[str]
+    ignored_columns: list[str]
+    compare_excluded_columns: list[str]
+    artifact_scope: str | None
+    position_column: str | None
+    stable_key_candidates: list[str]
+    dropped_columns: list[_DroppedColumnDocument]
+    structural_columns: list[str]
+
+
+class _RulesetDocument(_StrictRuleDocument):
+    contract_version: str
+    rules: list[_RecordDocument]
+    ruleset_id: str
+    ruleset_version: str
+    storage_projection_version: str
+    table_ruleset_version: int
+
+
 class TableRuleSelectorKind(StrEnum):
     EXACT = "EXACT"
     REGEX = "REGEX"
@@ -79,6 +151,7 @@ class TableCompareKeyMode(StrEnum):
     RAW_PRIMARY_KEY = "RAW_PRIMARY_KEY"
     EXPLICIT_KEY = "EXPLICIT_KEY"
     ORDERED_STABLE_KEY = "ORDERED_STABLE_KEY"
+    FULL_ROW_MULTISET = "FULL_ROW_MULTISET"
 
 
 class TableArtifactScope(StrEnum):
@@ -162,8 +235,13 @@ def legacy_ignored_column_reason(selector: TableRuleSelector) -> str:
 class TableRuleSelector:
     kind: TableRuleSelectorKind
     value: str
+    table_comment_contains: str | None = None
 
     def __post_init__(self) -> None:
+        if self.table_comment_contains is not None and (
+            self.kind is not TableRuleSelectorKind.REGEX or not self.table_comment_contains
+        ):
+            raise ValueError("comment condition requires a regex and nonempty text")
         if type(self.kind) is not TableRuleSelectorKind:
             raise ValueError("kind must be TableRuleSelectorKind")
         if type(self.value) is not str or self.value == "":
@@ -185,7 +263,8 @@ class TableRuleSelector:
         if self.kind is TableRuleSelectorKind.EXACT:
             return f"exact:{self.value}"
         if self.kind is TableRuleSelectorKind.REGEX:
-            return f"regex:{self.value}"
+            suffix = "" if self.table_comment_contains is None else f":comment:{self.table_comment_contains}"
+            return f"regex:{self.value}{suffix}"
         return f"fallback:{FALLBACK_SELECTOR_VALUE}"
 
 
@@ -406,7 +485,8 @@ class TableRuleRecord:
             "ordered_policy": self.ordered_policy.value,
             "position_column": self.position_column,
             "precedence_class": self.precedence_class.value,
-            "selector": {"kind": self.selector.kind.value, "value": self.selector.value},
+            "selector": {"kind": self.selector.kind.value, "value": self.selector.value,
+                         "table_comment_contains": self.selector.table_comment_contains},
             "stable_key_candidates": list(self.stable_key_candidates),
             "static_role": self.static_role.value,
             "structural_columns": list(self.structural_columns),
@@ -444,7 +524,7 @@ class TableRulesetSnapshot:
         if self.ruleset_version != RULESET_VERSION:
             raise ValueError(f"ruleset_version must be {RULESET_VERSION}")
         if self.contract_version != TABLE_RULESET_CONTRACT_VERSION:
-            raise ValueError("contract_version must be gateway-vnext.table-ruleset:v1")
+            raise ValueError(f"contract_version must be {TABLE_RULESET_CONTRACT_VERSION}")
         if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
             raise ValueError(f"storage_projection_version must be {STORAGE_PROJECTION_VERSION}")
         if type(self.rules) is not tuple:
@@ -576,9 +656,9 @@ def compute_ruleset_digest(document: Mapping[str, object]) -> DigestRef:
 
 
 def table_ruleset_from_document(document: Mapping[str, object]) -> TableRulesetSnapshot:
-    if type(document) is not dict:
-        raise ValueError("ruleset document must be a dict")
-    _reject_unknown_keys(document, _DOCUMENT_TOP_LEVEL_KEYS, "ruleset document")
+    document = _RulesetDocument.model_validate(document, strict=True).model_dump()
+    if document["table_ruleset_version"] != TABLE_RULESET_VERSION:
+        raise ValueError(f"table_ruleset_version must be {TABLE_RULESET_VERSION}")
     rules_payload = document.get("rules")
     if type(rules_payload) is not list:
         raise ValueError("rules must be a list")
@@ -613,6 +693,7 @@ def _rule_record_from_document(payload: object) -> TableRuleRecord:
         selector=TableRuleSelector(
             kind=TableRuleSelectorKind(_require_string(selector_payload.get("kind"), "selector.kind")),
             value=_require_string(selector_payload.get("value"), "selector.value"),
+            table_comment_contains=_optional_string(selector_payload.get("table_comment_contains"), "selector.table_comment_contains"),
         ),
         precedence_class=SelectorPrecedenceClass(
             _require_string(payload.get("precedence_class"), "precedence_class")
@@ -726,12 +807,12 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
     elif record.precedence_class is SelectorPrecedenceClass.STANDARD_DEVICE_CFG:
         if record.selector.kind is not TableRuleSelectorKind.EXACT:
             raise ValueError("device_cfg selector must be exact")
-        if record.compare_key_mode is not TableCompareKeyMode.RAW_PRIMARY_KEY:
-            raise ValueError("device_cfg requires RAW_PRIMARY_KEY")
+        if record.compare_key_mode is not TableCompareKeyMode.EXPLICIT_KEY or record.compare_key_columns != BUSINESS_SEQUENCE_KEYS["device_cfg"]:
+            raise ValueError("device_cfg requires its business comparison key")
         if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY:
             raise ValueError("device_cfg storage key is DDL primary key")
-        if record.artifact_scope is not TableArtifactScope.UPDATE_ONLY:
-            raise ValueError("device_cfg artifact_scope must be UPDATE_ONLY")
+        if record.artifact_scope is not TableArtifactScope.ALL_CHANGES:
+            raise ValueError("device_cfg artifact_scope must be ALL_CHANGES")
     elif record.selector.kind is TableRuleSelectorKind.REGEX:
         if record.precedence_class not in {
             SelectorPrecedenceClass.STANDARD_PROTOCOL_OPTION,
@@ -743,9 +824,24 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
     if (
         record.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
         and record.precedence_class is not SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK
+        and not (
+            record.precedence_class is SelectorPrecedenceClass.STANDARD_EXACT
+            and record.selector.kind is TableRuleSelectorKind.EXACT
+            and record.selector.value in CONFIGURATION_DIFF_TABLE_NAMES
+            and record.compare_key_mode is TableCompareKeyMode.EXPLICIT_KEY
+            and record.compare_key_columns == CONFIGURATION_COMPARE_KEY_COLUMNS
+            and record.artifact_scope is TableArtifactScope.ALL_CHANGES
+        )
+        and not (
+            record.precedence_class is SelectorPrecedenceClass.STANDARD_EXACT
+            and record.selector.value in BUSINESS_SEQUENCE_KEYS
+            and record.compare_key_columns == BUSINESS_SEQUENCE_KEYS[record.selector.value]
+            and record.compare_key_mode is (TableCompareKeyMode.EXPLICIT_KEY if record.compare_key_columns else TableCompareKeyMode.FULL_ROW_MULTISET)
+            and record.artifact_scope is TableArtifactScope.ALL_CHANGES
+        )
     ):
         raise ValueError(
-            "DDL_PRIMARY_KEY_OR_KEYLESS is restricted to snapshot-only, browse-only, and raw-PK fallback rules"
+            "DDL_PRIMARY_KEY_OR_KEYLESS is restricted to snapshot-only, browse-only, raw-PK fallback, and exact configuration rules"
         )
     if record.ordered_policy is not OrderedPolicy.NONE:
         raise ValueError("STANDARD_DIFF forbids ordered policy")

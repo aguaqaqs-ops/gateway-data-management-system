@@ -50,6 +50,7 @@ from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
@@ -147,6 +148,7 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
         "modified_canonical_state_digest",
         "storage_projection_ruleset_digest",
         "baseline_is_initial",
+        "rules_semantically_equal",
     }
     for key in (
         "canonicalization_manifest_digest",
@@ -162,6 +164,7 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
     assert (canonical["initial_canonicalization_manifest_ref"] is not None) is full
     assert (canonical["initial_canonicalization_manifest_digest"] is not None) is full
     assert type(canonical["baseline_is_initial"]) is bool
+    assert type(canonical["rules_semantically_equal"]) is bool
 
 
 def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> None:
@@ -491,6 +494,8 @@ def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
             workspace.current_preview_result_id
         )
     assert preview_result is not None
+    from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+    assert preview_result.contract_version == PREVIEW_JOB_CONTRACT_VERSION
     assert [
         (item.applicability.value, item.status.value, item.mode.value)
         for item in preview_result.identity_pairs
@@ -511,7 +516,7 @@ def test_full_different_project_declares_replacement_for_matching_pair(
     )
     modified_binding = store_source_package(
         harness.artifact_store, (MODIFIED_SQL + modified_identity_sql).encode("utf-8"),
-        artifact_id="a1:durable:ae5f90059b8c3d63c6a5c8ee811fde0af18b5e258f48c06b29989454dad9eecc",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ae5f90059b8c3d63c6a5c8ee811fde0af18b5e258f48c06b29989454dad9eecc"),
     )
     initial_binding = harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL]
     harness.upload_revision = build_upload_revision(
@@ -707,12 +712,12 @@ def test_empty_baseline_submit_accepts_table_addition(
         initial_binding = store_source_package(
             harness.artifact_store,
             (INITIAL_SQL + identity_metadata).encode("utf-8"),
-            artifact_id="a1:durable:7e188889b8b4bafeca70541a9f1a1a2b150fb4c38a0e90c9c3ffa60ff2d13f0e",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e188889b8b4bafeca70541a9f1a1a2b150fb4c38a0e90c9c3ffa60ff2d13f0e"),
         )
         modified_binding = store_source_package(
             harness.artifact_store,
             (MODIFIED_SQL + identity_metadata).encode("utf-8"),
-            artifact_id="a1:durable:ba98a29a79e5dd9d253714bc027e975ce56fb717fd1f721715d63bf4b70a355e",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba98a29a79e5dd9d253714bc027e975ce56fb717fd1f721715d63bf4b70a355e"),
         )
         harness.upload_revision = build_upload_revision(
             input_completeness=input_completeness,
@@ -819,6 +824,7 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
     from tests.support.snapshot_materialization import materialize_arrow_sql
     from tests.support.table_rules import comparison_ruleset_for, standard_rule_record, ordered_record
     sides = []
+    presentations = []
     for value in (("a", "a") if ordered_identity else ("a", "b")):
         sql = ("CREATE TABLE t(gid BIGINT NOT NULL PRIMARY KEY,no INT NOT NULL,v TEXT); INSERT INTO t VALUES (10,1,'a'),(11,2,'b');"
             if ordered_identity else f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');")
@@ -836,10 +842,12 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
                 source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
                 raw_content_digest=descriptor.raw_content_digest, storage_projection_version=STORAGE_PROJECTION_VERSION),))
         sides.append(bound)
+        presentations.append(result.presentation)
     memory = OperationMemoryBudget(80 * 1024)
     with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
         with pytest.raises(KernelMemoryLimit):
             pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
+                before_presentation=presentations[0], current_presentation=presentations[1],
                 store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
                 rule_set=comparison_ruleset_for(ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")), assess_identity=False)
     assert memory.stage_admissions[-1]["stage"] == "comparison-metadata"

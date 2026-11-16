@@ -9,6 +9,7 @@ import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
     ComparisonRecordsClosure,
@@ -129,17 +130,32 @@ def test_v1_rules_freeze_rule_ids_scopes_reasons_and_levels() -> None:
         sorted((RiskRuleId(item) for item in RiskRuleId), key=lambda item: item.value)
     )
     levels = {rule.rule_id: rule.severity_policy.default_level for rule in V1_RISK_RULE_SPECS}
-    assert levels[RiskRuleId.TABLE_ADDED] is RiskLevel.MEDIUM_LOW
+    assert levels[RiskRuleId.TABLE_ADDED] is RiskLevel.LOW
     assert levels[RiskRuleId.TABLE_DELETED] is RiskLevel.MEDIUM_HIGH
     assert levels[RiskRuleId.SCHEMA_CHANGED] is RiskLevel.MEDIUM_HIGH
     assert levels[RiskRuleId.ROW_ADDED] is RiskLevel.MEDIUM_LOW
     assert levels[RiskRuleId.ROW_DELETED] is RiskLevel.MEDIUM_LOW
     assert levels[RiskRuleId.ROW_MODIFIED] is RiskLevel.MEDIUM_HIGH
+    assert levels[RiskRuleId.STANDARD_NAME_UPDATE] is RiskLevel.LOW
+    assert levels[RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE] is RiskLevel.HIGH
+    assert levels[RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL] is RiskLevel.HIGH
     assert levels[RiskRuleId.KEY_DEGRADED] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.ORDERED_DIFF_UNSUPPORTED] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.COMPARISON_FAILED] is RiskLevel.HIGH
     assert levels[RiskRuleId.COMPOSITE_SIGNAL_POINT] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.UNKNOWN_CHANGE_TARGET] is RiskLevel.UNKNOWN
+
+
+@pytest.mark.parametrize("params", ((), (("exclude_table:device_mx", True),), (("unknown", True),)))
+def test_ruleset_rejects_missing_or_unapproved_table_exclusions(
+    params: tuple[tuple[str, bool], ...],
+) -> None:
+    from gateway_backend.capabilities.risk_evaluation._rules import InvalidRiskRuleset, validate_risk_ruleset
+
+    rules = tuple(replace(rule, params=params) if rule.rule_id is RiskRuleId.ROW_ADDED else rule
+                  for rule in V1_RISK_RULE_SPECS)
+    with pytest.raises(InvalidRiskRuleset, match="parameters"):
+        validate_risk_ruleset(RiskRulesetSnapshot(rules=rules))
 
 
 def test_ruleset_document_round_trip_and_digest_are_stable() -> None:
@@ -307,7 +323,7 @@ def test_r5_facts_and_records_access_are_the_only_input_boundary() -> None:
 
 def test_digest_excludes_artifact_refs_diagnostics_and_path_identity() -> None:
     ref = ArtifactRef(
-        artifact_id="a1:durable:2762db8a0836708639f7cecbcfcab5fa2f4d949f85fba961f223879b65fb52d8",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-risk", "test_risk_contracts.py"),
         media_type="application/json",
         size_bytes=4,
         raw_sha256=raw_blob_digest(b"blob"),

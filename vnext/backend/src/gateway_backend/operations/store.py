@@ -51,6 +51,10 @@ class StoreBusy(_OperationStoreError):
     """The store could not acquire its bounded transaction lock."""
 
 
+class OperationQueueFull(_OperationStoreError):
+    """The durable queue has reached its configured capacity."""
+
+
 class CorruptPersistedRecord(_OperationStoreError):
     """A persisted row cannot be reconstructed as a valid R1 record."""
 

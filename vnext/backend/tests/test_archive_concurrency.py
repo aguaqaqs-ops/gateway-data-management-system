@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.review_result_fixtures import review_artifact_refs
+
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -367,6 +369,7 @@ def test_finalize_replaces_active_attempt_gate_with_pending_review_gate(db_path:
     versions = _read_finalize_versions(db_path, attempt)
     with ControlDbUnitOfWork(db_path) as transaction:
         finalize_submit_transaction(request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
             submit_attempt_id=attempt.submit_attempt_id, facts=_finalize_facts(seed),
             submission_id="sub-finalized", created_at=TS1,
             expected_attempt_version=versions[0], expected_await_step_version=versions[1],

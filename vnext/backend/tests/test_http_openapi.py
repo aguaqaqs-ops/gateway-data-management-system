@@ -195,7 +195,7 @@ def test_openapi_create_statuses_response_models_and_workspace_occupancy(client:
         for status in statuses:
             assert responses[status]["content"]["application/json"]["schema"] == {"$ref": f"#/components/schemas/{model}"}
     workspace = schema["components"]["schemas"]["WorkspaceResponse"]
-    for field in ("active_submit_attempt_id", "active_submission_id"):
+    for field in ("active_preview_operation_id", "active_submit_attempt_id", "active_submission_id"):
         assert field in workspace["required"]
         assert workspace["properties"][field]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert "RETURN_FOR_REVISION" not in str(schema)
@@ -216,3 +216,50 @@ def test_archive_business_diagnostics_closure_and_reference_limits_are_closed_sc
     assert "archive_disposition" not in models["HistoryNodeResponse"]["properties"]
     route = schema["paths"]["/v1/submissions/{submission_id}/closure"]["post"]
     assert {"200", "201", "403", "404", "409", "503"} <= set(route["responses"])
+
+
+def test_history_compare_openapi_freezes_discovery_and_errors(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    paths = schema["paths"]
+    list_route = paths["/v1/history-compares"]["get"]
+    query = {item["name"]: item for item in list_route["parameters"] if item["in"] == "query"}
+    assert set(query) == {"limit", "after"}
+    assert query["limit"]["schema"]["default"] == 50
+    assert query["limit"]["schema"]["minimum"] == 1
+    assert query["limit"]["schema"]["maximum"] == 100
+    assert _non_null_union(query["after"]["schema"])["maxLength"] == 1024
+    response_model = schema["components"]["schemas"]["HistoryCompareListResponse"]
+    assert response_model["additionalProperties"] is False
+    assert set(response_model["properties"]) == {"items", "next_cursor"}
+    assert set(response_model["required"]) == {"items", "next_cursor"}
+    item = schema["components"]["schemas"]["HistoryCompareListItemResponse"]
+    assert item["additionalProperties"] is False
+    assert set(item["properties"]) == {
+        "operation_id", "nodes", "status", "accepted_at", "completed_at", "result_expires_at",
+    }
+    assert set(item["required"]) == set(item["properties"])
+    for field in ("completed_at", "result_expires_at"):
+        assert {entry.get("type") for entry in item["properties"][field]["anyOf"]} == {"string", "null"}
+    post = paths["/v1/history-compares"]["post"]
+    key_header = next(item for item in post["parameters"] if item["name"] == "Idempotency-Key")
+    assert key_header["required"] is True
+    expected = {
+        ("post", "/v1/history-compares", "404"): {"RESOURCE_NOT_FOUND", "ARTIFACT_UNAVAILABLE"},
+        ("post", "/v1/history-compares", "409"): {
+            "IDEMPOTENCY_CONFLICT", "HISTORY_COMPARE_REQUEST_EXPIRED", "HISTORY_COMPARE_SCOPE_LIMIT",
+        },
+        ("post", "/v1/history-compares", "429"): {"HISTORY_COMPARE_ALIAS_LIMIT", "OPERATION_QUEUE_FULL"},
+        ("post", "/v1/history-compares", "503"): {
+            "SERVICE_NOT_READY", "HISTORY_INTEGRITY_FAILURE", "BUNDLE_INTEGRITY_FAILURE",
+        },
+        ("get", "/v1/history-compares/{operation_id}", "410"): {"HISTORY_COMPARE_RESULT_EXPIRED"},
+        ("get", "/v1/history-compares/{operation_id}/bundle", "410"): {"HISTORY_COMPARE_RESULT_EXPIRED"},
+        ("get", "/v1/history-compares/{operation_id}", "503"): {"HISTORY_INTEGRITY_FAILURE", "BUNDLE_INTEGRITY_FAILURE"},
+        ("get", "/v1/history-compares/{operation_id}/bundle", "503"): {"HISTORY_INTEGRITY_FAILURE", "BUNDLE_INTEGRITY_FAILURE"},
+    }
+    for (method, path, status), codes in expected.items():
+        response = paths[path][method]["responses"][status]
+        assert all(code in response["description"] for code in codes)
+        assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ErrorResponse"}
+    for path in ("/v1/workspaces/{workspace_id}/preview-operations", "/v1/workspaces/{workspace_id}/submit-attempts"):
+        assert "OPERATION_QUEUE_FULL" in paths[path]["post"]["responses"]["429"]["description"]

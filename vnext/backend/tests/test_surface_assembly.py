@@ -283,17 +283,18 @@ def test_table_content_fact_is_visible_and_counts_as_changed() -> None:
 
 
 def test_additive_schema_alone_stays_summary_only_and_keeps_added_names_private() -> None:
-    facts = _facts(
-        ComparisonTableFact(
-            table_name="orders",
-            status=ComparisonTableStatus.UNCHANGED,
-            schema_changes=ComparisonSchemaChanges(
-                current_only_columns=("new_value",),
-                schema_evolution=SchemaEvolution.COLUMNS_ADDED,
-            ),
-            content_changed=False,
-        )
-    )
+    before = _descriptor("orders", row_count=1, side="before")
+    current = replace(_descriptor("orders", row_count=1, side="current"),
+        columns=(*before.columns, SnapshotColumnDescriptor("new_value", "New", True, "TEXT")))
+    facts = _facts(ComparisonTableFact(
+        table_name="orders", status=ComparisonTableStatus.UNCHANGED,
+        before_descriptor=before, current_descriptor=current,
+        row_count_before=1, row_count_current=1,
+        schema_changes=ComparisonSchemaChanges(
+            current_only_columns=("new_value",), selected_columns=("id", "name"),
+            effective_compare_key_before=("id",), effective_compare_key_current=("id",),
+            schema_evolution=SchemaEvolution.COLUMNS_ADDED),
+        shared_value_equality="NATIVE_SHARED_VALUES"))
 
     result = assemble_surface(_request(facts))
 
@@ -304,9 +305,7 @@ def test_additive_schema_alone_stays_summary_only_and_keeps_added_names_private(
     _assert_s1b_surface_golden("added_columns_only", projected)
     assert projected.change_kind is SurfaceChangeKind.UNCHANGED
     assert projected.display.strategy is SurfaceDisplayStrategy.SUMMARY_ONLY
-    assert projected.schema_summary is not None
-    assert projected.schema_summary.schema_evolution is SchemaEvolution.COLUMNS_ADDED
-    assert projected.schema_summary.current_only_columns == ()
+    assert projected.schema_summary is None
 
 
 def test_added_column_excluded_value_swap_is_summary_only_and_visible_as_updated() -> None:
@@ -594,7 +593,7 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert compute_surface_digest(first.surface) == first.surface.surface_digest
 
     old_ref = _ref("current-orders", "application/vnd.apache.parquet")
-    new_ref = replace(old_ref, artifact_id="a1:durable:9e1660768076ad9eb6982ad5106b06ff209eb2cafb8ddaa08254acbbacf27eef")
+    new_ref = replace(old_ref, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "rewritten-orders"))
     with_ref = assemble_surface(
         _request(
             facts,

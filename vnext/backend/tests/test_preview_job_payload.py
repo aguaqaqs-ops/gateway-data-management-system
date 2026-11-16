@@ -6,6 +6,7 @@ import pytest
 
 from gateway_backend.application.payloads import PayloadDecodeError
 from gateway_backend.application.preview_jobs import decode_preview_payload
+from gateway_backend.application.preview_semantics import current_preview_capabilities
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from tests.support.preview_job_harness import (
     IDEMPOTENCY_KEY,
@@ -15,11 +16,12 @@ from tests.support.preview_job_harness import (
 )
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 pytestmark = pytest.mark.unit
 
 _BINDING = {
-    "artifact_id": "a1:durable:704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",
+    "artifact_id": build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "binding"),
     "media_type": "application/gzip",
     "size_bytes": 10,
     "raw_sha256": "sha256:" + "ab" * 32,
@@ -45,9 +47,9 @@ def _base_payload(**overrides: object) -> dict[str, object]:
             SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"],
         },
         "input_digest": "fp-preview",
-        "ruleset_version": "v4",
+        "ruleset_version": "v5",
         "comparison_ruleset_digest": _runtime_comparison_ruleset_digest(),
-        "capability_contract_versions": {},
+        "capability_contract_versions": current_preview_capabilities(),
         "provider_versions": {},
         "ready_closure_contract_version": "v1",
         "idempotency_identity": {
@@ -78,8 +80,10 @@ def test_decode_preview_payload_accepts_modified_only_closure() -> None:
     assert SourceArtifactRole.INITIAL not in decoded.source_artifacts
 
 
-PAYLOAD_SHAPE_FAULTS = (
+PAYLOAD_SHAPE_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
     ("unknown_field", {"unexpected": True}, "unknown preview payload keys"),
+    ("empty_capabilities", {"capability_contract_versions": {}}, "capability versions"),
+    ("stale_capabilities", {"capability_contract_versions": {"risk_model": "old"}}, "capability versions"),
     ("missing_idempotency", {"idempotency_identity": {"workspace_id": WORKSPACE_ID}}, "idempotency_key"),
     (
         "full_missing_initial",
@@ -120,8 +124,8 @@ def test_decode_preview_payload_rejects_invalid_shapes(
 
 def test_build_preview_job_payload_round_trips_through_decoder() -> None:
     store = InMemoryArtifactStore()
-    modified = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id='a1:durable:f7c9a5a41662f5fef6975e3fa3361ad8081e02195640b52929c31cb096ba5c1e')
-    initial = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id='a1:durable:c9d732fe90450d22495a93bb14bac9ffaf0bfac430e4c25b6b354475fb3cb12e')
+    modified = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "modified"))
+    initial = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "initial"))
     revision = build_upload_revision(
         input_completeness=InputCompleteness.FULL,
         initial_binding=initial,

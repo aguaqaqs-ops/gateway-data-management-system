@@ -1,5 +1,5 @@
 {
-  "contract_version": "gateway-vnext.table-ruleset:v1",
+  "contract_version": "gateway-vnext.table-ruleset:v2",
   "rules": [
     {
       "artifact_scope": "ALL_CHANGES",
@@ -24,7 +24,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "net_cfg"
+        "value": "net_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -54,7 +55,8 @@
       "precedence_class": "STANDARD_EXACT",
       "selector": {
         "kind": "EXACT",
-        "value": "net_cfg"
+        "value": "net_cfg",
+        "table_comment_contains": null
       },
       "stable_key_candidates": [],
       "static_role": "STANDARD_DIFF",
@@ -63,7 +65,7 @@
     }
   ],
   "ruleset_id": "backend-vnext/table-ruleset",
-  "ruleset_version": "v4",
-  "storage_projection_version": "3",
-  "table_ruleset_version": 1
+  "ruleset_version": "v7",
+  "storage_projection_version": "4",
+  "table_ruleset_version": 2
 }

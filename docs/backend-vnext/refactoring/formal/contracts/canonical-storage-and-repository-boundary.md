@@ -10,19 +10,19 @@ Owner：Table Rules/Storage Projection（canonical content）；Repository Servi
 
 Semantic version：`3.8.0`（2026-11-06，DC86/DC87；D 的规范 IPC manifest/客户端导出接线；前版 `3.7.0`、`3.6.0`、`3.5.0`、`3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
 
-Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
+Storage projection version：`4`（按同侧真实 COMMENT 解析通道引用表；缺有序必需列时保留 DDL 主键或 keyless 存储）
 
 <a id="be-b-presentation-目标b0-固定b1-激活"></a>
 
 ## BE-b presentation（B1 已激活）
 
-CanonicalizationManifest selector 为 `3.4.0`，与本文 semantic version `3.8.0`、storage projection version `3` 独立。producer、durable serializer/decoder、semantic digest、PrepareImport 和精确历史读取同轮激活；旧格式拒绝。surface 列展示由 B3/B4 接入，此处只拥有冻结展示元数据。
+CanonicalizationManifest selector 为 `3.4.0`，与本文 semantic version `3.8.0`、storage projection version `4` 独立。producer、durable serializer/decoder、semantic digest、PrepareImport 和精确历史读取同轮激活；旧格式拒绝。surface 列展示由 B3/B4 接入，此处只拥有冻结展示元数据。
 
 新增 required `presentation={tables:[{table_name,comment:string|null,columns:[{name,comment:string|null}]}]}`，完整覆盖最终 canonical 表列，表 UTF-8 canonical name 序、列 DDL 序。完整 durable JSON 编码此字段；manifest semantic digest 改为显式 canonical 字段白名单，唯一排除新增 presentation（仍排除 manifest_digest 自身），版本字段仍参与。版本提升可一次改变摘要；同新版本内 comment-only 不变。raw snapshot 业务 source_artifact_digest 不替换成含注释输入文件 SHA；SourcePackage raw 输入 SHA 可以变化。
 
 完整 manifest raw SHA/size/ArtifactRef、typed decode 和表列集合核对保护 presentation。读取缺字段、旧版或损坏拒绝；仅合法 null 注释允许标识符回退。PrepareImport 保留 frozen_manifest 原对象并完整序列化，重新发布不能漏掉 presentation。Preview checkpoint 重开冻结 initial/modified 精确 ref，baseline/History 从冻结 scope+commit 的 finalized Submission 取精确 ref，不从 canonical cache descriptor 猜测，不新增 latest-comment 索引、表或 ref。
 
-注释不写 Dolt DDL、replay SQL、canonical descriptor/IPC/Parquet、comparison/risk 输入或 export cache。仅改注释时 Preview 展示新值，Submit NO_CANONICAL_CHANGE 无新历史；同时有业务变更则新 Submission 保存该上传全部展示元数据，旧历史仍取旧 ref。INITIAL 无展示来源按现有 INITIAL Contract 回退；非 INITIAL 缺来源稳定失败。权威验证由 B1 parser conformance、storage_projection contract/integrity、commit_metadata 与 PrepareImport/restart integration 分别负责，不复制新的持久化状态机。
+注释不写 Dolt DDL、replay SQL、canonical descriptor/IPC/Parquet 或 export cache。通道表同侧真实 COMMENT 是否含“引用表”决定有序分类；该属性参与 resolved storage/comparison 语义。缺 gid 或 no 时保留原列及 DDL 主键或 keyless 存储，比较降级；完整列的非法行仍拒绝投影。只改标签措辞时 Preview 展示新值，Submit NO_CANONICAL_CHANGE 无新历史；属性变化可提交。新 Submission 保存该上传全部展示元数据，旧历史仍取旧 ref。INITIAL 无展示来源按现有 INITIAL Contract 回退；非 INITIAL 缺来源稳定失败。
 
 ## 1. Authority boundary
 
@@ -72,9 +72,11 @@ R4 将它们写入 `CanonicalizationManifest` 与 `RepositoryImportArtifactInput
 随后据此形成 Dolt 的 canonical schema/physical key。它们不是只供 comparison 的临时选择，
 source DDL 仅作为 provenance；当前 canonical commit 的 schema/key 才是权威存储解释。
 
+配置表 ruleset `v5` 使用独立的 `(page_no, no)` 比较键，存储仍沿源 DDL 主键或无键策略；保留全部列和合法重复比较键，不对比较键施加存储 NOT NULL、唯一或索引类型约束。缺失或无效比较键由 comparison 降级，浏览与规范存储不因此失败；真实 DDL 存储主键仍按下节校验。
+
 ## 3. Key、行完整性与 ordered table
 
-普通 canonical keyed table 必须验证 effective key 存在且 retained、tuple 非空、整表唯一，且 projection 前后 row count 相同。不得用 dedup、last-write-wins、覆盖或丢行满足主键。失败在 Preview 形成 typed blocker，在 Submit 的 Repository effect 前拒绝。Keyless/multiset 只能由 ruleset 规定：显式规则使用 `EXPLICIT_KEYLESS`；SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则使用 `DDL_PRIMARY_KEY_OR_KEYLESS`，源 DDL 有主键时以其为有效键，没有主键时该表按 keyless 存储（DC29）。keyless 表保留全部行（含完全相同的重复行），不去重，投影前后 row count 相同；内容摘要与行顺序无关；内容变化时整表重写，不做按行补丁。其余规则的有效键缺失仍是 typed blocker。
+普通 canonical keyed table 必须验证 effective key 存在且 retained、tuple 非空、整表唯一，且 projection 前后 row count 相同。不得用 dedup、last-write-wins、覆盖或丢行满足主键。失败在 Preview 形成 typed blocker，在 Submit 的 Repository effect 前拒绝。Keyless/multiset 只能由 ruleset 规定：显式规则使用 `EXPLICIT_KEYLESS`；SNAPSHOT_ONLY、BROWSE_ONLY、raw-PK 兜底规则及 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md) 精确列出的 12 类配置规则使用 `DDL_PRIMARY_KEY_OR_KEYLESS`，源 DDL 有主键时以其为有效键，没有主键时该表按 keyless 存储（DC29）。keyless 表保留全部行（含完全相同的重复行），不去重，投影前后 row count 相同；内容摘要与行顺序无关；内容变化时整表重写，不做按行补丁。其余规则的有效键缺失仍是 typed blocker。
 
 Ordered table 第一版保持单表：
 

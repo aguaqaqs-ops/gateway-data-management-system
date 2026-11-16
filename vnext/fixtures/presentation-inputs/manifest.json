@@ -11,6 +11,16 @@
       "source": "BE-b bounded presentation scenario"
     },
     {
+      "path": "channel-before.sql",
+      "sha256": "781c9451c165d97752d7cadb2f26c0039254f619d710aae2f70fe3089346ff06",
+      "source": "GW08 channel rule presentation scenario"
+    },
+    {
+      "path": "channel-current.sql",
+      "sha256": "7356992cb25b99702481f8a9daf6084f7edeab327a014029124a8aaf9be94c9b",
+      "source": "GW08 channel rule presentation scenario"
+    },
+    {
       "path": "comment-before.sql",
       "sha256": "f8e264a940e003f630d20adaaff489aa5f50d7e8e2c39805aaa6646544b2c228",
       "source": "BE-b bounded presentation scenario"
@@ -22,17 +32,17 @@
     },
     {
       "path": "diagnostic-codes.json",
-      "sha256": "a1717d5da0cb7acd13747a737dea11599c12befe959b6fa7255799a249f31691",
+      "sha256": "a074c0ac44f59833cf0f4c53140b2d6a3c5a80a3d8e6f365bfb7c2b5e0f1690c",
       "source": "Business Navigation validator params and current owning diagnostic emit mapping"
     },
     {
       "path": "duplicate-before.sql",
-      "sha256": "7abe1c3a0058365c2e30227cc818ed25af2214bcfff1bb7e36a04e0b4ae99f8f",
+      "sha256": "25c5cff19dea5844e92abba391ced82bc99b07b9dd3192c316dcae57834cd7d8",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "duplicate-current.sql",
-      "sha256": "27ae372b16bad1d1c373576f79e2c26c2baeda4de5bca89420f9a3b08c8d33a9",
+      "sha256": "82656d5a492d3e1d8992bd4239a4b591c771550158a6c9494081c1a0f73a0490",
       "source": "BE-b bounded presentation scenario"
     },
     {
@@ -47,23 +57,23 @@
     },
     {
       "path": "formula-unchanged-device.sql",
-      "sha256": "9112d1c6b31593f99b3345fb853a5433fa3dc425b05ae5a8b91e502b8ccd4237",
+      "sha256": "d26a52c0f2b147a28ee9b8202803a75cb9f6fc205f75b31bc4b62f707f3ab39f",
       "source": "BE-b same valid canonical SQL sides; changed XML only",
       "derived_from": "sql-initial-canonical.sql"
     },
     {
       "path": "identity-before.sql",
-      "sha256": "d107f832bb79077d3941d3ba11c519a9975257284b388f0226cc1071b42bf91d",
+      "sha256": "2ee3bc9bf51e38f2dc2f62fca86eba4195033c4f956f425fe7fcc943648be81f",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "identity-current.sql",
-      "sha256": "0a518f8c15704b89ba328dbffd28fc7b5fae4b181e49a06291c1dda9f4c671e1",
+      "sha256": "a8d5811728797a366cce9d62eec1acea0cfe91bb60f666b8fa7e9ca63ca4081b",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "identity-unrecorded-current.sql",
-      "sha256": "5e4ba54a8e30002c06c9f1e87465e1c5fa77185c30e736941e254e233b368cbf",
+      "sha256": "4e153b9338f3a61fb5081b678e582e3392cbace87fa0b8652ed35181a7a1a50c",
       "source": "BE-b registry gid/address changes with all cfg/point rows unchanged"
     },
     {
@@ -86,7 +96,7 @@
     },
     {
       "path": "missing-identity-before.sql",
-      "sha256": "59f47abbc0cd46f658030d179186114cc2272770125e9959c1ac9fcfb86a9e0d",
+      "sha256": "7d2f8b4d1c4170cdaff15e56aa1b9fee404d8c5ec62bf5414627ba3ac0b596e3",
       "source": "BE-b keyed cfg side physically lacks identity column; not compare exclusion"
     },
     {
@@ -101,14 +111,15 @@
     },
     {
       "path": "sql-baseline-canonical.sql",
-      "sha256": "901d7343188ede482fb16314ce89af820ed38386f4b69d03d101d2dc1e7aa1cf",
+      "sha256": "42aad4ab3aee56d032a2de0c533ea3135e2a897dfef88bd04b6615aecb24dc8d",
       "source": "BE-b production-valid derivative",
       "derived_from": {
         "path": "sql-baseline.sql",
         "sha256": "f6205557b237abeeac5d2832a5365273d326014bebdc87bd7d2c2ad95d1b7730"
       },
       "changes": [
-        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid",
+        "b1_n1_iec104_syx_list: add COMMENT='遥信引用表' for the current ordered-reference classification"
       ],
       "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },
@@ -120,14 +131,15 @@
     },
     {
       "path": "sql-initial-canonical.sql",
-      "sha256": "9112d1c6b31593f99b3345fb853a5433fa3dc425b05ae5a8b91e502b8ccd4237",
+      "sha256": "d26a52c0f2b147a28ee9b8202803a75cb9f6fc205f75b31bc4b62f707f3ab39f",
       "source": "BE-b production-valid derivative",
       "derived_from": {
         "path": "sql-initial.sql",
         "sha256": "83b2fa42fc9fb3bf196425eec4c8ccfd58e9720f85a045941204af2b0367c001"
       },
       "changes": [
-        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid",
+        "b1_n1_iec104_syx_list: add COMMENT='遥信引用表' for the current ordered-reference classification"
       ],
       "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },
@@ -139,14 +151,15 @@
     },
     {
       "path": "sql-modified-canonical.sql",
-      "sha256": "a8c4d43954b1ee3339b73e34cc2600dea3a306a76deb9ad8e639374fddb77120",
+      "sha256": "3d15cfd3202a2f7de39046a01e9230db32d68c5095cb7dda1ef0c0b9b5593f1f",
       "source": "BE-b production-valid derivative",
       "derived_from": {
         "path": "sql-modified.sql",
         "sha256": "57450fdce2e9ab27e695e48a7cb0c80475caa016c7c9beaeef41b30bea717773"
       },
       "changes": [
-        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid"
+        "b1_n1_iec104_yc_list: add required gid INT NOT NULL and gid=1 value; label describes stable gid",
+        "b1_n1_iec104_syx_list: add COMMENT='遥信引用表' for the current ordered-reference classification"
       ],
       "authorization": "Coordinator 2026-11-11: preserve original input bytes/SHA; add separate valid derived fixture; keep owning rules unchanged"
     },
@@ -170,23 +183,38 @@
     },
     {
       "path": "string-before.sql",
-      "sha256": "8faf7e24eee5f33c1a6e533faf9fae17528dc3148c0cf716d4c7c2d3beacd91f",
+      "sha256": "624aac54d6ada1aad31a9e9077dfaee00c4ca1e5fd39e30e9f17eeb950f52229",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "string-current.sql",
-      "sha256": "2b5de7fb0049f9b160ff5d3ee4405f8a992d3ffbbbd74a026faa1b00376d2cbf",
+      "sha256": "f080ec74789f3403bcbb8b5b6c4f56b161e6b5b174f1d0571bf8b906736ed2df",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "workbench-before.sql",
-      "sha256": "7efeabbe22d67a7501a84cad0278ddcfe94d1dc172e7eb4232eaa2f27204c39c",
+      "sha256": "9bed16d5b2680be8d7dd0d6630db2606a00c625c147d42f783bdab3f49d89eb7",
       "source": "BE-b bounded presentation scenario"
     },
     {
       "path": "workbench-current.sql",
-      "sha256": "3e09fa0c00ddd4a5408e9913a13af9732e133331b71a2366b42e113bb96a86c3",
+      "sha256": "1cb152de0c97b49b940f8a6199f1de81bedda563ca7cd0fd134d2a007d702d35",
       "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "ownership-current.sql",
+      "sha256": "78fbf55b5b8594160b554c8cba7b1db30111ff4823b7df8801cd3241b93770d9",
+      "source": "Device ownership migration and full add/delete records"
+    },
+    {
+      "path": "pure-row-changes-before.sql",
+      "sha256": "e955274f78e203a1c5d8ec87bf5571e0fbf930c7d92d287824ba78f165c14536",
+      "source": "Pure added/deleted device point rows and full old values"
+    },
+    {
+      "path": "pure-row-changes-current.sql",
+      "sha256": "9e1e678d7da2e4228dacfa501826df99b049429273c0f4c9a48c0fffc9747e89",
+      "source": "Pure added/deleted device point rows and full old values"
     }
   ],
   "format": "backend-presentation-fixture-inputs/v1",
@@ -207,7 +235,10 @@
     "backend/scenarios/formula-unchanged-device",
     "backend/scenarios/identity-unrecorded-exact",
     "backend/scenarios/excluded-identity",
-    "backend/scenarios/missing-identity-column"
+    "backend/scenarios/missing-identity-column",
+    "backend/scenarios/empty-tabs",
+    "backend/scenarios/channel-rules",
+    "backend/scenarios/pure-row-changes"
   ],
   "required_root_outputs": [
     "backend/manifest.json",
@@ -261,7 +292,24 @@
         "keyless",
         "before-only-columns"
       ],
-      "assertions": {}
+      "assertions": {},
+      "pair_assertions": {
+        "baseline_to_initial": {
+          "record_kinds": {
+            "b1_n1_iec104_syx_list": {
+              "ORDERED": [
+                "ORDERED_ROW_MOVED"
+              ],
+              "BLANK": [
+                "BLANK_DELETE_INTERVAL"
+              ]
+            }
+          },
+          "pseudo_gid_tables": [
+            "b1_n1_iec104_syx_list"
+          ]
+        }
+      }
     },
     {
       "id": "preview-modified-only",
@@ -293,7 +341,24 @@
         "missing-snapshot-context",
         "before-formula"
       ],
-      "assertions": {}
+      "assertions": {},
+      "pair_assertions": {
+        "initial_to_modified": {
+          "record_kinds": {
+            "b1_n1_iec104_syx_list": {
+              "ORDERED": [
+                "ORDERED_ROW_MOVED"
+              ],
+              "BLANK": [
+                "BLANK_DELETE_INTERVAL"
+              ]
+            }
+          },
+          "pseudo_gid_tables": [
+            "b1_n1_iec104_syx_list"
+          ]
+        }
+      }
     },
     {
       "id": "preview-replacement",
@@ -366,7 +431,24 @@
         "history-three-nodes",
         "both-side-tables"
       ],
-      "assertions": {}
+      "assertions": {},
+      "pair_assertions": {
+        "left_to_middle": {
+          "record_kinds": {
+            "b1_n1_iec104_syx_list": {
+              "ORDERED": [
+                "ORDERED_ROW_MOVED"
+              ],
+              "BLANK": [
+                "BLANK_DELETE_INTERVAL"
+              ]
+            }
+          },
+          "pseudo_gid_tables": [
+            "b1_n1_iec104_syx_list"
+          ]
+        }
+      }
     },
     {
       "id": "preview-workbench-normal",
@@ -396,7 +478,11 @@
       "coverage": [
         "ordered-normal"
       ],
-      "assertions": {}
+      "assertions": {
+        "ordered_modified_tables": [
+          "b1_n1_iec104_yc_list"
+        ]
+      }
     },
     {
       "id": "digest-cross-implementation",
@@ -456,20 +542,34 @@
       "coverage": [
         "gid-change-unrecorded-cfg",
         "address-change-unrecorded-point",
-        "update-only-suppressed-add-delete",
-        "table-fallback",
+        "all-changes-add-delete",
+        "exact-local-change",
         "orphan",
         "integer-utf8"
       ],
       "assertions": {
         "required_codes": [
-          "DEVICE_TAB_FACTS_UNAVAILABLE",
           "DEVICE_ROWS_UNASSIGNED"
         ],
-        "fallback_tables": [
+        "forbidden_codes": [
+          "DEVICE_TAB_FACTS_UNAVAILABLE"
+        ],
+        "exact_tables": [
           "device_cfg",
           "device_st"
         ]
+      },
+      "pair_assertions": {
+        "initial_to_modified": {
+          "record_kinds": {
+            "device_st": {
+              "STANDARD": [
+                "ROW_ADDED",
+                "ROW_DELETED"
+              ]
+            }
+          }
+        }
       }
     },
     {
@@ -870,30 +970,318 @@
           "DEVICE_TAB_COUNT_UNKNOWN"
         ]
       }
+    },
+    {
+      "id": "empty-tabs",
+      "output": "backend/scenarios/empty-tabs",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "empty.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "empty.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "all-empty-navigation-discovery"
+      ],
+      "assertions": {}
+    },
+    {
+      "id": "channel-rules",
+      "output": "backend/scenarios/channel-rules",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "channel-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "上传组态"
+        },
+        {
+          "sql": "channel-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "上传组态"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "network-serial-mixed",
+        "dll-prefixes",
+        "ordered-classification-flip",
+        "serial-orphan",
+        "serial-missing-protocol-prefix",
+        "ordered-missing-column"
+      ],
+      "assertions": {
+        "whole_tabs": [
+          {
+            "group": "FORWARD_CHANNELS",
+            "item": "channel:b1_n2",
+            "table": "b1_n2_flip",
+            "label": "翻转"
+          },
+          {
+            "group": "FORWARD_CHANNELS",
+            "item": "channel:b1_c2",
+            "table": "b1_c2_ref",
+            "label": "串口遥信"
+          },
+          {
+            "group": "FORWARD_CHANNELS",
+            "item": "channel:b1_c2",
+            "table": "b1_c2_short",
+            "label": "缺列"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:com_cfg",
+            "table": "com_cfg",
+            "label": "串口配置"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:b1_n2",
+            "table": "b1_n2_dll3xx_extra",
+            "label": "网络三"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:b1_n2",
+            "table": "b1_n2_dll495_extra",
+            "label": "网络四"
+          },
+          {
+            "group": "COMMUNICATION_PROTOCOLS",
+            "item": "protocol:b1_c2",
+            "table": "b1_c2_stdmds_extra",
+            "label": "串口普通表"
+          },
+          {
+            "group": "OTHER_TABLES",
+            "item": "table:b7_c9_orphan",
+            "table": "b7_c9_orphan",
+            "label": "孤儿引用表"
+          }
+        ],
+        "channel_diagnostics": [
+          {
+            "code": "CHANNEL_TABLE_UNCLAIMED",
+            "side": "BEFORE",
+            "params": {
+              "channel_prefix": "b7_c9",
+              "registry_table": "com_cfg"
+            }
+          },
+          {
+            "code": "PROTOCOL_TABLE_NOT_FOUND",
+            "side": "BEFORE",
+            "params": {
+              "channel_prefix": "b1_c3",
+              "registry_table": "com_cfg",
+              "protocol": "unknown",
+              "expected_prefixes": [
+                "b1_c3_unknown"
+              ]
+            }
+          },
+          {
+            "code": "CHANNEL_TABLE_UNCLAIMED",
+            "side": "CURRENT",
+            "params": {
+              "channel_prefix": "b7_c9",
+              "registry_table": "com_cfg"
+            }
+          },
+          {
+            "code": "PROTOCOL_TABLE_NOT_FOUND",
+            "side": "CURRENT",
+            "params": {
+              "channel_prefix": "b1_c3",
+              "registry_table": "com_cfg",
+              "protocol": "unknown",
+              "expected_prefixes": [
+                "b1_c3_unknown"
+              ]
+            }
+          }
+        ],
+        "table_diagnostics": {
+          "b1_n2_flip": "ORDERED_INPUT_NOT_CANONICAL",
+          "b1_c2_short": "ORDERED_REQUIRED_COLUMN_MISSING"
+        }
+      }
+    },
+    {
+      "id": "ownership",
+      "output": "backend/scenarios/ownership",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "ownership-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "device-address-migration",
+        "device-definition-changes",
+        "unassigned-rows",
+        "full-before-delete",
+        "standard-add-delete-no-risk"
+      ],
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      }
+    },
+    {
+      "id": "ownership-risk-incomplete",
+      "output": "backend/scenarios/ownership-risk-incomplete",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "ownership-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "device-address-migration",
+        "device-definition-changes",
+        "unassigned-rows",
+        "full-before-delete",
+        "standard-add-delete-no-risk",
+        "incomplete-risk"
+      ],
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      },
+      "risk_artifact_limit": 1
+    },
+    {
+      "id": "pure-row-changes",
+      "output": "backend/scenarios/pure-row-changes",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "pure-row-changes-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "pure-row-changes-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "pure-add-delete-no-risk",
+        "full-delete-values-with-null",
+        "before-snapshot-absent"
+      ],
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      },
+      "pair_assertions": {
+        "initial_to_modified": {
+          "record_kinds": {
+            "device_st": {
+              "STANDARD": [
+                "ROW_ADDED",
+                "ROW_DELETED"
+              ]
+            }
+          }
+        }
+      }
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",
-  "rejected_source_inputs": [
+  "retained_source_inputs": [
     {
       "sql": "sql-baseline.sql",
       "xml": "logics-1.xml",
-      "expected_code": "KEY_MISSING",
       "expected_table": "b1_n1_iec104_yc_list",
-      "replacement": "sql-baseline-canonical.sql"
+      "missing_column": "gid",
+      "comparison_source": "sql-baseline-canonical.sql"
     },
     {
       "sql": "sql-initial.sql",
       "xml": "logics-2.xml",
-      "expected_code": "KEY_MISSING",
       "expected_table": "b1_n1_iec104_yc_list",
-      "replacement": "sql-initial-canonical.sql"
+      "missing_column": "gid",
+      "comparison_source": "sql-initial-canonical.sql"
     },
     {
       "sql": "sql-modified.sql",
       "xml": "logics-3.xml",
-      "expected_code": "KEY_MISSING",
       "expected_table": "b1_n1_iec104_yc_list",
-      "replacement": "sql-modified-canonical.sql"
+      "missing_column": "gid",
+      "comparison_source": "sql-modified-canonical.sql"
     }
   ]
 }

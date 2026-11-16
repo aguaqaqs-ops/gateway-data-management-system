@@ -41,6 +41,7 @@ from gateway_backend.capabilities.comparison.task_input import (
     TableTaskInputV1, build_table_task_input, build_table_task_identity,
 )
 from gateway_backend.capabilities.comparison.row_encoding import (
+    _pure_column_change,
     _can_table_early_exit, _ignored_values_changed,
     _schema_changes_from_view, _schema_diagnostics, _schema_record, _schema_view,
     _summary_payload, _table_digest_payload, _with_table_digest,
@@ -98,7 +99,7 @@ class _CompositeArrowOwner:
 
 
 def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
-    """Mirror only the existing per-task reader admissions for native M split."""
+    """Admit rows only for two-sided comparison; single-side facts use descriptors."""
     before, current = task.before_table, task.current_table
     policy = task.policy
     first, second = task.before_descriptor, task.current_descriptor
@@ -107,13 +108,18 @@ def _task_arrow_inputs(task: TableComparisonTask) -> tuple[SnapshotTable, ...]:
         return ()
     try:
         schema = _schema_view(first, second, policy)
+        if first.row_count == second.row_count == 0 and _pure_column_change(schema):
+            return ()
         if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
             changes = _schema_changes_from_view(schema, policy)
-            return (before, current) if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else ()
+            return ((before, current) if (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+                or (_pure_column_change(schema) and schema.before_key and not schema.key_invalid))
+                and first.row_count + second.row_count > 0 else ())
         if policy.ordered_policy is not None:
-            from gateway_backend.capabilities.comparison.ordered import _ordered_schema_diagnostics
+            from gateway_backend.capabilities.comparison.ordered import _ordered_schema_diagnostics, _ordered_input_diagnostics
 
-            if _ordered_schema_diagnostics(first, second, policy.ordered_policy, schema):
+            if (_ordered_input_diagnostics(task)
+                    or _ordered_schema_diagnostics(first, second, policy.ordered_policy, schema)):
                 return ()
             return (current,) if _can_table_early_exit(first, second, policy) else (before, current)
         if _can_table_early_exit(first, second, policy):
@@ -766,7 +772,7 @@ class NativeComparison:
             self.operation = None
 
 
-def _stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
+def comparison_input_stream(table: SnapshotTable) -> tuple[pa.RecordBatchReader, _Closable]:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("native comparison requires an operation context")
@@ -802,9 +808,9 @@ def _compare_native(
     if (task.before_table is None or task.current_table is None
             or task.before_table.reader is None or task.current_table.reader is None):
         raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
-    before, before_charge = _stream(task.before_table)
+    before, before_charge = comparison_input_stream(task.before_table)
     try:
-        current, current_charge = _stream(task.current_table)
+        current, current_charge = comparison_input_stream(task.current_table)
     except BaseException:
         before.close()
         before_charge.close()
@@ -856,7 +862,7 @@ def _scan_keyless_degrade_inputs(
             or task.before_table.reader is None or task.current_table.reader is None):
         raise StandardComparisonError("TABLE_READER_UNAVAILABLE")
     for table in (task.before_table, task.current_table):
-        stream, owner = _stream(table)
+        stream, owner = comparison_input_stream(table)
         try:
             metrics.input_reads += 1
             if session is not None:
@@ -883,13 +889,25 @@ def _compare_task_native(
     before = task.before_descriptor
     current = task.current_descriptor
     if before is None or current is None:
+        # Validated descriptors own whole-table facts. Export/browser closure
+        # independently demands rows on a cold export cache.
         return _compare_task_metadata(task), None
     schema = _schema_view(before, current, policy)
     changes = _schema_changes_from_view(schema, policy)
     def native_input() -> TableTaskInputV1:
         return build_table_task_input(plan, task, include_identity=False)
+    if policy.ordered_policy is not None:
+        from gateway_backend.capabilities.comparison.ordered import _ordered_input_diagnostics, _degraded_fact
+        diagnostics = _ordered_input_diagnostics(task)
+        if diagnostics:
+            return _degraded_fact(task, before, current, changes, diagnostics), None
+    if before.row_count == current.row_count == 0 and _pure_column_change(schema):
+        return replace(_compare_task_metadata_nonrecord(task, changes),
+            status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+            shared_value_equality="BOUND_EMPTY_DESCRIPTORS"), None
     if policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
-        if changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
+        if not (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+                or (_pure_column_change(schema) and schema.before_key and not schema.key_invalid)):
             return _compare_task_metadata(task), None
         probe_policy = json.loads(native_input().native_policy())
         probe = _compare_native(operation, task, kind="standard", policy=probe_policy,
@@ -903,8 +921,11 @@ def _compare_task_native(
         # The role exposes only content_changed. Rust's suppressed counts are
         # private to the shared-column multiset and never become public facts.
         old = _compare_task_metadata_nonrecord(task, changes)
-        return replace(old, content_changed=bool(
-            metadata["row_added_count"] or metadata["row_deleted_count"])), None
+        changed = bool(metadata["row_added_count"] or metadata["row_deleted_count"]
+            or metadata["row_modified_count"])
+        return replace(old, content_changed=changed, shared_value_equality=(
+            "NATIVE_SHARED_VALUES" if _pure_column_change(schema) and schema.before_key
+            and not schema.key_invalid and not changed else None)), None
     if policy.ordered_policy is not None:
         from gateway_backend.capabilities.comparison.ordered import (
             _ordered_schema_diagnostics, _degraded_fact,
@@ -952,7 +973,9 @@ def _compare_task_metadata_nonrecord(task: TableComparisonTask, changes: Compari
     current = task.current_descriptor
     assert before is not None and current is not None
     return ComparisonTableFact(
-        table_name=task.table_name, status=ComparisonTableStatus.UNCHANGED,
+        table_name=task.table_name, status=(ComparisonTableStatus.UNCHANGED
+            if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+            else ComparisonTableStatus.SCHEMA_ONLY_CHANGED),
         before_descriptor=before, current_descriptor=current, schema_changes=changes,
         row_count_before=before.row_count, row_count_current=current.row_count,
     )
@@ -974,7 +997,7 @@ def _ordered_unchanged_native(
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("comparison operation context was lost")
-    stream, charge = _stream(table)
+    stream, charge = comparison_input_stream(table)
     try:
         metrics.native_calls += 1
         metrics.ordered_single_side_calls += 1
@@ -1144,8 +1167,8 @@ def _compare_plan_native_once(
                 # Ordinary malformed table data retains the existing per-table
                 # degraded result. Native adapter panic/runtime failures escape.
                 coded = str(exc) if isinstance(exc, ValueError) else ""
-                if coded == "DUPLICATE_EFFECTIVE_KEY":
-                    diagnostic = f"DUPLICATE_EFFECTIVE_KEY:{task.table_name}"
+                if coded in {"DUPLICATE_EFFECTIVE_KEY", "NULL_EFFECTIVE_KEY", "EMPTY_EFFECTIVE_KEY"}:
+                    diagnostic = f"{coded}:{task.table_name}"
                 elif (isinstance(exc, StandardComparisonError)
                         and re.fullmatch(r"[A-Z][A-Z0-9_]*", coded)) or coded in _OLD_CODED_ERRORS:
                     diagnostic = coded
@@ -1186,7 +1209,7 @@ def _compare_plan_native_once(
                 handle = None
             if handle is not None:
                 handles[task.table_name] = handle
-                if cached is None and (fact.row_modified_count or
+                if cached is None and (fact.ordered_extension is not None or fact.row_modified_count or
                     fact.row_added_count > fact.suppressed_added_count or
                     fact.row_deleted_count > fact.suppressed_deleted_count):
                     handle.prepare_risk_batches()
@@ -1274,6 +1297,15 @@ def comparison_row_demands(plan: ComparisonPlan, session: ComparisonTaskSession 
     """Actual remaining readers; no parallel copy of Comparison equality rules."""
     if session is not None:
         session.prepare_persistent(plan)
-    return tuple(table for task in plan.tasks
-        if session is None or session.persistent_lookup(plan, task) is None
-        for table in _task_arrow_inputs(task))
+    result: list[SnapshotTable] = []
+    for task in plan.tasks:
+        cached = None if session is None else session.persistent_lookup(plan, task)
+        if cached is not None:
+            blank = cached[0].blank_extension
+            ordered = cached[0].ordered_extension
+            if ((blank is None or not blank.blank_summary.blank_changed_count)
+                    and (ordered is None or not (ordered.ordered_summary.row_added_count
+                                                  or ordered.ordered_summary.row_deleted_count))):
+                continue
+        result.extend(_task_arrow_inputs(task))
+    return tuple(result)

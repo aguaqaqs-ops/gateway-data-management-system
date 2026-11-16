@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack, closing
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any
 
@@ -18,12 +18,11 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.contracts import (
     BlankExtension, BlankSummary, ComparisonSchemaChanges, ComparisonTableFact,
-    ComparisonTableStatus, OrderedExtension, OrderedStatus, OrderedSummary,
-    OrderedTableProcessingMode, ReplayGuarantee, SchemaChangeSource, SchemaEvolution,
+    OrderedExtension, OrderedSummary,
     TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.task_input import (
-    TABLE_CACHE_FORMAT, TableTaskIdentity, semantic_value,
+    TABLE_CACHE_FORMAT, TableTaskIdentity,
 )
 from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext
 
@@ -125,47 +124,31 @@ def _encode_view(name: str, reader: pa.RecordBatchReader,
 
 
 def _neutral_fact(fact: ComparisonTableFact) -> bytes:
-    if (fact.records or (fact.ordered_extension is not None and fact.ordered_extension.records)
-            or (fact.blank_extension is not None and fact.blank_extension.records)):
-        raise ValueError("neutral table metadata cannot carry row records")
-    removed = {"table_name", "before_descriptor", "current_descriptor", "table_fact_digest"}
-    return canonicalize_json_value({f.name: semantic_value(getattr(fact, f.name))
-        for f in fields(fact) if f.name not in removed})
+    from gateway_backend.capabilities.comparison.fact_document import table_fact_document_bytes
+
+    return table_fact_document_bytes(fact)
 
 
 def restore_table_fact(raw: bytes, task: TableComparisonTask) -> ComparisonTableFact:
     """Rebind the completed neutral outcome to this task's actual descriptors."""
-    data: dict[str, Any] = json.loads(raw)
-    schema = data.pop("schema_changes")
-    schema["change_source"] = None if schema["change_source"] is None else SchemaChangeSource(schema["change_source"])
-    schema["schema_evolution"] = SchemaEvolution(schema["schema_evolution"])
-    for name in ("before_only_columns", "current_only_columns", "selected_columns",
-                 "effective_compare_key_before", "effective_compare_key_current", "incompatible_columns"):
-        schema[name] = tuple(schema[name])
-    data["schema_changes"] = ComparisonSchemaChanges(**schema)
+    from gateway_backend.capabilities.comparison.fact_document import ComparisonTableFactDocument
+
+    data = ComparisonTableFactDocument.model_validate_json(raw).model_dump()
+    data["schema_changes"] = ComparisonSchemaChanges(**data["schema_changes"])
     for name in ("ordered_extension", "blank_extension"):
-        value = data.get(name)
+        value = data[name]
         if value is None:
             continue
-        value["status"] = OrderedStatus(value["status"])
-        value["replay_guarantee"] = ReplayGuarantee(value["replay_guarantee"])
-        value["records"] = tuple(value["records"])
-        value["diagnostics"] = tuple(value["diagnostics"])
         for key in ("before_ordered_digest", "current_ordered_digest", "before_occupancy_digest",
                     "current_occupancy_digest", "policy_digest"):
             if key in value and value[key] is not None:
                 value[key] = DigestRef(value[key])
         if name == "ordered_extension":
             value["ordered_summary"] = OrderedSummary(**value["ordered_summary"])
-            value["table_processing_mode"] = (None if value["table_processing_mode"] is None
-                                               else OrderedTableProcessingMode(value["table_processing_mode"]))
             data[name] = OrderedExtension(**value)
         else:
             value["blank_summary"] = BlankSummary(**value["blank_summary"])
             data[name] = BlankExtension(**value)
-    data["status"] = ComparisonTableStatus(data["status"])
-    data["records"] = tuple(data["records"])
-    data["diagnostics"] = tuple(data["diagnostics"])
     return ComparisonTableFact(table_name=task.table_name, before_descriptor=task.before_descriptor,
                                current_descriptor=task.current_descriptor, **data)
 
@@ -233,7 +216,8 @@ class ComparisonCacheCodec:
                     views.append(_encode_view(f"facts/{family}", handle.facts_batches(family), context, charges))
                 for family in families:
                     views.append(_encode_view(f"artifact/{family}", handle.neutral_record_batches(family), context, charges))
-                views.append(_encode_view("risk/STANDARD", handle.risk_record_batches(), context, charges))
+                for family in FAMILIES:
+                    views.append(_encode_view(f"risk/{family}", handle.risk_record_batches(family), context, charges))
             return ComparisonCachePayload(identity.repository_id, identity.artifact_scope,
                 identity.task_digest, identity.task_input.kind, identity.task_input.detail_policy.value,
                 fact_jcs, metadata, families, tuple(views), charges=charges)
@@ -280,8 +264,8 @@ class ComparisonCacheCodec:
             if identity.task_input.native_kind == "ordered":
                 native_data["table_name"] = task.table_name
             expected = tuple(f"facts/{family}" for family in FAMILIES) + tuple(
-                f"artifact/{family}" for family in payload.families) + ("risk/STANDARD",)
-            if (len(payload.views) > 7 or tuple(view.name for view in payload.views) != expected
+                f"artifact/{family}" for family in payload.families) + tuple(f"risk/{family}" for family in FAMILIES)
+            if (len(payload.views) > 9 or tuple(view.name for view in payload.views) != expected
                     or not payload.families or len(set(payload.families)) != len(payload.families)
                     or any(family not in FAMILIES for family in payload.families)):
                 raise ValueError("neutral cache view closure mismatch")
@@ -292,7 +276,8 @@ class ComparisonCacheCodec:
                     metadata_json=json.dumps(native_data, separators=(",", ":")), detail_policy=payload.detail_policy,
                     family_names=list(payload.families), facts=[readers[f"facts/{family}"] for family in FAMILIES],
                     artifacts=[readers[f"artifact/{family}"] for family in payload.families],
-                    risk=readers["risk/STANDARD"], input_owner_charge=owner,
+                    risk=readers["risk/STANDARD"], ordered_risk=readers["risk/ORDERED"],
+                    blank_risk=readers["risk/BLANK"], input_owner_charge=owner,
                     max_records=MAX_CACHE_ROWS, max_row_bytes=MAX_FACT_ROW_BYTES, max_input_bytes=upper)
             from gateway_backend.capabilities.comparison.row_encoding import _schema_view
             if task.before_descriptor is None or task.current_descriptor is None or task.policy is None:

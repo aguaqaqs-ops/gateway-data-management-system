@@ -1,0 +1,18 @@
+[Unit]
+Description=08 multi-device group and entry
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=600
+TimeoutStopSec=600
+ExecStart=/usr/bin/docker compose --env-file /home/dev/gdds-gw-dms-08-v2/b/group/compose.env -p gdds08-b -f /home/dev/gdds-gw-dms-08-v2/source/vnext/deploy/compose.yaml -f /home/dev/gdds-gw-dms-08-v2/b/group/compose-runtime.json up -d --no-build --pull never backend worker
+ExecStart=/usr/bin/python3 -B /home/dev/gdds-gw-dms-08-v2/source/deploy/manual-08/pin_cgroups.py b
+ExecStart=/usr/bin/docker compose --env-file /home/dev/gdds-gw-dms-08-v2/b/group/compose.env -p gdds08-b-entry -f /home/dev/gdds-gw-dms-08-v2/source/vnext/deploy/compose.entry.yaml up -d --no-build --pull never entry
+ExecStop=/usr/bin/docker compose --env-file /home/dev/gdds-gw-dms-08-v2/b/group/compose.env -p gdds08-b-entry -f /home/dev/gdds-gw-dms-08-v2/source/vnext/deploy/compose.entry.yaml down --timeout 180
+ExecStop=/usr/bin/docker compose --env-file /home/dev/gdds-gw-dms-08-v2/b/group/compose.env -p gdds08-b -f /home/dev/gdds-gw-dms-08-v2/source/vnext/deploy/compose.yaml -f /home/dev/gdds-gw-dms-08-v2/b/group/compose-runtime.json down --timeout 180
+
+[Install]
+WantedBy=multi-user.target

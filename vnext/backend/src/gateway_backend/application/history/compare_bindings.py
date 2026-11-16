@@ -10,6 +10,7 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
+    HISTORY_COMPARE_JOB_CONTRACT_VERSION,
     HistoryCompareNodeBinding,
 )
 
@@ -46,6 +47,7 @@ def _accept_binding_payload(
     nodes: Sequence[HistoryCompareNodeBinding],
     comparison_ruleset_digest: str,
     comparison_contract_version: str,
+    history_job_contract_version: str,
     view_kind: str,
     pair_count: int,
 ) -> dict[str, object]:
@@ -56,6 +58,7 @@ def _accept_binding_payload(
         "nodes": [_node_binding_payload(node) for node in nodes],
         "comparison_ruleset_digest": comparison_ruleset_digest,
         "comparison_contract_version": comparison_contract_version,
+        "history_job_contract_version": history_job_contract_version,
         "view_kind": view_kind,
         "pair_count": pair_count,
     }
@@ -69,6 +72,7 @@ def compute_accept_binding_fingerprint(
     nodes: Sequence[HistoryCompareNodeBinding],
     comparison_ruleset_digest: str,
     comparison_contract_version: str = HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
+    history_job_contract_version: str = HISTORY_COMPARE_JOB_CONTRACT_VERSION,
     view_kind: str = "HISTORY",
     pair_count: int | None = None,
 ) -> str:
@@ -80,6 +84,7 @@ def compute_accept_binding_fingerprint(
         nodes=nodes,
         comparison_ruleset_digest=comparison_ruleset_digest,
         comparison_contract_version=comparison_contract_version,
+        history_job_contract_version=history_job_contract_version,
         view_kind=view_kind,
         pair_count=resolved_pair_count,
     )

@@ -37,9 +37,10 @@ test.beforeAll(async () => {
     if (request.method === "POST" && path === "/v1/workspaces") return reply(200, {
       ...WORKSPACE_ALREADY_EXISTS.body, business_project_id: identity.businessProjectId,
       gateway_device_external_key: identity.gatewayDeviceExternalKey, active_submission_id: null,
-      active_submit_attempt_id: null, current_preview_result_id: null, current_upload_revision_id: null,
+      active_preview_operation_id: null, active_submit_attempt_id: null, current_preview_result_id: null, current_upload_revision_id: null,
     });
     if (path === "/v1/history") return reply(200, { ...HISTORY_PAGE_ONE, nodes: [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes], next_cursor: null });
+    if (request.method === "GET" && path === "/v1/history-compares") return reply(200, { items: [], next_cursor: null });
     if (request.method === "POST" && path === "/v1/history-compares") {
       sequence += 1;
       calls.push({ path, body, key: request.headers["idempotency-key"] as string,
@@ -76,8 +77,7 @@ test("History POST 202 snapshot survives immediate product navigation repeatedly
     await page.goto("/?page=workspace");
     await expect(page.getByRole("heading", { name: /组态树/ })).toBeVisible();
     for (const label of ["初始基线", "归档基线 1"]) {
-      await page.getByRole("button", { name: label, exact: true }).click();
-      await page.locator(".workspace-actions .workspace-action").filter({ hasText: "加入比较" }).getByRole("button").first().click();
+      await page.getByRole("checkbox", { name: `加入比较：${label}` }).check();
     }
     const capture = await captureResponse(page, identity, "POST", /\/history-compares$/, 15_000);
     try {

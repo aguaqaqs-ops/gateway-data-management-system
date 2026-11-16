@@ -9,7 +9,7 @@ import sqlite3
 from contextlib import contextmanager
 from collections.abc import Iterator
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from gateway_backend.deployment_config import DeploymentConfig
@@ -38,6 +38,46 @@ def _database_file_identity(database: Path, metadata: Path) -> tuple[int, int]:
         return info.st_dev, info.st_ino
     finally:
         os.close(descriptor)
+
+
+def release_expired_history_results(uow: ControlDbUnitOfWork, *, limit: int = 32) -> int:
+    """Release one bounded batch of terminal History owners and aliases."""
+    now = uow.transaction_now.astimezone(UTC)
+    delta = now - datetime(1970, 1, 1, tzinfo=UTC)
+    now_us = (delta.days * 86_400 + delta.seconds) * 1_000_000 + delta.microseconds
+    # Start with extant owners/aliases, not the permanently retained acceptance
+    # history. CROSS JOIN preserves this indexed driving order in SQLite.
+    owner_rows = uow.connection.execute(
+        """SELECT DISTINCT p.owner_id FROM artifact_protection_intents p INDEXED BY artifact_protection_owner
+           CROSS JOIN history_compare_acceptance_records a ON a.operation_id = p.owner_id
+           CROSS JOIN operation_records o ON o.operation_id = a.operation_id
+           WHERE p.owner_kind = 'history-compare-operation'
+             AND o.completed_at_us IS NOT NULL AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
+             AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
+           LIMIT ?""", (now_us, limit),
+    ).fetchall()
+    alias_rows = uow.connection.execute(
+        """SELECT DISTINCT h.operation_id FROM history_compare_aliases h INDEXED BY history_compare_aliases_operation
+           CROSS JOIN history_compare_acceptance_records a ON a.operation_id = h.operation_id
+           CROSS JOIN operation_records o ON o.operation_id = a.operation_id
+           WHERE o.completed_at_us IS NOT NULL AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
+             AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
+           LIMIT ?""", (now_us, limit),
+    ).fetchall()
+    # Alternate the two sources so an owner backlog cannot starve alias-only jobs.
+    candidates: dict[str, None] = {}
+    for index in range(max(len(owner_rows), len(alias_rows))):
+        for rows in (owner_rows, alias_rows):
+            if index < len(rows):
+                candidates[str(rows[index][0])] = None
+            if len(candidates) == limit:
+                break
+        if len(candidates) == limit:
+            break
+    for operation_id in candidates:
+        uow.clear_artifact_protection(owner_kind="history-compare-operation", owner_id=operation_id)
+        uow.connection.execute("DELETE FROM history_compare_aliases WHERE operation_id = ?", (operation_id,))
+    return len(candidates)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -104,13 +144,16 @@ def main(argv: list[str] | None = None) -> int:
                     return False
                 return not operation.status.is_final_terminal()
 
+        with transaction() as uow:
+            history_released = release_expired_history_results(uow)
+
         bounded = BoundedArtifactStore(local, protection_uow=transaction)
         maintenance = ArtifactMaintenance(local, bounded,
             scratch_root=Path(deployment.storage.roots['be-scratch'].path), owner_active=active,
             grace=timedelta(seconds=args.orphan_grace_seconds),
             scratch_validator=lambda: check_configured_root(deployment.storage, "be-scratch"))
         result = maintenance.run(max_candidates=args.max_candidates, cursor=args.cursor)
-        print(json.dumps(asdict(result), sort_keys=True))
+        print(json.dumps({**asdict(result), "history_released": history_released}, sort_keys=True))
         return 0
     except (OSError, ValueError, RuntimeError, sqlite3.DatabaseError, StoreBusy, UnsupportedSchemaVersion, CorruptPersistedRecord) as exc:
         parser.exit(2, f'backend storage maintenance refused: {exc}\n')

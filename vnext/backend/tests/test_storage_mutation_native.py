@@ -13,7 +13,7 @@ import pyarrow as pa
 import pytest
 from gateway_shared_kernel import raw_blob_digest
 
-from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
+from gateway_backend.artifacts import ArtifactLocation, ArtifactRef, InMemoryArtifactStore, build_artifact_id
 from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPolicy, MutationThresholdPolicy, StorageNetCounts, StorageTableSideV1,
     StorageTableTaskV1, TableMutationKind,
@@ -103,7 +103,8 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
     assert isinstance(canonical.reader, ArrowSnapshotTableReader)
     canonical.reader.mark_canonical_comparison_verified()  # Fixture stands in for the verified IPC writer.
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef("a1:durable:3a13a27733a7ef05250e5ad9311cb8146a5614e4f45ee986ad0611e32f99cffb", "application/octet-stream", 0, empty_digest)
+    reference = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "storage-input-fixture", "empty"),
+                            "application/octet-stream", 0, empty_digest)
     canonical = replace(canonical, artifact=SnapshotTableArtifact(
         manifest_ref=reference,
         manifest=SnapshotTableArtifactManifest(
@@ -122,7 +123,7 @@ def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
     complete = manifest_document(tables=(manifest,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
     lease = open_storage_input(canonical, complete, manifest, context)
-    return StorageTableSideV1(manifest, view, "3", lease.stream, lease.schema, lease, complete)
+    return StorageTableSideV1(manifest, view, complete.storage_projection_version, lease.stream, lease.schema, lease, complete)
 
 
 def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
@@ -135,7 +136,7 @@ def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
                                 canonical_key_columns=())
     complete = manifest_document(tables=(manifest_item,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
-    return StorageTableSideV1(manifest_item, view, "3", metadata_manifest=complete)
+    return StorageTableSideV1(manifest_item, view, complete.storage_projection_version, metadata_manifest=complete)
 
 
 def _task(before: StorageTableSideV1 | None, after: StorageTableSideV1) -> StorageTableTaskV1:

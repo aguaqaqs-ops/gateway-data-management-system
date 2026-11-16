@@ -12,14 +12,19 @@ if (!rootElement) {
 
 // The directory handoff fragment must be consumed before the first render;
 // the fragment is cleared with replaceState inside the initializer.
-initializeGatewaySession();
-
 async function renderApp() {
+  let headerControl: React.ReactNode;
+  if (import.meta.env.DEV && (window as Window & { __gddsManual08?: boolean }).__gddsManual08) {
+    const { prepareManual08, Manual08Controls } = await import("./features/dev/manual08");
+    if (!await prepareManual08(rootElement!)) return;
+    headerControl = <Manual08Controls />;
+  }
+  initializeGatewaySession();
   // Publish the initial development identity before scope-bound state reads.
   if (import.meta.env.DEV) await import("./features/dev/DevIdentityControl");
   createRoot(rootElement!).render(
   <React.StrictMode>
-    <App />
+    <App headerControl={headerControl} />
   </React.StrictMode>
   );
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,10 @@ def test_identical_uploaded_initial_and_repository_baseline_compare_unchanged(
     payload = decode_preview_payload(decode_payload_object(harness))
 
     sides = _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
-    facts = compare_bound_snapshots(sides.sides["BASELINE"], sides.sides["INITIAL"])
+    facts = compare_bound_snapshots(
+        replace(sides.sides["BASELINE"], presentation=sides.presentations["BASELINE"]),
+        replace(sides.sides["INITIAL"], presentation=sides.presentations["INITIAL"]),
+    )
 
     assert tuple((table.table_name, table.status) for table in facts.tables) == (
         ("composite_signal_point", ComparisonTableStatus.UNCHANGED),

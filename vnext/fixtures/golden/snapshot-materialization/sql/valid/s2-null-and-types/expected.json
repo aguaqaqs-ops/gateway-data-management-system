@@ -4,7 +4,7 @@
   "cache_trust_level": "CONTENT_VERIFIED",
   "table_count": 1,
   "row_count_total": 2,
-  "snapshot_digest": "sha256:17f41a2ac6c1b6ef9a6caff771fa773179fbe49cbfa45317e0f12331e4184a5c",
+  "snapshot_digest": "sha256:e54bf033e043d82e9db61ea198914555419a531e03d22b4e59a4a696495aba3c",
   "raw_state_digest": "sha256:df2fce22028b76098bb3b3e80da7a0839103da19a6560fe0db60aa90531f7235",
   "canonical_state_digest": "sha256:13d62981e08136de951b401e2052fb6c1546125560bed54a2151cc52f3cedd65",
   "tables": [

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from dataclasses import replace
 
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
@@ -24,7 +25,7 @@ from gateway_backend.capabilities.snapshot_materialization.repository_ref import
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
-from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit, presentation_for_commit
 from gateway_backend.application.history.compare_jobs import _bound_from_materialization
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider, _bind_fixture_tables,
@@ -43,6 +44,7 @@ def materialize_bound_snapshot(
         provider.catalog,
         rows_by_table={name: tuple(tuple(row) for row in rows) for name, rows in provider.rows.items()},
         ruleset=ruleset,
+        table_comments=provider.table_comments,
     )
     canonical_binding = canonical_binding_for_commit(metadata, runtime_ruleset=ruleset)
     request = RepositoryRefMaterializationRequest(
@@ -58,7 +60,8 @@ def materialize_bound_snapshot(
     )
     result = materialize_repository_ref(_bind_fixture_tables(request, provider))
     assert result.status.value == "COMPLETE"
-    return _bound_from_materialization(result, canonical_binding=canonical_binding)
+    return replace(_bound_from_materialization(result, canonical_binding=canonical_binding),
+        presentation=presentation_for_commit(metadata))
 
 
 def compare_bound_snapshots(

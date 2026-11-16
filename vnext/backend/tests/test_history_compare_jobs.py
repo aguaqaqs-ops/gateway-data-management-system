@@ -5,6 +5,7 @@ from __future__ import annotations
 from tests.support.artifact_layout import open_test_store
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -15,6 +16,7 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 import gateway_backend.application.history.compare_jobs as compare_jobs
 
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.contracts import (
     HistoryCompareDiagnosticCode,
@@ -951,6 +953,12 @@ def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: 
         ) == frozenset()
     assert step_protected == frozenset()
     assert assemble_ref.artifact_id in protected
+    from gateway_backend.application.checkpoints import load_checkpoint_envelope
+    from gateway_backend.application.history.compare_jobs import history_compare_assemble_state_from_checkpoint
+
+    envelope = load_checkpoint_envelope(harness.artifact_store, assemble_ref)
+    state_ref, _ = history_compare_assemble_state_from_checkpoint(envelope.job_state, harness.artifact_store)
+    assert state_ref.artifact_id in protected
     cast(InMemoryArtifactStore, harness.artifact_store)._artifacts.pop(assemble_ref.artifact_id, None)  # noqa: SLF001
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
@@ -1045,6 +1053,30 @@ def test_f1_policy_binding_integration_cases(
     pair = pairs[0]
     assert isinstance(pair, dict)
     assert pair["comparison_digest"] == local_digest
+
+
+def test_expired_history_maintenance_releases_result_owner_once(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    from gateway_backend.bootstrap.storage_admin import release_expired_history_results
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="maintenance-history")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        assert acceptance is not None and operation.completed_at is not None
+        uow.history_compare.save_alias(record=acceptance, idempotency_key="alias")
+        expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry - timedelta(microseconds=1)) as uow:
+        assert release_expired_history_results(uow) == 0
+        assert uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 1
+        assert not uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+        assert uow.history_compare.count_aliases(harness.operation_id) == 0
+        assert release_expired_history_results(uow) == 0
+        assert uow.history_compare.get_acceptance_by_operation_id(harness.operation_id) is not None
 
 
 def test_history_compares_canonical_net_cfg_without_dropped_column(tmp_path: Path) -> None:
@@ -1365,7 +1397,7 @@ def _replace_comparison_cache_with_bad_neutral_payload(cache: Any, store: Any, h
     payload["table_fact_jcs"] = "{}"
     raw = encode_cache_manifest(lease.entry.key, format=lease.entry.format,
         member_refs=lease.entry.member_refs, payload=payload)
-    manifest = ArtifactRef("a1:durable:2660848574a60e9b959e57fdc37250f4f60f6647323da2526f2dfb92e1fc4e74", "application/json", len(raw), raw_blob_digest(raw))
+    manifest = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-cache-manifest", raw_blob_digest(raw).value), "application/json", len(raw), raw_blob_digest(raw))
     entry = ComputationCacheEntry(lease.entry.key, lease.entry.format, manifest, lease.entry.member_refs)
     blobs = ((manifest, raw), *((ref, store.locate(ref)) for ref in entry.member_refs))
     lease.close()
@@ -1384,6 +1416,8 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     harness = build_history_compare_harness(tmp_path)
     payload = compare_jobs.decode_history_compare_payload(json.loads(harness.job_payload))
     sides = compare_jobs._materialize_distinct_commits(payload, harness.deps)
+    presentations = compare_jobs._history_presentations(payload, harness.deps)
+    sides = {commit: replace(bound, presentation=presentations[commit]) for commit, bound in sides.items()}
     rules = compare_jobs._assert_runtime_ruleset(payload)
     captured: list[SnapshotTableSet] = []
     original = ensure_committed_tables
@@ -1454,8 +1488,10 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     monkeypatch.setattr(PersistentRiskCandidates, "lookup", observed_lookup)
     monkeypatch.setattr(cache, "store", observed_store)
     sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY COMMENT 'column-{value}') COMMENT='table-{value}'; INSERT INTO t VALUES ({value});"
-    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(), artifact_id="a1:durable:5adad6374935ac1f2c031bb667178cd95a1b658a4c4276477d515ba2d687e8be")
-    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(), artifact_id="a1:durable:661b6c2cafc55581541967e4871f60d18dc73d892270c5ecebb12ce7215e89bb")
+    initial = preview_support.store_source_package(preview.artifact_store, sql.format(value=2).encode(),
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "history-preview-source", "initial"))
+    modified = preview_support.store_source_package(preview.artifact_store, sql.format(value=3).encode(),
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "history-preview-source", "modified"))
     preview.upload_revision = preview_support.build_upload_revision(input_completeness=InputCompleteness.FULL,
         initial_binding=initial, modified_binding=modified, generation=preview.upload_revision.generation)
     preview.job_payload = build_preview_job_payload(workspace_id=preview.upload_revision.workspace_id,
@@ -1628,7 +1664,7 @@ def test_history_pipeline_failure_keeps_its_original_runtime_boundary(
 @pytest.mark.parametrize("artifact_id", ["old-closure", "a1:unknown:" + "a" * 64,
     "00000000-0000-4000-8000-000000000001"])
 def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: str, artifact_id: str) -> None:
-    from gateway_backend.application.history.compare_jobs import _history_compare_ready_ref
+    from gateway_backend.application.history.compare_jobs import history_compare_ready_ref
     from gateway_backend.application.payloads import CheckpointDecodeError
     ready_id = "a1:durable:" + "0" * 64
     state: dict[str, object] = {"ready_closure_artifact_id": ready_id,
@@ -1637,7 +1673,7 @@ def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: s
             "size_bytes": 0, "raw_sha256": "sha256:" + "0" * 64}}
     state[field_name] = artifact_id
     with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
-        _history_compare_ready_ref(state)
+        history_compare_ready_ref(state)
 
 
 @pytest.mark.parametrize('damaged_side', ('same-commit-later-table', 'later-commit'))
@@ -1668,7 +1704,7 @@ def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
     )
     with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1), new_operation=True):
         run_full_history_compare_job(cold)
-    with local.cleanup_session("a1:canonical:" + "0" * 64) as acquired:
+    with local.cleanup_session(build_artifact_id(ArtifactLocation.CANONICAL, "history-cleanup", "probe")) as acquired:
         assert acquired  # The completed cold operation has released every mapping.
     target_commit, target_value = (left, 11) if damaged_side == 'same-commit-later-table' else (right, 2)
     with ControlDbUnitOfWork(cold.db_path, read_only=True) as uow:
@@ -1699,3 +1735,358 @@ def test_history_repairs_damaged_exact_commit_before_retaining_batch_readers(
         (side, table): rows for (_pair, side, table), rows in warm_rows.items()}
     with ControlDbUnitOfWork(warm.db_path, read_only=True) as uow:
         assert uow.operations.get_operation(warm.operation_id).status is OperationStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize("table_kind", ("keyed", "keyless", "ordered"))
+@pytest.mark.parametrize("row_count", (0, 2))
+@pytest.mark.parametrize("added", (True, False), ids=("added", "deleted"))
+def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    table_kind: str, row_count: int, added: bool,
+) -> None:
+    from dataclasses import replace
+    from gateway_backend.application import pair_pipeline
+    from gateway_backend.application.history.compare_jobs import history_compare_composition_bundle
+    from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
+
+    left, right = BASELINE_HEAD.business_baseline_commit_id, "commit-single-side"
+    table_rows: tuple[tuple[object | None, ...], ...]
+    if table_kind == "ordered":
+        table = ordered_syx_catalog_table()
+        table_rows = tuple((index, index, str(index)) for index in range(1, row_count + 1))
+    else:
+        table = catalog_table("t", (int_id_column(),),
+            primary_key=("id",) if table_kind == "keyed" else (), row_count=row_count)
+        table_rows = tuple((index,) for index in range(1, row_count + 1))
+    name = table.table_name
+    observed: list[Any] = []
+    original = pair_pipeline.compare_plan_native
+
+    def compare(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        observed.append(result.result.facts)
+        assert result.metrics is not None
+        assert result.metrics.input_reads == result.metrics.native_calls == 0
+        return result
+
+    monkeypatch.setattr(pair_pipeline, "compare_plan_native", compare)
+    store = InMemoryArtifactStore()
+    previous: HistoryCompareJobHarness | None = None
+    snapshots = []
+    for run in ("cold", "warm"):
+        providers = {}
+        for commit, present in ((left, not added), (right, added)):
+            catalog = make_catalog((table,) if present else (),
+                repository_id=REPOSITORY_ID, ref=commit, commit=commit)
+            providers[commit] = FakeRepositoryTableAccessProvider(catalog=catalog,
+                rows={name: table_rows} if present else {}, current_commit=commit)
+        harness = build_history_compare_harness(tmp_path / run,
+            db_path=None if previous is None else previous.db_path, artifact_store=store,
+            node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ("bn-single-" + run, right)),
+            custom_providers=providers, idempotency_key="single-side-" + run)
+        def transaction() -> ControlDbUnitOfWork:
+            return ControlDbUnitOfWork(harness.db_path)
+        deps = replace(harness.deps, snapshot_export_cache=ControlDbSnapshotTableExportCache(transaction))
+        _, handlers, _, bound_deps = history_compare_composition_bundle(deps)
+        harness.deps, harness.handlers = bound_deps, dict(handlers)
+        harness.publication_uow_factory = bound_deps.control_transaction_factory
+        run_full_history_compare_job(harness)
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+            assert uow.operations.get_operation(harness.operation_id).status is OperationStatus.SUCCEEDED
+        facts = observed[-1]
+        assert facts is not None
+        fact, = facts.tables
+        assert fact.status is (ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE), (run, fact.diagnostics)
+        assert fact.row_count_before == (None if added else row_count)
+        assert fact.row_count_current == (row_count if added else None)
+        assert fact.row_added_count == fact.row_deleted_count == fact.row_modified_count == 0
+        assert fact.records == () and fact.diagnostics == ()
+        assert fact.ordered_extension is None and fact.blank_extension is None
+        assert facts.summary.added_table_count == int(added)
+        assert facts.summary.deleted_table_count == int(not added)
+        rows, entries = _history_snapshot_bundle_data(harness)
+        assert len(entries) == 1
+        assert set(rows) == {("left_to_right", "current" if added else "before", name)}
+        assert len(next(iter(rows.values()))) == row_count
+        snapshots.append(rows)
+        reader_names = tuple(item for provider in providers.values() for item in _reader_names(provider))
+        assert reader_names == ((name,) if run == "cold" else ())
+        previous = harness
+    assert observed[0] == observed[1]
+    assert snapshots[0] == snapshots[1]
+
+
+@pytest.mark.parametrize("ordered", (False, True), ids=("ordinary", "ordered"))
+def test_single_side_history_missing_export_source_keeps_real_error(
+    tmp_path: Path, ordered: bool,
+) -> None:
+    left, right = BASELINE_HEAD.business_baseline_commit_id, "commit-unreadable-single-side"
+    table = ordered_syx_catalog_table() if ordered else catalog_table("t", (int_id_column(),), primary_key=("id",))
+    name = table.table_name
+    rows: RepositoryRows = {name: ((1, 1, "a"),) if ordered else ((1,),)}
+    providers = {
+        left: FakeRepositoryTableAccessProvider(catalog=make_catalog((),
+            repository_id=REPOSITORY_ID, ref=left, commit=left), rows={}, current_commit=left),
+        right: FakeRepositoryTableAccessProvider(catalog=make_catalog((table,),
+            repository_id=REPOSITORY_ID, ref=right, commit=right), rows=rows,
+            current_commit=right, missing_table_on_open=name),
+    }
+    harness = build_history_compare_harness(tmp_path, custom_providers=providers,
+        node_specs=((BASELINE_HEAD.business_baseline_node_id, left), ("bn-unreadable-single-side", right)))
+    insert_history_compare_operation(harness)
+    assert run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER).status is StepStatus.SUCCEEDED
+    assert run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER).status is StepStatus.FAILED
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+    assert operation.status is OperationStatus.FAILED
+    assert operation.diagnostic is not None and operation.diagnostic.code == "REPOSITORY_TABLE_NOT_FOUND"
+    assert operation.ready_closure_ref is None
+
+
+def test_history_reuse_rechecks_session_after_preflight(tmp_path: Path) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.domain.workspace.errors import PermissionDenied
+    from gateway_backend.operations.contracts import OperationRecord
+    from gateway_backend.application.history.contracts import HistoryCompareAcceptanceRecord
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="session-before")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        protected = uow.list_artifact_protection_for_owner(
+            owner_kind="history-compare-operation", owner_id=harness.operation_id)
+    assert acceptance is not None
+    allowed = make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY}))
+    revoked = make_identity()
+    preflight_done = False
+
+    @contextmanager
+    def preflight(_operation: OperationRecord, _acceptance: HistoryCompareAcceptanceRecord) -> Iterator[frozenset[str]]:
+        nonlocal preflight_done
+        preflight_done = True
+        yield protected
+
+    with pytest.raises(PermissionDenied):
+        accept_history_compare(
+            command=HistoryCompareAcceptCommand(
+                context=allowed, idempotency_key="session-after",
+                node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+            ),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(harness.db_path, read_only=read_only),
+            job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+            comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC),
+            preflight=preflight, resolve_current_identity=lambda: revoked if preflight_done else allowed,
+        )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.history_compare.count_aliases(harness.operation_id) == 0
+
+
+def test_history_maintenance_continues_across_bounded_batches(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    from gateway_backend.bootstrap.storage_admin import release_expired_history_results
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="maintenance-batch")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        operation = uow.operations.get_operation(harness.operation_id)
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        step = uow.operations.get_step(history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+        assert acceptance is not None and operation.completed_at is not None and step.checkpoint_ref is not None
+        expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
+        for table in ("operation_records", "history_compare_acceptance_records"):
+            columns = [row[1] for row in uow.connection.execute(f"PRAGMA table_info({table})")]
+            original = uow.connection.execute(f"SELECT * FROM {table} WHERE operation_id = ?", (harness.operation_id,)).fetchone()
+            assert original is not None
+            for index in range(32):
+                values = dict(zip(columns, original, strict=True))
+                values["operation_id"] = f"batch-operation-{index}"
+                if table == "history_compare_acceptance_records":
+                    values["acceptance_id"] = f"batch-acceptance-{index}"
+                    values["idempotency_key"] = f"batch-key-{index}"
+                placeholders = ",".join("?" for _ in columns)
+                uow.connection.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders})",
+                                       tuple(values[column] for column in columns))
+        for index in range(1, 32):
+            uow.set_artifact_protection((step.checkpoint_ref,), owner_kind="history-compare-operation",
+                                        owner_id=f"batch-operation-{index}", intent="history-compare-result",
+                                        expires_at=expiry)
+        alias_only = uow.history_compare.get_acceptance_by_operation_id("batch-operation-0")
+        assert alias_only is not None
+        uow.history_compare.save_alias(record=alias_only, idempotency_key="alias-only")
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 32
+    with ControlDbUnitOfWork(harness.db_path, now=lambda: expiry) as uow:
+        assert release_expired_history_results(uow) == 1
+        assert release_expired_history_results(uow) == 0
+
+
+@pytest.mark.serial
+def test_history_rechecks_same_key_bound_during_success_preflight(tmp_path: Path) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager, nullcontext
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand, HistoryCompareAcceptanceRecord, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.operations.contracts import OperationRecord
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="preflight-original")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        protected = uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+    assert acceptance is not None
+    command = HistoryCompareAcceptCommand(
+        context=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+        idempotency_key="preflight-racing-alias",
+        node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+    )
+    def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path, read_only=read_only)
+
+    registry = JobDefinitionRegistry.build(history_compare_job_definitions())
+
+    @contextmanager
+    def racing_preflight(_operation: OperationRecord, _acceptance: HistoryCompareAcceptanceRecord) -> Iterator[frozenset[str]]:
+        # A second request commits the same alias while this one holds a read borrow.
+        peer = accept_history_compare(command=command, unit_of_work_factory=factory, job_registry=registry,
+            comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC),
+            preflight=lambda _op, _record: nullcontext(protected))
+        assert peer.operation_id == harness.operation_id and peer.replay
+        yield protected
+
+    result = accept_history_compare(command=command, unit_of_work_factory=factory, job_registry=registry,
+        comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC), preflight=racing_preflight)
+    assert result.operation_id == harness.operation_id and result.replay
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.history_compare.count_aliases(harness.operation_id) == 1
+
+
+def test_history_candidate_budget_returns_retryable_without_duplicate(tmp_path: Path) -> None:
+    from contextlib import contextmanager
+    from collections.abc import Iterator
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand, HistoryCompareAcceptanceRecord, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY,
+    )
+    from gateway_backend.application.history.errors import HistoryCompareAcceptanceUnavailable, HistoryComparePreflightFailure
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from gateway_backend.operations.contracts import OperationRecord
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key="candidate-original")
+    run_full_history_compare_job(harness)
+    with ControlDbUnitOfWork(harness.db_path) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+        assert acceptance is not None
+        for table in ("operation_records", "history_compare_acceptance_records"):
+            columns = [row[1] for row in uow.connection.execute(f"PRAGMA table_info({table})")]
+            original = uow.connection.execute(f"SELECT * FROM {table} WHERE operation_id = ?", (harness.operation_id,)).fetchone()
+            assert original is not None
+            for index in range(8):
+                values = dict(zip(columns, original, strict=True))
+                values["operation_id"] = f"candidate-operation-{index}"
+                if table == "history_compare_acceptance_records":
+                    values["acceptance_id"] = f"candidate-acceptance-{index}"
+                    values["idempotency_key"] = f"candidate-key-{index}"
+                placeholders = ",".join("?" for _ in columns)
+                uow.connection.execute(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({placeholders})",
+                                       tuple(values[column] for column in columns))
+    attempts = 0
+
+    @contextmanager
+    def unavailable(_operation: OperationRecord, _acceptance: HistoryCompareAcceptanceRecord) -> Iterator[frozenset[str]]:
+        nonlocal attempts
+        attempts += 1
+        if attempts:
+            raise HistoryComparePreflightFailure(ApiError(code="ARTIFACT_UNAVAILABLE", message="missing", status_code=404))
+        yield frozenset()
+
+    with pytest.raises(HistoryCompareAcceptanceUnavailable):
+        accept_history_compare(
+            command=HistoryCompareAcceptCommand(
+                context=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+                idempotency_key="candidate-new",
+                node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+            ),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(harness.db_path, read_only=read_only),
+            job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+            comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC), preflight=unavailable,
+        )
+    assert attempts == 8
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM history_compare_acceptance_records").fetchone()[0] == 9
+
+
+HISTORY_WRITER_ENTRY_STATES = ("active", "not_yet_created")
+
+
+@pytest.mark.parametrize("initial_state", HISTORY_WRITER_ENTRY_STATES)
+def test_history_reuses_completion_before_writer_acquisition(tmp_path: Path, initial_state: str) -> None:
+    from collections.abc import Iterator
+    from contextlib import contextmanager, nullcontext
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.compare import accept_history_compare
+    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.contracts import HistoryCompareAcceptCommand, HistoryNodeRef, PERMISSION_READ_PROJECT_HISTORY
+    from gateway_backend.application.job_definitions import JobDefinitionRegistry
+    from tests.support.workspace_fixtures import make_identity
+
+    harness = build_history_compare_harness(tmp_path, idempotency_key=f"writer-{initial_state}")
+    if initial_state == "active":
+        insert_history_compare_operation(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        acceptance = uow.history_compare.get_acceptance_by_operation_id(harness.operation_id)
+    assert acceptance is not None
+    first_entry = True
+
+    @contextmanager
+    def factory(*, read_only: bool = False) -> Iterator[ControlDbUnitOfWork]:
+        nonlocal first_entry
+        if first_entry:
+            first_entry = False
+            if initial_state == "not_yet_created":
+                insert_history_compare_operation(harness)
+            for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+                run_through_step(harness, handler)
+        with ControlDbUnitOfWork(harness.db_path, read_only=read_only) as uow:
+            yield uow
+
+    def preflight(_op: Any, _record: Any) -> Any:
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+            refs = uow.list_artifact_protection_for_owner(owner_kind="history-compare-operation", owner_id=harness.operation_id)
+        return nullcontext(refs)
+
+    result = accept_history_compare(
+        command=HistoryCompareAcceptCommand(
+            context=make_identity(permissions=frozenset({PERMISSION_READ_PROJECT_HISTORY})),
+            idempotency_key=f"writer-alias-{initial_state}",
+            node_refs=tuple(HistoryNodeRef(node.ref_kind, node.ref_id) for node in acceptance.nodes),
+        ),
+        unit_of_work_factory=factory, job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
+        comparison_ruleset_digest=acceptance.comparison_ruleset_digest, now=datetime.now(UTC), preflight=preflight,
+    )
+    assert result.operation_id == harness.operation_id and result.replay
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
+        assert uow.history_compare.count_aliases(harness.operation_id) == 1
+        assert uow.connection.execute("SELECT COUNT(*) FROM history_compare_acceptance_records").fetchone()[0] == 1

@@ -85,6 +85,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     StorageRuleView,
     TableStaticRole,
 )
+from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
 from gateway_backend.capabilities.table_rules import comparison_rule_set
@@ -282,6 +283,7 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
         resolved = resolve_table_rule(
             ruleset,
             descriptor.canonical_name,
+            table_comment=descriptor.comment,
             primary_key_columns=descriptor.primary_key_canonical_names,
         )
         role_counts[resolved.decision.static_role.value] += 1
@@ -465,7 +467,9 @@ def _canonical_composite_snapshot_from_package(package_bytes: bytes) -> _Composi
             raise CompositeProjectionError("business materialization omitted composite_signal_point")
 
         selected_table_set = replace(business.table_set, tables=(composite_table,))
-        projected = project_canonical_arrow_table_set(selected_table_set, ruleset)
+        projected = project_canonical_arrow_table_set(
+            selected_table_set, ruleset, presentation=business.presentation,
+        )
         projected_tables = projected.tables
         if projected.status.value != "COMPLETE" or projected.manifest is None:
             codes = tuple(item.code.value for item in projected.diagnostics)
@@ -515,6 +519,7 @@ def _canonical_composite_snapshot_from_package(package_bytes: bytes) -> _Composi
                     source_schema_digest=manifest_table.source_schema_digest,
                 ),
             ),
+            presentation=projected.manifest.presentation,
         )
         result = _CompositeSnapshot(
             bound=bound,
@@ -688,6 +693,7 @@ class KeyScanStats:
 def _duplicate_and_effective_key_stats(
     *,
     table_set: SnapshotTableSet | None,
+    presentation: PresentationMetadata,
     ruleset: Any,
     diagnostic_mode: bool,
     materialization_complete: bool,
@@ -716,12 +722,14 @@ def _duplicate_and_effective_key_stats(
     reader_unavailable: list[str] = []
     scanned_table_count = 0
     ordered_projection_by_table: dict[str, dict[str, Any]] = {}
+    comments = {table.table_name: table.comment for table in presentation.tables}
     for table in table_set.tables:
         descriptor = table.descriptor
         try:
             resolved = resolve_table_rule(
                 ruleset,
                 descriptor.table_name,
+                table_comment=comments.get(descriptor.table_name),
                 primary_key_columns=descriptor.primary_key_columns,
             )
         except ValueError:
@@ -816,7 +824,9 @@ def _duplicate_and_effective_key_stats(
         if ordered:
             if ordered_rows is None:
                 raise AssertionError("ordered rows must be materialized for projection")
-            projected = project_canonical_arrow_table_set(replace(table_set, tables=(table,)), ruleset)
+            projected = project_canonical_arrow_table_set(
+                replace(table_set, tables=(table,)), ruleset, presentation=presentation,
+            )
             projection_status = projected.status.value
             if projected.manifest is None:
                 projection_diagnostic = projected.diagnostics[0]
@@ -902,12 +912,13 @@ def _sql_scan_source_after_composite_failure(
     sql_request: SqlSnapshotMaterializationRequest,
     *,
     diagnostic_mode: bool,
-) -> tuple[SnapshotTableSet | None, bool, str]:
+) -> tuple[SnapshotTableSet | None, PresentationMetadata, bool, str]:
     """Keep SQL census available when only the derived composite stage fails."""
 
     if not diagnostic_mode or business.status is not SnapshotMaterializationStatus.FAILED:
         return (
             business.table_set,
+            business.presentation,
             business.status is SnapshotMaterializationStatus.COMPLETE,
             "business_snapshot",
         )
@@ -915,15 +926,15 @@ def _sql_scan_source_after_composite_failure(
         item.code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
         for item in business.diagnostics
     ):
-        return None, False, "business_snapshot_unavailable"
+        return None, PresentationMetadata(), False, "business_snapshot_unavailable"
 
     sql_result = materialize_sql_snapshot(sql_request)
     if (
         sql_result.status is SnapshotMaterializationStatus.COMPLETE
         and sql_result.table_set is not None
     ):
-        return sql_result.table_set, True, "sql_snapshot_after_composite_failure"
-    return None, False, "sql_snapshot_after_composite_failure_unavailable"
+        return sql_result.table_set, sql_result.presentation, True, "sql_snapshot_after_composite_failure"
+    return None, PresentationMetadata(), False, "sql_snapshot_after_composite_failure_unavailable"
 
 
 def census_one(
@@ -1016,13 +1027,14 @@ def census_one(
             artifact_store=InMemoryArtifactStore(),
             diagnostic_mode=True,
         )
-    scan_table_set, scan_complete, key_scan_source = _sql_scan_source_after_composite_failure(
+    scan_table_set, scan_presentation, scan_complete, key_scan_source = _sql_scan_source_after_composite_failure(
         business,
         scan_sql_request,
         diagnostic_mode=diagnostic_mode,
     )
     key_scan = _duplicate_and_effective_key_stats(
         table_set=scan_table_set,
+        presentation=scan_presentation,
         ruleset=ruleset,
         diagnostic_mode=diagnostic_mode,
         materialization_complete=scan_complete,

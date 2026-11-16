@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.review_result_fixtures import review_artifact_refs
+
 import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -63,6 +65,7 @@ def _read_finalize_versions(
 
 def _request(db_path: Path, seed: SubmitSeed, attempt: SubmitAttempt) -> FinalizeSubmitTransactionRequest:
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
+    assert attempt.prepared_canonicalization_manifest_ref is not None
     facts = MatchingFinalizeFacts(
         repository_id=seed.workspace.repository_id,
         repository_operation_id="repo-op-1",
@@ -70,13 +73,14 @@ def _request(db_path: Path, seed: SubmitSeed, attempt: SubmitAttempt) -> Finaliz
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256="sha256:" + "e" * 64,
-        canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        canonicalization_manifest_ref=attempt.prepared_canonicalization_manifest_ref,
         canonicalization_manifest_digest="sha256:" + "f" * 64,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
         target_ref=SubmitTargetRef.MAIN,
     )
     return FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(seed),
         submit_attempt_id=attempt.submit_attempt_id,
         facts=facts,
         submission_id="sub-1",
@@ -194,7 +198,7 @@ def test_finalize_touches_real_preview_producer_in_its_transaction_and_replay_do
     assert _cache_snapshot(db_path) == after
 
 
-def test_missing_temporary_preview_does_not_add_a_new_finalize_precondition(db_path: Path) -> None:
+def test_missing_frozen_preview_rejects_finalize_without_partial_publication(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
     request = _request(db_path, seed, attempt)
@@ -208,8 +212,10 @@ def test_missing_temporary_preview_does_not_add_a_new_finalize_precondition(db_p
             "DELETE FROM preview_result_records WHERE preview_result_id=?", (attempt.preview_result_id,),
         )
     before = _cache_snapshot(db_path)
-    with ControlDbUnitOfWork(db_path, now=lambda: transaction_time) as unit_of_work:
-        assert not finalize_submit_transaction(request=request, unit_of_work=unit_of_work).replay
+    with pytest.raises(FinalizeBindingMismatch, match="frozen Preview is missing"):
+        with ControlDbUnitOfWork(db_path, now=lambda: transaction_time) as unit_of_work:
+            finalize_submit_transaction(request=request, unit_of_work=unit_of_work)
+    _assert_effect_pending(db_path, attempt)
     assert _cache_snapshot(db_path) == before
 
 

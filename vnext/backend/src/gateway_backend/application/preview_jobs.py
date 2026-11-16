@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
+
+from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
+
 from gateway_backend.statistics.metrics import bind_scope
 
 from gateway_backend.statistics.metrics import input_shape
@@ -54,6 +58,11 @@ from gateway_backend.application.checkpoints import (
     put_checkpoint_state_artifact,
 )
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.application.preview_job_identity import (
+    PREVIEW_JOB_CONTRACT_VERSION,
+    PREVIEW_JOB_KIND,
+    PREVIEW_STEP_MATERIALIZE,
+)
 from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
 from gateway_backend.application.pair_pipeline import (
     ComparisonTaskSession,
@@ -198,7 +207,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 from gateway_backend.capabilities.table_rules import (
     comparison_rule_set,
     migrated_table_ruleset_snapshot,
-    resolve_table_rule,
+    resolve_comparison_rule_view,
 )
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.domain.workspace.models import (
@@ -210,6 +219,7 @@ from gateway_backend.domain.workspace.models import (
     ProjectIdentityMode,
     ProjectIdentityStatus,
     PreviewResult,
+    PreviewComparisonPair,
     PreviewResultDigests,
     SourceArtifactBinding,
     SourceArtifactRole,
@@ -238,9 +248,6 @@ from gateway_backend.operations.worker import (
 
 _LOG = logging.getLogger(__name__)
 
-PREVIEW_JOB_KIND = "backend-vnext/preview"
-PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v2"
-PREVIEW_STEP_MATERIALIZE = "materialize_inputs"
 PREVIEW_STEP_ASSEMBLE = "assemble_preview"
 PREVIEW_STEP_PUBLISH = "publish_preview"
 
@@ -251,8 +258,8 @@ PREVIEW_MATERIALIZE_HANDLER = "backend-vnext/preview/materialize/handler/v1"
 PREVIEW_ASSEMBLE_HANDLER = "backend-vnext/preview/assemble/handler/v1"
 PREVIEW_PUBLISH_HANDLER = "backend-vnext/preview/publish/handler/v1"
 
-PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v5"
-PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/preview/assemble-checkpoint/v1"
+PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v6"
+PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/preview/assemble-checkpoint/v2"
 _JCS_MEDIA_TYPE = "application/jcs"
 
 _SIDE_BASELINE = "BASELINE"
@@ -273,9 +280,9 @@ _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
 _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-closure/v1"
 PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
-PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v2"
+PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v3"
 PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
-PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v3"
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v11"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -376,6 +383,7 @@ class _CanonicalPreviewMetadata:
     modified_canonical_state_digest: DigestRef
     storage_projection_ruleset_digest: DigestRef
     baseline_is_initial: bool
+    rules_semantically_equal: bool
 
     def __post_init__(self) -> None:
         if type(self.canonical_table_set_closure_ref) is not ArtifactRef:
@@ -414,6 +422,22 @@ class _CanonicalPreviewMetadata:
             raise ValueError("canonical Preview configuration facts do not match metadata")
         if type(self.baseline_is_initial) is not bool:
             raise ValueError("baseline_is_initial must be bool")
+
+
+class _CanonicalPreviewDocument(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    canonical_table_set_closure_ref: dict[str, JsonValue]
+    canonicalization_manifest_ref: dict[str, JsonValue]
+    canonicalization_manifest_digest: str
+    initial_canonicalization_manifest_ref: dict[str, JsonValue] | None
+    initial_canonicalization_manifest_digest: str | None
+    baseline_canonical_state_digest: str
+    initial_canonical_state_digest: str
+    configuration_facts: dict[str, JsonValue]
+    modified_canonical_state_digest: str
+    storage_projection_ruleset_digest: str
+    baseline_is_initial: bool
+    rules_semantically_equal: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -483,6 +507,10 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
         payload_object.get("capability_contract_versions"),
         label="capability_contract_versions",
     )
+    from gateway_backend.application.preview_semantics import current_preview_capabilities
+
+    if capability_contract_versions != current_preview_capabilities():
+        raise PayloadDecodeError("preview capability versions do not match current semantics", code="PAYLOAD_SHAPE_INVALID")
     provider_versions = _decode_string_map(payload_object.get("provider_versions"), label="provider_versions")
     ready_closure_contract_version = _require_non_empty_str(
         payload_object,
@@ -828,6 +856,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             ready_closure_ref = _preview_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_preview_bundle_binding(envelope.job_state, closure.artifact_refs())
+            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs(), _assemble_state.get("pair_ids"))
             _pin_preview_refs(
                 deps,
                 (
@@ -861,6 +890,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs, assemble_state.get("pair_ids"))
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
@@ -989,6 +1019,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
         ready_closure_ref = _preview_ready_ref(assemble_envelope.job_state)
         ready_closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
         _assert_preview_bundle_binding(assemble_envelope.job_state, ready_closure.artifact_refs())
+        verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_closure.artifact_refs(), assemble_state.get("pair_ids"))
 
         preview_result = _build_preview_result(
             payload=payload,
@@ -1313,12 +1344,13 @@ def _materialize_all_sides(
         sides[_SIDE_MODIFIED],
         deps.artifact_store,
     )
+    presentations = {_SIDE_BASELINE: baseline_presentation,
+        _SIDE_INITIAL: (baseline_presentation if initial_manifest_ref is None else
+        open_canonicalization_manifest(deps.artifact_store, initial_manifest_ref).presentation),
+        _SIDE_MODIFIED: open_canonicalization_manifest(deps.artifact_store, manifest_ref).presentation}
     return _MaterializedPreviewInputs(
         sides=sides,
-        presentations={_SIDE_BASELINE: baseline_presentation,
-            _SIDE_INITIAL: (baseline_presentation if initial_manifest_ref is None else
-            open_canonicalization_manifest(deps.artifact_store, initial_manifest_ref).presentation),
-            _SIDE_MODIFIED: open_canonicalization_manifest(deps.artifact_store, manifest_ref).presentation},
+        presentations=presentations,
         canonical=_CanonicalPreviewMetadata(
             initial_canonical_state_digest=initial_state_digest,
             configuration_facts=configuration_facts,
@@ -1331,8 +1363,30 @@ def _materialize_all_sides(
             modified_canonical_state_digest=modified_state_digest,
             storage_projection_ruleset_digest=runtime_ruleset.ruleset_digest,
             baseline_is_initial=canonical_binding.is_initial,
+            rules_semantically_equal=_same_resolved_rules(sides[_SIDE_BASELINE], sides[_SIDE_MODIFIED],
+                presentations[_SIDE_BASELINE], presentations[_SIDE_MODIFIED], runtime_ruleset),
         ),
     )
+
+
+def _same_resolved_rules(before: BoundSnapshotInput, current: BoundSnapshotInput,
+    before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
+    ruleset: TableRulesetSnapshot) -> bool:
+    def projection(bound: BoundSnapshotInput, presentation: PresentationMetadata) -> dict[str, object]:
+        comments = {table.table_name: table.comment for table in presentation.tables}
+        facts = {item.storage_rule_view.canonical_table: item.storage_rule_view for item in bound.storage_facts}
+        if set(facts) != {descriptor.table_name for descriptor in bound.summary.tables}:
+            raise PreviewJobError("resolved rule comparison requires complete storage facts")
+        rules = comparison_rule_set(ruleset)
+        result: dict[str, object] = {}
+        for descriptor in bound.summary.tables:
+            view = resolve_comparison_rule_view(rules, descriptor.table_name,
+                table_comment=comments.get(descriptor.table_name),
+                primary_key_columns=descriptor.primary_key_columns)
+            result[descriptor.table_name] = (facts.get(descriptor.table_name),
+                None if view is None else view.comparison_rule_digest)
+        return result
+    return projection(before, before_presentation) == projection(current, current_presentation)
 
 
 def _materialize_baseline_commit(
@@ -1980,6 +2034,10 @@ def _assemble_preview(
         table_count=len(current_summary), total_rows=sum(item.row_count for item in current_summary),
         max_table_rows=max((item.row_count for item in current_summary), default=0))
     display_inputs = dict(presentations or {})
+    if set(display_inputs) != set(sides):
+        raise PreviewJobError("comparison requires frozen presentation for every side")
+    sides = {name: dataclasses.replace(bound, presentation=display_inputs[name])
+             for name, bound in sides.items()}
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
@@ -2053,8 +2111,8 @@ def _assemble_preview(
                 pair_id=pair_id,
                 before=before,
                 current=current,
-                before_presentation=display_inputs.get(_SIDE_BASELINE if pair_id == _PAIR_BASELINE_TO_INITIAL or payload.input_completeness is InputCompleteness.MODIFIED_ONLY else _SIDE_INITIAL, PresentationMetadata()),
-                current_presentation=display_inputs.get(_SIDE_INITIAL if pair_id == _PAIR_BASELINE_TO_INITIAL else _SIDE_MODIFIED, PresentationMetadata()),
+                before_presentation=display_inputs[_SIDE_BASELINE if pair_id == _PAIR_BASELINE_TO_INITIAL or payload.input_completeness is InputCompleteness.MODIFIED_ONLY else _SIDE_INITIAL],
+                current_presentation=display_inputs[_SIDE_INITIAL if pair_id == _PAIR_BASELINE_TO_INITIAL else _SIDE_MODIFIED],
                 store=store,
                 control=control,
                 rule_set=rule_set,
@@ -2118,8 +2176,22 @@ def _assemble_preview(
             bundle_manifest_ref=bundle_result.bundle.manifest_ref,
             bundle_artifacts=bundle_result.referenced_artifacts,
         )
+        final_bundle_pairs = {pair.pair_id: pair for pair in bundle_result.bundle.pairs}
         assemble_state: dict[str, object] = {
             "pair_ids": [item.pair_id for item in pair_results],
+            "structure_audit_bindings": [structure_audit_binding(
+                item.pair_id, item.comparison_digest, item.structure_audit_ref) for item in pair_results],
+            "comparison_pairs": [PreviewComparisonPair(
+                pair_id=item.pair_id,
+                before_snapshot_digest=spec[1].snapshot.snapshot_digest.value,
+                current_snapshot_digest=spec[2].snapshot.snapshot_digest.value,
+                comparison_digest=item.comparison_digest,
+                risk_digest=item.risk_digest,
+                surface_digest=final_bundle_pairs[item.pair_id].surface_digest.value,
+                ruleset_digest=payload.comparison_ruleset_digest,
+                structure_audit_artifact_id=(None if item.structure_audit_ref is None
+                    else item.structure_audit_ref.artifact_id),
+            ).model_dump(mode="json") for spec, item in zip(pair_specs, pair_results, strict=True)],
             "default_view": _PAIR_INITIAL_TO_MODIFIED,
             "input_completeness": payload.input_completeness.value,
             "digests": {
@@ -2158,8 +2230,8 @@ def _run_pair_pipeline(
     identity_before_table_set: SnapshotTableSet | None = None,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -2242,9 +2314,12 @@ def _build_preview_result(
             baseline_canonical_state_digest=canonical.baseline_canonical_state_digest,
             modified_canonical_state_digest=canonical.modified_canonical_state_digest,
             storage_projection_ruleset_digest=canonical.storage_projection_ruleset_digest,
+            rules_semantically_equal=canonical.rules_semantically_equal,
         ),
         identity_assessment_set_digest=identity_set_digest,
         identity_pairs=identity_pairs,
+        comparison_pairs=TypeAdapter(tuple[PreviewComparisonPair, ...]).validate_json(
+            canonicalize_json_value(assemble_state["comparison_pairs"])),
         bundle_artifact_id=bundle_artifact_id,
         ready_closure_artifact_id=ready_closure_artifact_id,
         operation_id=operation.operation_id,
@@ -2425,6 +2500,8 @@ def _required_ready_refs(
         if pair_state.surface_result.surface is None:
             raise PreviewJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
+        if pair_state.structure_audit_ref is not None:
+            refs.append(pair_state.structure_audit_ref)
     refs.append(bundle_manifest_ref)
     refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
@@ -2890,6 +2967,12 @@ def _materialized_preview_inputs_from_checkpoint(
     facts = canonical.configuration_facts
     baseline_presentation = _preview_baseline_presentation(workspace_id=facts.workspace_id,
         repository_id=repository_id, commit_id=facts.business_baseline_commit_id, deps=dependencies)
+    runtime_ruleset = migrated_table_ruleset_snapshot()
+    if (runtime_ruleset.ruleset_digest != canonical.storage_projection_ruleset_digest
+            or _same_resolved_rules(sides[_SIDE_BASELINE], sides[_SIDE_MODIFIED],
+                baseline_presentation, manifest.presentation, runtime_ruleset) != canonical.rules_semantically_equal):
+        raise CheckpointDecodeError("materialize checkpoint resolved rules do not match",
+            code="CHECKPOINT_JOB_STATE_MISMATCH")
     return _MaterializedPreviewInputs(sides=sides, canonical=canonical, presentations={
         _SIDE_BASELINE: baseline_presentation,
         _SIDE_MODIFIED: manifest.presentation,
@@ -3198,30 +3281,20 @@ def _canonical_preview_metadata_to_document(
         "modified_canonical_state_digest": canonical.modified_canonical_state_digest.value,
         "storage_projection_ruleset_digest": canonical.storage_projection_ruleset_digest.value,
         "baseline_is_initial": canonical.baseline_is_initial,
+        "rules_semantically_equal": canonical.rules_semantically_equal,
     }
 
 
 def _canonical_preview_metadata_from_document(
     raw: dict[str, object],
 ) -> _CanonicalPreviewMetadata:
-    expected_keys = {
-        "canonical_table_set_closure_ref",
-        "canonicalization_manifest_ref",
-        "canonicalization_manifest_digest",
-        "initial_canonicalization_manifest_ref",
-        "initial_canonicalization_manifest_digest",
-        "baseline_canonical_state_digest",
-        "initial_canonical_state_digest",
-        "configuration_facts",
-        "modified_canonical_state_digest",
-        "storage_projection_ruleset_digest",
-        "baseline_is_initial",
-    }
-    if set(raw) != expected_keys:
+    try:
+        raw = _CanonicalPreviewDocument.model_validate(raw, strict=True).model_dump()
+    except ValueError as exc:
         raise CheckpointDecodeError(
             "canonical preview checkpoint fields are invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
+        ) from exc
     closure_ref = raw["canonical_table_set_closure_ref"]
     manifest_ref = raw["canonicalization_manifest_ref"]
     initial_manifest_ref = raw["initial_canonicalization_manifest_ref"]
@@ -3232,6 +3305,7 @@ def _canonical_preview_metadata_from_document(
         or (initial_manifest_ref is not None and type(initial_manifest_ref) is not dict)
         or (initial_manifest_digest is not None and type(initial_manifest_digest) is not str)
         or type(raw["baseline_is_initial"]) is not bool
+        or type(raw["rules_semantically_equal"]) is not bool
     ):
         raise CheckpointDecodeError(
             "canonical preview checkpoint artifact refs are invalid",
@@ -3266,6 +3340,7 @@ def _canonical_preview_metadata_from_document(
                 _checkpoint_string(raw, "storage_projection_ruleset_digest")
             ),
             baseline_is_initial=raw["baseline_is_initial"],
+            rules_semantically_equal=raw["rules_semantically_equal"],
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise CheckpointDecodeError(
@@ -3546,54 +3621,6 @@ def _workspace_artifact_ref(ref: ArtifactRef) -> PreviewArtifactRef:
         media_type=ref.media_type,
         size_bytes=ref.size_bytes,
         raw_sha256=ref.raw_sha256,
-    )
-
-
-def _runtime_binding_from_provider(
-    *,
-    repository_id: str,
-    commit_id: str,
-    provider: RepositoryTableAccessProvider,
-    ruleset: TableRulesetSnapshot,
-) -> CanonicalBinding:
-    if ruleset.ruleset_digest is None:
-        raise PreviewJobError("runtime ruleset digest is missing")
-    session = provider.open_ref(RepositoryRef(repository_id=repository_id, ref=commit_id), None)
-    try:
-        catalog = session.get_catalog()
-        if catalog.resolved_commit_hash != session.pinned_commit_hash():
-            raise PreviewJobError("Repository catalog is not pinned to the requested commit")
-        views: list[StorageRuleView] = []
-        for table in catalog.tables:
-            resolved = resolve_table_rule(
-                ruleset,
-                table.table_name,
-                primary_key_columns=table.primary_key_columns,
-            )
-            record = resolved.record
-            explicit_key = (
-                record.compare_key_columns
-                if record.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
-                else ()
-            )
-            views.append(
-                StorageRuleView(
-                    canonical_table=resolved.canonical_table,
-                    canonical_key_policy=record.canonical_key_policy,
-                    ordered_policy=record.ordered_policy,
-                    dropped_columns=record.dropped_columns,
-                    structural_columns=record.structural_columns,
-                    canonical_key_columns=explicit_key,
-                )
-            )
-    finally:
-        session.close()
-    return CanonicalBinding(
-        storage_projection_version=ruleset.storage_projection_version,
-        ruleset_id=ruleset.ruleset_id,
-        ruleset_version=ruleset.ruleset_version,
-        ruleset_digest=ruleset.ruleset_digest,
-        tables=tuple(sorted(views, key=lambda item: item.canonical_table.encode("utf-8"))),
     )
 
 

@@ -30,6 +30,7 @@ def bound(sql: str) -> BoundSnapshotInput:
     assert materialized.table_set is not None
     return BoundSnapshotInput(
         materialized.snapshot, materialized.summary, materialized.table_set,
+        presentation=materialized.presentation,
     )
 
 

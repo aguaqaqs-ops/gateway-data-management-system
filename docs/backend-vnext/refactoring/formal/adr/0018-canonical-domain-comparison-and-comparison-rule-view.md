@@ -50,6 +50,9 @@
    - comparison 以运行期（当前激活）规则集派生的 `ComparisonRuleSet` 为必填输入（DC10），不校验两侧的规则集 digest；
    - 比较不使用 native diff，始终按列名与有效键对齐，满足 Canonical Storage §7；schema 差异来源只依据两侧规则侧的存储事实逐项归因（key policy、`EXPLICIT` 策略下的显式键、ordered policy、structural 与 dropped 列；不含随源 schema 变化的 retained 列与 DDL 主键），标记为 `STORAGE_PROJECTION_POLICY`、`SOURCE_SCHEMA` 或 `BOTH`；无法安全对齐时该表为 DEGRADED；
    - `ComparisonTablePolicy` 降为 comparison 内部类型。
+   - 2026-11-13 配置表修订（ruleset `v5`）：精确的 `cnt_manage_cfg`、`iec101_cfg`、`iec104_cfg`、`iec104gw_cfg`、`iec61850c_cfg`、`jdxx_cfg`、`sc_cfg`、`scada_cfg`、`sg_manage_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg` 使用 STANDARD_DIFF、ALL_CHANGES 与显式比较键 `(page_no, no)`；移出 BROWSE_ONLY，不泛化到任意 `*_cfg`。前缀协议规则独立保留。
+   - 这些规则的存储策略仍为 DDL_PRIMARY_KEY_OR_KEYLESS，列保留不变；比较键不提升为存储主键。两侧需要按键对齐时，缺列、NULL、空字符串或重复比较键使表 DEGRADED，并保留浏览；DDL 存储主键非法仍使投影失败。单侧与双侧空表沿各自元数据语义处理。该独立键组合仅对上述精确名单、双字段键和 ALL_CHANGES 开放。
+   - 2026-11-14 人工联调修订（ruleset `v6`）：`device_cfg` 以 `(gid,page_no,option_name)` 比较并输出全部增删改；`board_cfg`、`prot_list`、`dev_list`、`device_model_cfg`、`dev_grp`、`model_grp`、`primary_equipment_object_cfg`、`prot_right`、`rule_61850point_praser_cfg` 按 table rules 中列出的业务键比较。两个 `rule_61850dev_praser` 表采用排除生成序号后的整行多重集合比较，只报告新增和删除。以上规则保留原有 DDL 存储键和序号列；生成序号变化既不参与行比较，也不产生表级内容变化。具体业务键如后续数据证明不稳定，应修订规则。此例外不改变其他表的 compare-excluded 列审计语义。
 4. **列处置拆分。**
    - `TableRuleRecord` 新增 `compare_excluded_columns`，表示保留在存储中但不参与值比较；`ignored_columns` 维持 `DROP_FROM_STORAGE`；
    - 两者不相交，也不得包含规范键、ordered 身份列或结构列；

@@ -52,3 +52,7 @@ locator ref 位于 comparison 逻辑位置，完整进入 surface 遍历/重写�
 `row_location/contracts.py` 拥有五列 schema 和 admitted `RowLocationResult`；application 从 row_location root 消费定位/扫描/发布入口。身份策略与 scanner 由 comparison root 提供，`standard_identity_policy` 复用同一 comparison schema/selected/excluded 决定，不让 locator 访问 comparison 私有 row_encoding。现有有界 Parquet writer 由 comparison 公开，最终 client 物理 schema 由 snapshot_materialization 的 `client_parquet_schema` 单一 owner 提供；不复制 codec 或绕过预算。
 
 架构测试登记三个 BE-b owner 及其实际有向依赖，并仅允许 comparison adapter 使用既定 `_standard_identity_scanner_native` 粗粒度入口。table_presentation 合同为纯叶，不反向读取 snapshot；row_location 可消费 navigation/comparison/snapshot/Surface 合同与同 operation 的 Table Access 预算。新调用均走 owner root 或 contracts，既有架构 baseline 保持为空，无新增私有导入豁免。
+
+## 标准删除值与归属
+
+每条已发布普通记录恰有一个 locator：新增仅 current，删除仅 before，修改两侧存在。不存在 bundle 快照的一侧使用实际 filter context，不伪造 index；context 只证明身份/归属，不替代完整行。展示删除行先读取真实 before snapshot，否则读取已验证 record.before_values；重叠身份值矛盾是解码错误，缺值不能当 SQL NULL。不为此导出全部 before 行。

@@ -15,11 +15,11 @@
 | PROJECT_IDENTITY_UNVERIFIABLE | 原稳定码保留 | 项目身份不能确认 |
 | DATASET_REPLACEMENT | 原稳定码保留 | 独立数据集分侧浏览 |
 
-比较 schema 稳定码保留：`BEFORE_ONLY_COLUMNS`、`CURRENT_ONLY_COLUMNS`、`INCOMPATIBLE_SELECTED_COLUMNS`、`EFFECTIVE_KEY_CHANGED`、`SOURCE_PRIMARY_KEY_CHANGED`、`EFFECTIVE_KEY_IGNORED`、`BUSINESS_SCHEMA_CHANGED`、`DEGRADE_NO_COMPARE_KEY`、`TABLE_READER_UNAVAILABLE`。
+比较 schema 稳定码保留：`BEFORE_ONLY_COLUMNS`、`CURRENT_ONLY_COLUMNS`、`INCOMPATIBLE_SELECTED_COLUMNS`、`EFFECTIVE_KEY_CHANGED`、`EFFECTIVE_KEY_MISSING`、`SOURCE_PRIMARY_KEY_CHANGED`、`EFFECTIVE_KEY_IGNORED`、`BUSINESS_SCHEMA_CHANGED`、`DEGRADE_NO_COMPARE_KEY`、`TABLE_READER_UNAVAILABLE`。
 
 Surface 直接附加码：`KEYLESS_FALLBACK`（keyless 展示提示）、`ORDERED_DIFF_UNSUPPORTED`（ordered 不可用）。
 
-ordered 的稳定码保留：`ORDERED_PROVENANCE_MISSING`、`ORDERED_PROVENANCE_INVALID`、`ORDERED_REQUIRED_COLUMN_MISSING`、`NO_SELECTED_COLUMNS`、`ROW_IDENTITY_MISSING`、`BLANK_PROVENANCE_INVALID`、`BLANK_PROVENANCE_MISSING`、`CANONICAL_BLANK_PROVENANCE_INVALID`、`CANONICAL_GID_INVALID`、`ORDERED_INTEGER_INVALID`、`ORDER_KEY_DUPLICATE`、`ORDER_KEY_INVALID`、`ORDER_KEY_MISSING`、`ROW_IDENTITY_DUPLICATE`、`ROW_SHAPE_MISMATCH`、`SCALAR_TYPE_MISMATCH`、`SCALAR_TYPE_UNKNOWN`、`SCALAR_VALUE_INVALID`、`SET_VALUE_INVALID`、`SOURCE_GID_INVALID`、`SOURCE_RESERVED_PSEUDO_GID`。它们沿 comparison records/表 scope 传递；`ORDERED_PROVIDER` 是 ordered 单侧记录已有来源码。取消、超时、资源异常和内部 native runtime failure 沿任务终态传播，不伪装成功表或无风险。
+ordered 的稳定码保留：`ORDERED_PROVENANCE_MISSING`、`ORDERED_PROVENANCE_INVALID`、`ORDERED_REQUIRED_COLUMN_MISSING`、`ORDERED_INPUT_NOT_CANONICAL`、`NO_SELECTED_COLUMNS`、`ROW_IDENTITY_MISSING`、`BLANK_PROVENANCE_INVALID`、`BLANK_PROVENANCE_MISSING`、`CANONICAL_BLANK_PROVENANCE_INVALID`、`CANONICAL_GID_INVALID`、`ORDERED_INTEGER_INVALID`、`ORDER_KEY_DUPLICATE`、`ORDER_KEY_INVALID`、`ORDER_KEY_MISSING`、`ROW_IDENTITY_DUPLICATE`、`ROW_SHAPE_MISMATCH`、`SCALAR_TYPE_MISMATCH`、`SCALAR_TYPE_UNKNOWN`、`SCALAR_VALUE_INVALID`、`SET_VALUE_INVALID`、`SOURCE_GID_INVALID`、`SOURCE_RESERVED_PSEUDO_GID`。它们沿 comparison records/表 scope 传递；`ORDERED_PROVIDER` 是 ordered 单侧记录已有来源码。取消、超时、资源异常和内部 native runtime failure 沿任务终态传播，不伪装成功表或无风险。
 
 typed 比较错误的其余稳定 literal：`CANONICAL_COLUMN_COLLISION`、`TABLE_TASK_INVALID`、`TABLE_POLICY_MISSING`、`TABLE_TASK_HAS_NO_SIDE`、`TABLE_DESCRIPTOR_MISSING`、`METADATA_ROUTE_REQUIRES_NATIVE_ROWS`、`METADATA_ROLE_REQUIRES_NATIVE_ROWS`、`COMPARISON_RULESET_DIGEST_MISSING`。其中 metadata/缺策略等守卫在正常已校验输入中不可达；清单保留当前 typed emitter 的完整错误空间，不把它们描述成正常业务结果。
 
@@ -31,7 +31,7 @@ Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只
 
 ## 导航诊断全集
 
-以下十二码是 v1 全集。前十码保留第一步规则，后两码为 BE-b 完整性/标量资格补充；不是替换 Surface 降级码。
+以下十一码是 Navigation v3 全集，不替换 Surface 降级码。
 
 | 编码 | params 键 |
 | --- | --- |
@@ -39,15 +39,16 @@ Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只
 | DEVICE_GID_DUPLICATE | gid |
 | DEVICE_TAB_COUNT_UNKNOWN | identity_column |
 | DEVICE_ROWS_UNASSIGNED | identity_column, row_count, changed_row_count |
-| CHANNEL_TABLE_UNCLAIMED | board, link_no |
-| PROTOCOL_EXE_MISSING | board, link_no |
-| PROTOCOL_TABLE_NOT_FOUND | board, link_no, protocol, expected_tables |
+| CHANNEL_TABLE_UNCLAIMED | channel_prefix, registry_table |
+| PROTOCOL_TABLE_NOT_FOUND | channel_prefix, registry_table, protocol, expected_prefixes |
 | APP_TABLE_CFG_MISSING | app_name |
 | APP_TABLE_CFG_DUPLICATE | app_name, table_cfg |
 | APP_TABLE_NOT_FOUND | app_name, table_cfg |
 | DEVICE_TAB_FACTS_UNAVAILABLE | identity_column, reason |
+| DEVICE_TAB_RISK_UNAVAILABLE | identity_column, reason |
+| DEVICE_MEMBERSHIP_UNAVAILABLE | identity_column, reason |
 | DEVICE_FILTER_VALUE_UNSUPPORTED | identity_column, reason |
 
-`DEVICE_TAB_FACTS_UNAVAILABLE.reason`：RECORDS_UNAVAILABLE、RISK_ATTRIBUTION_UNAVAILABLE、TABLE_DEGRADED。`DEVICE_FILTER_VALUE_UNSUPPORTED.reason`：INTEGER_OUT_OF_RANGE、UNSUPPORTED_TYPE、IDENTITY_EXCLUDED。原 value、异常全文和 host path 不回传。普通事实不可用只按 table 发一条；不支持筛选按受影响存在侧各一条；replacement 全部诊断须有实际 side。
+`DEVICE_TAB_FACTS_UNAVAILABLE.reason`：RECORDS_UNAVAILABLE、TABLE_DEGRADED。`DEVICE_TAB_RISK_UNAVAILABLE.reason`：RISK_ATTRIBUTION_UNAVAILABLE。`DEVICE_MEMBERSHIP_UNAVAILABLE.reason`：MEMBERSHIP_UNAVAILABLE。`DEVICE_FILTER_VALUE_UNSUPPORTED.reason`：INTEGER_OUT_OF_RANGE、UNSUPPORTED_TYPE、IDENTITY_EXCLUDED。原 value、异常全文和 host path 不回传。普通事实不可用只按 table 发一条；不支持筛选按受影响存在侧各一条；replacement 全部诊断须有实际 side。
 
 终态范围按 S1a 与当前 owning engine 区分：`max_risk_tables_per_pair exceeded` 为 FAILED 的 `_PairFailure`；`max_risk_pair_wall_time_seconds exceeded` 为 CANCELLED 的 `_PairCancelled`，均不进入成功 Surface summary，没有对应新增 surface code。`risk evaluation JSON budget exceeded`、`risk report JSON budget exceeded` 和 `risk evaluation deadline exceeded` 同样是终态内部诊断。本表不将这些旧终态短句替换或混入 surface code 键。

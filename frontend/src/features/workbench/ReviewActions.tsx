@@ -36,13 +36,14 @@ interface ReviewActionsProps {
   submissionId: string;
   facts: SafeReviewFacts;
   bundleReady: boolean;
+  /** Only a server /result or /result/bundle failure can authorize releasing an unreadable submission. */
+  resultErrorCode?: string;
   onFactsChanged: (facts: SafeReviewFacts) => void;
   /**
-   * C5: invoked after the facts refresh that follows a terminal action or a
-   * 409 conflict, so the page re-reads the review and the History together
-   * instead of the review alone.
+   * Re-read current review and result authority together, including a manual
+   * conflict refresh. False means the result is unavailable and closes the dialog.
    */
-  onReviewSettled?: () => void;
+  onReviewSettled: () => Promise<boolean>;
   /**
    * C12 rule 1: the top-bar error notice lives below the header main row, not
    * inside the button row, so it cannot widen the row or move the buttons.
@@ -50,7 +51,7 @@ interface ReviewActionsProps {
   errorNoticeHost?: RefObject<HTMLElement | null>;
 }
 
-export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged, onReviewSettled, errorNoticeHost }: ReviewActionsProps) {
+export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCode, onFactsChanged, onReviewSettled, errorNoticeHost }: ReviewActionsProps) {
   const gatewayApi = useBoundGatewayApi();
   const generatedId = useId();
   const [dialog, setDialog] = useState<DialogKind | null>(null);
@@ -82,15 +83,23 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
     : undefined;
   const approveDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING" || expiredApprove;
-  const otherDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING";
+  const unreadableResult = resultErrorCode === "SUBMISSION_RESULT_UNAVAILABLE" || resultErrorCode === "SUBMISSION_RESULT_INTEGRITY_FAILURE";
+  const otherDisabled = Boolean(dispositionReason) || (!bundleReady && !unreadableResult) || facts.status !== "PENDING";
   const blockedReason = dispositionReason
-    ?? (!bundleReady ? "请等待历史比较 bundle 下载完成" : facts.status === "PENDING" ? undefined : STATUS_REASON[facts.status] ?? "当前提交不可审核");
-  const approveReason = expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason;
+    ?? (facts.status !== "PENDING" ? STATUS_REASON[facts.status] ?? "当前提交不可审核"
+      : !bundleReady && !unreadableResult ? "请等待提交绑定的比较结果核对完成" : undefined);
+  const approveReason = dispositionReason ?? (facts.status !== "PENDING" ? blockedReason
+    : unreadableResult ? "比较结果无法读取，不能通过"
+    : expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason);
+  const resultImpact = unreadableResult
+    ? `提交绑定的比较结果无法读取（错误码 ${resultErrorCode}），${dialog === "withdraw" ? "撤回" : "退回"}后提交人需重新上传` : null;
   // Rule 3: withdraw/reject always share blockedReason; approve joins them when
   // its reason is identical. The shared reason is rendered once below the group.
   const groupReason = blockedReason;
   const approveUsesGroup = Boolean(blockedReason) && approveReason === blockedReason;
   const groupReasonId = `${generatedId}-review-disabled-reason`;
+  const confirmDisabled = busy || (dialog === "approve" ? approveDisabled : otherDisabled)
+    || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
 
   function open(next: DialogKind) {
     setDialog(next);
@@ -103,7 +112,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   async function refreshFacts() {
     setBusy(true);
     try {
-      onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      if (!await onReviewSettled()) setDialog(null);
       setError(null);
       dialogKey.current = null;
     } catch (cause) {
@@ -127,7 +136,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
   }
 
   async function confirm() {
-    if (!dialog) return;
+    if (!dialog || confirmDisabled) return;
     if (dialog === "reject" && !reason.trim()) return;
     if (dialog === "withdraw" && !understood) return;
     setBusy(true);
@@ -139,7 +148,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       const action = dialog === "approve" ? "APPROVE" : dialog === "reject" ? "REJECT" : "WITHDRAW";
       await applyReviewAction(gatewayApi, submissionId, facts.review_version, action, dialog === "reject" ? reason.trim() : undefined, key);
       onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
-      onReviewSettled?.();
+      void onReviewSettled();
       setExpiredApprove(false);
       setDialog(null);
     } catch (cause) {
@@ -154,7 +163,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
         setError({ title: failure.title, code: failure.code });
         try {
           onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
-          onReviewSettled?.();
+          void onReviewSettled();
         } catch {
           // Keep the failure notice when the refresh itself fails.
         }
@@ -166,14 +175,13 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     }
   }
 
-  const confirmDisabled = busy || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
 
   const errorNotice = dialog === null && error ? renderError() : null;
   const errorHost = errorNoticeHost?.current ?? null;
 
   return <>
     <div className="review-actions">
-      <div className="review-actions__buttons">
+      <div className="review-actions__buttons" title={groupReason ?? undefined}>
         <Button variant="danger" onClick={() => open("withdraw")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>撤回</Button>
         <Button variant="danger" onClick={() => open("reject")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>退回</Button>
         <Button variant="primary" onClick={() => open("approve")} disabled={approveDisabled} disabledReason={approveUsesGroup ? undefined : approveReason} aria-describedby={approveUsesGroup ? groupReasonId : undefined}>审核通过</Button>
@@ -193,6 +201,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       <Button variant="danger" onClick={() => void confirm()} disabled={confirmDisabled} disabledReason={!reason.trim() ? "退回时必须填写理由" : undefined}>{busy ? "提交中…" : "确认退回"}</Button>
     </>}>
       <p className="confirm-impact">退回后该提交不会成为归档候选，提交人需要重新上传并提交；退回理由会保留在审核记录中。</p>
+      {resultImpact && <p className="confirm-impact">{resultImpact}</p>}
       <label className="confirm-reason">退回理由<textarea aria-label="退回理由" value={reason} onChange={(event) => setReason(event.currentTarget.value)} placeholder="说明退回原因（必填）" /></label>
       {renderError()}
     </Dialog>
@@ -202,6 +211,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       <Button variant="danger" onClick={() => void confirm()} disabled={confirmDisabled} disabledReason={!understood ? "请先确认已了解撤回影响" : undefined}>{busy ? "提交中…" : "确认撤回"}</Button>
     </>}>
       <p className="confirm-impact">撤回后该提交不再进入归档候选，也无法继续审核；提交人需要重新上传并提交。此操作不可撤销。</p>
+      {resultImpact && <p className="confirm-impact">{resultImpact}</p>}
       <label className="confirm-checkbox"><input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.currentTarget.checked)} />我已了解撤回后需要重新提交，并确认继续</label>
       {renderError()}
     </Dialog>

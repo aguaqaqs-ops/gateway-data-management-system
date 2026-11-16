@@ -50,6 +50,7 @@ export function describeSubmitError(cause: unknown): { title: string; code: stri
       PROJECT_IDENTITY_CONFIRMATION_MISMATCH: "项目身份确认已变化，请刷新后重新确认",
       IDEMPOTENCY_CONFLICT: "本次提交与服务器记录不一致，请关闭后重新提交",
       ADMISSION_LIMIT_REACHED: "系统繁忙，请稍后重试",
+      OPERATION_QUEUE_FULL: "服务器任务队列已满，请稍后重试",
     };
     return { title: (cause.code ? map[cause.code] : undefined) ?? "提交失败", code: cause.code ?? "SUBMIT_FAILED", retryable: true };
   }

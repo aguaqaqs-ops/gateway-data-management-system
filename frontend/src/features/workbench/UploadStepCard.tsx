@@ -7,7 +7,7 @@ import { ApiError } from "../api/authenticated-fetch";
 import { PollingConnectionLostError, createPreviewJourneyProgress, runPreviewJourney } from "../api/journeys";
 import { currentGatewaySession, SessionChangedError } from "../api/session";
 import { OpfsBundleStore } from "../bundle/local-bundle";
-import { Button, DirectorySummary, OperationStatus, formatBytes, type OperationPhase } from "../../design-system/components";
+import { Button, OperationStatus, formatBytes, type OperationPhase } from "../../design-system/components";
 import { operationElapsedSeconds } from "./OperationStatusPanel";
 import { buildSourcePackage, collectLocalDirectory, type LocalDirectory } from "./upload-package";
 import { formatWaitDuration } from "./wait-duration";
@@ -44,6 +44,9 @@ function errorMessage(cause: unknown, phase: UploadPhase): { message: string; co
     if (cause.code === "UPLOAD_STREAM_TIMEOUT" || cause.status === 408) {
       return { message: "上传超时，结果尚不确定，请重试", code: cause.code ?? "UPLOAD_STREAM_TIMEOUT", retryable: true, refresh: false };
     }
+    if (cause.code === "OPERATION_QUEUE_FULL") {
+      return { message: "服务器任务队列已满，请稍后重试", code: cause.code, retryable: true, refresh: false };
+    }
     if (cause.code === "ADMISSION_LIMIT_REACHED" || cause.status === 429) {
       return { message: "当前请求较多，请稍后重试", code: cause.code ?? "ADMISSION_LIMIT_REACHED", retryable: true, refresh: false };
     }
@@ -73,7 +76,7 @@ function slotFrom(input: FileList | File[] | null): DirectorySlot | null {
 
 function slotSummary(slot: DirectorySlot): string {
   if (!slot.directory) return slot.name ? `${slot.name}（未通过校验）` : "未选择";
-  return `${slot.directory.rootName} · ${slot.directory.files.length} 个文件 · ${formatBytes(slot.directory.totalBytes)}`;
+  return `${slot.directory.rootName} · ${slot.directory.files.length} 个文件 · ${formatBytes(slot.directory.totalBytes)} · 主文件 ${slot.directory.mainFile}`;
 }
 
 export const UploadStepCard = forwardRef<UploadStepCardHandle, {
@@ -297,10 +300,26 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
+  const slotView = (key: "initial" | "modified", title: string, slot: DirectorySlot, required: boolean, choose: () => void, clear: () => void) => <div className="upload-slot" data-slot={key}>
+    <div className="upload-slot__head">
+      <strong>{title}</strong>
+      {required ? <span className="upload-step__required">必选</span> : <span className="upload-step__optional">可选</span>}
+      {slot.directory && <span className="status-tag status-tag--success">校验通过</span>}
+      <span className="upload-slot__spacer" />
+      {slot.name && <button className="link-button" onClick={clear}>清除</button>}
+      <Button variant="secondary" icon={<FolderOpen size={14} />} onClick={choose}>{slot.name ? "重新选择" : "选择目录"}</Button>
+    </div>
+    <p className={`upload-slot__summary${slot.directory ? "" : " is-empty"}`} title={slot.directory ? slotSummary(slot) : undefined}>{slotSummary(slot)}</p>
+    {slot.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>{title}未通过校验（{slot.errors.length} 项）</strong><ul>{slot.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(slot.errors.join("\n"))}>复制错误信息</button></div></div>}
+  </div>;
   return <section className="upload-card" aria-label="上传与预览" data-phase={phase}>
     <div className="upload-card__heading">
-      <div><p className="eyebrow">上传</p><h3>{busy ? "上传中" : "上传组态目录"}</h3></div>
-      {busy && <span className="status-tag status-tag--info">已用时 {formatWaitDuration(totalStartRef.current ? Math.floor((now - totalStartRef.current) / 1_000) : 0)}（页面计时）</span>}
+      <h3>{busy ? "上传中" : "上传组态目录"}</h3>
+      {busy
+        ? <span className="status-tag status-tag--info">已用时 {formatWaitDuration(totalStartRef.current ? Math.floor((now - totalStartRef.current) / 1_000) : 0)}（页面计时）</span>
+        : <details className="upload-rules"><summary>目录要求</summary>
+          <ul><li>只包含一个根目录</li><li>根目录下恰好一个 .pmc 文件</li><li>包含 sql/ 目录和 sql/dbcfg.sql</li><li>不超过 5000 个文件，总大小不超过 1GB</li></ul>
+        </details>}
     </div>
     <input ref={initialInput} type="file" className="sr-only" aria-label="选择原始组态备份目录" data-testid="upload-initial-input"
       {...{ webkitdirectory: "", directory: "" }} onChange={(event) => selectInitial(event.target.files)} />
@@ -310,40 +329,14 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       <div><dt>原始组态备份</dt><dd>{initial.directory ? initial.directory.rootName : "未选择"}</dd></div>
       <div><dt>本次归档组态</dt><dd>{modified.directory?.rootName ?? "未选择"}</dd></div>
       <div><dt>上传方式</dt><dd>{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}</dd></div>
-    </dl> : <ol className="upload-steps">
-      <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">可选</span>{initial.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
-        <div className="upload-step__body">
-          <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
-          {initial.name && <button className="link-button" onClick={() => selectInitial(null)}>清除</button>}
-          {!initial.directory && <p className="upload-step__summary">{slotSummary(initial)}</p>}
-          {initial.directory && !busy && <DirectorySummary directoryName={initial.directory.rootName} fileCount={initial.directory.files.length} sizeBytes={initial.directory.totalBytes} mainFile={initial.directory.mainFile} />}
-          {initial.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>原始组态备份未通过校验</strong><ul>{initial.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(initial.errors.join("\n"))}>复制错误信息</button></div></div>}
-        </div>
-      </li>
-      <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">2</span><strong>本次归档组态</strong><span className="upload-step__required">必选</span>{modified.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
-        <div className="upload-step__body">
-          <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => modifiedInput.current?.click()}>选择目录</Button>
-          {modified.name && <button className="link-button" onClick={() => selectModified(null)}>清除</button>}
-          {!modified.directory && <p className="upload-step__summary">{slotSummary(modified)}</p>}
-          {modified.directory && !busy && <DirectorySummary directoryName={modified.directory.rootName} fileCount={modified.directory.files.length} sizeBytes={modified.directory.totalBytes} mainFile={modified.directory.mainFile} />}
-          {modified.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>本次归档组态未通过校验（{modified.errors.length} 项）</strong><ul>{modified.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(modified.errors.join("\n"))}>复制错误信息</button></div></div>}
-        </div>
-      </li>
-      <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">3</span><strong>上传</strong></div>
-        <div className="upload-step__body">
-          <Button variant="primary" icon={<Upload size={15} />} disabled={busy || Boolean(occupancyReason)} disabledReason={busy ? "上传进行中" : occupancyReason ?? (!modified.name ? "需先选择本次归档组态目录" : !modified.directory ? "本次归档组态未通过校验" : initial.name && !initial.directory ? "原始组态备份未通过校验" : undefined)} onClick={() => void start()}>上传并生成预览</Button>
-          <p className="upload-step__summary">上传方式：{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}</p>
-          <p className="upload-step__hint">上传完成后自动进入差异浏览。</p>
-        </div>
-      </li>
-    </ol>}
-    {!busy && <details className="upload-rules">
-      <summary>目录要求</summary>
-      <ul><li>只包含一个根目录</li><li>根目录下恰好一个 .pmc 文件</li><li>包含 sql/ 目录和 sql/dbcfg.sql</li><li>不超过 5000 个文件，总大小不超过 1GB</li></ul>
-    </details>}
+    </dl> : <div className="upload-slots">
+      {slotView("initial", "原始组态备份", initial, false, () => initialInput.current?.click(), () => selectInitial(null))}
+      {slotView("modified", "本次归档组态", modified, true, () => modifiedInput.current?.click(), () => selectModified(null))}
+      <div className="upload-submit">
+        <Button variant="primary" icon={<Upload size={15} />} disabled={Boolean(occupancyReason)} disabledReason={occupancyReason ?? (!modified.name ? "需先选择本次归档组态目录" : !modified.directory ? "本次归档组态未通过校验" : initial.name && !initial.directory ? "原始组态备份未通过校验" : undefined)} onClick={() => void start()}>上传并生成预览</Button>
+        <p className="upload-step__hint">上传方式：{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}。完成后自动进入差异浏览。</p>
+      </div>
+    </div>}
     {busy && <div className="upload-progress">
       <OperationStatus title="上传中" phases={phases} />
       {operation?.status === "MANUAL_RECOVERY_REQUIRED" && <div role="alert" className="form-warning form-warning--stacked" title={`操作 ID：${operation.operation_id}`}><span>操作需要管理员处理。</span><span>操作 ID：<code>{operation.operation_id}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operation.operation_id)}>复制 ID</button></span><span>系统仍在查询状态，刷新页面后会继续跟随。</span></div>}

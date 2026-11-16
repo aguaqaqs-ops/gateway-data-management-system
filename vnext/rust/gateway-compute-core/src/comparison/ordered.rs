@@ -158,6 +158,8 @@ pub struct OrderedRecordRef {
     pub row_identity: String,
     pub before_position: Option<i64>,
     pub current_position: Option<i64>,
+    /// Before-side row occupying the same nonblank slot between backbone anchors.
+    pub replacement_before: Option<(String, i64)>,
     pub before: Option<RowLocation>,
     pub current: Option<RowLocation>,
     pub value_columns: Vec<String>,
@@ -325,6 +327,7 @@ pub struct OrderedRecord {
     pub row_identity: String,
     pub before_position: Option<i64>,
     pub current_position: Option<i64>,
+    pub replacement_before: Option<(String, i64)>,
     pub changed_columns: Vec<String>,
     pub before_values: Vec<CanonicalValue>,
     pub current_values: Vec<CanonicalValue>,
@@ -768,7 +771,14 @@ fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, Ordered
                 .iter()
                 .chain(&record.changed_columns)
                 .try_fold(
-                    total.checked_add(record.row_identity.capacity())?,
+                    total
+                        .checked_add(record.row_identity.capacity())?
+                        .checked_add(
+                            record
+                                .replacement_before
+                                .as_ref()
+                                .map_or(0, |(identity, _)| identity.capacity()),
+                        )?,
                     |sum, text| sum.checked_add(text.capacity()),
                 )?
                 .checked_add(
@@ -996,6 +1006,44 @@ fn compare_ordered_table_inner(
             moved_keys.push(key.clone());
         }
     }
+    let replacement_before = if !options.include_add_delete_records
+        || added_keys.is_empty()
+        || deleted_keys.is_empty()
+    {
+        HashMap::new()
+    } else {
+        if let Some(lease) = lease.as_deref_mut() {
+            let bytes = backbone
+                .len()
+                .checked_add(1)
+                .and_then(|gaps| gaps.checked_mul(64))
+                .and_then(|base| {
+                    added_keys
+                        .len()
+                        .checked_add(deleted_keys.len())
+                        .and_then(|changed| changed.checked_mul(32))
+                        .and_then(|changed_bytes| base.checked_add(changed_bytes))
+                })
+                .and_then(|base| {
+                    added_keys
+                        .len()
+                        .min(deleted_keys.len())
+                        .checked_mul(160)
+                        .and_then(|pair_bytes| base.checked_add(pair_bytes))
+                })
+                .and_then(|base| base.checked_add(4096))
+                .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+            lease.grow(bytes)?;
+        }
+        replacement_slots(
+            &before.rows,
+            &current.rows,
+            &backbone,
+            &before_real,
+            &current_real,
+            context,
+        )?
+    };
     let mut position_changed_keys = HashSet::new();
     for (index, key) in backbone.iter().enumerate() {
         if index % 1024 == 0 {
@@ -1037,6 +1085,7 @@ fn compare_ordered_table_inner(
                     row_identity: identity,
                     before_position: None,
                     current_position: Some(row.position),
+                    replacement_before: replacement_before.get(key).cloned(),
                     before: None,
                     current: Some(row.location),
                     value_columns: value_columns.clone(),
@@ -1059,6 +1108,7 @@ fn compare_ordered_table_inner(
                     row_identity: row.stable_identity.as_deref(),
                     before_position: None,
                     current_position: Some(row.position),
+                    replacement_before: replacement_before.get(key).cloned(),
                     changed_columns: Vec::new(),
                     before_values: Vec::new(),
                     current_values: values(row, &value_columns),
@@ -1092,6 +1142,7 @@ fn compare_ordered_table_inner(
                     row_identity: identity,
                     before_position: Some(row.position),
                     current_position: None,
+                    replacement_before: None,
                     before: Some(row.location),
                     current: None,
                     value_columns: value_columns.clone(),
@@ -1114,6 +1165,7 @@ fn compare_ordered_table_inner(
                     row_identity: row.stable_identity.as_deref(),
                     before_position: Some(row.position),
                     current_position: None,
+                    replacement_before: None,
                     changed_columns: Vec::new(),
                     before_values: values(row, &value_columns),
                     current_values: Vec::new(),
@@ -1150,6 +1202,7 @@ fn compare_ordered_table_inner(
                 row_identity: identity.to_string(),
                 before_position: Some(before_row.position),
                 current_position: Some(current_row.position),
+                replacement_before: None,
                 before: Some(before_row.location),
                 current: Some(current_row.location),
                 value_columns: changed_columns.clone(),
@@ -1196,6 +1249,7 @@ fn compare_ordered_table_inner(
                 row_identity: Some(identity),
                 before_position: Some(before_row.position),
                 current_position: Some(current_row.position),
+                replacement_before: None,
                 changed_columns: changed_columns.clone(),
                 before_values,
                 current_values,
@@ -1221,6 +1275,7 @@ fn compare_ordered_table_inner(
                     .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?,
                 before_position: Some(before_row.position),
                 current_position: Some(current_row.position),
+                replacement_before: None,
                 before: Some(before_row.location),
                 current: Some(current_row.location),
                 value_columns: Vec::new(),
@@ -1234,6 +1289,7 @@ fn compare_ordered_table_inner(
                 row_identity: before_row.stable_identity.as_deref(),
                 before_position: Some(before_row.position),
                 current_position: Some(current_row.position),
+                replacement_before: None,
                 changed_columns: Vec::new(),
                 before_values: Vec::new(),
                 current_values: Vec::new(),
@@ -1328,7 +1384,8 @@ fn compare_ordered_table_inner(
         &digest_value_columns,
         context,
     )?);
-    let content_changed = status == "UNCHANGED"
+    let content_changed = (status == "UNCHANGED"
+        || (status == "SCHEMA_ONLY_CHANGED" && options.columns_added))
         && if options.columns_added {
             options
                 .compare_excluded_columns
@@ -1607,6 +1664,62 @@ fn real_index(
     Ok(result)
 }
 
+/// Match changed real rows by their ordinal slot between the same two backbone
+/// rows. Blank rows are transparent, so inserting any number before a patch
+/// cannot change its replacement partners.
+fn replacement_slots(
+    before: &[OrderedRow],
+    current: &[OrderedRow],
+    backbone: &HashSet<Vec<u8>>,
+    before_real: &BTreeMap<Vec<u8>, usize>,
+    current_real: &BTreeMap<Vec<u8>, usize>,
+    context: Option<&KernelContext>,
+) -> Result<HashMap<Vec<u8>, (String, i64)>, OrderedCompareError> {
+    let gap_count = backbone.len() + 1;
+    let mut deleted = vec![Vec::<usize>::new(); gap_count];
+    let mut added = vec![Vec::<usize>::new(); gap_count];
+    let mut ambiguous = vec![false; gap_count];
+    for (rows, other, groups) in [
+        (before, current_real, &mut deleted),
+        (current, before_real, &mut added),
+    ] {
+        let mut gap = 0;
+        for (index, row) in rows.iter().enumerate() {
+            if index % 1024 == 0 {
+                check_context(context)?;
+            }
+            let Some(key) = row.stable_key.as_ref() else {
+                continue;
+            };
+            if backbone.contains(key) {
+                gap += 1;
+            } else if other.contains_key(key) {
+                ambiguous[gap] = true; // a moved row crosses this interval
+            } else {
+                groups[gap].push(index);
+            }
+        }
+    }
+    let mut partners = HashMap::new();
+    for gap in 0..gap_count {
+        check_context(context)?;
+        if ambiguous[gap] || deleted[gap].len() != added[gap].len() {
+            continue;
+        }
+        for (old_index, new_index) in deleted[gap].iter().zip(&added[gap]) {
+            let old = &before[*old_index];
+            let new = &current[*new_index];
+            let (Some(new_key), Some(old_identity)) =
+                (new.stable_key.as_ref(), old.stable_identity.as_ref())
+            else {
+                return Err(OrderedCompareError::new("ROW_IDENTITY_MISSING"));
+            };
+            partners.insert(new_key.clone(), (old_identity.clone(), old.position));
+        }
+    }
+    Ok(partners)
+}
+
 fn reserve_locator(
     lease: Option<&mut KernelLease>,
     standard_columns: &[String],
@@ -1657,6 +1770,7 @@ struct OrderedRecordSpec<'a> {
     row_identity: Option<&'a str>,
     before_position: Option<i64>,
     current_position: Option<i64>,
+    replacement_before: Option<(String, i64)>,
     changed_columns: Vec<String>,
     before_values: Vec<CanonicalValue>,
     current_values: Vec<CanonicalValue>,
@@ -1674,6 +1788,7 @@ fn ordered_record(spec: OrderedRecordSpec<'_>) -> Result<OrderedRecord, OrderedC
             .to_string(),
         before_position: spec.before_position,
         current_position: spec.current_position,
+        replacement_before: spec.replacement_before,
         changed_columns: spec.changed_columns,
         before_values: spec.before_values,
         current_values: spec.current_values,

@@ -37,12 +37,16 @@ from gateway_backend.capabilities.table_rules.contracts import (
     table_ruleset_from_document,
 )
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.channel import (
+    ChannelTableName, is_ordered_reference_table, parse_channel_table_name,
+)
 
 
 def resolve_table_rule(
     snapshot: TableRulesetSnapshot,
     table_name: str,
     *,
+    table_comment: str | None,
     primary_key_columns: tuple[str, ...] = (),
 ) -> ResolvedTableRule:
     from gateway_backend.capabilities.table_rules.resolver import (
@@ -51,6 +55,7 @@ def resolve_table_rule(
     return resolve_against_snapshot(
         snapshot,
         table_name,
+        table_comment=table_comment,
         primary_key_columns=primary_key_columns,
     )
 
@@ -67,16 +72,20 @@ def resolve_comparison_rule_view(
     rule_set: ComparisonRuleSet,
     table_name: str,
     *,
+    table_comment: str | None,
     primary_key_columns: tuple[str, ...] = (),
 ) -> ComparisonRuleView | None:
     from gateway_backend.capabilities.table_rules.resolver import (
         resolve_comparison_rule_view as resolve_view,
     )
 
-    return resolve_view(rule_set, table_name, primary_key_columns=primary_key_columns)
+    return resolve_view(rule_set, table_name, table_comment=table_comment, primary_key_columns=primary_key_columns)
 
 
 __all__ = [
+    "ChannelTableName",
+    "is_ordered_reference_table",
+    "parse_channel_table_name",
     "FALLBACK_SELECTOR_VALUE",
     "ORDERED_IDENTITY_COLUMN",
     "ORDERED_POSITION_COLUMN",

@@ -51,7 +51,7 @@ from tests.support.storage_projection import (
     varchar_cell,
     varchar_column,
 )
-from tests.support.table_rules import net_cfg_record
+from tests.support.table_rules import CONFIGURATION_TABLE_NAMES, net_cfg_record
 
 pytestmark = pytest.mark.unit
 
@@ -735,3 +735,53 @@ def test_device_cfg_keeps_strict_ddl_primary_key_requirement() -> None:
 
     assert result.status is ProjectionStatus.FAILED
     assert ProjectionDiagnosticCode.KEY_MISSING in _codes(result)
+
+
+@pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
+@pytest.mark.parametrize("storage_key", ((), ("id",)))
+def test_configuration_projection_preserves_storage_key_and_duplicate_comparison_keys(
+    table_name: str, storage_key: tuple[str, ...],
+) -> None:
+    rows = (as_row(int_cell(1), int_cell(7), int_cell(1), varchar_cell("a")),
+            as_row(int_cell(2), int_cell(7), int_cell(1), varchar_cell("b")))
+    result = project_storage(_request(table_input(
+        table_name, columns=(int_column("id"), int_column("page_no"), int_column("no"),
+                             varchar_column("value")),
+        primary_key_columns=storage_key, rows=rows,
+    )))
+    assert result.status is ProjectionStatus.COMPLETE
+    assert result.import_input is not None
+    projected, = result.import_input.tables
+    assert projected.primary_key == storage_key
+    assert projected.row_count == 2
+    assert result.tables[0].storage_view.retained_columns == ("id", "page_no", "no", "value")
+
+
+@pytest.mark.parametrize("fault", ("missing", "null", "empty"))
+def test_configuration_projection_does_not_validate_comparison_key(fault: str) -> None:
+    name = "other" if fault == "missing" else "page_no"
+    value = null_cell() if fault == "null" else varchar_cell("")
+    result = project_storage(_request(table_input(
+        "iec104_cfg", columns=(int_column("id"), varchar_column(name, nullable=True), int_column("no")),
+        primary_key_columns=("id",), rows=(as_row(int_cell(1), value, int_cell(1)),),
+    )))
+    assert result.status is ProjectionStatus.COMPLETE
+
+
+@pytest.mark.parametrize("fault,code", (
+    ("duplicate", ProjectionDiagnosticCode.KEY_DUPLICATE),
+    ("null", ProjectionDiagnosticCode.KEY_NULL),
+    ("missing", ProjectionDiagnosticCode.KEY_MISSING),
+))
+def test_configuration_invalid_ddl_storage_key_still_fails(
+    fault: str, code: ProjectionDiagnosticCode,
+) -> None:
+    rows = ((as_row(int_cell(1), int_cell(1), int_cell(1)),
+             as_row(int_cell(1), int_cell(2), int_cell(1))) if fault == "duplicate" else
+            (as_row(null_cell(), int_cell(1), int_cell(1)),))
+    result = project_storage(_request(table_input(
+        "iec104_cfg", columns=(int_column("id", nullable=True), int_column("page_no"), int_column("no")),
+        primary_key_columns=("unknown",) if fault == "missing" else ("id",), rows=rows,
+    )))
+    assert result.status is ProjectionStatus.FAILED
+    assert code in _codes(result)

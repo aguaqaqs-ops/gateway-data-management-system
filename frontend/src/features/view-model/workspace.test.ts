@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../api/generated/openapi";
 import { HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, WORKSPACE_RESPONSE } from "../dev/mock-data";
-import { buildWorkspaceTree, deriveWorkbenchActions, sortWorkspaceTreeRows } from "./workspace";
+import { buildWorkspaceTree, compareToggle, deriveWorkbenchActions, sortWorkspaceTreeRows } from "./workspace";
 
 describe("formal workbench tree and contextual actions", () => {
   const history = {
@@ -25,43 +25,54 @@ describe("formal workbench tree and contextual actions", () => {
     expect(rows.find((row) => row.refId === "fe2a-history-ref-1")?.hasChildren).toBe(true);
   });
 
-  it("shows workspace actions and gates upload on card readiness", () => {
-    const workspace = buildWorkspaceTree(WORKSPACE_RESPONSE, history).find((row) => row.kind === "workspace") ?? null;
-    expect(deriveWorkbenchActions(workspace, 0, false)).toEqual([
-      { id: "original-backup", label: "原始组态备份", enabled: true, reason: null },
-      { id: "current-archive", label: "本次归档组态", enabled: true, reason: null },
-      { id: "upload", label: "上传", enabled: true, reason: null },
-    ]);
-    const beforePreview = buildWorkspaceTree({ ...WORKSPACE_RESPONSE, current_preview_result_id: null }, history).find((row) => row.kind === "workspace") ?? null;
+  it("offers the workspace Preview only before Submit and points to the submission after it", () => {
+    const workspaceRow = (overrides: Partial<components["schemas"]["WorkspaceResponse"]>) => buildWorkspaceTree({ ...WORKSPACE_RESPONSE, ...overrides } as components["schemas"]["WorkspaceResponse"], history).find((row) => row.kind === "workspace") ?? null;
+    const previewed = workspaceRow({ active_submission_id: null, active_submit_attempt_id: null });
+    expect(previewed?.status).toBe("可提交");
+    expect(deriveWorkbenchActions(previewed)).toEqual([{ id: "continue-preview", label: "继续预览并提交", enabled: true, reason: null }]);
+    // The backend keeps the Preview pointer until review; the submission wins.
+    const submitted = workspaceRow({ active_submission_id: "submission-1" });
+    expect(submitted).toMatchObject({ status: "已提交·待审核", statusTone: "pending", activeSubmissionId: "submission-1" });
+    expect(deriveWorkbenchActions(submitted)).toEqual([{ id: "open-submission", label: "转到提交", enabled: true, reason: null }]);
+    const beforePreview = workspaceRow({ current_preview_result_id: null, active_submission_id: null });
     expect(beforePreview?.status).toBe("已上传");
-    expect(deriveWorkbenchActions(beforePreview, 0, false).slice(0, 2).every((action) => action.enabled)).toBe(true);
-    const closed = buildWorkspaceTree({ ...WORKSPACE_RESPONSE, state: "CLOSED" }, history).find((row) => row.kind === "workspace") ?? null;
-    expect(deriveWorkbenchActions(closed, 0, false).slice(0, 2).every((action) => !action.enabled && action.reason?.includes("工作区已关闭"))).toBe(true);
+    expect(deriveWorkbenchActions(beforePreview)).toEqual([]);
+    expect(deriveWorkbenchActions(workspaceRow({ state: "CLOSED" }))).toEqual([]);
   });
 
-  it("offers compare on baselines and caps it at three selected nodes", () => {
+  it("offers the compare checkbox on baselines and submissions and caps it at three nodes", () => {
     const rows = buildWorkspaceTree(WORKSPACE_RESPONSE, history);
-    const baseline = rows.find((row) => row.kind === "baseline" && row.refId === "fe2a-history-ref-1") ?? null;
-    expect(deriveWorkbenchActions(baseline, 0, false)).toEqual([{ id: "join-compare", label: "加入比较", enabled: true, reason: null }]);
-    expect(deriveWorkbenchActions(baseline, 3, false)[0]).toMatchObject({ enabled: false, reason: "比较托盘最多选择 3 个节点" });
-    expect(deriveWorkbenchActions(baseline, 1, true)[0]).toMatchObject({ id: "remove-compare", enabled: true });
+    const baseline = rows.find((row) => row.kind === "baseline" && row.refId === "fe2a-history-ref-1")!;
+    const workspace = rows.find((row) => row.kind === "workspace")!;
+    expect(deriveWorkbenchActions(baseline)).toEqual([]);
+    expect(compareToggle(baseline, 0, false)).toEqual({ available: true, enabled: true, reason: null });
+    expect(compareToggle(baseline, 3, false)).toEqual({ available: true, enabled: false, reason: "比较托盘最多选择 3 个节点" });
+    expect(compareToggle(baseline, 3, true)).toMatchObject({ enabled: true });
+    expect(compareToggle(baseline, 1, false, true)).toMatchObject({ enabled: false, reason: "历史比较执行中，暂不能调整比较节点" });
+    expect(compareToggle(workspace, 0, false).available).toBe(false);
   });
 
-  it("shows submission review and archive eligibility with explicit disabled reasons", () => {
+  it("separates the submission-time diff, review and parent History compare on a submission", () => {
     const rows = buildWorkspaceTree(WORKSPACE_RESPONSE, history);
     const pending = rows.find((row) => row.refId === "fe2a-history-ref-2") ?? null;
     const stale = rows.find((row) => row.eligibilityNote) ?? null;
-    expect(deriveWorkbenchActions(pending, 0, false)).toEqual([
-      { id: "view-diff", label: "查看差异", enabled: true, reason: null },
-      { id: "join-compare", label: "加入比较", enabled: true, reason: null },
+    expect(deriveWorkbenchActions(pending)).toEqual([
+      { id: "view-submission-diff", label: "查看提交时差异", enabled: true, reason: null },
+      { id: "open-review", label: "去审核", enabled: true, reason: null },
+      { id: "compare-parent", label: "比较父节点 → 此提交", enabled: true, reason: null },
       { id: "archive-mainline", label: "归档主线", enabled: false, reason: "提交尚未审核通过" },
     ]);
-    expect(deriveWorkbenchActions(pending, 3, false).find((action) => action.id === "join-compare"))
-      .toMatchObject({ enabled: false, reason: "比较托盘最多选择 3 个节点" });
-    expect(deriveWorkbenchActions(stale, 0, false).find((action) => action.id === "archive-mainline"))
+    expect(deriveWorkbenchActions(pending, true).find((action) => action.id === "compare-parent"))
+      .toMatchObject({ enabled: false, reason: "历史比较执行中，暂不能发起新比较" });
+    expect(deriveWorkbenchActions(pending, true).find((action) => action.id === "view-submission-diff"))
+      .toMatchObject({ enabled: true });
+    const approved = { ...pending!, reviewStatus: "APPROVED" as const };
+    expect(deriveWorkbenchActions(approved).map((action) => action.id)).not.toContain("open-review");
+    expect(compareToggle(pending!, 3, false)).toMatchObject({ enabled: false, reason: "比较托盘最多选择 3 个节点" });
+    expect(deriveWorkbenchActions(stale).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已归档" });
     const eligible = { ...pending!, reviewStatus: "APPROVED" as const, eligibilityNote: null };
-    expect(deriveWorkbenchActions(eligible, 0, false).find((action) => action.id === "archive-mainline"))
+    expect(deriveWorkbenchActions(eligible).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: true, reason: null });
   });
 
@@ -128,20 +139,20 @@ describe("formal workbench tree and contextual actions", () => {
     const rows = buildWorkspaceTree(WORKSPACE_RESPONSE, customHistory);
     const archived = rows.find((row) => row.refId === archivedNode.ref_id)!;
     expect(archived).toMatchObject({ status: "已归档", statusTone: "info", submissionDisposition: "ARCHIVED_BASELINE" });
-    expect(deriveWorkbenchActions(archived, 0, false).find((action) => action.id === "archive-mainline"))
+    expect(deriveWorkbenchActions(archived).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已归档" });
     const closed = rows.find((row) => row.refId === closedAtArchive.ref_id)!;
-    expect(deriveWorkbenchActions(closed, 0, false).find((action) => action.id === "archive-mainline"))
+    expect(deriveWorkbenchActions(closed).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已关闭（未归档）" });
     const manual = rows.find((row) => row.refId === manualClose.ref_id)!;
     expect(manual.closure).toMatchObject({ closed_by: "owner-1", reason: "有理由关闭" });
-    expect(deriveWorkbenchActions(manual, 0, false).find((action) => action.id === "archive-mainline"))
+    expect(deriveWorkbenchActions(manual).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交已关闭（未归档）" });
     const flagOnly = { ...approved, ref_id: "fe2a-history-ref-d5", commit_id: "commit-d5", submission_disposition: null, disposition_source_kind: null, disposition_result_id: null, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" as const };
     const flagHistory = { ...history, nodes: [flagOnly, ...HISTORY_PAGE_ONE.nodes] } satisfies components["schemas"]["HistoryListResponse"];
     const flagRow = buildWorkspaceTree(WORKSPACE_RESPONSE, flagHistory).find((row) => row.refId === flagOnly.ref_id)!;
     expect(flagRow).toMatchObject({ status: "已通过", eligibilityNote: "NOT_CANDIDATE_BASE_ADVANCED", submissionDisposition: null });
-    expect(deriveWorkbenchActions(flagRow, 0, false).find((action) => action.id === "archive-mainline"))
+    expect(deriveWorkbenchActions(flagRow).find((action) => action.id === "archive-mainline"))
       .toMatchObject({ enabled: false, reason: "该提交所基于的基线已不是当前基线" });
   });
 

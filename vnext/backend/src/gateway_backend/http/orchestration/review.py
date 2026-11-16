@@ -14,6 +14,8 @@ from gateway_backend.domain.submission.review import ReviewAction, validate_revi
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 from gateway_backend.http.errors import ApiError
+from gateway_backend.http.dependencies import WorkspaceHttpDependencies
+from gateway_backend.domain.workspace.models import PreviewResult
 from gateway_backend.http.schemas.review import (
     ApplyReviewRequest,
     ReviewAppliedResponse,
@@ -96,3 +98,28 @@ def get_review_facts_operation(
         unit_of_work_factory=unit_of_work_factory,
     )
     return review_facts_to_response(facts)
+
+
+def read_submission_result_operation(
+    *, context: IdentityContext, submission_id: str, deps: WorkspaceHttpDependencies,
+) -> PreviewResult:
+    from gateway_backend.application.submission.review_result import (
+        load_preview_review_closure, read_submission_preview,
+    )
+    from gateway_backend.artifacts.store import ArtifactUnavailableError, ManifestVerificationError
+
+    try:
+        read = read_submission_preview(context=context, submission_id=submission_id,
+            scope_resolution=deps.scope_resolution,
+            unit_of_work_factory=deps.review_unit_of_work_factory)
+        refs = load_preview_review_closure(read.preview,
+            lookup=deps.artifact_ref_lookup, store=deps.artifact_store)
+        if refs[0] != read.ready_ref or not {ref.artifact_id for ref in refs}.issubset(read.protected_artifact_ids):
+            raise ValueError("Submission exact review closure differs from accepted inputs")
+        return read.preview
+    except ArtifactUnavailableError:
+        raise ApiError(code="SUBMISSION_RESULT_UNAVAILABLE", message="submission result is unavailable",
+            status_code=503) from None
+    except (ManifestVerificationError, ValueError, TypeError, KeyError):
+        raise ApiError(code="SUBMISSION_RESULT_INTEGRITY_FAILURE",
+            message="submission result failed integrity verification", status_code=503) from None

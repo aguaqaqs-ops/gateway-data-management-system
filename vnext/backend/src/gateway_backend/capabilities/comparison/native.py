@@ -7,7 +7,7 @@ logical-content validation; raw artifact identity stays with the store.
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 from gateway_shared_kernel import DigestRef
 
 import pyarrow as pa
@@ -31,7 +31,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ReplayGuarantee, SchemaEvolution, TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.row_encoding import (
-    _schema_changes_from_view, _schema_diagnostics, _ignored_values_changed,
+    _schema_changes_from_view, _schema_diagnostics, _ignored_values_changed, _pure_column_change,
 )
 
 
@@ -63,7 +63,7 @@ class ComparisonRecordsHandle(Protocol):
     def table_fact_digest(self, metadata_json: str, max_jcs_row_bytes: int) -> str: ...
     def family_summary(self, family: str) -> tuple[int, str]: ...
     def record_batches(self, family: str) -> pa.RecordBatchReader: ...
-    def risk_record_batches(self) -> pa.RecordBatchReader: ...
+    def risk_record_batches(self, family: str = "STANDARD") -> pa.RecordBatchReader: ...
     def is_sealed(self) -> bool: ...
     def close(self) -> None: ...
 
@@ -196,6 +196,7 @@ def restore_table_cache(
     operation: ComparisonOperation, *, table_name: str, kind: str, metadata_json: str,
     detail_policy: str, family_names: list[str], facts: list[pa.RecordBatchReader],
     artifacts: list[pa.RecordBatchReader], risk: pa.RecordBatchReader,
+    ordered_risk: pa.RecordBatchReader, blank_risk: pa.RecordBatchReader,
     input_owner_charge: object, max_records: int, max_row_bytes: int, max_input_bytes: int,
 ) -> ComparisonRecordsHandle:
     """Restore complete neutral Arrow views under the caller's active M phase."""
@@ -208,7 +209,7 @@ def restore_table_cache(
         operation.require_operation(id(context.memory))
         handle = cast(ComparisonRecordsHandle, _restore_comparison_table_native(
             operation, id(context.memory), table_name, kind, metadata_json, detail_policy, family_names, facts,
-            artifacts, risk, max_records, max_row_bytes, max_input_bytes, input_owner_charge,
+            artifacts, risk, ordered_risk, blank_risk, max_records, max_row_bytes, max_input_bytes, input_owner_charge,
         ))
         context.checkpoint()
         return handle
@@ -278,6 +279,10 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     assert before is not None and current is not None and policy is not None
     data: dict[str, Any] = json.loads(handle.metadata_json())
     changes = _schema_changes_from_view(schema, policy)
+    equality: Literal["NATIVE_SHARED_VALUES"] | None = ("NATIVE_SHARED_VALUES" if _pure_column_change(schema)
+        and schema.before_key and not schema.key_invalid
+        and not any(data[name] for name in ("row_added_count", "row_deleted_count", "row_modified_count"))
+        and not data.get("ignored_shared_content_changed", data.get("content_changed", False)) else None)
     if policy.ordered_policy is not None:
         return ComparisonTableFact(
             table_name=task.table_name, status=ComparisonTableStatus(data["status"]),
@@ -289,6 +294,7 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
             suppressed_added_count=data["suppressed_added_count"],
             suppressed_deleted_count=data["suppressed_deleted_count"],
             diagnostics=tuple(data["diagnostics"]), content_changed=data["content_changed"],
+            shared_value_equality=equality,
             ordered_extension=_ordered_extension(data["ordered_extension"]),
             blank_extension=_blank_extension(data["blank_extension"]),
         )
@@ -304,8 +310,11 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     if (count == 0 and not diagnostics and
             (not is_keyless or not changed_rows)):
         content_changed = (data["ignored_shared_content_changed"] if
-            changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else
+            (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED or _pure_column_change(schema)) else
             _ignored_values_changed(before, current, policy))
+        from gateway_backend.capabilities.table_rules.contracts import BUSINESS_SEQUENCE_COLUMNS
+        if policy.compare_excluded_columns == (BUSINESS_SEQUENCE_COLUMNS.get(task.table_name),):
+            content_changed = False
     return ComparisonTableFact(
         table_name=task.table_name, status=status,
         before_descriptor=before, current_descriptor=current,
@@ -315,5 +324,5 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
         row_modified_count=data["row_modified_count"],
         suppressed_added_count=data["suppressed_added_count"],
         suppressed_deleted_count=data["suppressed_deleted_count"],
-        diagnostics=diagnostics, content_changed=content_changed,
+        diagnostics=diagnostics, content_changed=content_changed, shared_value_equality=equality,
     )

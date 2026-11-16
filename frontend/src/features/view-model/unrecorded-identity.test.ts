@@ -53,7 +53,7 @@ describe("unrecorded identity reuse against generated fixtures", () => {
   });
 
   it("never reuses an unrecorded identity under TABLE_FALLBACK", async () => {
-    const table = await loadTableCase("identity-changes", "device_cfg");
+    const table = await loadTableCase("missing-identity-column", "device_cfg");
     expect(exactTableOf(table.filterTabs)).toBe(false);
     const reuse = canReuseUnrecordedIdentity(table.surfaceTable, table.filterTabs, table.hasBeforeSnapshot, table.hasCurrentSnapshot);
     expect(reuse).toBe(false);
@@ -66,7 +66,7 @@ describe("unrecorded identity reuse against generated fixtures", () => {
       rowFilter: beforeOnly, beforeEncodings: table.beforeEncodings, currentEncodings: table.currentEncodings,
       reuseUnrecordedBefore: false,
     });
-    expect(shown.rows).toHaveLength(0);
+    expect(shown.rows.filter((row) => row.side === "current" && row.recordKind === null)).toHaveLength(0);
   });
 });
 

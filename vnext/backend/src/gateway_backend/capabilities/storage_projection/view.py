@@ -9,6 +9,7 @@ from gateway_backend.capabilities.storage_projection._digest import compute_stor
 from gateway_backend.capabilities.storage_projection.contracts import ProjectionDiagnosticCode
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
+    OrderedPolicy,
     StorageRuleView,
     TableRuleRecord,
     TableStaticRole,
@@ -37,7 +38,13 @@ def derive_storage_rule_view(
         for column in descriptor.columns
         if canonicalize_rule_identifier(column.name) not in dropped_names
     )
-    policy = record.canonical_key_policy
+    descriptor_names = {
+        canonicalize_rule_identifier(column.name) for column in descriptor.columns
+    }
+    missing_ordered_columns = (record.ordered_policy is OrderedPolicy.GID_NO_V1
+                               and not {"gid", "no"} <= descriptor_names)
+    policy = (CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+              if missing_ordered_columns else record.canonical_key_policy)
     if policy is CanonicalKeyPolicy.EXPLICIT:
         key_columns = record.compare_key_columns
     elif policy in {
@@ -54,9 +61,6 @@ def derive_storage_rule_view(
             ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
             "canonical key policy is not supported",
         )
-    descriptor_names = {
-        canonicalize_rule_identifier(column.name) for column in descriptor.columns
-    }
     retained_names = set(retained)
     if policy is CanonicalKeyPolicy.EXPLICIT_KEYLESS or (
         policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS and not key_columns
@@ -79,9 +83,9 @@ def derive_storage_rule_view(
     view = StorageRuleView(
         canonical_table=descriptor.table_name,
         canonical_key_policy=policy,
-        ordered_policy=record.ordered_policy,
+        ordered_policy=OrderedPolicy.NONE if missing_ordered_columns else record.ordered_policy,
         dropped_columns=dropped,
-        structural_columns=record.structural_columns,
+        structural_columns=() if missing_ordered_columns else record.structural_columns,
         retained_columns=retained,
         canonical_key_columns=key_columns,
     )

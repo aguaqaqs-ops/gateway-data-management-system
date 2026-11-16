@@ -134,7 +134,7 @@ class MetadataFixture:
 
 def _fixture() -> MetadataFixture:
     store = MetadataStore()
-    source = SourceArtifactBinding("a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303", "application/gzip", 1, dummy_digest().value)
+    source = SourceArtifactBinding(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"), "application/gzip", 1, dummy_digest().value)
     payload = p.PreviewJobPayload("ws-1", "ur-1", 1, REPO, "node-1", COMMIT, 1,
         InputCompleteness.MODIFIED_ONLY, {SourceArtifactRole.MODIFIED: source},
         {"MODIFIED": source.raw_sha256}, dummy_digest().value, "v1", dummy_digest().value,
@@ -150,7 +150,7 @@ def _fixture() -> MetadataFixture:
         PresentationMetadata().project((t.name, t.retained_columns) for t in canonical_tables))
     manifest = replace(manifest, manifest_digest=compute_manifest_digest(manifest))
     assert manifest.manifest_digest is not None
-    f = MetadataFixture(store, payload, {}, {}, ArtifactRef('a1:durable:8137c58af077cafc2702c843d5e79b85e00bc871674dcc5867a64f36f27f3588', "application/jcs", 0,
+    f = MetadataFixture(store, payload, {}, {}, ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "8137c58af077cafc2702c843d5e79b85e00bc871674dcc5867a64f36f27f3588"), "application/jcs", 0,
         raw_blob_digest(b"")), manifest.manifest_digest)
     f.submission_ref = f.put(durable_manifest_bytes(manifest), CANONICALIZATION_MANIFEST_MEDIA_TYPE)
     tables_digest = canonical_state_digest_of(descriptors)
@@ -161,7 +161,7 @@ def _fixture() -> MetadataFixture:
         repository_id=REPO, repository_ref=COMMIT, resolved_commit_hash=COMMIT)
     facts = make_configuration_facts(modified_digest=tables_digest.value,
         baseline_digest=tables_digest.value, rules_digest=dummy_digest().value,
-        uploaded_initial=False)
+        modified_source=source.artifact_id, uploaded_initial=False)
     modified_context = SnapshotSourceContext(SourceKind.SQL_DUMP_SOURCE,
         sql_source_digest=DigestRef(facts.modified.sql_source_digest or ""))
     storage_facts = tuple(ComparisonStorageFacts(_storage_rule_view(t), dummy_digest(),
@@ -205,7 +205,7 @@ def _fixture() -> MetadataFixture:
                    for t in f.sides[p._SIDE_MODIFIED]["tables"]]})
     canonical = p._CanonicalPreviewMetadata(tables_digest, facts, f.put(closure),
         f.submission_ref, manifest.manifest_digest, None, None, tables_digest, tables_digest,
-        dummy_digest(), False)
+        dummy_digest(), False, True)
     f.state["canonical_preview"] = p._canonical_preview_metadata_to_document(canonical)
     return f
 

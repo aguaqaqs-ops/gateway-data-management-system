@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from gateway_backend.operations.store import OperationQueueFull
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -34,6 +36,10 @@ from gateway_backend.application.submission.errors import (
 from gateway_backend.application.history.errors import (
     HistoryApplicationError,
     HistoryCompareAcceptanceUnavailable,
+    HistoryCompareRequestExpired,
+    HistoryCompareScopeLimit,
+    HistoryCompareAliasLimit,
+    HistoryComparePreflightFailure,
     HistoryCompareBindingConflict,
     HistoryCompareIdempotencyConflict,
     HistoryCompareJobNotRegistered,
@@ -265,6 +271,18 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             message=str(exc),
             status_code=422,
         )
+    if isinstance(exc, OperationQueueFull):
+        return ApiError(code="OPERATION_QUEUE_FULL", message="operation queue is full", status_code=429)
+    if isinstance(exc, HistoryCompareScopeLimit):
+        return ApiError(code="HISTORY_COMPARE_SCOPE_LIMIT", message=str(exc), status_code=409,
+                        details={"operation_ids": list(exc.operation_ids)})
+    if isinstance(exc, HistoryCompareRequestExpired):
+        return ApiError(code="HISTORY_COMPARE_REQUEST_EXPIRED", message=str(exc), status_code=409)
+    if isinstance(exc, HistoryCompareAliasLimit):
+        return ApiError(code="HISTORY_COMPARE_ALIAS_LIMIT", message=str(exc), status_code=429,
+                        details={"operation_id": exc.operation_id})
+    if isinstance(exc, HistoryComparePreflightFailure):
+        return map_domain_exception(exc.cause)
     if isinstance(exc, HistoryCompareNodeNotFound):
         return ApiError(
             code="RESOURCE_NOT_FOUND",
@@ -396,6 +414,12 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(OperationQueueFull)
+    async def operation_queue_full_handler(_request: Request, exc: OperationQueueFull) -> JSONResponse:
+        mapped = map_domain_exception(exc)
+        assert mapped is not None
+        return error_response(code=mapped.code, message=mapped.message, status_code=mapped.status_code)
+
     @app.exception_handler(WorkspaceDomainError)
     async def workspace_domain_error_handler(
         _request: Request,

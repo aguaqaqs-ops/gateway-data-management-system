@@ -6,7 +6,7 @@ from tests.support.surface_navigation import seed_navigation
 
 from tests.support.artifact_layout import open_test_store, make_artifact_layout
 
-from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id, parse_artifact_id
 
 import asyncio
 import hashlib
@@ -146,6 +146,52 @@ def test_prepared_bundle_keeps_original_metadata_and_exact_complete_length(tmp_p
         assert source is not None and source.read() == store.locate(manifest_ref)
 
 
+@pytest.mark.parametrize("independent_destination", (False, True))
+def test_download_reopens_mixed_root_members_and_independent_destination(
+    tmp_path: Path, independent_destination: bool,
+) -> None:
+    source = seed_navigation(open_test_store(tmp_path / "source"))
+    payloads = {location: f"original {location.value} bytes".encode() for location in ArtifactLocation}
+    refs = {
+        location: put_with_built_ref(source, raw,
+            artifact_id=build_artifact_id(location, "test-download", location.value),
+            media_type="application/octet-stream")
+        for location, raw in payloads.items()
+    }
+    destination_root = tmp_path / ("destination" if independent_destination else "source")
+    destination = open_test_store(destination_root) if independent_destination else source
+    result = assemble_bundle(_request((BundlePairInput("pair", 0, 1, _surface_result()),),
+        shared=BundleArtifactClosure(tuple(BundleArtifactBinding(ref, f"shared/{location.value}.bin",
+            BundleArtifactKind.OTHER, shared=True) for location, ref in refs.items()))),
+        source_store=source, destination_store=destination)
+    assert result.status is BundleAssemblyStatus.READY and result.bundle is not None, result.diagnostics
+
+    # A restarted consumer has only the destination's persisted metadata and roots.
+    fresh = open_test_store(destination_root)
+    prepared = prepare_bundle_download(fresh, result.bundle.manifest_ref.artifact_id)
+    try:
+        raw = b"".join(prepared.stream)
+        assert len(raw) == prepared.content_length
+    finally:
+        prepared.close()
+    assert_complete_tar(raw, expected_digest=result.bundle.bundle_digest.value)
+    metadata = read_bundle_transport_metadata(fresh.locate(result.bundle.manifest_ref))
+    by_path = {entry.logical_path: entry.artifact_ref for entry in metadata.entries}
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+        for location, source_ref in refs.items():
+            path = f"shared/{location.value}.bin"
+            final_ref = by_path[path]
+            if location is ArtifactLocation.CANONICAL:
+                assert final_ref != source_ref
+                assert parse_artifact_id(final_ref.artifact_id) is ArtifactLocation.EXPORT
+            else:
+                assert final_ref == source_ref
+            assert fresh.get_ref(final_ref.artifact_id) == final_ref
+            assert fresh.locate(final_ref) == payloads[location]
+            member = archive.extractfile(path)
+            assert member is not None and member.read() == payloads[location]
+
+
 def _publish_document(store: LocalArtifactStore, document: dict[str, object]) -> ArtifactRef:
     semantic = {key: value for key, value in document.items() if key not in {
         "bundle_digest", "closure_manifest_digest", "closure_entries",
@@ -195,7 +241,8 @@ def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     import gateway_backend.application.bundle_download as downloads
     store = seed_navigation(open_test_store(tmp_path))
     data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
-    source = put_with_built_ref(store, data, artifact_id="a1:durable:2fce63a0bc18d79ecd1ce65e765a09e5b7944e80193c7091c61fc9149985cf4f", media_type="application/json")
+    source = put_with_built_ref(store, data, artifact_id=build_artifact_id(ArtifactLocation.DURABLE,
+        "test-download", "business-json"), media_type="application/json")
     result = assemble_bundle(_request(
         (BundlePairInput("pair", 0, 1, _surface_result()),),
         shared=BundleArtifactClosure((BundleArtifactBinding(source, "shared/data.json", kind, shared=True),)),
@@ -256,7 +303,7 @@ def test_preflight_checks_last_member_before_returning_a_stream(tmp_path: Path, 
     with pytest.raises(error):
         prepare_bundle_download(store, manifest_ref.artifact_id)
     # Failed preflight has released the read session even without an iterator.
-    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
+    with store.cleanup_session(build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")) as acquired:
         assert acquired
 
 
@@ -335,7 +382,7 @@ def test_response_send_failure_closes_even_unstarted_stream(tmp_path: Path, fail
     scope = {"type": "http", "asgi": {"spec_version": "2.4"}, "method": "GET"}
     with pytest.raises((OSError, ClientDisconnect)):
         asyncio.run(BundleStreamingResponse(prepared)(scope, receive, send))  # type: ignore[arg-type]
-    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
+    with store.cleanup_session(build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")) as acquired:
         assert acquired
     assert not any(path.name.startswith(".lock") for path in tmp_path.iterdir())
 
@@ -371,5 +418,5 @@ def test_asgi_disconnect_and_task_cancellation_release_read_session(tmp_path: Pa
         else:
             await task
     asyncio.run(scenario())
-    with store.cleanup_session("a1:export:" + "0" * 64) as acquired:
+    with store.cleanup_session(build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")) as acquired:
         assert acquired

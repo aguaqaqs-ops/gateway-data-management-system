@@ -61,7 +61,7 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     "table_access": frozenset({"table_presentation"}),
     "table_rules": frozenset(),
     "table_presentation": frozenset(),
-    "business_navigation": frozenset({"comparison", "risk_evaluation"}),
+    "business_navigation": frozenset({"comparison", "risk_evaluation", "table_rules"}),
     "row_location": frozenset({"comparison", "snapshot_materialization", "business_navigation", "surface_assembly", "table_access"}),
     "source_package_staging": frozenset(),
     "composite_signal": frozenset({"table_access"}),
@@ -69,8 +69,9 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
         {"table_access", "table_rules", "source_package_staging", "composite_signal", "table_presentation"}
     ),
     "storage_projection": frozenset({"table_rules", "snapshot_materialization", "table_presentation"}),
-    "comparison": frozenset({"snapshot_materialization", "table_rules"}),
-    "risk_evaluation": frozenset({"comparison"}),
+    "comparison": frozenset({"snapshot_materialization", "table_rules", "table_presentation"}),
+    # Risk's ordered YK selector consumes Table Rules' public channel parser.
+    "risk_evaluation": frozenset({"comparison", "table_rules"}),
     "surface_assembly": frozenset({"comparison", "risk_evaluation", "snapshot_materialization", "table_presentation"}),
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),

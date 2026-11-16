@@ -55,6 +55,7 @@ def _bound(sql: str) -> BoundSnapshotInput:
     return BoundSnapshotInput(
         result.snapshot, result.summary,
         replace(result.table_set, tables=tuple(tables)),
+        presentation=result.presentation,
     )
 
 

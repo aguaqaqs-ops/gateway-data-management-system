@@ -153,6 +153,10 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_preview_idempotency(workspace_id, idempotency_key)
 
+    def find_active_preview_operation(self, workspace: Workspace) -> str | None:
+        with self._read_uow() as unit_of_work:
+            return unit_of_work.workspace.find_active_preview_operation(workspace)
+
     def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.list_preview_acceptances(workspace_id)
@@ -417,6 +421,7 @@ def prepare_backend_runtime(
         ),
         operator_recovery_port=operator_recovery_port,
         now=lambda: datetime.now(UTC),
+        operation_queue_limit=settings.operation_queue_limit,
     )
     history_http = HistoryHttpDependencies(
         unit_of_work_factory=unit_of_work_factory,
@@ -429,6 +434,9 @@ def prepare_backend_runtime(
         bundle_reader=LocalArtifactBundleReader(local_store),
         comparison_ruleset_digest=comparison_ruleset_digest,
         now=lambda: datetime.now(UTC),
+        history_result_retention_seconds=settings.history_result_retention_seconds,
+        history_scope_active_limit=settings.history_scope_active_limit,
+        operation_queue_limit=settings.operation_queue_limit,
     )
     statistics: BackendStatistics | None = None
     try:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
+
 from gateway_backend.statistics.metrics import bind_scope
 
 from gateway_backend.statistics.metrics import input_shape, timed
@@ -16,7 +18,7 @@ import logging
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import TracebackType
 from typing import ContextManager, cast
 
@@ -39,6 +41,7 @@ from gateway_backend.application.checkpoints import (
 )
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
+    HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     HISTORY_COMPARE_JOB_KIND,
     HistoryCompareDiagnosticCode,
     HistoryCompareNodeBinding,
@@ -155,7 +158,7 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v5"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v6"
 
 _JOB_STATE_SIDES = "sides"
 _JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
@@ -167,11 +170,11 @@ _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
 HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE = "history-compare-materialized-sides"
 HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/materialized-sides/v2"
+    "backend-vnext/history-compare/materialized-sides/v3"
 )
 HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
 HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/assemble-state/v1"
+    "backend-vnext/history-compare/assemble-state/v8"
 )
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(
@@ -590,9 +593,10 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 envelope.job_state,
                 deps.artifact_store,
             )
-            ready_closure_ref = _history_compare_ready_ref(envelope.job_state)
+            ready_closure_ref = history_compare_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_history_bundle_binding(envelope.job_state, closure.artifact_refs())
+            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs(), _assemble_state.get("pair_ids"))
             _pin_history_compare_refs(
                 deps,
                 (
@@ -608,7 +612,8 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
         else:
             assert assembled_result is not None
             assemble_state, bundle_manifest_ref, bundle_digest = assembled_result
-            ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
+            ready_refs = ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs, assemble_state.get("pair_ids"))
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
@@ -717,7 +722,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 "assemble checkpoint does not match the history compare JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        ready_closure_ref = _history_compare_ready_ref(assemble_envelope.job_state)
+        ready_closure_ref = history_compare_ready_ref(assemble_envelope.job_state)
         try:
             deps.artifact_store.locate(ready_closure_ref)
         except ManifestVerificationError as exc:
@@ -736,10 +741,12 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                 ready_closure_ref,
             ).artifact_refs()
             _assert_history_bundle_binding(assemble_envelope.job_state, closure_output_refs)
-            _release_history_compare_step_protection(
-                transaction,
-                operation_id=current_operation.operation_id,
-            )
+            assemble_state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(assemble_envelope.job_state, deps.artifact_store)
+            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), closure_output_refs, assemble_state.get("pair_ids"))
+            acceptance = transaction.history_compare.get_acceptance_by_operation_id(current_operation.operation_id)
+            if acceptance is None:
+                raise HistoryCompareJobError("history compare acceptance is missing")
+            expires_at = transaction_now + timedelta(seconds=acceptance.result_retention_seconds)
             terminal_step = _terminal_step(current_step, transaction_now, status=StepStatus.SUCCEEDED)
             terminal_operation = dataclasses.replace(
                 current_operation,
@@ -754,12 +761,17 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
                     (
                         ready_closure_ref,
                         assemble_checkpoint_ref,
+                        assemble_state_ref,
                         *closure_output_refs,
                     )
                 ),
                 owner_kind="history-compare-operation",
                 owner_id=current_operation.operation_id,
                 intent="history-compare-result",
+                expires_at=expires_at,
+            )
+            _release_history_compare_checkpoint_protection(
+                transaction, operation_id=current_operation.operation_id
             )
             return terminal_step, terminal_operation
 
@@ -820,6 +832,8 @@ def _materialize_distinct_commits(
 
 
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
+    if payload.comparison_contract_version != HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION:
+        raise HistoryCompareRulesetVersionMismatch("frozen comparison contract does not match runtime")
     active_rules = comparison_rule_set(migrated_table_ruleset_snapshot())
     digest = active_rules.ruleset_digest
     if digest is None:
@@ -913,6 +927,11 @@ def _assemble_comparison(
             pair_specs[1][0]: (1, 2),
         }
 
+    presentations = _history_presentations(payload, dependencies) if dependencies is not None else {}
+    if set(presentations) != set(sides):
+        raise HistoryCompareJobError("comparison requires frozen presentation for every commit")
+    sides = {commit: dataclasses.replace(bound, presentation=presentations[commit])
+             for commit, bound in sides.items()}
     dedup_session = declare_pair_comparison_session(tuple(
         ComparisonRequest(pair_id=pair_id, before=sides[before_node.commit_id],
             current=sides[current_node.commit_id], rule_set=rule_set, mode=ComparisonMode.DETAILED)
@@ -920,7 +939,6 @@ def _assemble_comparison(
     ), computation_cache=None if dependencies is None else dependencies.computation_cache,
         cache_owner=CacheOperationOwner("history-compare-operation", operation_id),
         repository_id=payload.repository_id)
-    presentations = _history_presentations(payload, dependencies) if dependencies is not None else {}
     table_exports: dict[str, dict[str, ArtifactRef]] = {}
     try:
         if dependencies is not None:
@@ -940,8 +958,8 @@ def _assemble_comparison(
                 pair_id=pair_id,
                 before=before,
                 current=current,
-                before_presentation=presentations.get(before_node.commit_id, PresentationMetadata()),
-                current_presentation=presentations.get(current_node.commit_id, PresentationMetadata()),
+                before_presentation=presentations[before_node.commit_id],
+                current_presentation=presentations[current_node.commit_id],
                 rule_set=rule_set,
                 store=store,
                 control=control,
@@ -987,6 +1005,8 @@ def _assemble_comparison(
 
         assemble_state: dict[str, object] = {
             "pair_ids": [item.pair_id for item in pair_results],
+            "structure_audit_bindings": [structure_audit_binding(
+                item.pair_id, item.comparison_digest, item.structure_audit_ref) for item in pair_results],
             "pairs": [
                 {
                     "pair_id": pair_state.pair_id,
@@ -1185,8 +1205,8 @@ def _run_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -1307,12 +1327,14 @@ def _required_ready_refs(
         if pair_state.surface_result.surface is None:
             raise HistoryCompareJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
+        if pair_state.structure_audit_ref is not None:
+            refs.append(pair_state.structure_audit_ref)
     refs.append(bundle_manifest_ref)
     refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
 
 
-def _ready_closure_refs_from_assemble(
+def ready_closure_refs_from_assemble(
     assemble_state: dict[str, object],
     bundle_manifest_ref: ArtifactRef,
 ) -> tuple[ArtifactRef, ...]:
@@ -1395,7 +1417,7 @@ def _assert_history_bundle_binding(job_state: Mapping[str, object], refs: tuple[
             code="CHECKPOINT_JOB_STATE_MISMATCH")
 
 
-def _history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
+def history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
     try:
         ready_id = job_state.get(_JOB_STATE_READY_CLOSURE)
         bundle_id = job_state.get(_JOB_STATE_BUNDLE_ARTIFACT)
@@ -1429,7 +1451,7 @@ def history_compare_assemble_state_from_checkpoint(
             "history compare assemble checkpoint fields are invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    _history_compare_ready_ref(job_state)
+    history_compare_ready_ref(job_state)
     raw_ref = job_state.get(_JOB_STATE_ASSEMBLE_REF)
     if type(raw_ref) is not dict:
         raise CheckpointDecodeError(
@@ -1645,7 +1667,7 @@ def _pin_history_compare_refs(
         )
 
 
-def _release_history_compare_step_protection(
+def _release_history_compare_checkpoint_protection(
     unit_of_work: HistoryCompareControlTransaction,
     *,
     operation_id: str,
@@ -1659,6 +1681,12 @@ def _release_history_compare_step_protection(
             owner_kind="history-compare-checkpoint",
             owner_id=history_compare_step_id(operation_id, step_name),
         )
+
+
+def _release_history_compare_step_protection(
+    unit_of_work: HistoryCompareControlTransaction, *, operation_id: str
+) -> None:
+    _release_history_compare_checkpoint_protection(unit_of_work, operation_id=operation_id)
     unit_of_work.clear_artifact_protection(
         owner_kind="history-compare-operation",
         owner_id=operation_id,

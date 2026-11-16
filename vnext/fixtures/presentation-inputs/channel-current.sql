@@ -1,0 +1,18 @@
+CREATE TABLE net_cfg (board INT NOT NULL, link_no INT NOT NULL, exe VARCHAR(40), channel_desc VARCHAR(40), protocol_name VARCHAR(40), PRIMARY KEY (board,link_no));
+INSERT INTO net_cfg VALUES (1,2,'DLL','网络二','网络规约');
+CREATE TABLE com_cfg (`index` INT PRIMARY KEY, board INT, com_no INT, exe VARCHAR(40), channel_desc VARCHAR(40), protocol_name VARCHAR(40)) COMMENT='串口配置';
+INSERT INTO com_cfg VALUES (1,1,2,'stdmdsCOM','串口二','串口规约'),(2,1,3,'unknown','串口三','未知规约');
+CREATE TABLE b1_n2_dll3xx_extra (id INT PRIMARY KEY, value TEXT) COMMENT='网络三';
+INSERT INTO b1_n2_dll3xx_extra VALUES (1,'a');
+CREATE TABLE b1_n2_dll495_extra (id INT PRIMARY KEY, value TEXT) COMMENT='网络四';
+INSERT INTO b1_n2_dll495_extra VALUES (1,'b');
+CREATE TABLE b1_n2_flip (gid INT PRIMARY KEY, no INT, value TEXT) COMMENT='翻转引用表';
+INSERT INTO b1_n2_flip VALUES (1,1,'不变');
+CREATE TABLE b1_c2_stdmds_extra (id INT PRIMARY KEY, value TEXT) COMMENT='串口普通表';
+INSERT INTO b1_c2_stdmds_extra VALUES (1,'c');
+CREATE TABLE b1_c2_ref (gid INT, no INT, value TEXT) COMMENT='串口遥信引用表';
+INSERT INTO b1_c2_ref VALUES (1,1,'d');
+CREATE TABLE b1_c2_short (no INT, value TEXT) COMMENT='缺列引用表';
+INSERT INTO b1_c2_short VALUES (1,'e');
+CREATE TABLE b7_c9_orphan (gid INT, no INT, value TEXT) COMMENT='孤儿引用表';
+INSERT INTO b7_c9_orphan VALUES (1,1,'f');

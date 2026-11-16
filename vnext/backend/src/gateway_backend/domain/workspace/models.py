@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from pydantic import BaseModel, ConfigDict, field_validator
+
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -303,6 +305,7 @@ class PreviewCanonicalBindings:
     baseline_canonical_state_digest: DigestRef
     modified_canonical_state_digest: DigestRef
     storage_projection_ruleset_digest: DigestRef
+    rules_semantically_equal: bool
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -375,6 +378,26 @@ class PreviewIdentityPair:
             raise ValueError("identity mode does not match status")
 
 
+class PreviewComparisonPair(BaseModel):
+    """Frozen identities checked by Submit acceptance and each review read."""
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    pair_id: str
+    before_snapshot_digest: str
+    current_snapshot_digest: str
+    comparison_digest: str
+    risk_digest: str | None
+    surface_digest: str
+    ruleset_digest: str
+    structure_audit_artifact_id: str | None
+
+    @field_validator("structure_audit_artifact_id")
+    @classmethod
+    def valid_audit_id(cls, value: str | None) -> str | None:
+        if value is not None:
+            parse_artifact_id(value)
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class PreviewResult:
     preview_result_id: str
@@ -392,6 +415,7 @@ class PreviewResult:
     canonical: PreviewCanonicalBindings
     identity_assessment_set_digest: DigestRef
     identity_pairs: tuple[PreviewIdentityPair, ...]
+    comparison_pairs: tuple[PreviewComparisonPair, ...]
     bundle_artifact_id: str
     ready_closure_artifact_id: str
     operation_id: str

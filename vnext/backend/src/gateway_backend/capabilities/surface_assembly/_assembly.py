@@ -88,7 +88,9 @@ def assemble_surface(
 
     try:
         checkpoint()
-        facts = request.comparison_facts
+        from gateway_backend.capabilities.comparison import visible_comparison_facts
+
+        facts = visible_comparison_facts(request.comparison_facts)
         if facts.summary.status.value in {"FAILED", "CANCELLED"}:
             raise _AssemblyError(f"COMPARISON_{facts.summary.status.value}")
         if facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT and facts.records_ref is not None:
@@ -353,6 +355,9 @@ def _project_table(
     before_presentation: TablePresentation | None = None,
     current_presentation: TablePresentation | None = None,
 ) -> SurfaceTable:
+    from gateway_backend.capabilities.comparison import visible_table_fact
+
+    table = visible_table_fact(table)
     table_refs = SurfaceTableRefs() if artifact_entry is None else artifact_entry.table_refs
     records = _records_refs(table, records_closure)
     ordered = _ordered_extension(table, records_closure)
@@ -361,10 +366,7 @@ def _project_table(
     change_kind, strategy, processing, replay = _display_projection(
         table, table_refs, records, replacement, ordered_unsupported
     )
-    if table.content_changed and change_kind is SurfaceChangeKind.UNCHANGED:
-        change_kind = SurfaceChangeKind.UPDATED
-    if ordered_unsupported:
-        change_kind = SurfaceChangeKind.DEGRADED
+    change_kind = table_change_kind(table, replacement=replacement)
     display_name = table_display_name(table.table_name, before_presentation, current_presentation)
     before_descriptor = table.before_descriptor
     current_descriptor = table.current_descriptor
@@ -433,6 +435,20 @@ def _project_table(
         replacement_summary=replacement_summary,
         ordered_extension=ordered,
     )
+
+
+def table_change_kind(table: ComparisonTableFact, *, replacement: bool) -> SurfaceChangeKind:
+    """The same business kind for Surface and navigation summaries."""
+    from gateway_backend.capabilities.comparison import visible_table_fact
+
+    table = visible_table_fact(table)
+    unsupported = _ordered_unsupported(table)
+    kind = _display_projection(table, SurfaceTableRefs(), SurfaceRecordsRefs(), replacement, unsupported)[0]
+    if unsupported:
+        return SurfaceChangeKind.DEGRADED
+    if table.content_changed and kind is SurfaceChangeKind.UNCHANGED:
+        return SurfaceChangeKind.UPDATED
+    return kind
 
 
 def _display_projection(

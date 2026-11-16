@@ -135,6 +135,39 @@ def test_start_preview_replays_queued_operation_with_live_clock(tmp_path: Path) 
     assert acceptance.operation_id == first.json()["operation_id"]
 
 
+def test_preview_http_replays_same_key_and_creates_new_key_after_semantic_change(
+    env: WorkspaceHttpTestEnvironment, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    body = _preview_body(workspace, upload)
+    first = env.client.post(url, headers=env.auth_headers(idempotency_key="old-key"), json=body)
+    assert first.status_code == 202, first.text
+    old_id = first.json()["operation_id"]
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as uow:
+        old_payload = uow.operations.get_operation(old_id).job_payload
+    assert old_payload is not None
+    old_capabilities = json.loads(old_payload)["capability_contract_versions"]
+    future_capabilities = {**old_capabilities, "risk_model": "future-risk-model"}
+    monkeypatch.setattr(
+        "gateway_backend.application.workspace.preview.current_preview_capabilities",
+        lambda: future_capabilities,
+    )
+
+    replay = env.client.post(url, headers=env.auth_headers(idempotency_key="old-key"), json=body)
+    fresh = env.client.post(url, headers=env.auth_headers(idempotency_key="new-key"), json=body)
+    assert replay.status_code == 202, replay.text
+    assert replay.json()["operation_id"] == old_id
+    assert fresh.status_code == 202, fresh.text
+    assert fresh.json()["operation_id"] != old_id
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as uow:
+        original = uow.operations.get_operation(old_id)
+        new_operation = uow.operations.get_operation(fresh.json()["operation_id"])
+    assert original.job_payload == old_payload
+    assert new_operation.job_payload is not None
+    assert json.loads(new_operation.job_payload)["capability_contract_versions"] == future_capabilities
+
+
 def test_start_preview_rejects_unknown_options_keys(env: WorkspaceHttpTestEnvironment) -> None:
     workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
     body = _preview_body(workspace, upload)
@@ -224,3 +257,82 @@ def test_start_preview_replays_after_new_upload_generation(
     )
     assert conflict.status_code == 409
     assert conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def test_workspace_recommends_latest_active_preview_for_current_input(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    workspace_url = "/v1/workspaces"
+    scope = {"gateway_device_external_key": "device-1", "business_project_id": "project-1"}
+
+    def recommendation() -> str | None:
+        response = env.client.post(workspace_url, headers=env.auth_headers(), json=scope)
+        assert response.status_code == 200
+        return response.json()["active_preview_operation_id"]  # type: ignore[no-any-return]
+
+    assert recommendation() is None
+    url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    ids = []
+    for key in ("preview-first", "preview-second"):
+        response = env.client.post(url, headers=env.auth_headers(idempotency_key=key),
+                                   json=_preview_body(workspace, upload))
+        assert response.status_code == 202, response.text
+        ids.append(response.json()["operation_id"])
+    # Equal acceptance times are ordered by operation ID, not insertion order.
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET created_at_us = 42 WHERE operation_id IN (?, ?)", ids)
+    newest, older = sorted(ids, reverse=True)
+    assert recommendation() == newest
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET cancel_requested = 1 WHERE operation_id = ?", (newest,))
+        uow.connection.execute("UPDATE operation_records SET status = 'RUNNING' WHERE operation_id = ?", (older,))
+    assert recommendation() == older
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET status = 'CANCELLED', completed_at_us = updated_at_us WHERE operation_id = ?", (older,))
+    assert recommendation() is None
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        uow.connection.execute("UPDATE operation_records SET cancel_requested = 0 WHERE operation_id = ?", (newest,))
+    assert recommendation() == newest
+    replacement = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
+        headers=env.auth_headers(idempotency_key="upload-replacement"),
+        files=upload_files(expected_version=upload["optimistic_version"]),
+    )
+    assert replacement.status_code == 201, replacement.text
+    assert recommendation() is None
+
+
+@pytest.mark.parametrize("first_kind", ("preview", "history"))
+def test_history_and_preview_share_durable_queue_limit(tmp_path: Path, first_kind: str) -> None:
+    from dataclasses import replace
+    from typing import cast
+    from fastapi import FastAPI
+
+    env = create_workspace_http_environment(tmp_path, identity=make_identity(permissions=frozenset({
+        "workspace_read", "upload_submit_workspace", "preview_workspace", "read_project_history",
+    })))
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    app = cast(FastAPI, env.client.app)
+    app.state.workspace_http = replace(app.state.workspace_http, operation_queue_limit=1)
+    app.state.history_http = replace(app.state.history_http, operation_queue_limit=1)
+    preview_url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    preview_body = _preview_body(workspace, upload)
+    node = {"ref_kind": "baseline_node", "ref_id": BASELINE_HEAD.business_baseline_node_id}
+    history_body = {"nodes": [node, node]}
+
+    def preview() -> Any:
+        return env.client.post(preview_url, headers=env.auth_headers(idempotency_key="queue-preview"), json=preview_body)
+
+    def history() -> Any:
+        return env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="queue-history"), json=history_body)
+
+    first, second = (preview, history) if first_kind == "preview" else (history, preview)
+    accepted = first()
+    assert accepted.status_code == 202
+    rejected = second()
+    assert rejected.status_code == 429
+    assert rejected.json()["code"] == "OPERATION_QUEUE_FULL"
+    replay = first()
+    assert replay.status_code in (200, 202)
+    assert replay.json()["operation_id"] == accepted.json()["operation_id"]

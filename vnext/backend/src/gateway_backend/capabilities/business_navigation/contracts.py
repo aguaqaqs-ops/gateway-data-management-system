@@ -1,4 +1,4 @@
-"""Flow-neutral inputs and strict wire validation for business navigation v1.
+"""Flow-neutral inputs and strict wire validation for business navigation v4.
 
 Row identities, scalar encodings and comparison/risk facts are supplied by their owners.
 This capability never reconstructs a canonical row identity from business values.
@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypeAlias
+from enum import StrEnum
+from typing import Any, TypeAlias, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -17,8 +20,24 @@ from gateway_backend.capabilities.comparison.contracts import (
     standard_identity_is_keyless,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
+from gateway_backend.capabilities.table_rules import parse_channel_table_name
 
-CONTRACT_VERSION = "backend-vnext/business-navigation/v1"
+CONTRACT_VERSION = "backend-vnext/business-navigation/v4"
+
+
+class NavigationChangeKind(StrEnum):
+    """Navigation boundary vocabulary; the Surface Contract owns these wire values."""
+    UNCHANGED = "UNCHANGED"
+    BUSINESS_EQUIVALENT = "BUSINESS_EQUIVALENT"
+    ADDED = "ADDED"
+    DELETED = "DELETED"
+    UPDATED = "UPDATED"
+    SCHEMA_CHANGED = "SCHEMA_CHANGED"
+    DEGRADED = "DEGRADED"
+    FAILED = "FAILED"
+    REPLACED = "REPLACED"
+
+
 GROUPS = (
     ("FORWARD_CHANNELS", "转发通道"), ("SECONDARY_DEVICES", "二次装置列表"),
     ("COMMUNICATION_PROTOCOLS", "通讯规约列表"), ("GLOBAL_PARAMETERS", "全局参数"),
@@ -53,6 +72,7 @@ class NavigationSide:
     rows: Callable[[], Iterable[NavigationRow]]
     row_count: int
     display_name: str
+    table_comment: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +82,7 @@ class FilterRecord:
     before: RowValues | None
     current: RowValues | None
     risk_level: RiskLevel | None = None
+    risk_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.row_identity or self.kind not in {"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"}:
@@ -86,6 +107,9 @@ class NavigationEvidence:
     records: tuple[FilterRecord, ...] = ()
     table_risk: RiskLevel | None = None
     any_table_risk: bool = False
+    unlocated_risk: RiskLevel | None = None
+    unlocated_count: int | None = None
+    unlocated_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("comparison_succeeded", "schema_only", "degraded", "locator_complete", "risk_attribution_complete", "any_table_risk"):
@@ -110,8 +134,6 @@ class NavigationEvidence:
                 or self.suppressed_added_count or self.suppressed_deleted_count
                 or (bool(self.records) and not self.locator_complete)):
             return "RECORDS_UNAVAILABLE"
-        if not self.risk_attribution_complete:
-            return "RISK_ATTRIBUTION_UNAVAILABLE"
         if self.degraded or self.schema_only:
             return "TABLE_DEGRADED"
         return None
@@ -125,6 +147,10 @@ class NavigationTable:
     evidence: NavigationEvidence = field(default_factory=NavigationEvidence)
     table_change: bool = False
     unchanged: bool = False
+    # Raw structural facts survive C's audit-only projection; they forbid emptiness.
+    structure_changed: bool = False
+    change_kind: NavigationChangeKind = NavigationChangeKind.UNCHANGED
+    risk_level: RiskLevel | None = None
     # Actual owner-resolved pair eligibility. Missing physical columns are distinct
     # from an existing column excluded from comparison.
     identity_excluded_sides: frozenset[str] = frozenset()
@@ -210,11 +236,123 @@ def _string(value: object) -> None:
         raise ValueError("expected a nonempty string")
 
 
+class _Document(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class _Predicate(_Document):
+    column: str
+    values: list[str] | list[int]
+
+
+class _Filter(_Document):
+    before: _Predicate | None
+    current: _Predicate | None
+
+
+class _Scope(_Document):
+    change: bool
+    risk_level: str | None
+
+
+class _RowChanges(_Document):
+    added: int
+    deleted: int
+    modified: int
+    moved_in: int
+    moved_out: int
+
+
+class _Facts(_Document):
+    basis: Literal["EXACT", "TABLE_FALLBACK"]
+    change_kind: str | None
+    risk_level: str | None
+    risk_complete: bool
+    membership_changed: bool
+    membership_complete: bool
+    row_changes: _RowChanges | None
+    before_row_count: int | None
+    current_row_count: int | None
+    table_scope: _Scope | None
+
+
+class _Summary(_Document):
+    change_kinds: list[str]
+    risk_level: str | None
+    nonempty_tab_count: int
+    change_complete: bool
+    risk_complete: bool
+
+
+class _Tab(_Document):
+    tab_key: str
+    label: str
+    table_id: str
+    row_filter: _Filter | None
+    facts: _Facts | None
+    empty: bool
+
+
+class _Item(_Document):
+    item_key: str
+    item_kind: str
+    label: str
+    attributes: dict[str, str | int]
+    tabs: list[_Tab]
+    summary: _Summary
+
+
+class _Group(_Document):
+    group_key: str
+    label: str
+    items: list[_Item]
+    nonempty_item_count: int
+
+
+class _Sides(_Document):
+    before: list[_Group]
+    current: list[_Group]
+
+
+class _UnlocatedRisk(_Document):
+    risk_level: str | None
+    count: int | None
+    reason_codes: list[str]
+
+
+class _TableNotice(_Document):
+    table_id: str
+    table_scope: _Scope | None
+    unlocated_row_risk: _UnlocatedRisk | None
+    risk_complete: bool
+
+
+class _DeviceChange(_Document):
+    record_identity: str
+    change_kind: Literal["ADDED", "DELETED", "UPDATED"]
+    before_item_key: str | None
+    current_item_key: str | None
+    before_dev_addr: int | None
+    current_dev_addr: int | None
+    risk_level: str | None
+    risk_complete: bool
+
+
+class _Navigation(_Document):
+    contract_version: str
+    groups: list[_Group]
+    replacement_sides: _Sides | None
+    table_notices: list[_TableNotice]
+    device_definition_changes: list[_DeviceChange]
+
+
 def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any]:
-    doc = _object(document, {"contract_version", "groups", "replacement_sides"})
+    doc = _Navigation.model_validate(document).model_dump()
     if doc["contract_version"] != CONTRACT_VERSION:
         raise ValueError("unsupported navigation version")
     if replacement:
+        if doc["table_notices"] or doc["device_definition_changes"]:
+            raise ValueError("replacement forbids ordinary notices and changes")
         if doc["groups"] != []:
             raise ValueError("replacement groups must be empty")
         sides = _object(doc["replacement_sides"], {"before", "current"})
@@ -224,6 +362,39 @@ def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any
         if doc["replacement_sides"] is not None:
             raise ValueError("ordinary navigation forbids replacement_sides")
         _groups(doc["groups"], None)
+    notices = doc["table_notices"]
+    if [n["table_id"] for n in notices] != sorted({n["table_id"] for n in notices}, key=lambda x: x.encode("utf-8")):
+        raise ValueError("table notices must be unique and ordered")
+    groups = doc["groups"]
+    tab_scopes = {tab["table_id"]: tab["facts"]["table_scope"] for group in groups
+                  for item in group["items"] for tab in item["tabs"] if tab["facts"] is not None}
+    table_ids = {tab["table_id"] for group in groups for item in group["items"] for tab in item["tabs"]}
+    item_keys = {item["item_key"] for group in groups for item in group["items"]}
+    levels = {v.value for v in RiskLevel} | {None}
+    for notice in notices:
+        if notice["table_id"] not in table_ids or (notice["table_id"] in tab_scopes and tab_scopes[notice["table_id"]] != notice["table_scope"]):
+            raise ValueError("notice must reference matching table scope")
+        unlocated = notice["unlocated_row_risk"]
+        if notice["table_scope"] is None and unlocated is None and notice["risk_complete"]:
+            raise ValueError("empty notice")
+        if unlocated is not None:
+            if unlocated["risk_level"] not in levels or (unlocated["count"] is not None and unlocated["count"] < 0):
+                raise ValueError("invalid unlocated risk")
+            if unlocated["reason_codes"] != sorted(set(unlocated["reason_codes"])):
+                raise ValueError("invalid unlocated reasons")
+    for change in doc["device_definition_changes"]:
+        _string(change["record_identity"])
+        if change["risk_level"] not in levels:
+            raise ValueError("invalid device change risk")
+        for side in ("before", "current"):
+            key, address = change[side + "_item_key"], change[side + "_dev_addr"]
+            if key is not None and (key not in item_keys or address is None):
+                raise ValueError("invalid device change item")
+            if address is not None and abs(address) > SAFE_INTEGER:
+                raise ValueError("invalid device change address")
+    identities = [c["record_identity"] for c in doc["device_definition_changes"]]
+    if identities != sorted(set(identities)):
+        raise ValueError("device changes must be unique and ordered")
     return doc
 
 
@@ -238,12 +409,14 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
     item_keys: set[str] = set()
     scopes: dict[str, object] = {}
     for raw, (key, _) in zip(value, GROUPS, strict=True):
-        group = _object(raw, {"group_key", "label", "items"})
+        group = _object(raw, {"group_key", "label", "items", "nonempty_item_count"})
         if group["group_key"] != key or type(group["items"]) is not list:
             raise ValueError("invalid group order or items")
         _string(group["label"])
+        if group["nonempty_item_count"] != sum(any(not t["empty"] for t in i["tabs"]) for i in group["items"]):
+            raise ValueError("group count differs from nonempty items")
         for raw_item in group["items"]:
-            item = _object(raw_item, {"item_key", "item_kind", "label", "attributes", "tabs"})
+            item = _object(raw_item, {"item_key", "item_kind", "label", "attributes", "tabs", "summary"})
             _string(item["item_key"])
             _string(item["label"])
             if item["item_key"] in item_keys:
@@ -256,14 +429,28 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
             for attr in item["attributes"].values():
                 if type(attr) not in {str, int} or (type(attr) is int and abs(attr) > SAFE_INTEGER):
                     raise ValueError("invalid attribute scalar")
+            summary = item["summary"]
+            nonempty = sum(not t["empty"] for t in item["tabs"])
+            if (summary["nonempty_tab_count"] != nonempty
+                    or summary["change_kinds"] != sorted(set(summary["change_kinds"]))
+                    or any(k not in {v.value for v in NavigationChangeKind} for k in summary["change_kinds"])
+                    or summary["risk_level"] not in {v.value for v in RiskLevel} | {None}
+                    or (not nonempty and (summary["change_kinds"] or summary["risk_level"] is not None))):
+                raise ValueError("invalid nonempty item summary")
+            filtered_nonempty = [tab["facts"] for tab in item["tabs"] if not tab["empty"] and tab["facts"] is not None]
+            if (summary["change_complete"] != all(f["basis"] == "EXACT" and f["membership_complete"] for f in filtered_nonempty)
+                    or summary["risk_complete"] != all(f["risk_complete"] for f in filtered_nonempty)):
+                raise ValueError("item completeness differs from tabs")
             tabs: set[str] = set()
             for raw_tab in item["tabs"]:
-                tab = _object(raw_tab, {"tab_key", "label", "table_id", "row_filter", "facts"})
+                tab = _object(raw_tab, {"tab_key", "label", "table_id", "row_filter", "facts", "empty"})
                 for name in ("tab_key", "label", "table_id"):
                     _string(tab[name])
                 if tab["tab_key"] in tabs:
                     raise ValueError("duplicate tab key")
                 tabs.add(tab["tab_key"])
+                if side is not None and tab["empty"]:
+                    raise ValueError("replacement tabs cannot be empty")
                 filtered = tab["row_filter"] is not None
                 previous = tables.get(tab["table_id"])
                 if previous is not None and (not filtered or not previous[1] or previous[0] != key):
@@ -282,7 +469,7 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
                     if tab["facts"] is not None:
                         raise ValueError("whole/replacement tabs forbid local facts")
                 else:
-                    facts = _object(tab["facts"], {"basis", "change_kind", "risk_level", "before_row_count", "current_row_count", "table_scope"})
+                    facts = _object(tab["facts"], {"basis", "change_kind", "risk_level", "risk_complete", "membership_changed", "membership_complete", "row_changes", "before_row_count", "current_row_count", "table_scope"})
                     _facts(facts)
                     if tab["table_id"] in scopes and scopes[tab["table_id"]] != facts["table_scope"]:
                         raise ValueError("table scope must agree across tabs")
@@ -305,13 +492,17 @@ def _predicate(value: object) -> None:
 def _facts(facts: dict[str, Any]) -> None:
     levels = {v.value for v in RiskLevel} | {None}
     if facts["basis"] == "EXACT":
-        if facts["change_kind"] not in {"UNCHANGED", "ADDED", "DELETED", "UPDATED"}:
+        if facts["change_kind"] not in {"UNCHANGED", "ADDED", "DELETED", "UPDATED"} or facts["row_changes"] is None:
             raise ValueError("exact facts need a change kind")
     elif facts["basis"] == "TABLE_FALLBACK":
-        if facts["change_kind"] is not None or facts["risk_level"] is not None:
+        if facts["change_kind"] is not None or facts["row_changes"] is not None:
             raise ValueError("fallback facts must remain unknown")
     else:
         raise ValueError("invalid facts basis")
+    if facts["row_changes"] is not None:
+        changes = facts["row_changes"]
+        if any(value < 0 for value in changes.values()) or changes["moved_in"] > changes["modified"] or changes["moved_out"] > changes["modified"]:
+            raise ValueError("invalid row changes")
     if facts["risk_level"] not in levels:
         raise ValueError("invalid local risk")
     for name in ("before_row_count", "current_row_count"):
@@ -337,22 +528,42 @@ _DIAGNOSTIC_PARAMS = {
     "DEVICE_GID_DUPLICATE": {"gid"},
     "DEVICE_TAB_COUNT_UNKNOWN": {"identity_column"},
     "DEVICE_ROWS_UNASSIGNED": {"identity_column", "row_count", "changed_row_count"},
-    "CHANNEL_TABLE_UNCLAIMED": {"board", "link_no"},
-    "PROTOCOL_EXE_MISSING": {"board", "link_no"},
-    "PROTOCOL_TABLE_NOT_FOUND": {"board", "link_no", "protocol", "expected_tables"},
+    "CHANNEL_TABLE_UNCLAIMED": {"channel_prefix", "registry_table"},
+    "PROTOCOL_TABLE_NOT_FOUND": {"channel_prefix", "registry_table", "protocol", "expected_prefixes"},
     "APP_TABLE_CFG_MISSING": {"app_name"},
     "APP_TABLE_CFG_DUPLICATE": {"app_name", "table_cfg"},
     "APP_TABLE_NOT_FOUND": {"app_name", "table_cfg"},
     "DEVICE_TAB_FACTS_UNAVAILABLE": {"identity_column", "reason"},
+    "DEVICE_TAB_RISK_UNAVAILABLE": {"identity_column", "reason"},
+    "DEVICE_MEMBERSHIP_UNAVAILABLE": {"identity_column", "reason"},
     "DEVICE_FILTER_VALUE_UNSUPPORTED": {"identity_column", "reason"},
 }
+
+
+class _Target(_Document):
+    group_key: str | None
+    item_key: str | None
+    tab_key: str | None
+    table_id: str | None
+
+
+class _Diagnostic(_Document):
+    code: str
+    target: _Target
+    side: Literal["BEFORE", "CURRENT"] | None
+    params: dict[str, Any]
+
+
+class _Diagnostics(_Document):
+    contract_version: str
+    diagnostics: list[_Diagnostic]
 
 
 def validate_diagnostics(
     document: object, navigation: dict[str, Any], table_ids: frozenset[str],
 ) -> dict[str, Any]:
     """Validate fixed-code params, side/targets and the per-table fallback invariant."""
-    doc = _object(document, {"contract_version", "diagnostics"})
+    doc = _Diagnostics.model_validate(document).model_dump()
     if doc["contract_version"] != CONTRACT_VERSION or type(doc["diagnostics"]) is not list or not doc["diagnostics"]:
         raise ValueError("invalid diagnostics envelope")
     replacement = navigation["replacement_sides"] is not None
@@ -368,6 +579,20 @@ def validate_diagnostics(
                             raise ValueError("fallback must apply to all table tabs")
                         facts[tab["table_id"]] = basis
     fallback_counts: dict[str, int] = {}
+    risk_counts: dict[str, int] = {}
+    membership_counts: dict[str, int] = {}
+    expected_risk: set[str] = set()
+    expected_membership: set[str] = set()
+    for groups in namespaces.values():
+        for group in groups:
+            for item in group["items"]:
+                for tab in item["tabs"]:
+                    local = tab["facts"]
+                    if local is not None:
+                        if not local["risk_complete"]:
+                            expected_risk.add(tab["table_id"])
+                        if not local["membership_complete"]:
+                            expected_membership.add(tab["table_id"])
     encoded: list[bytes] = []
     for raw in doc["diagnostics"]:
         diagnostic = _object(raw, {"code", "target", "side", "params"})
@@ -378,23 +603,39 @@ def validate_diagnostics(
         side = diagnostic["side"]
         if side not in {None, "BEFORE", "CURRENT"} or (replacement and side is None):
             raise ValueError("invalid diagnostic side")
-        if code not in {"CHANNEL_TABLE_UNCLAIMED", "DEVICE_TAB_FACTS_UNAVAILABLE"} and side is None:
+        local_codes = {"DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_TAB_RISK_UNAVAILABLE", "DEVICE_MEMBERSHIP_UNAVAILABLE"}
+        if code not in local_codes and side is None:
             raise ValueError("diagnostic requires actual side")
-        if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and (replacement or side is not None):
+        if code in local_codes and (replacement or side is not None):
             raise ValueError("local facts diagnostic is ordinary and table-wide")
         for name, value in params.items():
-            if name == "expected_tables":
-                if type(value) is not list or any(type(v) is not str for v in value):
-                    raise ValueError("invalid expected table names")
+            if name == "expected_prefixes":
+                if type(value) is not list or not 1 <= len(value) <= 2 or any(type(v) is not str or not v for v in value):
+                    raise ValueError("invalid expected prefixes")
             elif name in {"board", "link_no", "dev_addr", "gid", "row_count", "changed_row_count"}:
                 if not (value is None and name == "changed_row_count") and (type(value) is not int or abs(value) > SAFE_INTEGER):
                     raise ValueError("invalid diagnostic integer")
             elif not (value is None and name == "app_name") and type(value) is not str:
                 raise ValueError("invalid diagnostic string")
+        if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"} and params["registry_table"] not in {"net_cfg", "com_cfg"}:
+            raise ValueError("invalid channel registry")
+        if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"}:
+            channel = parse_channel_table_name(params["channel_prefix"] + "_x")
+            if (channel is None or params["channel_prefix"] != f"b{channel.board}_{channel.kind}{channel.channel_no}"
+                    or params["registry_table"] != ("net_cfg" if channel.kind == "n" else "com_cfg")):
+                raise ValueError("invalid channel prefix")
+            if code == "PROTOCOL_TABLE_NOT_FOUND" and any(
+                not prefix.startswith(params["channel_prefix"] + "_") for prefix in params["expected_prefixes"]
+            ):
+                raise ValueError("invalid expected channel prefix")
         if code == "DEVICE_FILTER_VALUE_UNSUPPORTED" and params["reason"] not in {"INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"}:
             raise ValueError("invalid unsupported reason")
-        if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and params["reason"] not in {"RECORDS_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE", "TABLE_DEGRADED"}:
+        if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and params["reason"] not in {"RECORDS_UNAVAILABLE", "TABLE_DEGRADED"}:
             raise ValueError("invalid fallback reason")
+        if code == "DEVICE_TAB_RISK_UNAVAILABLE" and params["reason"] != "RISK_ATTRIBUTION_UNAVAILABLE":
+            raise ValueError("invalid risk incomplete reason")
+        if code == "DEVICE_MEMBERSHIP_UNAVAILABLE" and params["reason"] != "MEMBERSHIP_UNAVAILABLE":
+            raise ValueError("invalid membership incomplete reason")
         target = _object(diagnostic["target"], {"group_key", "item_key", "tab_key", "table_id"})
         if target["table_id"] is not None and target["table_id"] not in table_ids:
             raise ValueError("diagnostic references absent table")
@@ -407,6 +648,14 @@ def validate_diagnostics(
             raise ValueError("diagnostic references absent item")
         if target["tab_key"] is not None and (item is None or not any(t["tab_key"] == target["tab_key"] for t in item["tabs"])):
             raise ValueError("diagnostic references absent tab")
+        if code in local_codes and target != {"group_key": "SECONDARY_DEVICES", "item_key": None, "tab_key": None, "table_id": target["table_id"]}:
+            raise ValueError("invalid local diagnostic target")
+        if code == "DEVICE_TAB_RISK_UNAVAILABLE":
+            name = target["table_id"]
+            risk_counts[name] = risk_counts.get(name, 0) + 1
+        if code == "DEVICE_MEMBERSHIP_UNAVAILABLE":
+            name = target["table_id"]
+            membership_counts[name] = membership_counts.get(name, 0) + 1
         if code == "DEVICE_TAB_FACTS_UNAVAILABLE":
             name = target["table_id"]
             fallback_counts[name] = fallback_counts.get(name, 0) + 1
@@ -417,4 +666,8 @@ def validate_diagnostics(
         raise ValueError("diagnostics must have canonical order without duplicates")
     if {name for name, basis in facts.items() if basis == "TABLE_FALLBACK"} != set(fallback_counts) or any(n != 1 for n in fallback_counts.values()):
         raise ValueError("fallback diagnostics do not match local facts")
+    if set(risk_counts) != expected_risk or any(count != 1 for count in risk_counts.values()):
+        raise ValueError("risk diagnostics do not match completeness")
+    if set(membership_counts) != expected_membership or any(count != 1 for count in membership_counts.values()):
+        raise ValueError("membership diagnostics do not match completeness")
     return doc

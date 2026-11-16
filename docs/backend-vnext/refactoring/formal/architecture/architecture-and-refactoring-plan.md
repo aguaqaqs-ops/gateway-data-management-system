@@ -370,7 +370,7 @@ table_rules --------------------------+-> storage_projection（规范投影、ma
                                       +-> project_identity（只依赖 snapshot_materialization）
 ```
 
-该流水线中的正向依赖属于业务数据流，不要求所有 capability 相互零依赖。要求的是只依赖公开 contract、禁止反向依赖和禁止环。
+该流水线中的正向依赖属于业务数据流，不要求所有 capability 相互零依赖。要求的是只依赖公开 contract、禁止反向依赖和禁止环。Risk Evaluation 为有序 YK 风险选择直接使用上游 Table Rules 的公开通道名解析器，规则见 [Risk Contract](../../../contracts/risk.md)。
 
 ### 7.2 第一轮公共能力调整
 

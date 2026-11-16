@@ -1,0 +1,13 @@
+[Unit]
+Description=08 address-aware manual directory handoff
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -B /home/dev/gdds-gw-dms-08-v2/source/deploy/manual-08/handoff_proxy.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

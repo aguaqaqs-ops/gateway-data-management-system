@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
+from gateway_backend.application.comparison_audit import publish_structure_audit
 from gateway_backend.application.business_presentation import RiskAttribution, publish_business_presentation
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
-from collections.abc import Callable, Mapping
-from contextlib import closing
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from contextlib import closing, ExitStack
+from dataclasses import dataclass, replace
 from gateway_backend.statistics.metrics import ordered_input_table, pair_table, pair_totals, timed
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -29,6 +30,7 @@ from gateway_backend.capabilities.snapshot_materialization import export_snapsho
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
+    comparison_input_stream,
     ComparisonRequest,
     ComparisonPlan,
     DetailedFactsResult,
@@ -47,7 +49,10 @@ from gateway_backend.capabilities.comparison import (
     RecordsPublicationPolicy,
     RecordsDetailPolicy,
 )
-from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
+from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds, RiskEvaluation
+from gateway_backend.capabilities.comparison import ordered_blank_identity
+from gateway_backend.capabilities.comparison.contracts import OrderedStatus
+from gateway_backend.capabilities.snapshot_materialization.contracts import BlankRowProvenance
 from gateway_backend.capabilities.risk_evaluation import (
     PersistentRiskCandidates,
     RiskEvaluationInput,
@@ -102,6 +107,7 @@ class PreviewPairPipelineResult:
     identity_assessment_ref: ArtifactRef | None
     before_presentation: PresentationMetadata = PresentationMetadata()
     current_presentation: PresentationMetadata = PresentationMetadata()
+    structure_audit_ref: ArtifactRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +121,7 @@ class HistoryPairPipelineResult:
     surface_result: SurfaceAssemblyResult
     before_presentation: PresentationMetadata = PresentationMetadata()
     current_presentation: PresentationMetadata = PresentationMetadata()
+    structure_audit_ref: ArtifactRef | None = None
 
 
 def preview_identity_assessment(
@@ -175,8 +182,8 @@ def run_preview_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -196,8 +203,8 @@ def run_preview_pair_pipeline(
     active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())
     request = ComparisonRequest(
         pair_id=pair_id,
-        before=before,
-        current=current,
+        before=replace(before, presentation=before_presentation),
+        current=replace(current, presentation=current_presentation),
         rule_set=active_rules,
         mode=(
             ComparisonMode.DATASET_REPLACEMENT
@@ -235,6 +242,7 @@ def run_preview_pair_pipeline(
         surface_digest=surface.surface_digest,
         records_closure=records_closure,
         surface_result=surface.surface_result,
+        structure_audit_ref=surface.structure_audit_ref,
         identity_assessment=assessment,
         identity_assessment_ref=assessment_ref,
     )
@@ -252,13 +260,13 @@ def run_history_pair_pipeline(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
-        before=before,
-        current=current,
+        before=replace(before, presentation=before_presentation),
+        current=replace(current, presentation=current_presentation),
         rule_set=rule_set,
         mode=ComparisonMode.DETAILED,
     )
@@ -291,6 +299,7 @@ def run_history_pair_pipeline(
         record_count=int(record_count),
         records_closure=records_closure,
         surface_result=surface.surface_result,
+        structure_audit_ref=surface.structure_audit_ref,
     )
 
 
@@ -303,6 +312,7 @@ class _ComparisonRiskSurfaceResult:
     published: DetailedFactsResult | DatasetReplacementResult
     comparison_facts: ComparisonFacts
     risk_evaluation: RiskEvaluation | None
+    structure_audit_ref: ArtifactRef | None
 
 
 def _run_comparison_risk_surface(
@@ -318,8 +328,8 @@ def _run_comparison_risk_surface(
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -360,8 +370,8 @@ def _finish_comparison_risk_surface(
     repository_id: str | None,
     export_cache: SnapshotTableExportCachePort | None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
-    before_presentation: PresentationMetadata = PresentationMetadata(),
-    current_presentation: PresentationMetadata = PresentationMetadata(),
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     if context is None:
@@ -423,14 +433,18 @@ def _finish_comparison_risk_surface(
     if control.cancel_requested:
         on_cancel()
         raise PairPipelineCancelled
+    structure_audit_ref = publish_structure_audit(plan, comparison_facts, store)
+    checkpoint()
     risk_conversion: dict[str, float] = {}
     attribution = RiskAttribution()
     risk = evaluate_risk(
         RiskEvaluationInput(
             comparison_facts=comparison_facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
-            risk_options=RiskOptions(),
+            risk_options=RiskOptions(empty_baseline=not plan.before.summary.tables),
             record_views=native_comparison.risk_handles,
+            ordered_record_views=native_comparison.handles,
+            ordered_tail_bounds=_ordered_tail_bounds(plan, comparison_facts, native_comparison.handles),
             record_view_metrics=risk_conversion,
             risk_cache_session=native_comparison.session,
             risk_task_keys=native_comparison.task_keys,
@@ -468,7 +482,7 @@ def _finish_comparison_risk_surface(
     )
     table_artifacts, navigation_projection, _presentation_metrics = publish_business_presentation(
         plan, comparison_facts, published.records_closure, native_comparison.handles,
-        table_artifacts, attribution, store, before_presentation=before_presentation,
+        table_artifacts, attribution, store, risk_report=risk.risk_report, before_presentation=before_presentation,
         current_presentation=current_presentation, same_complete=_same_complete_table_identity,
     )
     with reserve_surface(8 * 16 * 1024**2):
@@ -521,7 +535,125 @@ def _finish_comparison_risk_surface(
         published=published,
         comparison_facts=comparison_facts,
         risk_evaluation=risk.risk_evaluation,
+        structure_audit_ref=structure_audit_ref,
     )
+
+
+def _ordered_tail_bounds(
+    plan: ComparisonPlan, facts: ComparisonFacts, handles: Mapping[str, object],
+) -> dict[str, OrderedTailBounds]:
+    """Scan both sides once, excluding actual added/deleted positions from anchors."""
+    context = current_kernel_context()
+    if context is None:
+        raise PairPipelineError("operation kernel context was lost")
+    result: dict[str, OrderedTailBounds] = {}
+    facts_by_name = {fact.table_name: fact for fact in facts.tables}
+    for task in plan.tasks:
+        fact = facts_by_name.get(task.table_name)
+        if fact is None or fact.ordered_extension is None:
+            continue
+        ordered = fact.ordered_extension
+        blank = fact.blank_extension
+        if not (ordered.ordered_summary.row_added_count or ordered.ordered_summary.row_deleted_count
+                or (blank is not None and blank.blank_summary.blank_changed_count)):
+            continue
+        complete = (ordered.status is not OrderedStatus.DEGRADED and
+                    (blank is None or blank.status is not OrderedStatus.DEGRADED))
+        positions: tuple[set[int], set[int]] = (set(), set())
+        with ExitStack() as reservations:
+            summary = ordered.ordered_summary
+            reservations.enter_context(context.memory.reserve(256 * (summary.row_deleted_count + summary.row_added_count)))
+            handle = handles.get(task.table_name)
+            if handle is None:
+                if not ordered.records:
+                    complete = False
+                records = ((r.record_kind.value, r.before_position, r.current_position)
+                           for r in ordered.records)
+                def collect(rows: Iterable[tuple[str, int | None, int | None]]) -> None:
+                    nonlocal complete
+                    for kind, before, current in rows:
+                        side = 0 if kind == "ORDERED_ROW_DELETED" else 1 if kind == "ORDERED_ROW_ADDED" else -1
+                        if side < 0:
+                            continue
+                        position = before if side == 0 else current
+                        if type(position) is not int or position < 1 or position in positions[side] or len(positions[side]) >= (summary.row_deleted_count if side == 0 else summary.row_added_count):
+                            complete = False
+                        else:
+                            positions[side].add(position)
+                collect(records)
+            else:
+                with closing(getattr(handle, "risk_record_batches")("ORDERED")) as reader:
+                    for batch in reader:
+                        context.checkpoint()
+                        with context.memory.reserve(8192 + batch.nbytes * 16 + batch.num_rows * 512):
+                            names = ("record_kind", "before_position", "current_position")
+                            columns = [batch.column(batch.schema.get_field_index(name)).to_pylist() for name in names]
+                            # Collection only retains the two position sets.
+                            for kind, before, current in zip(*columns, strict=True):
+                                side = 0 if kind == "ORDERED_ROW_DELETED" else 1 if kind == "ORDERED_ROW_ADDED" else -1
+                                if side < 0:
+                                    continue
+                                position = before if side == 0 else current
+                                if type(position) is not int or position < 1 or position in positions[side] or len(positions[side]) >= (summary.row_deleted_count if side == 0 else summary.row_added_count):
+                                    complete = False
+                                else:
+                                    positions[side].add(position)
+            if len(positions[0]) != summary.row_deleted_count or len(positions[1]) != summary.row_added_count:
+                complete = False
+            maxima_available = True
+            maxima: list[int | None] = []
+            retained: list[int | None] = []
+            for side, table in enumerate((task.before_table, task.current_table)):
+                maximum: int | None = None
+                last: int | None = None
+                seen: set[int] = set()
+                if table is None or table.reader is None:
+                    complete = False
+                    maxima_available = False
+                else:
+                    provenance = (BlankRowProvenance.NONE if table.ordered_metadata is None
+                                  else table.ordered_metadata.blank_provenance)
+                    if provenance is BlankRowProvenance.NONE:
+                        complete = False
+                    stream, owner = comparison_input_stream(table)
+                    try:
+                        with closing(stream):
+                            for batch in stream:
+                                context.checkpoint()
+                                no_index = batch.schema.get_field_index("no")
+                                gid_index = batch.schema.get_field_index("gid")
+                                if no_index < 0:
+                                    complete = False
+                                    maxima_available = False
+                                    continue
+                                if gid_index < 0:
+                                    complete = False
+                                    maxima_available = False
+                                    continue
+                                with context.memory.reserve(8192 + batch.nbytes * 16 + batch.num_rows * 128):
+                                    for position, gid in zip(batch.column(no_index).to_pylist(), batch.column(gid_index).to_pylist(), strict=True):
+                                        if type(position) is not int or position < 1:
+                                            complete = False
+                                            continue
+                                        maximum = position if maximum is None else max(maximum, position)
+                                        is_blank = ordered_blank_identity(gid, provenance)
+                                        if is_blank is None:
+                                            complete = False
+                                        if position in positions[side]:
+                                            if position in seen or is_blank is not False:
+                                                complete = False
+                                            seen.add(position)
+                                        elif is_blank is False:
+                                            last = position if last is None else max(last, position)
+                    finally:
+                        owner.close()
+                if seen != positions[side]:
+                    complete = False
+                maxima.append(maximum)
+                retained.append(last)
+            if maxima_available:
+                result[task.table_name] = OrderedTailBounds(maxima[0], maxima[1], retained[0], retained[1], complete)
+    return result
 
 
 @timed("export")

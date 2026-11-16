@@ -83,3 +83,10 @@ mismatch 分支。ruleset rollback 只影响未来 operation，不回滚已有 r
 operation 在恢复时，若运行期 ruleset 与冻结值不同则稳定失败，由用户重跑，相同则照常继续。本节
 “不增加 mismatch 分支”指 commit 记录的历史 ruleset 与运行期不同，不构成失败理由；operation 冻结值与
 运行期不同时的恢复失败按 §1 处理，不属于此类（2026-09-27）。
+
+GW08 澄清：读取某 Submission 绑定的原 Preview 是查看该提交时的冻结结果，不发起 History，
+不按当前 ruleset 重算。新的 History 受理仍冻结当前默认 ruleset；精确结果复用仅在请求
+指纹中的规则/Comparison Contract/History job Contract 身份一致且原结果有效时成立。History job
+Contract 承担风险、导航和 bundle 等整条 History 输出语义的版本闸门，相关语义变化须升版。
+规则变化后的请求不得复用旧 History
+operation，提交结果读取也不因此变成当前规则的 History 净比较。

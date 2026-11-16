@@ -491,13 +491,28 @@ class Gate:
         return {"tag": tag, "image_id": raw["Id"], "config_digest": "sha256:" + hashlib.sha256(config).hexdigest(),
                 "rootfs_diff_ids": layers, "archive": {"path": str(archive), "sha256": sha256(archive)}}
 
+    def container_interval_touched(self, original: str) -> bool:
+        """Scan all interval commits without attributing old source changes to a merge."""
+        interval = f"{original}..{self.args.commit_sha}"
+        descendants = set(self.git("rev-list", "--ancestry-path", interval).splitlines()) | {original}
+        for line in self.git("rev-list", "--parents", interval).splitlines():
+            commit, *parents = line.split()
+            if not parents:
+                # An unrelated root in the interval has no comparable parent.
+                return True
+            eligible = [parent for parent in parents if parent in descendants]
+            # Side-branch merges without a source-descendant parent remain conservative.
+            for parent in eligible or parents:
+                if self.git("diff", "--name-only", parent, commit, "--", "vnext"):
+                    return True
+        return False
+
     def container_equivalent(self, source: dict[str, Any], package: str) -> tuple[bool, str]:
         original = source["commit_sha"]
         # log covers every intermediate commit: change-and-revert must not erase a boundary trigger.
         try:
             self.git("merge-base", "--is-ancestor", original, self.args.commit_sha)
-            changed = self.git("log", "--full-history", "-m", "--format=", "--name-only", f"{original}..{self.args.commit_sha}", "--", "vnext")
-            if changed.strip():
+            if self.container_interval_touched(original):
                 return False, "source interval touched vnext container/runtime inputs (conservative boundary)"
             gate = source["container_gate"]
             if gate.get("status") not in {"run", "carried"}:

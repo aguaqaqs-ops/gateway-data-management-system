@@ -23,8 +23,10 @@ describe("simulated HTTP response contracts", () => {
       const response = openapi.paths[scenario.route]?.[scenario.method.toLowerCase()]?.responses?.[String(scenario.status)];
       expect(response, `${scenario.method} ${scenario.route} ${scenario.status}`).toBeDefined();
       expect(scenario.schema).toBe("ErrorResponse");
-      expect(Object.keys(scenario.body).sort()).toEqual(["code", "message"]);
-      const documentedCodes = (response?.description ?? "").split(/,|\bor\b/).map((code) => code.trim()).filter(Boolean);
+      // ErrorResponse: code + message, plus optional details (e.g. History limit operation IDs).
+      expect(Object.keys(scenario.body).filter((key) => key !== "details").sort()).toEqual(["code", "message"]);
+      // Text after ";" is prose about details, not another code.
+      const documentedCodes = (response?.description ?? "").split(";")[0]!.split(/,|\bor\b/).map((code) => code.trim()).filter(Boolean);
       expect(documentedCodes, `${scenario.method} ${scenario.route} ${scenario.status} ${scenario.body.code}`).toContain(scenario.body.code);
     }
   });

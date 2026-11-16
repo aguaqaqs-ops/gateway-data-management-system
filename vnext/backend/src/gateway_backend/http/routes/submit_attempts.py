@@ -43,7 +43,7 @@ router = APIRouter(tags=["submit"])
             ", PROJECT_IDENTITY_CONFIRMATION_REQUIRED, PROJECT_IDENTITY_CONFIRMATION_MISMATCH"
         },
         422: {"description": "REQUEST_VALIDATION_FAILED"},
-        429: {"description": "ADMISSION_LIMIT_REACHED"},
+        429: {"description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL"},
         503: {"description": "ARTIFACT_UNAVAILABLE, DEPENDENCY_UNAVAILABLE, SERVICE_NOT_READY"},
     },
 )
@@ -101,6 +101,7 @@ def accept_submit_route(
             main_resolve=deps.main_resolve,
             current_storage_projection_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
+            operation_queue_limit=deps.operation_queue_limit,
         )
     return result.response
 

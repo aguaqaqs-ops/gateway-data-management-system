@@ -55,10 +55,14 @@ export function createTableTheme(readToken: CssTokenReader = readComputedToken):
     linkColor: requiredToken(readToken, "--color-accent"),
     cellHorizontalPadding: numericToken(readToken, "--space-2"),
     cellVerticalPadding: numericToken(readToken, "--space-1"),
-    headerFontStyle: `600 ${fontSizeSm} ${fontFamily}`,
+    // Glide builds the canvas font as `${style} ${fontFamily}`, so the *FontStyle
+    // fields hold only weight and size. Adding the family here makes the font
+    // string invalid and the canvas silently falls back to 10px sans-serif.
+    headerFontStyle: `600 ${fontSizeSm}`,
     headerIconSize: numericToken(readToken, "--size-icon-header"),
-    baseFontStyle: `${fontSizeSm} ${fontFamily}`,
-    markerFontStyle: `${fontSizeXs} ${fontFamily}`,
+    // Table cells are the page's core content: one step above body small text.
+    baseFontStyle: fontSizeMd,
+    markerFontStyle: fontSizeXs,
     fontFamily,
     editorFontSize: fontSizeMd,
     lineHeight: numericToken(readToken, "--line-height-body"),

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, replace
 from datetime import datetime
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     assert_no_canonical_change,
@@ -46,9 +48,10 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
-from gateway_backend.domain.workspace.models import BaselineHead
+from gateway_backend.domain.workspace.models import BaselineHead, PreviewResult
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
+from gateway_backend.operations.store import RecordNotFound
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     BusinessReference,
@@ -111,6 +114,7 @@ def accept_submit_transaction(
     main_resolve: RepositoryMainResolvePort,
     preflight: AcceptSubmitPreflight,
     now: datetime,
+    operation_queue_limit: int = 32,
 ) -> AcceptSubmitTransactionResult:
     assert_submit_job_registered(job_registry)
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
@@ -158,7 +162,44 @@ def accept_submit_transaction(
             preflight_baseline_head=resolved.baseline_head,
             preflight=frozen,
             now=now,
+            operation_queue_limit=operation_queue_limit,
         )
+
+
+def _assert_current_preview_semantics(unit_of_work: SubmitControlTransaction, preview: PreviewResult) -> None:
+    """Check only new T1 accepts; replay and frozen readers retain original identity."""
+    # Preview job initialization imports workspace, whose public API imports this module.
+    from gateway_backend.application.preview_jobs import (
+        PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND, decode_preview_payload,
+    )
+
+    message = "preview semantics changed; use a new key to create a new preview"
+    try:
+        operation = unit_of_work.operations.get_operation(preview.operation_id)
+    except RecordNotFound as exc:
+        raise PreviewBindingConflict(message) from exc
+    if (operation.job_kind != PREVIEW_JOB_KIND
+            or operation.job_contract_version != PREVIEW_JOB_CONTRACT_VERSION
+            or preview.contract_version != operation.job_contract_version
+            or operation.job_payload is None
+            or BusinessReference(kind="workspace", value=preview.workspace_id) not in operation.business_refs
+            or BusinessReference(kind="upload_revision", value=preview.upload_revision_id) not in operation.business_refs):
+        raise PreviewBindingConflict(message)
+    try:
+        document = json.loads(operation.job_payload)
+        if not isinstance(document, dict):
+            raise ValueError("preview payload is not an object")
+        payload = decode_preview_payload(document)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise PreviewBindingConflict(message) from exc
+    if (payload.workspace_id != preview.workspace_id
+            or payload.upload_revision_id != preview.upload_revision_id
+            or payload.generation != preview.generation
+            or payload.repository_id != preview.repository_id
+            or payload.business_baseline_node_id != preview.business_baseline_node_id
+            or payload.business_baseline_commit_id != preview.business_baseline_commit_id
+            or payload.baseline_head_version != preview.baseline_head_version):
+        raise PreviewBindingConflict(message)
 
 
 def _accept_submit_in_transaction(
@@ -168,6 +209,7 @@ def _accept_submit_in_transaction(
     preflight_baseline_head: BaselineHead,
     preflight: AcceptSubmitPreflight,
     now: datetime,
+    operation_queue_limit: int,
 ) -> AcceptSubmitTransactionResult:
     prior_record = unit_of_work.submission.find_submit_idempotency(
         command.workspace_id,
@@ -195,6 +237,11 @@ def _accept_submit_in_transaction(
             operation_id=validation.prior_attempt.operation_id,
             replay=True,
         )
+
+    _assert_current_preview_semantics(unit_of_work, validation.preview_result)
+
+    if preflight.preview_ready_closure_digest != derive_preview_ready_closure_digest(validation.preview_result):
+        raise PreviewBindingConflict("accepted Preview binding changed after preflight")
 
     _assert_preview_protection_matches(
         unit_of_work,
@@ -269,6 +316,9 @@ def _accept_submit_in_transaction(
         completed_at=None,
         optimistic_version=0,
     )
+    if unit_of_work.count_queued_operations() >= operation_queue_limit:
+        from gateway_backend.operations.store import OperationQueueFull
+        raise OperationQueueFull
     unit_of_work.operations.insert_operation_with_initial_step(operation, step)
     unit_of_work.submission.insert_attempt_prepared(attempt)
     unit_of_work.submission.insert_idempotency(

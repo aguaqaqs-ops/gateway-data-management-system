@@ -33,7 +33,7 @@ router = APIRouter(tags=["preview"])
             "description": "IDEMPOTENCY_CONFLICT, WORKSPACE_VERSION_CONFLICT, PREVIEW_BINDING_CONFLICT"
         },
         422: {"description": "REQUEST_VALIDATION_FAILED"},
-        429: {"description": "ADMISSION_LIMIT_REACHED"},
+        429: {"description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL"},
         503: {"description": "SERVICE_NOT_READY"},
     },
 )
@@ -80,6 +80,7 @@ def start_preview_route(
             comparison_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
             options=options,
+            operation_queue_limit=deps.operation_queue_limit,
         )
     return OperationAcceptedResponse(
         operation_id=result.operation_id,

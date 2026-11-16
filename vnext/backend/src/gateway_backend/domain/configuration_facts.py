@@ -105,7 +105,7 @@ class CanonicalContentIdentity:
         _digest(self.storage_projection_ruleset_digest)
         _text(self.storage_projection_version, "storage_projection_version")
         _integer(self.scalar_encoding_version)
-        if self.scalar_encoding_version != 1 or self.storage_projection_version != "3":
+        if self.scalar_encoding_version != 1 or self.storage_projection_version != "4":
             raise ValueError("unsupported configuration content projection/scalar encoding version")
 
     @classmethod

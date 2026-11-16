@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import socket
 from pathlib import Path
+from types import FrameType
 from typing import cast
 from unittest.mock import patch
 
@@ -179,7 +181,8 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
         assert fastapi_app.state.admission_gate.allows_new_work() is False
 
 
-def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path) -> None:
+@pytest.mark.parametrize("entrypoint", ["signal", "shutdown"])
+def test_admission_first_server_pre_drains_before_super_handler(tmp_path: Path, entrypoint: str) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(
         tmp_path,
@@ -189,10 +192,7 @@ def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path)
     )
     captured: list[tuple[bool, bool]] = []
 
-    async def tracking_shutdown(
-        self: uvicorn.Server,
-        sockets: list[socket.socket] | None = None,
-    ) -> None:
+    def capture_pre_drain(self: uvicorn.Server) -> None:
         fastapi_app = resolve_fastapi_app(self.config.loaded_app)
         assert fastapi_app is not None
         captured.append(
@@ -202,6 +202,17 @@ def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path)
             )
         )
 
+    async def tracking_shutdown(
+        self: uvicorn.Server,
+        sockets: list[socket.socket] | None = None,
+    ) -> None:
+        capture_pre_drain(self)
+
+    def tracking_handle_exit(self: uvicorn.Server, sig: int, frame: FrameType | None) -> None:
+        assert sig == signal.SIGTERM
+        assert frame is None
+        capture_pre_drain(self)
+
     async def run_shutdown_probe() -> None:
         with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
             app = create_app(settings)
@@ -210,8 +221,12 @@ def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path)
                 config.load()
                 server = AdmissionFirstUvicornServer(config)
                 server.started = True
-                with patch.object(uvicorn.Server, "shutdown", tracking_shutdown):
-                    await server.shutdown()
+                if entrypoint == "signal":
+                    with patch.object(uvicorn.Server, "handle_exit", tracking_handle_exit):
+                        server.handle_exit(signal.SIGTERM, None)
+                else:
+                    with patch.object(uvicorn.Server, "shutdown", tracking_shutdown):
+                        await server.shutdown()
 
     asyncio.run(run_shutdown_probe())
 
@@ -283,12 +298,14 @@ def test_history_compare_replay_releases_admission_slot(tmp_path: Path) -> None:
     )
     assert replay.status_code == 200
     assert replay.json()["replayed"] is True
+    assert replay.json()["operation_id"] == first.json()["operation_id"]
     second = env.client.post(
         "/v1/history-compares",
         headers={**AUTH, "Idempotency-Key": "compare-admission-second"},
-        json=nodes,
+        json={"nodes": list(reversed(nodes["nodes"]))},
     )
     assert second.status_code == 202
+    assert second.json()["operation_id"] != first.json()["operation_id"]
     assert gate.allows_new_work() is True
 
 

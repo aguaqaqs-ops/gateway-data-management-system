@@ -58,9 +58,9 @@ def _tables(sql: str) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], result["tables"])
 
 
-def _view(descriptor: SnapshotTableDescriptor) -> Any:
+def _view(descriptor: SnapshotTableDescriptor, *, table_comment: str | None = None) -> Any:
     rules = migrated_table_ruleset_snapshot()
-    record = resolve_table_rule(rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns).record
+    record = resolve_table_rule(rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns, table_comment=table_comment).record
     view = derive_storage_rule_view(record, descriptor)
     assert view is not None
     return view
@@ -72,7 +72,7 @@ def _projection(sql: str) -> dict[str, Any]:
     descriptor = old.table_set.tables[0].descriptor
     assert descriptor.raw_content_digest is not None
     result = project_arrow_table(
-        _tables(sql)[0], descriptor, _view(descriptor), canonicalized_input=False,
+        _tables(sql)[0], descriptor, _view(descriptor, table_comment=old.presentation.tables[0].comment), canonicalized_input=False,
         cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1,
     )
     return result
@@ -207,7 +207,7 @@ def test_zero_column_nonempty_projection_survives_c_stream_and_canonical_ipc() -
 def test_ordered_native_errors_keep_the_python_owner_classification(gid: str, no: str) -> None:
     # A non-empty numeric string is deliberately not the SQL reserved-gid parser.
     sql_type = "VARCHAR(16)" if gid.startswith("'") else "BIGINT"
-    sql = f"CREATE TABLE b1_n1_iec104_syx_list (gid {sql_type}, no INT NOT NULL); INSERT INTO b1_n1_iec104_syx_list VALUES ({gid},{no});"
+    sql = f"CREATE TABLE b1_n1_iec104_syx_list (gid {sql_type}, no INT NOT NULL) COMMENT='引用表'; INSERT INTO b1_n1_iec104_syx_list VALUES ({gid},{no});"
     if gid == "4000000000":
         # Source materialization correctly rejects this before projection.
         raw = materialize_arrow_table(_tables(sql)[0], effective_compare_key_columns=(), stage=MaterializationStage.FINAL, cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
@@ -219,11 +219,11 @@ def test_ordered_native_errors_keep_the_python_owner_classification(gid: str, no
 
 
 def test_canonicalized_ordered_pseudo_gid_requires_the_original_no_allocation() -> None:
-    sql = "CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL); INSERT INTO b1_n1_iec104_syx_list VALUES (0,2),(7,1);"
+    sql = "CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL) COMMENT='引用表'; INSERT INTO b1_n1_iec104_syx_list VALUES (0,2),(7,1);"
     old = materialize_sql(sql)
     assert old.summary is not None
     descriptor = old.summary.tables[0]
-    plan = build_projection_plan(descriptor, _view(descriptor), canonicalized_input=False, budgets=_BUDGETS)
+    plan = build_projection_plan(descriptor, _view(descriptor, table_comment=old.presentation.tables[0].comment), canonicalized_input=False, budgets=_BUDGETS)
     source = _tables(sql)[0]
     first = _canonical_project_native([source], plan, NeverCancel(), _BUDGETS)["output"]
     table = first["tables"][0]
@@ -378,7 +378,7 @@ def test_filtered_catalog_facts_reserve_shared_operation_memory_before_conversio
 
 
 def test_ordered_empty_text_gid_allocates_the_contract_pseudo_identity() -> None:
-    result = _projection("CREATE TABLE b1_n1_iec104_syx_list (gid VARCHAR(8), no INT NOT NULL); INSERT INTO b1_n1_iec104_syx_list VALUES ('',1);")
+    result = _projection("CREATE TABLE b1_n1_iec104_syx_list (gid VARCHAR(8), no INT NOT NULL) COMMENT='引用表'; INSERT INTO b1_n1_iec104_syx_list VALUES ('',1);")
     assert result["output"] is not None
     with result["output"]["tables"][0]["arrow_stream"] as stream:
         assert stream.read_all().column("gid").to_pylist() == [4000000000]

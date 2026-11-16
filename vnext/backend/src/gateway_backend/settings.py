@@ -83,6 +83,9 @@ class BackendSettings(BaseSettings):
     upload_idle_timeout_seconds: float = FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS
     upload_total_timeout_seconds: int = FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS
     http_new_work_limit: int = FIXED_HTTP_NEW_WORK_LIMIT
+    history_result_retention_seconds: int = Field(default=86_400, ge=1, le=31_536_000)
+    history_scope_active_limit: int = Field(default=2, ge=1, le=2)
+    operation_queue_limit: int = Field(default=32, ge=1, le=32)
     cleanup_unpinned_ttl_seconds: int = FIXED_CLEANUP_UNPINNED_TTL_SECONDS
     cleanup_sweep_batch_size: int = FIXED_CLEANUP_SWEEP_BATCH_SIZE
     cleanup_retry_backoff_seconds: float = FIXED_CLEANUP_RETRY_BACKOFF_SECONDS

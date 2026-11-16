@@ -475,7 +475,10 @@ def preview_operation_document(
 ) -> dict[str, object]:
     return {
         "artifact_refs": [],
-        "business_refs": [],
+        "business_refs": [
+            {"kind": "workspace", "value": payload_object["workspace_id"]},
+            {"kind": "upload_revision", "value": payload_object["upload_revision_id"]},
+        ],
         "cancel_requested": False,
         "checkpoint_ref": None,
         "completed_at": None,

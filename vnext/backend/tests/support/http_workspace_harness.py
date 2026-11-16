@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from tests.support.preview_fixtures import seed_completed_preview_operation
+
+from tests.support.review_result_fixtures import review_artifact_refs
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from tests.support.configuration_facts import preview_result_with_facts
@@ -270,6 +275,10 @@ class SqliteWorkspaceRepositoryFacade:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_preview_idempotency(workspace_id, idempotency_key)
 
+    def find_active_preview_operation(self, workspace: Workspace) -> str | None:
+        with self._read_uow() as unit_of_work:
+            return unit_of_work.workspace.find_active_preview_operation(workspace)
+
     def list_preview_acceptances(self, workspace_id: str) -> tuple[PreviewAcceptanceRecord, ...]:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.list_preview_acceptances(workspace_id)
@@ -400,19 +409,19 @@ def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -
 def _protected_preview_refs(repository_id: str) -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_INITIAL),
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_MODIFIED),
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
             media_type="application/json",
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -451,13 +460,13 @@ def seed_submit_ready_workspace(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_INITIAL),
                     raw_sha256=_SHA_INITIAL,
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_MODIFIED),
                     raw_sha256=_SHA_MODIFIED,
@@ -479,7 +488,7 @@ def seed_submit_ready_workspace(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
-            contract_version="contract-1",
+            contract_version=PREVIEW_JOB_CONTRACT_VERSION,
             provider_versions={"comparison": "v1"},
             digests=PreviewResultDigests(
                 source_digest="d-source",
@@ -490,16 +499,21 @@ def seed_submit_ready_workspace(
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
-            canonical=make_preview_canonical_bindings(repository_id),
+            canonical=make_preview_canonical_bindings(repository_id, generated_source_ids=True),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
-            bundle_artifact_id="a1:durable:6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
-            ready_closure_artifact_id="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
+            ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
             operation_id="op-preview-1",
             created_at=TS1,
         )
+        from tests.support.review_result_fixtures import closed_review_preview
+        original_refs = tuple(ref for ref in _protected_preview_refs(repository_id)
+            if ref.artifact_id != preview.ready_closure_artifact_id)
+        preview, protected_refs, review_payloads = closed_review_preview(preview, original_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
+        seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated_workspace = replace(
             workspace,
             repository_id=repository_id,
@@ -514,7 +528,6 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = preview.operation_id
-        protected_refs = _protected_preview_refs(repository_id)
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",
@@ -529,10 +542,11 @@ def seed_submit_ready_workspace(
         )
 
     payload_by_id = {
-        "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf": _PAYLOAD_INITIAL,
-        "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303": _PAYLOAD_MODIFIED,
-        "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1": _PAYLOAD_CLOSURE,
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"): _PAYLOAD_INITIAL,
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"): _PAYLOAD_MODIFIED,
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"): _PAYLOAD_CLOSURE,
         **make_canonical_artifact_fixture(repository_id).payloads,
+        **review_payloads,
     }
     for ref in protected_refs:
         artifact_store.register_bytes(ref, payload_by_id[ref.artifact_id])
@@ -1005,6 +1019,7 @@ def seed_pending_review_submission(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         finalize_submit_transaction(
             request=FinalizeSubmitTransactionRequest(
+                review_artifact_refs=review_artifact_refs(submit_seed),
                 submit_attempt_id=attempt.submit_attempt_id,
                 facts=_finalize_facts(submit_seed),
                 submission_id=submission_id,

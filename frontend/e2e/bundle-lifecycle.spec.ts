@@ -21,7 +21,7 @@ async function install(page: Page, fixtures: Record<string, string>) {
     const path = new URL(route.request().url()).pathname;
     if (path === "/v1/workspaces" && route.request().method() === "POST") return route.fulfill({ json: {
       ...WORKSPACE_ALREADY_EXISTS.body, workspace_id: workspaceId, business_project_id: identity.businessProjectId,
-      gateway_device_external_key: identity.gatewayDeviceExternalKey, active_submission_id: null, active_submit_attempt_id: null,
+      gateway_device_external_key: identity.gatewayDeviceExternalKey, active_submission_id: null, active_preview_operation_id: null, active_submit_attempt_id: null,
       current_preview_result_id: null, current_upload_revision_id: null,
     } });
     if (path === "/v1/history") return route.fulfill({ json: INITIAL_ONLY_HISTORY });

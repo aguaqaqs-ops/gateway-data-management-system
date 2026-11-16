@@ -26,6 +26,7 @@ class WorkspaceResponse(BaseModel):
     generation: int
     current_upload_revision_id: str | None = None
     current_preview_result_id: str | None = None
+    active_preview_operation_id: str | None
     active_submit_attempt_id: str | None
     active_submission_id: str | None
     optimistic_version: int

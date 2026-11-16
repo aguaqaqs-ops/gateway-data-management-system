@@ -286,6 +286,40 @@ disposition及其ARCHIVE/MANUAL_CLOSE来源、关闭摘要和archive eligibility
 marker不属于业务History。每次结果、bundle和commit内容读取均重新检查当前session、scope和
 permission；完整项目历史需要device/project audit权限。
 
+### GW08 提交结果重看与 History 作业复用（2026-11-15）
+
+工作台重看 Submission **提交时**的差异，读取该 Submission 绑定的 PreviewResult/READY/bundle，
+保持既有 Review 或本人撤回读取权限、fresh mapping、exact scope 与完整闭包核对；不得从当前
+Workspace Preview 指针推断旧提交，也不得用 History read 权限绕过该接口授权。FULL 的
+`baseline_to_initial` 与 `initial_to_modified` 是两段原始 Preview pair，默认后者；不把
+它们表述为父节点→最终提交的净变化。用户显式选择 2–3 个节点（包括求净变化）时仍使用按受理时
+当前规则集运行的 History，其每侧完整浏览与 Preview bundle 不互代。提交结果读取失败不得
+自动创建 History 掩盖原错误。具体方案见[GW08 设计](../plans/gw08-submission-view-and-history-reuse-design.md)。
+
+History 受理先核当前权限、设备/项目、fresh Repository mapping 并解析有序 node ref 到
+exact commit。相同 commit 的不同业务 node ref、相反方向、不同 pair 数、不同冻结比较规则
+或 Contract/view 身份不得互用。复用身份沿用 accept-binding fingerprint，但其 preimage 必须含
+当前 Comparison capability 的实际 Contract 版本和 History job Contract 版本；后者由 History owner
+在风险、导航、surface、bundle 等输出语义变化时升版，受理、worker 和复用路径均核对。
+不增加只计算不核对的新摘要。同幂等键先按原绑定核对；同键异请求仍为冲突。新键命中同范围同指纹的
+QUEUED/RUNNING，或保留期内 SUCCEEDED 且结果保护、READY 与 bundle 当前可读时，原事务
+绑定该键到原 operation，返回原 ID/当前状态和 `replayed=true`，不创建新作业或 bundle。
+FAILED、CANCELLED、过期、缺失或损坏结果不作跨键复用，改用新键可重新运行。创建原始
+作业的旧键绑定结果已过期时返回明确冲突，不能把确定性 operation ID 静默改指新作业；
+跨键复用的别名只在原结果有效窗口内保留，过期后可有界清理。
+
+History 列表按当前设备+项目，列进行中与保留期内终态作业；结果、bundle、列表均每次重新
+鉴权与核 fresh scope。列表有界分页，返回有序节点、operation ID、状态及受理/完成时间；
+SUCCEEDED 还给结果到期时间。原 acceptance 冻结保留秒数，终态到期由其与 operation 完成时间
+计算；成功发布的全部 result owner 保护必须写同一 expiry。列表、内容读取、复用和有界清理
+共同核这个持久到期事实；过期结果即使物理文件尚在也不列为可用、不可复用。
+不按发起人区分或新增发起人事实。单 scope 进行中 History
+上限及全局 QUEUED 作业上限由同一受理事务执行；命中复用不占新名额，超限给明确错误及
+可适用的现有 operation ID。Workspace 读模型返回当前 generation/upload revision 的
+`active_preview_operation_id`（QUEUED/RUNNING 且未请求取消）；合法多候选按 operation
+受理时间与 ID 倒序取最新，无则为空。该字段只是接回推荐，不新增 Preview 单活动约束，
+不改变其受理、supersede 或结果发布规则；跨终端接回以服务端为权威。
+
 ## 7. Persisted 与 Derived 边界
 
 明确禁止持久化：
@@ -404,3 +438,13 @@ ConfigurationFacts.facts_digest含完整source_artifact_id，Archive candidate�
 [Processing Groups and Device Routing](processing-groups-and-routing.md) owns unique environment/device→group reservation. Registration uses exact device/project and deterministic RS key `p7-device-create-v1:` + SHA256(JCS `[environment,group,device]`); conflicting project uses the same key. INITIAL ID is UUID5(NAMESPACE_URL, JCS `["gateway-device-initial-v1",environment,group,device]`), commit only from RS create. Short read/write transactions fresh-read fixed scope; RS I/O stays outside. Mapping, INITIAL and Head(version0) insert atomically. Exact active replay returns immutable INITIAL and never rewinds Head; disabled, conflicting or incomplete identity is409. RS success before DB failure is retained for same-key retry, never compensated by repository deletion.
 
 Startup seed only fills missing records and checks exact existing mapping/repository/enabled/INITIAL; it does not update, reactivate, rebind or remove online records absent from seed. Empty seed is valid. Existing generic mapping-change descriptions above do not authorize changes through startup seed or this new endpoint; dedicated maintenance/transfer is outside S2b. Registration tests own replay/conflicts/atomicity and seed tests own bootstrap behavior.
+
+## 提交绑定的审核结果（2026-11-13）
+
+Submission.preview_result_id 指向原不可变 PreviewResult；审核不创建 History 比较。Preview 固定保存每个 pair 的 snapshot、comparison、risk、surface、ruleset 身份及可空 structure audit 引用。FULL 固定两组 baseline_to_initial、initial_to_modified，默认后者；MODIFIED_ONLY 只有 initial_to_modified，原始侧复用基线。各 pair 独立统计，不累加为净变化。
+
+AcceptSubmit 验证完整 READY、bundle manifest/digest、final bundle closure、pair 身份和后台审计绑定，冻结 READY root exact ref 于 Submit Operation 输入，在原事务内取得 Attempt 保护。finalize 在同一事务先建立 submission-review/submission_id 保护，随后释放 Attempt/checkpoint 临时保护。终止且未形成 Submission 的 Attempt 不取得此保护。REJECT、WITHDRAW、StartArchive、CLOSE_NOT_ARCHIVED 与工作区复用只释放原工作区资源，提交所有的审核 bundle、READY 与审计随提交保留。缺失固定 Preview 或冻结闭包不允许 finalize。
+
+GET /v1/submissions/{submission_id}/result 和 /result/bundle 复用当前 Review 权限、fresh provisioned mapping 和 exact device/project/repository/提交校验；withdraw_own_submission 只读本人提交。他人、跨 scope、未知目标遵循现有隐藏规则，无权限仍为 403。工作区 current pointer、active occupancy 和当前规则不作为读取前提。每次读取均鉴权并检查接受时的闭包；缺失返回 SUBMISSION_RESULT_UNAVAILABLE，绑定或内容损坏返回 SUBMISSION_RESULT_INTEGRITY_FAILURE（均为 503），不创建 History 代替。
+
+此读取不改变审核动作的权限、review version、baseline/CAS，也不改变 NO_CANONICAL_CHANGE 的规范状态判断。

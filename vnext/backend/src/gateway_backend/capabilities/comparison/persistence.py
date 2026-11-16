@@ -76,7 +76,7 @@ def decode_persistent_comparison(
                 or type(value["table_fact_jcs"]) is not str
                 or (value["native_metadata_json"] is not None and type(value["native_metadata_json"]) is not str)
                 or type(value["families"]) is not list or type(value["views"]) is not list
-                or len(value["views"]) > 7):
+                or len(value["views"]) > 9):
             raise ValueError("comparison cache manifest shape mismatch")
         total = sum(ref.size_bytes for ref in lease.entry.member_refs)
         if any(ref.size_bytes > MAX_CACHE_VIEW_BYTES for ref in lease.entry.member_refs):

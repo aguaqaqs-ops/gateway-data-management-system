@@ -8,7 +8,7 @@ from gateway_backend.domain.configuration_facts import (
     CONFIGURATION_FACTS_SCHEMA, CONFIGURATION_TIME_RULE, CanonicalContentIdentity,
     ConfigurationFacts, ConfigurationGeneratedTime, ConfigurationSideFacts,
 )
-from gateway_backend.domain.workspace.models import PreviewResult
+from gateway_backend.domain.workspace.models import PreviewResult, PreviewComparisonPair
 from gateway_backend.domain.submission.models import Submission, SubmitAttempt
 
 
@@ -20,7 +20,7 @@ def make_configuration_facts(*, workspace_id: str = "ws-1", upload_revision_id: 
         rules_digest: str = "sha256:" + "6" * 64, initial_source: str = "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
         modified_source: str = "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303", uploaded_initial: bool = True) -> ConfigurationFacts:
     def content(digest: str) -> CanonicalContentIdentity:
-        return CanonicalContentIdentity(digest, rules_digest, "3", 1)
+        return CanonicalContentIdentity(digest, rules_digest, "4", 1)
     time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
     baseline = content(baseline_digest)
     return ConfigurationFacts(CONFIGURATION_FACTS_SCHEMA, operation_id, workspace_id, upload_revision_id,
@@ -38,6 +38,13 @@ def preview_result_with_facts(**kwargs: Any) -> PreviewResult:
         business_baseline_commit_id=kwargs["business_baseline_commit_id"], baseline_head_version=kwargs["baseline_head_version"],
         operation_id=kwargs["operation_id"])
     kwargs["canonical"] = replace(canonical, configuration_facts=facts)
+    kwargs.setdefault("comparison_pairs", tuple(PreviewComparisonPair(
+        pair_id=pair.pair_id, before_snapshot_digest=kwargs["digests"].snapshot_digest,
+        current_snapshot_digest=kwargs["digests"].snapshot_digest,
+        comparison_digest=kwargs["digests"].comparison_digest,
+        risk_digest=kwargs["digests"].risk_digest, surface_digest=kwargs["digests"].surface_digest,
+        ruleset_digest=canonical.storage_projection_ruleset_digest.value,
+        structure_audit_artifact_id=None) for pair in kwargs["identity_pairs"]))
     return PreviewResult(**kwargs)
 
 

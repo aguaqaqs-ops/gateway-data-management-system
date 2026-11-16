@@ -57,6 +57,7 @@ def canonical_input(sql: str = SQL) -> tuple[pa.RecordBatchReader, SnapshotTable
     descriptor = old.table_set.tables[0].descriptor
     record = resolve_table_rule(
         rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns,
+        table_comment=None,
     ).record
     view = derive_storage_rule_view(record, descriptor)
     assert view is not None
@@ -183,7 +184,7 @@ def test_handle_stream_is_borrowed_by_the_real_projection_kernel(tmp_path: Path)
     assert bound.raw_content_digest is not None
     ref = store.put(stream, bound)
     rules = migrated_table_ruleset_snapshot()
-    record = resolve_table_rule(rules, bound.table_name, primary_key_columns=bound.primary_key_columns).record
+    record = resolve_table_rule(rules, bound.table_name, primary_key_columns=bound.primary_key_columns, table_comment=None).record
     view = derive_storage_rule_view(record, bound)
     assert view is not None
     from gateway_backend.capabilities.snapshot_materialization import canonical_columns
@@ -371,11 +372,12 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
     # opening canonical rows. Damage must invalidate only this exact old ref.
     described = replace(table, reader=None, batch_reader=None, artifact=None)
     assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) == ref
-    from gateway_backend.artifacts import put_with_built_ref
+    from gateway_backend.artifacts import ArtifactLocation, build_artifact_id, put_with_built_ref
     from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
     from gateway_backend.capabilities.snapshot_materialization.artifact import row_layout_digest_of
     key = SnapshotTableArtifactCacheKey(row_layout_digest_of(descriptor, source.columns, table.ordered_metadata), "repo")
-    invalid = put_with_built_ref(store, b"not parquet", artifact_id="a1:durable:ae8663ebf000f8c4f22c56edcef86e04131c0366743b4bca562b767a9c56b9a8", media_type=ref.media_type)
+    invalid = put_with_built_ref(store, b"not parquet",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "invalid-parquet", "corrupt"), media_type=ref.media_type)
     cache.store_many(((key, invalid),))
     assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) is None
     assert cache.lookup_many((key,)) == {}

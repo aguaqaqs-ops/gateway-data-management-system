@@ -80,7 +80,7 @@ class ComputationCacheEntry:
                 or self.manifest_ref.media_type != "application/json"
                 or self.manifest_ref.size_bytes > MAX_CACHE_MANIFEST_BYTES):
             raise ValueError("cache manifest must be bounded JSON")
-        limit = 7 if self.key.kind is ComputationCacheKind.COMPARISON else 1
+        limit = 9 if self.key.kind is ComputationCacheKind.COMPARISON else 1
         if (type(self.member_refs) is not tuple or len(self.member_refs) > limit
                 or any(type(ref) is not ArtifactRef for ref in self.member_refs)):
             raise ValueError("cache member reference closure exceeds its kind bound")

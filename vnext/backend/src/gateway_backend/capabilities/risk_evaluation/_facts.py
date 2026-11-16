@@ -106,6 +106,9 @@ def extract_risk_facts(
     record_view_metrics: dict[str, float] | None = None,
     operation: RiskOperationPort | None = None,
 ) -> tuple[ExtractedRiskFacts, ...]:
+    from gateway_backend.capabilities.comparison import visible_comparison_facts
+
+    facts = visible_comparison_facts(facts)
     requested = None if requested_tables is None else frozenset(requested_tables)
     result: list[ExtractedRiskFacts] = []
     for table in facts.tables:
@@ -184,6 +187,10 @@ def has_visible_change(item: ExtractedRiskFacts) -> bool:
         or table.row_deleted_count
         or table.row_modified_count
         or item.records
+        or (table.ordered_extension is not None
+            and table.ordered_extension.ordered_summary.row_moved_count > 0)
+        or (table.blank_extension is not None
+            and table.blank_extension.blank_summary.blank_changed_count > 0)
         or item.ordered_unsupported
         or item.uncovered_targets
     )
@@ -212,6 +219,9 @@ def _risk_scope(
         return RiskScope.TABLE
     if key_degraded or ordered_unsupported or table.status is ComparisonTableStatus.DEGRADED:
         return RiskScope.DEGRADED_TABLE
+    if table.ordered_extension is not None or (table.blank_extension is not None
+            and table.blank_extension.blank_summary.blank_changed_count):
+        return RiskScope.ORDERED_TABLE
     if table.row_added_count or table.row_deleted_count or table.row_modified_count or has_records:
         return RiskScope.STANDARD_ROWS
     return RiskScope.TABLE

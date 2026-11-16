@@ -29,6 +29,7 @@ from gateway_backend.application.preview_jobs import (
     decode_preview_payload,
 )
 from gateway_backend.application.workspace.preview import build_preview_job_payload
+from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts.store import put_with_built_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.capabilities.composite_signal.contracts import EMPTY_COMPOSITE_LOGIC_DIGEST
@@ -266,7 +267,7 @@ def _replace_projection_failure_packages(
         SourceArtifactRole.MODIFIED: store_source_package(
             harness.artifact_store,
             modified_sql.encode("utf-8"),
-            artifact_id="a1:durable:aac831a7c19de167c6efcde6e8e10989bd747cb665855e0ce0155559d9d93fae",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "aac831a7c19de167c6efcde6e8e10989bd747cb665855e0ce0155559d9d93fae"),
         )
     }
     input_completeness = InputCompleteness.MODIFIED_ONLY
@@ -275,7 +276,7 @@ def _replace_projection_failure_packages(
         source_artifacts[SourceArtifactRole.INITIAL] = store_source_package(
             harness.artifact_store,
             initial_sql.encode("utf-8"),
-            artifact_id="a1:durable:6565e1aa33fb5ba223f242919ed02c593c36f0668538bb6225b19f2d56d0937c",
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6565e1aa33fb5ba223f242919ed02c593c36f0668538bb6225b19f2d56d0937c"),
         )
     harness.upload_revision = replace(
         harness.upload_revision,
@@ -731,7 +732,7 @@ def test_invalid_logics_xml_fails_preview_with_public_diagnostic(
     _replace_modified_source_package(
         harness,
         xml_bytes=xml_bytes,
-        artifact_id="a1:durable:04a7a9d33001c7cb7c785528b819e509937b29c834e93177c20757ea007f738a",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "04a7a9d33001c7cb7c785528b819e509937b29c834e93177c20757ea007f738a"),
     )
     operation_id = "op-preview-invalid-logics"
     insert_preview_operation(harness, operation_id)
@@ -760,7 +761,7 @@ def test_missing_logics_xml_materializes_stable_empty_source(tmp_path: Path) -> 
     _replace_modified_source_package(
         harness,
         xml_bytes=None,
-        artifact_id="a1:durable:e86c56dfc344cc632e819fc9c4dead333cc78544dc4f2336825f4d84a1a9e7d5",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "e86c56dfc344cc632e819fc9c4dead333cc78544dc4f2336825f4d84a1a9e7d5"),
     )
     operation_id = "op-preview-empty-logics"
     insert_preview_operation(harness, operation_id)
@@ -806,7 +807,7 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
     bad_binding = store_source_package(
         harness.artifact_store,
         b"not-a-valid-package",
-        artifact_id="a1:durable:647b09cc535a8eef4116dd12172c0d707e8b79d97baf0cac9690fac1315ad609",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "647b09cc535a8eef4116dd12172c0d707e8b79d97baf0cac9690fac1315ad609"),
     )
     upload_revision = replace(
         harness.upload_revision,
@@ -959,3 +960,50 @@ def test_illegal_typed_time_keeps_parser_failure_diagnostic_and_publishes_no_fac
     assert persisted.diagnostic is not None
     assert persisted.diagnostic.code == "TABLE_READER_UNAVAILABLE"
     assert persisted.ready_closure_ref is None
+
+
+@pytest.mark.parametrize(
+    ("modified_comment", "expected_equal"),
+    (("新标签", True), ("新引用表", False)),
+)
+def test_preview_freezes_rule_equivalence_for_comment_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modified_comment: str, expected_equal: bool,
+) -> None:
+    from tests.support import preview_job_harness
+
+    table_sql = "CREATE TABLE b1_n1_example (id INT PRIMARY KEY) COMMENT='{comment}'; INSERT INTO b1_n1_example VALUES (1);"
+    monkeypatch.setattr(preview_job_harness, "BASELINE_SQL", table_sql.format(comment="原标签"))
+    original_catalog = preview_job_harness._canonical_baseline_catalog
+    def catalog_with_example_rows(baseline_sql: str) -> Any:
+        tables, rows = original_catalog(baseline_sql)
+        return tables, {**rows, "b1_n1_example": ((1,),)}
+    monkeypatch.setattr(preview_job_harness, "_canonical_baseline_catalog", catalog_with_example_rows)
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, canonical_noop=True)
+    harness.seed_workspace()
+    _replace_projection_failure_packages(harness, initial_sql=None, modified_sql=table_sql.format(comment=modified_comment))
+    payload = decode_preview_payload(decode_payload_object(harness))
+    materialized = preview_jobs._materialize_all_sides(payload, harness.deps, operation_id="op-rule-equivalence")
+    assert materialized.canonical.baseline_canonical_state_digest == materialized.canonical.modified_canonical_state_digest
+    assert materialized.canonical.rules_semantically_equal is expected_equal
+
+
+def test_recovery_rejects_tampered_frozen_rule_equivalence(tmp_path: Path) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, canonical_noop=True)
+    harness.seed_workspace()
+    operation_id = "op-recover-rules"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        completed = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
+    assert completed.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, completed.checkpoint_ref)
+    canonical = envelope.job_state["canonical_preview"]
+    assert isinstance(canonical, dict)
+    damaged = dict(canonical)
+    damaged["rules_semantically_equal"] = not damaged["rules_semantically_equal"]
+    job_state = {**envelope.job_state, "canonical_preview": damaged}
+    with pytest.raises(CheckpointDecodeError, match="resolved rules do not match"):
+        preview_jobs._materialized_preview_inputs_from_checkpoint(
+            job_state, harness.artifact_store, repository_id=REPOSITORY_ID, dependencies=harness.deps,
+        )

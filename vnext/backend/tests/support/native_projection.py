@@ -5,6 +5,7 @@ from __future__ import annotations
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 
 from dataclasses import replace
+from collections.abc import Mapping
 
 from gateway_shared_kernel import DigestRef
 from gateway_backend.capabilities.snapshot_materialization import (
@@ -29,7 +30,8 @@ from tests.support.snapshot_materialization import snapshot_table_as_arrow
 from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
 
 
-def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResult, tuple[SnapshotTable, ...]]:
+def projected_fixture_tables(request: ProjectionRequest, *,
+    table_comments: Mapping[str, str] | None = None) -> tuple[ProjectionResult, tuple[SnapshotTable, ...]]:
     tables: list[SnapshotTable] = []
     projected = []
     manifest_tables = []
@@ -41,7 +43,8 @@ def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResu
             continue
         descriptor = item.source_binding.descriptor
         record = resolve_table_rule(request.ruleset, item.canonical_table,
-                                    primary_key_columns=descriptor.primary_key_columns).record
+                                    primary_key_columns=descriptor.primary_key_columns,
+                                    table_comment=(table_comments or {}).get(item.canonical_table)).record
         try:
             view = derive_storage_rule_view(record, descriptor)
         except StorageViewError as exc:
@@ -104,9 +107,9 @@ def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResu
         import_input=RepositoryImportArtifactInput(PACKAGE_VERSION, manifest.manifest_digest, tuple(imports))), tuple(tables)
 
 
-def project_storage(request: ProjectionRequest) -> ProjectionResult:
+def project_storage(request: ProjectionRequest, *, table_comments: Mapping[str, str] | None = None) -> ProjectionResult:
     """Construct a valid ProjectionResult for the publication/replay test owner."""
-    result, tables = projected_fixture_tables(request)
+    result, tables = projected_fixture_tables(request, table_comments=table_comments)
     for table in tables:
         if table.reader is not None:
             table.reader.close()
@@ -117,4 +120,5 @@ def project_storage(request: ProjectionRequest) -> ProjectionResult:
 
 def project_canonical_fixture(raw: SnapshotTableSet, ruleset: TableRulesetSnapshot) -> CanonicalProjectionResult:
     from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
-    return project_canonical_arrow_table_set(replace(raw, tables=tuple(snapshot_table_as_arrow(t) for t in raw.tables)), ruleset)
+    return project_canonical_arrow_table_set(replace(raw, tables=tuple(snapshot_table_as_arrow(t) for t in raw.tables)),
+        ruleset, presentation=PresentationMetadata())

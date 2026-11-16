@@ -11,6 +11,7 @@ from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.risk_evaluation._facts import ExtractedRiskFacts
+from gateway_backend.capabilities.risk_evaluation._rules import ordered_yk_name_applies, standard_rule_applicability
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RISK_CONTRACT_VERSION,
     RiskEvaluationInput,
@@ -137,6 +138,15 @@ def optional_candidate_input(
         for name in ("comparison_digest", "table_name", "records_ref"):
             del facts[name]
         facts.update({
+            "ordered_yk_name": ordered_yk_name_applies(evaluation_input.risk_ruleset, item.table_fact.table_name),
+            "ordered_tail_bounds": (None if evaluation_input.ordered_tail_bounds is None
+                or item.table_fact.table_name not in evaluation_input.ordered_tail_bounds else {
+                    field.name: getattr(evaluation_input.ordered_tail_bounds[item.table_fact.table_name], field.name)
+                    for field in fields(evaluation_input.ordered_tail_bounds[item.table_fact.table_name])
+                }),
+            "standard_rule_applicability": list(standard_rule_applicability(
+                evaluation_input.risk_ruleset, item.table_fact.table_name,
+            )),
             "comparison_failed": item.comparison_failed,
             "content_changed": item.table_fact.content_changed,
             "ordered_unsupported": item.ordered_unsupported,

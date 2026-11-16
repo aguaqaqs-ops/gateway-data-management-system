@@ -1,3 +1,4 @@
+import { ApiError } from "./authenticated-fetch";
 import { bindGatewayApi } from "./client";
 import type { components } from "./generated/openapi";
 import type { GatewayApi, ReviewAction, UploadRevisionInput } from "./client";
@@ -105,10 +106,22 @@ function isRequestTimeout(cause: unknown, signal: AbortSignal): boolean {
   return signal.aborted || (cause instanceof DOMException && (cause.name === "TimeoutError" || cause.name === "AbortError"));
 }
 
+// A 503 with one of these codes is a definite server answer about the result,
+// not a temporary outage: retrying the same read cannot make it succeed.
+const PERMANENT_SERVER_CODES = new Set([
+  "HISTORY_INTEGRITY_FAILURE",
+  "BUNDLE_INTEGRITY_FAILURE",
+  "SUBMISSION_RESULT_INTEGRITY_FAILURE",
+  "SUBMISSION_RESULT_UNAVAILABLE",
+]);
+
 function isTransientRequestError(cause: unknown): boolean {
   if (cause instanceof TypeError) return true;
-  return typeof cause === "object" && cause !== null && "status" in cause
-    && (Number((cause as { status: unknown }).status) >= 500 || Number((cause as { status: unknown }).status) === 429);
+  if (typeof cause !== "object" || cause === null || !("status" in cause)) return false;
+  const code = "code" in cause ? (cause as { code: unknown }).code : null;
+  if (typeof code === "string" && PERMANENT_SERVER_CODES.has(code)) return false;
+  const status = Number((cause as { status: unknown }).status);
+  return status >= 500 || status === 429;
 }
 
 export async function pollHistoryCompare(
@@ -325,13 +338,6 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
   return { accepted, operation, attempt, submission };
 }
 
-export interface ReviewHistoryJourneyResult {
-  reviewFacts: Awaited<ReturnType<GatewayApi["getReviewFacts"]>>;
-  accepted: Schemas["HistoryCompareAcceptResponse"];
-  result: Schemas["HistoryCompareResultResponse"];
-  bundle: InstalledBundle;
-}
-
 export interface HistoryComparisonJourneyResult {
   accepted: Schemas["HistoryCompareAcceptResponse"];
   result: Schemas["HistoryCompareResultResponse"];
@@ -356,19 +362,16 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
   return { accepted, result, bundle };
 }
 
-/** Review compares the baseline node to the submission and always downloads the History bundle. */
-export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<ReviewHistoryJourneyResult> {
-  api = bindGatewayApi(api);
-  const [reviewFacts, history] = await Promise.all([api.getReviewFacts(submissionId), api.listHistory()]);
-  const submissionNodes = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === submissionId);
-  if (submissionNodes.length !== 1) throw new Error(`History 中找不到唯一提交节点：${submissionId}`);
-  const parent = submissionNodes[0]?.parent;
-  if (!parent) throw new Error(`History 提交节点没有基线 parent：${submissionId}`);
-  const comparison = await runHistoryComparison(api, store, [
-    { ref_kind: parent.ref_kind, ref_id: parent.ref_id },
-    { ref_kind: "submission", ref_id: submissionId },
-  ], idempotencyKey, options);
-  return { reviewFacts, ...comparison };
+export function assertSubmissionReviewBundle(submissionId: string, result: Schemas["SubmissionResultResponse"], bundle: InstalledBundle): void {
+  const actual = bundle.manifest.pairs.map((value) => {
+    const pair = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    return [pair.pair_id, pair.comparison_digest, pair.surface_digest, pair.risk_evaluation_digest ?? null];
+  });
+  const expected = result.pairs.map((pair) => [pair.pair_id, pair.comparison_digest, pair.surface_digest, pair.risk_digest]);
+  if (result.submission_id !== submissionId || result.bundle_digest !== bundle.manifest.bundle_digest
+    || JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new ApiError("提交绑定的比较对与 bundle 不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
+  }
 }
 
 export async function applyReviewAction(api: GatewayApi, submissionId: string, reviewVersion: number, action: ReviewAction, reason?: string, idempotencyKey?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {

@@ -6,6 +6,10 @@ import re
 from functools import cache
 
 from gateway_backend.capabilities.table_rules.contracts import (
+    BUSINESS_SEQUENCE_KEYS,
+    BUSINESS_SEQUENCE_COLUMNS,
+    CONFIGURATION_COMPARE_KEY_COLUMNS,
+    CONFIGURATION_DIFF_TABLE_NAMES,
     FALLBACK_SELECTOR_VALUE,
     ORDERED_IDENTITY_COLUMN,
     ORDERED_POSITION_COLUMN,
@@ -40,35 +44,12 @@ DEFAULT_SKIPPED_TABLE_NAMES: tuple[str, ...] = (
 DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS: tuple[str, ...] = (r"^forwardtable_.*$",)
 DEFAULT_BROWSE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "version_manager",
-    "device_model_cfg",
-    "board_cfg",
-    "dev_grp",
-    "dev_list",
-    "model_grp",
-    "primary_equipment_object_cfg",
-    "prot_list",
-    "prot_right",
     "project",
-    "rule_61850dev_praser_cfg",
-    "rule_61850dev_praser_default_cfg",
-    "rule_61850point_praser_cfg",
-    "cnt_manage_cfg",
     "dev104_cfg",
-    "iec101_cfg",
-    "iec104_cfg",
-    "iec104gw_cfg",
-    "iec61850c_cfg",
-    "jdxx_cfg",
     "nbridge_cfg",
     "nr103d_cfg",
     "nr103ht_cfg",
-    "sc_cfg",
-    "scada_cfg",
-    "sg_manage_cfg",
     "sntp_cfg",
-    "vqc_cfg",
-    "wave_cfg",
-    "wf_cfg",
 )
 FORWARDTBL_LIST_KEY_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("forwardtbl_lst_cs", ("tbname",)),
@@ -80,7 +61,7 @@ FORWARDTBL_LIST_KEY_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("forwardtbl_lst_yt", ("tbname",)),
     ("forwardtbl_lst_yx", ("tbname",)),
 )
-DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES: tuple[str, ...] = (
+DEVICE_POINT_TABLE_NAMES: tuple[str, ...] = (
     "device_st",
     "device_mx",
     "device_co",
@@ -92,7 +73,7 @@ DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "device_other",
     "device_disturb",
 )
-DEVICE_CFG_UPDATE_ONLY_TABLE_NAME = "device_cfg"
+DEVICE_CFG_TABLE_NAME = "device_cfg"
 COMPOSITE_SIGNAL_POINT_TABLE_NAME = "composite_signal_point"
 COMPOSITE_SIGNAL_POINT_KEY_COLUMNS: tuple[str, ...] = ("source_table", "point_gid")
 COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS: tuple[str, ...] = (
@@ -104,20 +85,7 @@ COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS: tuple[str, ...] = (
     "formula_ast_json",
     "point_name",
 )
-IEC104_ORDERED_FAMILIES: tuple[str, ...] = (
-    "iec104_syx_list",
-    "iec104_dyx_list",
-    "iec104_yc_list",
-    "iec104_syk_list",
-    "iec104_dyk_list",
-    "iec104_yt_list",
-    "iec104_ym_list",
-    "iec104_sc_list",
-    "iec104_yp_list",
-)
-IEC104_ORDERED_TABLE_PATTERNS: tuple[str, ...] = tuple(
-    rf"^b\d+_n\d+_{re.escape(family)}$" for family in IEC104_ORDERED_FAMILIES
-)
+CHANNEL_TABLE_PATTERN = r"^b[0-9]+_[nc][0-9]+_.+$"
 PROTOCOL_CFG_TABLE_SEGMENTS: tuple[str, ...] = (
     "iec104",
     "iec61850c",
@@ -155,6 +123,8 @@ def migrated_table_rule_records() -> tuple[TableRuleRecord, ...]:
         *_browse_only_records(),
         *_ordered_records(),
         *_standard_exact_records(),
+        *_configuration_records(),
+        *_business_sequence_records(),
         _device_cfg_record(),
         *_protocol_records(),
         _raw_pk_fallback_record(),
@@ -221,12 +191,13 @@ def _browse_only_records() -> tuple[TableRuleRecord, ...]:
 
 
 def _ordered_records() -> tuple[TableRuleRecord, ...]:
-    return tuple(_ordered_record(pattern) for pattern in IEC104_ORDERED_TABLE_PATTERNS)
+    return (_ordered_record(CHANNEL_TABLE_PATTERN),)
 
 
 def _ordered_record(pattern: str) -> TableRuleRecord:
     return TableRuleRecord(
-        selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern),
+        selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern,
+                                   table_comment_contains="引用表"),
         precedence_class=SelectorPrecedenceClass.ORDERED_DIFF,
         static_role=TableStaticRole.ORDERED_DIFF,
         table_storage=TableStorageDisposition.PROJECT,
@@ -266,14 +237,31 @@ def _standard_exact_records() -> tuple[TableRuleRecord, ...]:
     )
 
 
+def _configuration_records() -> tuple[TableRuleRecord, ...]:
+    return tuple(
+        TableRuleRecord(
+            selector=TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value=name),
+            precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
+            static_role=TableStaticRole.STANDARD_DIFF,
+            table_storage=TableStorageDisposition.PROJECT,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            ordered_policy=OrderedPolicy.NONE,
+            compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+            compare_key_columns=CONFIGURATION_COMPARE_KEY_COLUMNS,
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
+        )
+        for name in CONFIGURATION_DIFF_TABLE_NAMES
+    )
+
+
 def _device_point_records() -> tuple[TableRuleRecord, ...]:
     return tuple(
         _explicit_standard_record(
             name,
             key_columns=(ORDERED_IDENTITY_COLUMN,),
-            artifact_scope=TableArtifactScope.UPDATE_ONLY,
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
         )
-        for name in DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES
+        for name in DEVICE_POINT_TABLE_NAMES
     )
 
 
@@ -306,15 +294,35 @@ def _device_cfg_record() -> TableRuleRecord:
     return TableRuleRecord(
         selector=TableRuleSelector(
             kind=TableRuleSelectorKind.EXACT,
-            value=DEVICE_CFG_UPDATE_ONLY_TABLE_NAME,
+            value=DEVICE_CFG_TABLE_NAME,
         ),
         precedence_class=SelectorPrecedenceClass.STANDARD_DEVICE_CFG,
         static_role=TableStaticRole.STANDARD_DIFF,
         table_storage=TableStorageDisposition.PROJECT,
         canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
         ordered_policy=OrderedPolicy.NONE,
-        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+        compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
+        compare_key_columns=BUSINESS_SEQUENCE_KEYS["device_cfg"],
+        compare_excluded_columns=("no",),
+        artifact_scope=TableArtifactScope.ALL_CHANGES,
+    )
+
+
+def _business_sequence_records() -> tuple[TableRuleRecord, ...]:
+    return tuple(
+        TableRuleRecord(
+            selector=TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value=name),
+            precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
+            static_role=TableStaticRole.STANDARD_DIFF,
+            table_storage=TableStorageDisposition.PROJECT,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            ordered_policy=OrderedPolicy.NONE,
+            compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY if columns else TableCompareKeyMode.FULL_ROW_MULTISET,
+            compare_key_columns=columns,
+            compare_excluded_columns=(BUSINESS_SEQUENCE_COLUMNS[name],),
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
+        )
+        for name, columns in BUSINESS_SEQUENCE_KEYS.items() if name != "device_cfg"
     )
 
 

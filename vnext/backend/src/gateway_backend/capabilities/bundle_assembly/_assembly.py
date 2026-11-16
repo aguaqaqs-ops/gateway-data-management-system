@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.artifacts.location import ArtifactLocation
+from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 
 import json
 from collections.abc import Iterable, Mapping
@@ -81,6 +81,7 @@ class _PlannedArtifact:
     final_ref: ArtifactRef
     raw_bytes: bytes
     binding: BundleArtifactBinding
+    reuse_source: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,10 +224,11 @@ def assemble_bundle(
         final_artifacts = [
             (item.raw_bytes, item.final_ref)
             for item in generated
+            if target_store is not source_store or not item.reuse_source
         ]
         for raw_bytes, ref in final_artifacts:
             target_store.put(raw_bytes, ref)
-            _verify_store_bytes(target_store, ref, raw_bytes)
+            _verify_written_bytes(target_store, ref, raw_bytes)
         closure_ref = put_with_built_ref(
             target_store,
             closure_raw,
@@ -239,8 +241,8 @@ def assemble_bundle(
             artifact_id=_bundle_artifact_id("manifest", manifest_raw),
             media_type=BUNDLE_MANIFEST_MEDIA_TYPE,
         )
-        _verify_store_bytes(target_store, closure_ref, closure_raw)
-        _verify_store_bytes(target_store, manifest_ref, manifest_raw)
+        _verify_written_bytes(target_store, closure_ref, closure_raw)
+        _verify_written_bytes(target_store, manifest_ref, manifest_raw)
         checkpoint()
 
         summary = BundleSummary(
@@ -357,7 +359,7 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
     for entry in entries:
         validate_bundle_ref(entry.artifact_ref, label="final closure artifact ref")
         raw = store.locate(entry.artifact_ref)
-        _verify_store_bytes(store, entry.artifact_ref, raw)
+        _verify_bytes(entry.artifact_ref, raw)
     expected_closure_digest = closure_digest(closure)
     if manifest.get("closure_manifest_digest") != expected_closure_digest.value:
         raise BundleAssemblyError("BUNDLE_CLOSURE_MANIFEST_DIGEST_MISMATCH")
@@ -562,6 +564,20 @@ def _plan_artifacts(
     checkpoint: Any,
 ) -> dict[ArtifactRef, _PlannedArtifact]:
     binding_by_source = {item.source_ref: item for item in bindings}
+    snapshot_sources: dict[tuple[str, str, int, str], list[ArtifactRef]] = {}
+    for binding in binding_by_source.values():
+        if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+            ref = binding.source_ref
+            key = (binding.logical_path, ref.media_type, ref.size_bytes, ref.raw_sha256.value)
+            snapshot_sources.setdefault(key, []).append(ref)
+    snapshot_representatives = {
+        source_ref: min(refs, key=lambda ref: (
+            parse_artifact_id(ref.artifact_id) is ArtifactLocation.CANONICAL,
+            ref.artifact_id,
+        ))
+        for refs in snapshot_sources.values()
+        for source_ref in refs
+    }
     planned: dict[ArtifactRef, _PlannedArtifact] = {}
     visiting: set[ArtifactRef] = set()
 
@@ -578,7 +594,7 @@ def _plan_artifacts(
             raise
         except Exception as exc:
             raise BundleAssemblyError("SOURCE_ARTIFACT_NOT_FOUND") from exc
-        _verify_store_bytes(store, source_ref, raw)
+        _verify_bytes(source_ref, raw)
         rewritten = raw
         if _is_json_ref_bearing(source_ref):
             value = _json_object_or_value(raw)
@@ -594,13 +610,23 @@ def _plan_artifacts(
                 plan(dependency)
             rewritten_value = _rewrite_embedded_refs(value, planned)
             rewritten = canonicalize_json_value(rewritten_value)
-        final_ref = _build_final_ref(source_ref, rewritten)
         binding = binding_by_source[source_ref]
+        reuse_source = (
+            rewritten == raw
+            and parse_artifact_id(source_ref.artifact_id) is not ArtifactLocation.CANONICAL
+        )
+        final_ref = source_ref if reuse_source else _build_final_ref(source_ref, rewritten)
+        representative = snapshot_representatives.get(source_ref)
+        if representative is not None and representative != source_ref:
+            representative_item = plan(representative)
+            final_ref = representative_item.final_ref
+            reuse_source = representative_item.reuse_source
         item = _PlannedArtifact(
             source_ref=source_ref,
             final_ref=final_ref,
             raw_bytes=rewritten,
             binding=binding,
+            reuse_source=reuse_source,
         )
         planned[source_ref] = item
         visiting.remove(source_ref)
@@ -783,9 +809,13 @@ def _bundle_id(bundle_digest: DigestRef) -> str:
     return f"bundle-{bundle_digest.value.removeprefix('sha256:')}"
 
 
-def _verify_store_bytes(store: ArtifactStorePort, ref: ArtifactRef, raw: bytes) -> None:
+def _verify_bytes(ref: ArtifactRef, raw: bytes) -> None:
     if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
         raise BundleAssemblyError("ARTIFACT_INTEGRITY_MISMATCH")
+
+
+def _verify_written_bytes(store: ArtifactStorePort, ref: ArtifactRef, raw: bytes) -> None:
+    _verify_bytes(ref, raw)
     located = store.locate(ref)
     if located != raw:
         raise BundleAssemblyError("ARTIFACT_CHANGED_DURING_PUBLICATION")

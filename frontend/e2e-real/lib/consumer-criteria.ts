@@ -60,6 +60,7 @@ interface RowFilter {
 
 interface NavigationTab {
   tab_key: string;
+  empty: unknown;
   table_id: string;
   row_filter: RowFilter | null;
   facts: { basis?: unknown } | null;
@@ -69,17 +70,21 @@ interface NavigationTab {
 interface NavigationItem {
   item_key: string;
   tabs: NavigationTab[];
+  summary?: { change_kinds?: unknown; risk_level?: unknown; nonempty_tab_count?: unknown; change_complete?: unknown; risk_complete?: unknown };
 }
 
 interface NavigationGroup {
   group_key: string;
   items: NavigationItem[];
+  nonempty_item_count?: unknown;
 }
 
 interface NavigationDocument {
   contract_version?: unknown;
   groups?: NavigationGroup[];
   replacement_sides?: { before: NavigationGroup[]; current: NavigationGroup[] } | null;
+  table_notices?: unknown;
+  device_definition_changes?: unknown;
 }
 
 interface BindingSide {
@@ -134,7 +139,7 @@ export interface BundleCriteriaSummary {
 }
 
 const SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v4";
-const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v1";
+const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v4";
 const FIXED_GROUPS = [
   "FORWARD_CHANNELS",
   "SECONDARY_DEVICES",
@@ -322,6 +327,9 @@ function checkNavigationShape(navigation: NavigationDocument, surface: Compariso
   if (navigation.contract_version !== NAVIGATION_CONTRACT_VERSION) {
     fail(where, `导航 contract version 不是 ${NAVIGATION_CONTRACT_VERSION}`);
   }
+  // v4 root: public table notices and device-definition changes are required arrays (empty for replacement).
+  if (!Array.isArray(navigation.table_notices) || !Array.isArray(navigation.device_definition_changes)) fail(where, "v4 导航缺少 table_notices 或 device_definition_changes");
+  if (navigation.replacement_sides && (navigation.table_notices.length > 0 || navigation.device_definition_changes.length > 0)) fail(where, "替换模式导航不能有公共提示或定义变化");
   const tableIds = new Set((surface.tables ?? []).map((table) => table.table_id));
   const tabs: NavigationTab[] = [];
   for (const { side, groups, where: sideWhere } of collectSideGroups(navigation, String(surface.comparison_mode ?? ""), where)) {
@@ -337,8 +345,18 @@ function checkNavigationShape(navigation: NavigationDocument, surface: Compariso
         if (typeof item.item_key !== "string") fail(sideWhere, "导航项缺少 item_key");
         if (itemKeys.has(item.item_key)) fail(sideWhere, `导航项重复：${item.item_key}`);
         itemKeys.add(item.item_key);
+        const summary = item.summary;
+        if (!summary || !Array.isArray(summary.change_kinds)
+            || summary.change_kinds.some((kind) => typeof kind !== "string" || !["UNCHANGED", "BUSINESS_EQUIVALENT", "ADDED", "DELETED", "UPDATED", "SCHEMA_CHANGED", "DEGRADED", "FAILED", "REPLACED"].includes(kind))
+            || JSON.stringify(summary.change_kinds) !== JSON.stringify([...new Set(summary.change_kinds)].sort())) fail(sideWhere, `导航项 ${item.item_key} 的非空变化摘要无效`);
+        if (summary.risk_level !== null && !["LOW", "MEDIUM_LOW", "UNKNOWN", "MEDIUM_HIGH", "HIGH"].includes(String(summary.risk_level))) fail(sideWhere, `导航项 ${item.item_key} 的风险摘要无效`);
+        const nonempty = (item.tabs ?? []).filter((tab) => tab.empty === false).length;
+        if (!Number.isSafeInteger(summary.nonempty_tab_count) || summary.nonempty_tab_count !== nonempty) fail(sideWhere, `导航项 ${item.item_key} 的非空页签计数不符`);
+        if (nonempty === 0 && (summary.change_kinds.length !== 0 || summary.risk_level !== null)) fail(sideWhere, `全空导航项 ${item.item_key} 的摘要不是中性`);
+        if (typeof summary.change_complete !== "boolean" || typeof summary.risk_complete !== "boolean") fail(sideWhere, `导航项 ${item.item_key} 缺少 v4 完整性摘要`);
         const tabKeys = new Set<string>();
         for (const tab of item.tabs ?? []) {
+          if (typeof tab.empty !== "boolean" || (side !== null && tab.empty)) fail(sideWhere, `页签 ${tab.tab_key} 的 empty 标记无效`);
           if (typeof tab.tab_key !== "string") fail(sideWhere, "页签缺少 tab_key");
           if (tabKeys.has(tab.tab_key)) fail(sideWhere, `导航项 ${item.item_key} 的页签重复：${tab.tab_key}`);
           tabKeys.add(tab.tab_key);
@@ -357,6 +375,8 @@ function checkNavigationShape(navigation: NavigationDocument, surface: Compariso
           tabs.push(side ? { ...tab, side } : tab);
         }
       }
+      if (!Number.isSafeInteger(group.nonempty_item_count)
+          || group.nonempty_item_count !== (group.items ?? []).filter((item) => (item.summary?.nonempty_tab_count as number) > 0).length) fail(sideWhere, `导航组 ${group.group_key} 的非空项计数不符`);
     }
   }
   return tabs;

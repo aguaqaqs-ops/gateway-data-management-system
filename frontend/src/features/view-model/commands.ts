@@ -6,6 +6,8 @@ export interface BrowseState {
   workspaceId: string | null;
   previewResultId: string | null;
   submissionId: string | null;
+  /** REVIEW only: re-viewing the submission-time result from the workbench, without review actions. */
+  readOnly: boolean;
   operationId: string | null;
   operationKind: "history-compare" | "operation" | null;
   pairId: string | null;
@@ -13,6 +15,12 @@ export interface BrowseState {
   workbenchNodeKey: string | null;
   tabKey: string | null;
   side: "before" | "current" | null;
+  /**
+   * Local orphan browsing of the whole-table tab in `tabKey`: rows of this side
+   * that no published device predicate claims. Bound to that tab; cleared when
+   * the tab, pair or bundle changes.
+   */
+  unassignedSide: "BEFORE" | "CURRENT" | null;
   changeIndex: number;
   expandedGroups: string[];
   onlyInteresting: boolean;
@@ -27,6 +35,7 @@ export const initialBrowseState: BrowseState = {
   workspaceId: null,
   previewResultId: null,
   submissionId: null,
+  readOnly: false,
   operationId: null,
   operationKind: null,
   pairId: null,
@@ -34,6 +43,7 @@ export const initialBrowseState: BrowseState = {
   workbenchNodeKey: null,
   tabKey: null,
   side: null,
+  unassignedSide: null,
   changeIndex: 0,
   expandedGroups: [],
   onlyInteresting: false,
@@ -49,6 +59,7 @@ export type BrowseCommand =
   | { name: "select-node"; nodeKey: string }
   | { name: "select-tab"; tabKey: string }
   | { name: "select-side"; side: "before" | "current" }
+  | { name: "set-unassigned"; side: "BEFORE" | "CURRENT" | null }
   | { name: "jump-to-change"; index: number }
   | { name: "toggle-group"; groupKey: string }
   | { name: "set-only-interesting"; enabled: boolean }
@@ -68,6 +79,8 @@ export interface CommandResult {
 function normalizeState(state: BrowseState): BrowseState {
   return {
     ...state,
+    readOnly: state.mode === "REVIEW" && state.readOnly,
+    unassignedSide: state.tabKey?.startsWith("__whole__:") ? state.unassignedSide : null,
     changeIndex: Math.max(0, Math.floor(state.changeIndex)),
     expandedGroups: [...new Set(state.expandedGroups)],
     comparisonNodeRefs: [...new Set(state.comparisonNodeRefs)].slice(0, 3),
@@ -77,11 +90,12 @@ function normalizeState(state: BrowseState): BrowseState {
 export function executeBrowseCommand(state: BrowseState, command: BrowseCommand): BrowseState {
   let next = state;
   switch (command.name) {
-    case "select-pair": next = { ...state, pairId: command.pairId, changeIndex: 0 }; break;
-    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, pairId: null, nodeKey: null, tabKey: null, changeIndex: 0 }; break;
+    case "select-pair": next = { ...state, pairId: command.pairId, changeIndex: 0, unassignedSide: command.pairId === state.pairId ? state.unassignedSide : null }; break;
+    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, pairId: null, nodeKey: null, tabKey: null, unassignedSide: null, changeIndex: 0 }; break;
     case "set-operation": next = { ...state, operationId: command.operationId, operationKind: command.operationKind }; break;
     case "select-node": next = { ...state, nodeKey: command.nodeKey }; break;
-    case "select-tab": next = { ...state, tabKey: command.tabKey }; break;
+    case "select-tab": next = { ...state, tabKey: command.tabKey, unassignedSide: command.tabKey === state.tabKey ? state.unassignedSide : null }; break;
+    case "set-unassigned": next = { ...state, unassignedSide: command.side, changeIndex: 0 }; break;
     case "select-side": next = { ...state, side: command.side }; break;
     case "jump-to-change": next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) }; break;
     case "toggle-group": next = {
@@ -112,6 +126,7 @@ export function encodeBrowseState(state: BrowseState): string {
   if (state.workspaceId) params.set("workspaceId", state.workspaceId);
   if (state.previewResultId) params.set("previewResultId", state.previewResultId);
   if (state.submissionId) params.set("submissionId", state.submissionId);
+  if (state.readOnly) params.set("readonly", "1");
   if (state.operationId) params.set("operationId", state.operationId);
   if (state.operationKind) params.set("operationKind", state.operationKind);
   if (state.pairId) params.set("pair", state.pairId);
@@ -119,6 +134,7 @@ export function encodeBrowseState(state: BrowseState): string {
   if (state.workbenchNodeKey) params.set("workbenchNode", state.workbenchNodeKey);
   if (state.tabKey) params.set("tab", state.tabKey);
   if (state.side) params.set("side", state.side);
+  if (state.unassignedSide) params.set("unassigned", state.unassignedSide);
   if (state.changeIndex > 0) params.set("change", String(state.changeIndex));
   if (state.onlyInteresting) params.set("changed", "1");
   if (state.debug) params.set("debug", "1");
@@ -139,6 +155,7 @@ export function decodeBrowseState(search: string): BrowseState {
     workspaceId: params.get("workspaceId"),
     previewResultId: params.get("previewResultId"),
     submissionId: params.get("submissionId"),
+    readOnly: params.get("readonly") === "1",
     operationId: params.get("operationId"),
     operationKind: params.get("operationKind") === "history-compare" || params.get("operationKind") === "operation" ? params.get("operationKind") as "history-compare" | "operation" : null,
     pairId: params.get("pair"),
@@ -146,6 +163,7 @@ export function decodeBrowseState(search: string): BrowseState {
     workbenchNodeKey: params.get("workbenchNode"),
     tabKey: params.get("tab"),
     side: params.get("side") === "before" || params.get("side") === "current" ? params.get("side") as "before" | "current" : null,
+    unassignedSide: params.get("unassigned") === "BEFORE" || params.get("unassigned") === "CURRENT" ? params.get("unassigned") as "BEFORE" | "CURRENT" : null,
     changeIndex: Number.isFinite(change) ? change : 0,
     expandedGroups: params.getAll("group"),
     onlyInteresting: params.get("changed") === "1",

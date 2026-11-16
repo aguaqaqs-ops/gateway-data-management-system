@@ -1,5 +1,7 @@
 """Public surface of the Comparison capability."""
 
+from gateway_backend.capabilities.comparison.blank_identity import ordered_blank_identity
+
 from gateway_backend.capabilities.comparison.contracts import (
     BLANK_COMPARISON_CONTRACT_VERSION,
     BLANK_RECORDS_SCHEMA_VERSION,
@@ -103,6 +105,7 @@ from gateway_backend.capabilities.comparison.fact_document import (
 
 
 __all__ = [
+    "ordered_blank_identity",
     "comparison_input_stream",
     "BLANK_COMPARISON_CONTRACT_VERSION",
     "BLANK_RECORDS_SCHEMA_VERSION",

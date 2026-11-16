@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from tests.support.preview_fixtures import seed_completed_preview_operation
+
 from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
@@ -689,7 +692,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
-            contract_version="backend-vnext/preview/v4",
+            contract_version=PREVIEW_JOB_CONTRACT_VERSION,
             provider_versions={"comparison": "v1"},
             digests=PreviewResultDigests(
                 source_digest="d-source",
@@ -712,6 +715,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         payloads.update(review_payloads)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
+        seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated_workspace = replace(
             workspace,
             repository_id=TEST_MAPPING_REPOSITORY_ID,

@@ -11,7 +11,7 @@ from gateway_backend.capabilities.surface_assembly.contracts import SurfaceProje
 
 NAVIGATION_BYTES = canonicalize_json_value({"contract_version": CONTRACT_VERSION,
     "groups": [{"group_key": key, "label": label, "items": [], "nonempty_item_count": 0} for key, label in GROUPS],
-    "replacement_sides": None})
+    "replacement_sides": None, "table_notices": [], "device_definition_changes": []})
 NAVIGATION_REF = ArtifactRef(build_artifact_id(ArtifactLocation.COMPARISON, "test-navigation", "unit-scaffold"),
     "application/json", len(NAVIGATION_BYTES), raw_blob_digest(NAVIGATION_BYTES))
 NAVIGATION_PROJECTION = SurfaceProjectionRef("business_navigation", "BUSINESS_NAVIGATION",

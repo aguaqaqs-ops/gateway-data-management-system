@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from tests.support.preview_fixtures import seed_completed_preview_operation
+
 from tests.support.review_result_fixtures import review_artifact_refs
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -485,7 +488,7 @@ def seed_submit_ready_workspace(
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
             ruleset_version=RULESET_VERSION,
-            contract_version="backend-vnext/preview/v4",
+            contract_version=PREVIEW_JOB_CONTRACT_VERSION,
             provider_versions={"comparison": "v1"},
             digests=PreviewResultDigests(
                 source_digest="d-source",
@@ -510,6 +513,7 @@ def seed_submit_ready_workspace(
         preview, protected_refs, review_payloads = closed_review_preview(preview, original_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
+        seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated_workspace = replace(
             workspace,
             repository_id=repository_id,

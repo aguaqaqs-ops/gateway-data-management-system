@@ -70,7 +70,8 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     ),
     "storage_projection": frozenset({"table_rules", "snapshot_materialization", "table_presentation"}),
     "comparison": frozenset({"snapshot_materialization", "table_rules", "table_presentation"}),
-    "risk_evaluation": frozenset({"comparison"}),
+    # Risk's ordered YK selector consumes Table Rules' public channel parser.
+    "risk_evaluation": frozenset({"comparison", "table_rules"}),
     "surface_assembly": frozenset({"comparison", "risk_evaluation", "snapshot_materialization", "table_presentation"}),
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),

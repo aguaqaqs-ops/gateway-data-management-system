@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from tests.support.preview_fixtures import seed_completed_preview_operation
+
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
 from tests.support.review_result_fixtures import review_artifact_refs, closed_review_preview
@@ -202,6 +205,7 @@ def _seed_additional_pending_review_submission(
             upload_revision_id=upload_revision_id,
             repository_id=repository_id,
             operation_id=f"op-preview-{submission_id}",
+            contract_version=PREVIEW_JOB_CONTRACT_VERSION,
             business_baseline_node_id=baseline_head.business_baseline_node_id,
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
@@ -211,6 +215,7 @@ def _seed_additional_pending_review_submission(
         protected_refs = (*_protected_preview_refs()[:2], *review_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
+        seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated_workspace = replace(
             workspace,
             repository_id=repository_id,

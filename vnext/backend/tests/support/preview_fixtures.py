@@ -20,8 +20,9 @@ from gateway_backend.capabilities.storage_projection import (
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from gateway_backend.domain.workspace.models import (
     PreviewArtifactRef,
-    PreviewCanonicalBindings,
+    PreviewCanonicalBindings, PreviewResult, UploadRevision,
 )
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.snapshot_materialization import materialize_arrow_sql
 from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext, NeverCancel
@@ -129,3 +130,33 @@ def make_preview_canonical_bindings(
         initial=replace(facts.initial, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf")),
         modified=replace(facts.modified, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
     ))
+
+
+def seed_completed_preview_operation(
+    unit_of_work: ControlDbUnitOfWork, preview: PreviewResult, upload_revision: UploadRevision,
+) -> None:
+    """Persist the same scope and payload bindings required of a completed Preview job."""
+    from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND
+    from gateway_backend.application.workspace.preview import build_preview_job_payload
+    from gateway_backend.operations.contracts import OPERATION_RUNTIME_CONTRACT_VERSION
+
+    payload = build_preview_job_payload(
+        workspace_id=preview.workspace_id, upload_revision=upload_revision,
+        repository_id=preview.repository_id, business_baseline_node_id=preview.business_baseline_node_id,
+        business_baseline_commit_id=preview.business_baseline_commit_id,
+        baseline_head_version=preview.baseline_head_version, idempotency_key="preview-key",
+        comparison_ruleset_digest="sha256:rules",
+    )
+    unit_of_work.connection.execute(
+        """INSERT INTO operation_records (
+            operation_id, contract_version, optimistic_version, job_kind, job_contract_version,
+            job_payload, job_payload_ref, business_refs, artifact_refs, repository_operation_id,
+            checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested,
+            created_at_us, updated_at_us, completed_at_us
+        ) VALUES (?, ?, 0, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'SUCCEEDED', NULL, 0, 1, 1, 1)""",
+        (preview.operation_id, OPERATION_RUNTIME_CONTRACT_VERSION, PREVIEW_JOB_KIND,
+         PREVIEW_JOB_CONTRACT_VERSION, payload, canonicalize_json_value([
+             {"kind": "workspace", "value": preview.workspace_id},
+             {"kind": "upload_revision", "value": preview.upload_revision_id},
+         ]), b"[]"),
+    )

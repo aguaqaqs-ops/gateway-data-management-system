@@ -50,7 +50,7 @@ from gateway_backend.capabilities.comparison import (
     RecordsDetailPolicy,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds, RiskEvaluation
-from gateway_backend.capabilities.comparison.blank_identity import ordered_blank_identity
+from gateway_backend.capabilities.comparison import ordered_blank_identity
 from gateway_backend.capabilities.comparison.contracts import OrderedStatus
 from gateway_backend.capabilities.snapshot_materialization.contracts import BlankRowProvenance
 from gateway_backend.capabilities.risk_evaluation import (

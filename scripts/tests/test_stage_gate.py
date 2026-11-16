@@ -346,7 +346,8 @@ class StageGateTests(unittest.TestCase):
             git("commit", "-m", "source")
             source = git("rev-parse", "HEAD")
             git("checkout", "--orphan", "side")
-            git("rm", "-r", ".")
+            # The orphan checkout retains the old tree as staged additions.
+            git("rm", "-rf", ".")
             (repo / "side.txt").write_text("side\n")
             git("add", ".")
             git("commit", "-m", "unrelated root")

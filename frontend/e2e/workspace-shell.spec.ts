@@ -1339,11 +1339,17 @@ const VALID_DIRECTORY = [
   { path: "comps/logic/logics.xml", content: "<logics/>" },
 ];
 
+async function openReuploadCard(page: Page) {
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await page.locator(".workspace-reupload summary").click();
+}
+
 test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { uploadHoldPolls: 8 });
   await freezePageClock(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
+  await openReuploadCard(page);
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
@@ -1558,11 +1564,12 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   const { apiRequests } = await installFixtureRoutes(page, { fail: true });
   await page.goto("/");
+  await openReuploadCard(page);
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-initial-input", "original_cfg", VALID_DIRECTORY);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
-  await page.getByRole("button", { name: "上传", exact: true }).click();
+  await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
   const card = page.getByLabel("上传与预览");
   await expect(card.getByRole("alert")).toContainText("预览已生成，但下载比较结果失败，请重试", { timeout: 15000 });
   await screenshot(page, "upload-failure-retry", 1920);
@@ -1580,6 +1587,7 @@ test("FE2c 上传版本冲突后刷新再上传使用新版本与新 key", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   const { apiRequests } = await installFixtureRoutes(page, { uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -1602,6 +1610,7 @@ test("FE2c 上传冲突后刷新失败时进入失败阶段并显示原因", asy
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -1618,6 +1627,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflict: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -1631,6 +1641,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { previewForbidden: true });
   await page.goto("/");
+  await openReuploadCard(page);
   await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
@@ -1864,6 +1875,7 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   // C4: pin the clock so the running upload card shows a fixed waited duration.
   await freezePageClock(page);
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);

@@ -321,6 +321,23 @@ describe("browse rows from published locators", () => {
       changed_columns: [], coverage: null, position: null, position_range: [start, end] },
   });
 
+  it("attaches a uniquely proven inserted canonical blank to its snapshot row", () => {
+    const current = [{ no: "1", gid: "1" }, { no: "2", gid: "4000000000" }, { no: "3", gid: "3" }];
+    const record = blankRecord("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 2, current_end: 3, row_count: 1 });
+    const annotations = [intervalRisk("CURRENT", 2, 3, 1, "MEDIUM_HIGH")];
+    const input = { table: table({ ordered_extension: {} }), beforeRows: [], currentRows: current, hasBeforeSnapshot: false,
+      locator: new Map(), annotations, records: [record] };
+    const result = buildBrowseRows({ ...input, currentCanonicalBlanks: true });
+    expect(result.rows.map((row) => row.kind)).toEqual(["unchanged", "added", "unchanged"]);
+    expect(result.rows[1]?.riskLevel).toBe("MEDIUM_HIGH");
+    expect(rowRiskAnnotation(result.rows[1]!, annotations)?.annotation_id).toBe("CURRENT2");
+    expect(result.rows[2]?.riskLevel).toBeNull();
+    expect(deriveChangeLocations(result.scoped).map((location) => location.position)).toEqual([2]);
+    expect(buildBrowseRows(input).rows.some((row) => row.kind === "blank-interval")).toBe(true);
+    const ambiguous = buildBrowseRows({ ...input, currentCanonicalBlanks: true, currentRows: [...current, { no: "2", gid: "4000000001" }] });
+    expect(ambiguous.rows.some((row) => row.kind === "blank-interval")).toBe(true);
+  });
+
   it("summarises each blank interval once and never invents per-position blank rows", () => {
     // Before: 1 2 _ _ 5 _ _ 8. Insert two blanks after 1 and shrink the 6-7 run to one blank.
     const current = ["1", "", "", "2", "", "", "5", "", "8"].map((label, index) => ({ dev_addr: label, description: label || "空点", no: String(index + 1) }));

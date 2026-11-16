@@ -43,7 +43,7 @@ export interface BrowseRow {
   beforeScope?: { values: Record<string, unknown>; identityContext?: Record<string, unknown> | null };
   /** Values come from a record or context, not a snapshot row: absent columns are unavailable, not NULL. */
   partialValues?: boolean;
-  /** Present exactly on "blank-interval" summary rows. */
+  /** Interval evidence for a summary or a reliably identified inserted blank. */
   interval?: BlankIntervalSummary;
   /** Grid placement of rows without a snapshot row (blank-interval summaries), on the physical ruler. */
   sortPosition?: number;
@@ -336,10 +336,10 @@ function isBinaryColumn(column: SurfaceColumn): boolean {
 }
 
 export function displayRowSearchText(row: BrowseRow, columns: SurfaceColumn[]): string {
-  if (row.interval) return blankIntervalLabel(row.interval).toLocaleLowerCase();
-  return columns.filter((column) => !isBinaryColumn(column) && !(row.values[column.name] instanceof ArrayBuffer)
+  const values = columns.filter((column) => !isBinaryColumn(column) && !(row.values[column.name] instanceof ArrayBuffer)
     && !ArrayBuffer.isView(row.values[column.name]))
     .map((column) => displayValue(row.values[column.name], column)).join(" ").toLocaleLowerCase();
+  return row.interval ? `${blankIntervalLabel(row.interval)} ${values}`.toLocaleLowerCase() : values;
 }
 
 export function collapseUnchangedRows(rows: BrowseRow[], expandedKeys: ReadonlySet<string>): BrowseRow[] {
@@ -535,6 +535,7 @@ export function buildBrowseRows(input: {
   locator: Map<string, RowLocatorRecord>;
   hasBeforeSnapshot?: boolean;
   hasCurrentSnapshot?: boolean;
+  currentCanonicalBlanks?: boolean;
   onlyInteresting?: boolean;
   rowFilter?: NavigationRowFilter | null;
   /** Same-side `gateway.sta.enc.v1` column encodings; required when rowFilter is set. */
@@ -767,6 +768,36 @@ export function buildBrowseRows(input: {
       } else if (kind === "BLANK_INSERT_INTERVAL" || kind === "BLANK_DELETE_INTERVAL") {
         const interval = blankIntervalSummary(record);
         if (!interval) continue;
+        // A single canonical blank in the affected region, with net increase
+        // one, proves that row is the inserted blank. Other cases remain a
+        // region: a range can include valid points, retained blanks or gaps.
+        if (interval.direction === "INSERT" && interval.current && interval.rowCount === 1 && hasCurrentSnapshot && input.currentCanonicalBlanks) {
+          const [start, end] = interval.current;
+          const positions = input.currentRows.map((row) => scalarPosition(row[ORDERED_POSITION_COLUMN]));
+          const overlaps = records.some((other) => {
+            if (other === record || (other.record_kind !== "BLANK_INSERT_INTERVAL" && other.record_kind !== "BLANK_DELETE_INTERVAL")) return false;
+            const range = blankIntervalSummary(other)?.current;
+            return range && range[0] <= end && range[1] >= start;
+          });
+          if (!overlaps && positions.every((position) => position !== null) && new Set(positions).size === positions.length) {
+            const candidates = input.currentRows.flatMap((source, index) => {
+              const position = positions[index];
+              const gid = scalarPosition(source.gid);
+              return position !== null && position !== undefined && position >= start && position <= end
+                && gid !== null && gid >= 4_000_000_000 && gid <= 4_294_967_295 ? [index] : [];
+            });
+            const row = candidates.length === 1 ? rows.find((item) => item.side === "current" && item.physicalIndex === candidates[0] && item.kind === "unchanged") : undefined;
+            if (row) {
+              row.kind = "added";
+              row.recordKind = kind;
+              row.semanticKind = kind;
+              row.interval = interval;
+              row.riskLevel = blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null;
+              consumed.add(record);
+              continue;
+            }
+          }
+        }
         const orderRows = hasCurrentSnapshot ? input.currentRows : input.beforeRows;
         const anchor = (hasCurrentSnapshot ? interval.current ?? interval.before : interval.before ?? interval.current) ?? [Number.MAX_SAFE_INTEGER];
         rows.push({

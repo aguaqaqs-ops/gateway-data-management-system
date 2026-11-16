@@ -759,18 +759,18 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       const unassigned = activeUnassigned && browse.unassignedSide
         ? { side: browse.unassignedSide === "BEFORE" ? "before" as const : "current" as const, predicates: activeUnassigned } : null;
       const needsEncodings = (selectedTab.rowFilter !== null || unassigned !== null) && !degraded;
-      const [beforeMeta, currentMeta] = needsEncodings
-        ? await Promise.all([
-          paths?.before ? readParquetMetadata(bundle, paths.before) : Promise.resolve(null),
-          paths?.current ? readParquetMetadata(bundle, paths.current) : Promise.resolve(null),
-        ])
-        : [null, null];
+      const needsBlankProvenance = tableRecords.some((record) => record.record_kind === "BLANK_INSERT_INTERVAL");
+      const [beforeMeta, currentMeta] = await Promise.all([
+        needsEncodings && paths?.before ? readParquetMetadata(bundle, paths.before) : Promise.resolve(null),
+        (needsEncodings || needsBlankProvenance) && paths?.current ? readParquetMetadata(bundle, paths.current) : Promise.resolve(null),
+      ]);
       const tableLabel = `表 ${surfaceTable.table_name}`;
       const beforeEncodings: Map<string, SnapshotColumnEncoding> = beforeMeta ? decodeSnapshotEncodings(beforeMeta.key_value_metadata, `${tableLabel}.改前`) : new Map();
-      const currentEncodings: Map<string, SnapshotColumnEncoding> = currentMeta ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableLabel}.改后`) : new Map();
+      const currentEncodings: Map<string, SnapshotColumnEncoding> = needsEncodings && currentMeta ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableLabel}.改后`) : new Map();
+      const currentCanonicalBlanks = currentMeta?.key_value_metadata?.some((entry) => entry.key === "gateway-vnext.batch.blank_provenance" && entry.value === "CANONICAL_PSEUDO_GID") ?? false;
       setBeforeRows(beforeSnapshotRows); setCurrentRows(currentSnapshotRows); setAnnotations(risks);
       const built = buildBrowseRows({ table: surfaceTable, beforeRows: beforeSnapshotRows, currentRows: currentSnapshotRows, records: tableRecords, annotations: risks, locator,
-        hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
+        hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current), currentCanonicalBlanks,
         rowFilter: selectedTab.rowFilter, beforeEncodings, currentEncodings, degraded,
         reuseUnrecordedBefore: canReuseUnrecordedIdentity(surfaceTable, filterTabs, Boolean(paths?.before), Boolean(paths?.current)),
         unassigned, onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns, deletionLayout: settings.deletionLayout });

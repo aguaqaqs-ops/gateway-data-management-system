@@ -64,7 +64,7 @@ async function installFixtureRoutes(page: Page, options: {
   /** F2: queued workspace snapshots; each POST /v1/workspaces consumes one. */
   workspaceSequence?: Schemas["WorkspaceResponse"][];
   /** C2: hold the next POST /v1/workspaces in flight until released. */
-  workspacePostHold?: { onHold: () => void; release: Promise<void> };
+  workspacePostHold?: { onHold: () => void; release: Promise<void>; onCall?: number };
   operationReadFails?: boolean;
   workspaceReadFails?: boolean;
   operationById?: Record<string, Schemas["OperationResponse"]>;
@@ -109,6 +109,7 @@ async function installFixtureRoutes(page: Page, options: {
   const operationCounts = new Map<string, number>();
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
+  let workspacePostCount = 0;
   let workspacePointerCleared = false;
   let submitAttemptPointer: string | null = null;
   let workspaceSubmitSucceeded = false;
@@ -120,8 +121,9 @@ async function installFixtureRoutes(page: Page, options: {
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
     if (await rejectInvalidRequest(route, request)) return;
+    workspacePostCount += 1;
     const postHold = options.workspacePostHold;
-    if (postHold) {
+    if (postHold && (postHold.onCall === undefined || workspacePostCount === postHold.onCall)) {
       options.workspacePostHold = undefined;
       postHold.onHold();
       await postHold.release;
@@ -166,6 +168,7 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     if (request.method() !== "GET") return route.fallback();
     const url = new URL(request.url());
+    if (url.pathname !== "/v1/history") return route.fallback();
     if (options.unauthorized) {
       const error = { code: "AUTHENTICATION_REQUIRED", message: "会话无效或已过期" };
       apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 401, body: JSON.stringify(error) });
@@ -188,6 +191,10 @@ async function installFixtureRoutes(page: Page, options: {
     apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 200, body: JSON.stringify(body) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
+
+  await page.route("**/v1/history-compares?*", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null } satisfies Schemas["HistoryCompareListResponse"]),
+  }));
 
   const reviewReplayKeys = new Set<string>();
   let reviewStatus: Schemas["ReviewFactsResponse"]["status"] = "PENDING";
@@ -295,10 +302,9 @@ async function installFixtureRoutes(page: Page, options: {
     historyCompareCounts.set(operationId, count);
     apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
     if (options.historyCompareErrors && count <= options.historyCompareErrors) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/history-compares/{operation_id}" && item.method === "GET" && item.status === 503);
-      if (!error) throw new Error("GET /v1/history-compares/{operation_id} 503 fixture missing");
-      apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: error.status, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+      // Exercise a transient connection failure; HISTORY_INTEGRITY_FAILURE is
+      // a terminal result error and must not be presented as disconnection.
+      return route.abort("failed");
     }
     const fixture = await loadFixture("history-three-nodes");
     const result = options.historyCompareStatus?.(operationId, count) ?? { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: operationId };
@@ -996,21 +1002,25 @@ test("加载中显示骨架，bundle 接口失败显示可重试错误页", asyn
   await screenshot(page, "bundle-error", 1280);
 });
 
-test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 详情面板", async ({ page }) => {
+test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 详情面板", async ({ page }) => {
   const { apiRequests, apiResponses } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
-  await expect(page.locator(".workspace-table thead th")).toHaveCount(4);
+  await expect(page.locator(".workspace-table thead th")).toHaveText(["比较", "节点", "时间"]);
   await expect(page.locator(".workspace-page")).toHaveClass(/details-open/);
-  await expect(page.locator(".workspace-context-bar")).toContainText("工作区 gateway-17");
-  await expect(page.locator(".workspace-context-bar").getByRole("button", { name: "原始组态备份" })).toBeEnabled();
-  await expect(page.locator(".workspace-context-bar").getByRole("button", { name: "本次归档组态" })).toBeEnabled();
-  await expect(page.locator(".workspace-context-bar").getByRole("button", { name: "上传" })).toBeDisabled();
-  await expect(page.locator(".workspace-context-bar")).toContainText("需先选择本次归档组态目录");
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await expect(page.locator(".workspace-details")).toContainText("本次上传已生成预览");
+  await page.locator(".workspace-reupload > summary").click();
+  const upload = page.getByLabel("上传与预览");
+  await expect(upload.locator('[data-slot="initial"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
+  await expect(upload.locator('[data-slot="modified"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
+  await expect(upload.getByRole("button", { name: "上传并生成预览" })).toBeDisabled();
+  await expect(upload).toContainText("需先选择本次归档组态目录");
   await screenshot(page, "s1-workbench", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
+  await page.getByRole("button", { name: "折叠详情面板" }).click();
   await expect(page.locator(".workspace-page")).toHaveClass(/details-collapsed/);
   await screenshot(page, "s1-workbench", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1028,23 +1038,13 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("提交");
   await expect(page.locator(".workspace-table tbody tr")).toHaveCount(5);
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("");
-  await page.getByRole("button", { name: "提交时间", exact: true }).click();
-  const widthBefore = await page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
-  const resize = page.getByRole("button", { name: "调整节点 / 描述列宽" });
-  const resizeBounds = await resize.boundingBox();
-  if (!resizeBounds) throw new Error("workspace table column resize handle is missing");
-  await page.mouse.move(resizeBounds.x + resizeBounds.width / 2, resizeBounds.y + resizeBounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(resizeBounds.x + resizeBounds.width / 2 + 48, resizeBounds.y + resizeBounds.height / 2);
-  await page.mouse.up();
-  await expect.poll(() => page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width))).toBeGreaterThan(widthBefore);
+  await page.getByRole("button", { name: "时间", exact: true }).click();
 
-  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await expect(page.locator(".workspace-context-bar")).toContainText("待审核");
-  await expect(page.locator(".workspace-context-bar")).toContainText("提交尚未审核通过");
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await expect(page.locator(".workspace-details")).toContainText("待审核");
+  await expect(page.locator(".workspace-details")).toContainText("提交尚未审核通过");
+  await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await expect(page.locator(".compare-tray")).toContainText("2 / 3");
   await expect(page.locator(".workspace-table")).toContainText("比较 1");
   await expect(page.locator(".workspace-table")).toContainText("比较 2");
@@ -1052,6 +1052,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
+  await page.getByRole("button", { name: "折叠详情面板" }).click();
   await expect(page.locator(".workspace-page")).toHaveClass(/details-collapsed/);
   await expect(page.getByRole("button", { name: "展开详情面板" })).toBeVisible();
   await screenshot(page, "s2-compare-tray", 1280);
@@ -1068,10 +1069,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   }
 
   await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "原始组态备份" }).click();
-  expect(new URL(page.url()).searchParams.get("page")).not.toBe("compare");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
-  await page.locator(".workspace-details").getByRole("button", { name: "查看本次组态差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "继续预览并提交" }).click();
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("workspaceId")).toBe("workspace-fe2b");
   expect(new URL(page.url()).searchParams.get("previewResultId")).toBe("preview-full");
@@ -1090,7 +1088,7 @@ test("待审提交从工作台打开提交绑定的不可变比较", async ({ pa
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "查看差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "去审核" }).click();
   await expect(page).toHaveURL(/mode=REVIEW/);
   await waitForBrowse(page);
 
@@ -1112,10 +1110,8 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
-  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
-  await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
+  await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
   await expect(page.getByRole("alert")).toContainText("请求超时");
   holdFirstCompare.resolve();
@@ -1234,12 +1230,10 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
-  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
-  await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
+  await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
-  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有该操作的权限");
+  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有历史比较权限");
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
   await expect(page.getByRole("button", { name: "复制比较错误详情" })).toBeVisible();
   expect(apiRequests.some((request) => request.method === "POST" && request.path === "/v1/history-compares" && request.token === "Bearer dev-token-no-permission")).toBe(true);
@@ -1252,7 +1246,7 @@ test("查看差异超时后的重试复用同一幂等意图", async ({ page }) 
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "查看差异" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "比较父节点 → 此提交" }).click();
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("请求超时");
   holdFirstCompare.resolve();
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
@@ -1349,11 +1343,17 @@ const VALID_DIRECTORY = [
   { path: "comps/logic/logics.xml", content: "<logics/>" },
 ];
 
+async function openReuploadCard(page: Page) {
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await page.locator(".workspace-reupload > summary").click();
+}
+
 test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { uploadHoldPolls: 8 });
   await freezePageClock(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
+  await openReuploadCard(page);
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
@@ -1533,7 +1533,7 @@ test("FE3c 归档主线确认预检、异常与影响", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "业务核验" })).toBeVisible();
@@ -1568,11 +1568,12 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   const { apiRequests } = await installFixtureRoutes(page, { fail: true });
   await page.goto("/");
+  await openReuploadCard(page);
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-initial-input", "original_cfg", VALID_DIRECTORY);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
-  await page.getByRole("button", { name: "上传", exact: true }).click();
+  await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
   const card = page.getByLabel("上传与预览");
   await expect(card.getByRole("alert")).toContainText("预览已生成，但下载比较结果失败，请重试", { timeout: 15000 });
   await screenshot(page, "upload-failure-retry", 1920);
@@ -1590,6 +1591,7 @@ test("FE2c 上传版本冲突后刷新再上传使用新版本与新 key", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   const { apiRequests } = await installFixtureRoutes(page, { uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -1612,6 +1614,7 @@ test("FE2c 上传冲突后刷新失败时进入失败阶段并显示原因", asy
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -1628,6 +1631,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflict: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -1641,6 +1645,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { previewForbidden: true });
   await page.goto("/");
+  await openReuploadCard(page);
   await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
@@ -1822,7 +1827,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const forbidden = page.getByRole("dialog", { name: "归档主基线" });
   await expect(forbidden.getByText("SCOPE_FORBIDDEN")).toBeVisible();
   await expect(forbidden.getByText("当前身份没有预检归档方案的权限")).toBeVisible();
@@ -1834,7 +1839,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await dialog.getByRole("checkbox", { name: /确认把/ }).check();
   await dialog.locator(".archive-anomaly").getByRole("button", { name: "接受" }).click();
@@ -1860,7 +1865,7 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await installFixtureRoutes(page, { archiveBlocked: true, approvedSubmission: true });
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
+  await page.locator(".workspace-details").getByRole("button", { name: "归档主线" }).click();
   const blocked = page.getByRole("dialog", { name: "归档主基线" });
   await expect(blocked.getByText("ACTIVE_SUBMIT_ATTEMPT", { exact: true })).toBeVisible();
   await expect(blocked.getByRole("button", { name: "确认归档" })).toBeDisabled();
@@ -1874,6 +1879,7 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   // C4: pin the clock so the running upload card shows a fixed waited duration.
   await freezePageClock(page);
   await page.goto("/");
+  await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
@@ -2241,7 +2247,7 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
     operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, job_kind: "backend-vnext/submit", status: "FAILED" as const }
       : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
@@ -2260,13 +2266,11 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(notice.getByText("原始代码")).toBeVisible();
   // The upload gate is released (only the directory prerequisite remains), so
-  // selecting a directory makes both upload entries available.
-  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  // selecting a directory makes the upload action available.
+  await openReuploadCard(page);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
   await expect(cardUpload).toBeEnabled({ timeout: 15000 });
-  const toolbarUpload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(toolbarUpload).toBeEnabled({ timeout: 15000 });
   // The retry affordance lives inside the notice; the workbench has other
   // "重试" buttons (compare tray, history drawer) that must not be clicked.
   const attemptReadsBeforeRetry = apiRequests.filter((request) =>
@@ -2278,7 +2282,6 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(cardUpload).toBeEnabled();
-  await expect(toolbarUpload).toBeEnabled();
 });
 
 test("工作台续做提示重试时读不到提交结果仍保留刷新提示", async ({ page }) => {
@@ -2295,7 +2298,7 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
     operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, job_kind: "backend-vnext/submit", status: "FAILED" as const }
       : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
@@ -2311,12 +2314,10 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   const notice = page.locator(".workspace-notice[role=\"alert\"]");
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
-  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await openReuploadCard(page);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
   await expect(cardUpload).toBeEnabled({ timeout: 15000 });
-  const toolbarUpload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(toolbarUpload).toBeEnabled({ timeout: 15000 });
   const attemptReadsBeforeRetry = apiRequests.filter((request) =>
     request.method === "GET" && request.path.includes("/submit-attempts/")).length;
   await notice.getByRole("button", { name: "重试", exact: true }).click();
@@ -2326,7 +2327,6 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
   await expect(cardUpload).toBeEnabled();
-  await expect(toolbarUpload).toBeEnabled();
 });
 
 test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", async ({ page }) => {
@@ -2343,8 +2343,11 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
     active_submission_id: "submission-1",
     active_submit_attempt_id: null,
   } satisfies Schemas["WorkspaceResponse"];
+  const rereadHeld = deferred();
+  const releaseReread = deferred();
   const { apiRequests } = await installFixtureRoutes(page, {
     workspaceSequence: [stale, recovered],
+    workspacePostHold: { onCall: 2, onHold: () => rereadHeld.resolve(), release: releaseReread.promise },
     submitAttemptState: "FINALIZED",
     // The submit operation stays polling (RUNNING): a terminal operation would
     // resume-navigate the workbench to the review page, while this case asserts
@@ -2353,16 +2356,18 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
       "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
     },
   });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace");
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(upload).toBeDisabled({ timeout: 15000 });
-  // The stale snapshot must never unlock the upload; the recovered snapshot
-  // reports the pending submission.
-  await expect(page.locator(".workspace-actions").getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible({ timeout: 15000 });
-  await expect(upload).toBeDisabled();
-  await expect(page.locator(".workspace-actions").getByText("无法确认提交状态")).toHaveCount(0);
-  // Exactly the mount read plus the single stale re-read: without F2 the
-  // stale snapshot unlocks the upload and no re-read happens.
+  await rereadHeld.promise;
+  await openReuploadCard(page);
+  await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
+  await expect(page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" })).toBeDisabled();
+  releaseReread.resolve();
+  const details = page.locator(".workspace-details");
+  // A pending submission owns the preview; the upload card remains absent.
+  await expect(details.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible({ timeout: 15000 });
+  await expect(details.locator(".upload-card")).toHaveCount(0);
+  await expect(details.getByText("无法确认提交状态")).toHaveCount(0);
   expect(apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces")).toHaveLength(2);
 });
 

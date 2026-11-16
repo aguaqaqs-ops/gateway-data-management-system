@@ -1002,6 +1002,24 @@ test("加载中显示骨架，bundle 接口失败显示可重试错误页", asyn
   await screenshot(page, "bundle-error", 1280);
 });
 
+test("比较表格的真实选中单元格焦点在两种宽度可见", async ({ page }) => {
+  await installFixtureRoutes(page);
+  for (const width of [1920, 1280]) {
+    await page.setViewportSize({ width, height: 1080 });
+    await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }));
+    await waitForBrowse(page);
+    await page.locator('.nav-item[data-item-key="device:table"] .nav-item__button').click();
+    await waitForGridPaint(page, "table");
+    const grid = page.locator(".grid-frame").first();
+    const bounds = await grid.boundingBox();
+    if (!bounds) throw new Error("comparison grid has no bounding box");
+    // Click a value cell on the updated row, rather than the collapsed-run row.
+    await page.mouse.click(bounds.x + 300, bounds.y + 34 + 2 * 34 + 17);
+    await expect.poll(() => grid.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await screenshot(page, "s4-grid-selected-cell", width);
+  }
+});
+
 test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 详情面板", async ({ page }) => {
   const { apiRequests, apiResponses } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1049,6 +1067,16 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   await expect(page.locator(".workspace-table")).toContainText("比较 1");
   await expect(page.locator(".workspace-table")).toContainText("比较 2");
   await screenshot(page, "s2-compare-tray", 1920);
+  await page.getByRole("checkbox", { name: "加入比较：初始基线" }).check();
+  await expect(page.locator(".compare-tray")).toContainText("3 / 3");
+  const fourth = page.getByRole("checkbox", { name: "加入比较：提交 1" });
+  await expect(fourth).toBeDisabled();
+  await expect(fourth.locator("..")).toHaveAttribute("title", "比较托盘最多选择 3 个节点");
+  await screenshot(page, "s2-tray-full", 1920);
+  await screenshot(page, "s2-tray-full", 1280);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.getByRole("checkbox", { name: "移出比较：初始基线" }).uncheck();
+  await expect(page.locator(".compare-tray")).toContainText("2 / 3");
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
@@ -1114,6 +1142,10 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
   await expect(page.getByRole("alert")).toContainText("请求超时");
+  await expect(page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" })).toBeEnabled();
+  await screenshot(page, "s2-tray-request-timeout", 1920);
+  await screenshot(page, "s2-tray-request-timeout", 1280);
+  await page.setViewportSize({ width: 1920, height: 1080 });
   holdFirstCompare.resolve();
   await expect.poll(() => apiResponses.filter((response) => response.method === "POST" && response.path === "/v1/history-compares").length).toBe(1);
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
@@ -1171,6 +1203,7 @@ test("History 比较仍在运行和连接中断状态清晰显示", async ({ pag
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace&operationId=history-compare-running&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
   await expect(page.locator(".history-result-drawer")).toContainText("执行中");
+  await expect(page.locator(".compare-tray").getByRole("button", { name: "比较中" })).toBeDisabled();
   await screenshot(page, "history-compare-running", 1920);
   await screenshot(page, "history-compare-running", 1280);
 

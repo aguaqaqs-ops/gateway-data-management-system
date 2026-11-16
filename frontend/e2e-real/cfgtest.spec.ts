@@ -8,23 +8,21 @@ import {
   compareAction,
   contextForIdentity,
   expectNoPageErrors,
-  gotoWorkbench,
   saveEvidence,
-  selectTreeRow,
-  selectUploadDirs,
-  startUpload,
   waitForDiffBrowsing,
   waitForPreviewOutcome,
-  workshopAction,
 } from "./lib/ui";
 import {
   appendArchiveAnomalyResolution,
+  appendArchiveConfirmation,
   applyReview,
+  getArchiveResult,
   getPreviewResult,
   getReviewFacts,
   listArchiveCandidates,
   listHistory,
   previewArchivePlan,
+  startArchive,
   tryApi,
   waitForOperation,
   waitForPendingSubmission,
@@ -252,11 +250,29 @@ async function checkBrowser(page: Page, testInfo: TestInfo, prefix: string): Pro
   await expect(page.locator(".public-notices .public-notice", { hasText: "修改装置定义 · 地址 34 → 9234" })).toBeVisible();
 }
 
-async function archiveWithAcknowledgements(browser: Parameters<typeof contextForIdentity>[0], archiver: ReturnType<typeof requireEnv>["archiver"], submissionId: string, testInfo: TestInfo): Promise<void> {
+/** Workbench as it is rendered on this base: the History tree and the selected workspace's upload card. */
+async function openWorkbench(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /组态树/ })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("table", { name: "History 组态树" })).toBeVisible({ timeout: 60_000 });
+}
+
+async function uploadModifiedOnly(page: Page, dir: string): Promise<void> {
+  await page.getByTestId("upload-modified-input").setInputFiles(dir);
+  await page.getByRole("button", { name: "上传并生成预览" }).click({ timeout: 120_000 });
+}
+
+/**
+ * Archives com_cfg_test/1 through the same API sequence the archive dialog
+ * runs (runArchiveJourney): acknowledge time anomalies, confirm required
+ * subjects, then start. The browser is exercised on the comparison pages.
+ */
+async function archiveViaApi(archiver: ReturnType<typeof requireEnv>["archiver"], submissionId: string): Promise<void> {
   const listed = (await listArchiveCandidates(archiver)).body;
   const digest = listed.candidates.find((candidate) => candidate.submission_id === submissionId)!.expected_candidate_digest;
-  const plan = (await previewArchivePlan(archiver, { submission_id: submissionId, expected_candidate_digest: digest })).body;
-  await appendCaseLog(`cfgtest archive anomalies=${JSON.stringify(plan.anomalies.map((anomaly) => anomaly.issue_code))}`);
+  const selected = { submission_id: submissionId, expected_candidate_digest: digest };
+  let plan = (await previewArchivePlan(archiver, selected)).body;
+  await appendCaseLog(`cfgtest archive anomalies=${JSON.stringify(plan.anomalies.map((anomaly) => anomaly.issue_code))} confirmations=${plan.confirmation_requirements.length} blockers=${JSON.stringify(plan.blockers)}`);
   for (const anomaly of plan.anomalies) {
     expect(["GENERATION_TIME_MISSING", "GENERATION_TIME_INVALID_VALUES", "GENERATION_TIME_LAST_NOT_MAX", "TIME_ABNORMAL_MODIFIED", "TIME_ABNORMAL_INITIAL"].includes(anomaly.issue_code),
       `cfgtest unexpected archive anomaly ${anomaly.issue_code}`).toBe(true);
@@ -264,7 +280,7 @@ async function archiveWithAcknowledgements(browser: Parameters<typeof contextFor
       expected_baseline_node_id: plan.head.business_baseline_node_id,
       expected_baseline_head_version: plan.head.baseline_head_version,
       candidate_set_digest: plan.candidate_set_digest,
-      selected: { submission_id: submissionId, expected_candidate_digest: digest },
+      selected,
       subject_digest: anomaly.subject_digest,
       subject_kind: anomaly.subject_kind,
       issue_code: anomaly.issue_code,
@@ -275,24 +291,44 @@ async function archiveWithAcknowledgements(browser: Parameters<typeof contextFor
       reason: `cfgtest 证据运行：${anomaly.issue_code}`,
     });
   }
-  const context = await contextForIdentity(browser, archiver);
-  const page = await context.newPage();
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  const diagnostics = collectPageDiagnostics(page);
-  try {
-    await gotoWorkbench(page);
-    await page.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
-    await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
-    const dialog = page.getByRole("dialog", { name: "归档主基线" });
-    await expect(dialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
-    await dialog.getByRole("checkbox", { name: /确认把/ }).check({ timeout: 120_000 });
-    await dialog.getByRole("button", { name: "确认归档" }).click({ timeout: 120_000 });
-    await expect(dialog.getByText("归档完成")).toBeVisible({ timeout: 300_000 });
-    await saveEvidence(page, testInfo, "cfgtest-archive-v1");
-    expectNoPageErrors(diagnostics, "cfgtest-archive");
-  } finally {
-    await context.close().catch(() => undefined);
+  const confirmationRefs: Array<{ subject_digest: string; sequence: number }> = [];
+  for (const subjectDigest of plan.confirmation_requirements) {
+    const appended = (await appendArchiveConfirmation(archiver, {
+      expected_baseline_node_id: plan.head.business_baseline_node_id,
+      expected_baseline_head_version: plan.head.baseline_head_version,
+      selected,
+      candidate_set_digest: plan.candidate_set_digest,
+      subject_digest: subjectDigest,
+      expected_sequence: 0,
+      action: "CONFIRM",
+      reason: "cfgtest 证据运行：确认归档选择",
+    })).body;
+    confirmationRefs.push({ subject_digest: subjectDigest, sequence: appended.sequence });
   }
+  plan = (await previewArchivePlan(archiver, selected)).body;
+  expect(plan.blockers, "cfgtest archive blockers").toEqual([]);
+  const started = (await startArchive(archiver, {
+    expected_baseline_node_id: plan.head.business_baseline_node_id,
+    expected_baseline_head_version: plan.head.baseline_head_version,
+    candidate_set_digest: plan.candidate_set_digest,
+    selected,
+    confirmation_refs: confirmationRefs,
+    anomaly_resolution_refs: plan.anomalies.filter((anomaly) => anomaly.resolution_status === "ACCEPTED")
+      .map((anomaly) => ({ subject_digest: anomaly.subject_digest, sequence: anomaly.latest_sequence })),
+  })).body;
+  const result = (await getArchiveResult(archiver, started.archive_result_id)).body;
+  await appendCaseLog(`cfgtest archived submission=${submissionId} baseline_node=${result.baseline_node_id} head=${result.baseline_head_version}`);
+}
+
+/** Ticks the History-tree compare checkboxes of the archived baseline and the submission, by their accessible names. */
+async function addToCompare(page: Page): Promise<void> {
+  const boxes = page.getByRole("table", { name: "History 组态树" }).getByRole("checkbox", { name: /^加入比较：/ });
+  const names = await boxes.evaluateAll((elements) => elements.map((element) => element.getAttribute("aria-label") ?? ""));
+  await appendCaseLog(`cfgtest compare candidates=${JSON.stringify(names)}`);
+  const archived = names.filter((name) => /基线/.test(name) && !/初始基线/.test(name));
+  const submitted = names.filter((name) => /提交/.test(name));
+  expect({ archived: archived.length, submitted: submitted.length }, `one archived baseline and one submission in ${JSON.stringify(names)}`).toEqual({ archived: 1, submitted: 1 });
+  for (const name of [archived[0], submitted[0]] as string[]) await page.getByRole("checkbox", { name, exact: true }).check({ timeout: 60_000 });
 }
 
 test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History and browser", async ({ browser }, testInfo) => {
@@ -312,12 +348,11 @@ test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History 
   const observations: BundleObservation[] = [];
   try {
     // Step 1: com_cfg_test/1 on the empty INITIAL baseline; submit, approve, archive.
-    await gotoWorkbench(page);
-    await selectUploadDirs(page, { modified: v1Dir });
+    await openWorkbench(page);
     const recording1 = captureBundleDownloads(page, submitter);
     observations.push(recording1);
     const preview1Wait = await captureResponse(page, submitter, "POST", /\/preview-operations$/);
-    await startUpload(page);
+    await uploadModifiedOnly(page, v1Dir);
     const preview1 = await preview1Wait.read();
     expect(preview1.status(), "v1 preview accepted").toBe(202);
     const accepted1 = (await preview1.json()) as { operation_id: string };
@@ -332,17 +367,16 @@ test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History 
     const { submission: submissionV1 } = await waitForPendingSubmission(submitter, workspaceId, 900_000);
     const facts1 = (await getReviewFacts(reviewer, submissionV1.submission_id)).body;
     await applyReview(reviewer, submissionV1.submission_id, { expected_review_version: facts1.review_version, action: "APPROVE" });
-    await archiveWithAcknowledgements(browser, archiver, submissionV1.submission_id, testInfo);
+    await archiveViaApi(archiver, submissionV1.submission_id);
     expect((await listHistory(submitter)).body.head.version, "baseline head after archiving com_cfg_test/1").toBe(1);
     recording1.dispose();
 
     // Step 2: Preview com_cfg_test/2 against the archived 1 — the 1→2 pair.
-    await gotoWorkbench(page);
-    await selectUploadDirs(page, { modified: v2Dir });
+    await openWorkbench(page);
     const recording2 = captureBundleDownloads(page, submitter);
     observations.push(recording2);
     const preview2Wait = await captureResponse(page, submitter, "POST", /\/preview-operations$/);
-    await startUpload(page);
+    await uploadModifiedOnly(page, v2Dir);
     const preview2 = await preview2Wait.read();
     expect(preview2.status(), "v2 preview accepted").toBe(202);
     const accepted2 = (await preview2.json()) as { operation_id: string; upload_revision_id: string };
@@ -371,11 +405,8 @@ test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History 
     await applyReview(reviewer, submissionV2.submission_id, { expected_review_version: facts2.review_version, action: "APPROVE" });
 
     // Step 3: History compare of the same 1→2 pair (archived 1, submission 2).
-    await gotoWorkbench(page);
-    await selectTreeRow(page, "归档基线 1");
-    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(page, "提交 2");
-    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
+    await openWorkbench(page);
+    await addToCompare(page);
     const historyBodies = captureBundleDownloads(page, submitter);
     observations.push(historyBodies);
     const compareResponse = await captureResponse(page, submitter, "POST", /\/history-compares$/, 300_000);

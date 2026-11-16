@@ -268,7 +268,7 @@ async function uploadModifiedOnly(page: Page, dir: string): Promise<void> {
  * runs (runArchiveJourney): acknowledge time anomalies, confirm required
  * subjects, then start. The browser is exercised on the comparison pages.
  */
-async function archiveViaApi(archiver: ReturnType<typeof requireEnv>["archiver"], submissionId: string): Promise<void> {
+async function archiveViaApi(archiver: ReturnType<typeof requireEnv>["archiver"], submissionId: string): Promise<string> {
   const listed = (await listArchiveCandidates(archiver)).body;
   const digest = listed.candidates.find((candidate) => candidate.submission_id === submissionId)!.expected_candidate_digest;
   const selected = { submission_id: submissionId, expected_candidate_digest: digest };
@@ -319,17 +319,57 @@ async function archiveViaApi(archiver: ReturnType<typeof requireEnv>["archiver"]
   })).body;
   const result = (await getArchiveResult(archiver, started.archive_result_id)).body;
   await appendCaseLog(`cfgtest archived submission=${submissionId} baseline_node=${result.baseline_node_id} head=${result.baseline_head_version}`);
+  return result.baseline_node_id;
 }
 
-/** Ticks the History-tree compare checkboxes of the archived baseline and the submission, by their accessible names. */
-async function addToCompare(page: Page): Promise<void> {
-  const boxes = page.getByRole("table", { name: "History 组态树" }).getByRole("checkbox", { name: /^加入比较：/ });
-  const names = await boxes.evaluateAll((elements) => elements.map((element) => element.getAttribute("aria-label") ?? ""));
-  await appendCaseLog(`cfgtest compare candidates=${JSON.stringify(names)}`);
-  const archived = names.filter((name) => /基线/.test(name) && !/初始基线/.test(name));
-  const submitted = names.filter((name) => /提交/.test(name));
-  expect({ archived: archived.length, submitted: submitted.length }, `one archived baseline and one submission in ${JSON.stringify(names)}`).toEqual({ archived: 1, submitted: 1 });
-  for (const name of [archived[0], submitted[0]] as string[]) await page.getByRole("checkbox", { name, exact: true }).check({ timeout: 60_000 });
+interface PairIdentity { baselineNodeId: string; submissionId: string }
+
+/**
+ * Selects the 1→2 pair by identity, not by label or position: every History
+ * tree row is opened and its "节点 ID" read from the details panel; only the
+ * archived baseline produced by this run and the second submission are ticked.
+ * The API must show that submission's parent is that baseline, and the
+ * history-compare request must carry exactly these two refs.
+ */
+async function addPairToCompare(page: Page, submitter: ReturnType<typeof requireEnv>["submitter"], pair: PairIdentity): Promise<void> {
+  const history = (await listHistory(submitter)).body;
+  const baseline = history.nodes.find((node) => node.ref_kind === "baseline_node" && node.ref_id === pair.baselineNodeId);
+  const submission = history.nodes.find((node) => node.ref_kind === "submission" && node.ref_id === pair.submissionId);
+  expect(baseline?.baseline_kind, "the archived com_cfg_test/1 baseline is in History").toBe("ARCHIVED_SUBMISSION");
+  expect(submission?.parent, "the com_cfg_test/2 submission is based on that baseline (the 1→2 pair)").toEqual({ ref_kind: "baseline_node", ref_id: pair.baselineNodeId });
+  const expand = page.getByRole("button", { name: "展开详情面板" });
+  if (await expand.count()) await expand.click();
+  const table = page.getByRole("table", { name: "History 组态树" });
+  const rows = table.locator("tbody tr");
+  const wanted = new Map([[pair.baselineNodeId, "归档基线"], [pair.submissionId, "提交"]]);
+  const mapping: string[] = [];
+  const picked = new Map<string, number>();
+  for (let index = 0; index < await rows.count(); index += 1) {
+    const row = rows.nth(index);
+    const label = (await row.locator("button.workspace-node-label").innerText()).trim();
+    if (label.startsWith("工作区")) continue;
+    await row.locator("button.workspace-node-label").click();
+    await expect(page.locator(".workspace-details__header h2")).toHaveText(label);
+    const details = page.locator("dl.details-list");
+    const nodeId = (await details.locator("div").filter({ has: page.locator("dt", { hasText: /^节点 ID$/ }) }).locator("dd").innerText()).trim();
+    const nodeType = (await details.locator("div").filter({ has: page.locator("dt", { hasText: /^节点类型$/ }) }).locator("dd").innerText()).trim();
+    mapping.push(`${label}=${nodeType}:${nodeId}`);
+    if (wanted.has(nodeId)) {
+      expect(nodeType, `node ${nodeId} type`).toBe(wanted.get(nodeId));
+      expect(picked.has(nodeId), `node ${nodeId} appears once`).toBe(false);
+      picked.set(nodeId, index);
+    }
+  }
+  await appendCaseLog(`cfgtest history rows ${JSON.stringify(mapping)} expected baseline=${pair.baselineNodeId} submission=${pair.submissionId}`);
+  expect([...picked.keys()].sort(), "both pair nodes found in the History tree").toEqual([...wanted.keys()].sort());
+  for (const index of picked.values()) await rows.nth(index).getByRole("checkbox", { name: /^加入比较：/ }).check({ timeout: 60_000 });
+}
+
+/** The accepted request must name exactly the archived baseline and the second submission. */
+function assertCompareRequest(body: unknown, pair: PairIdentity): void {
+  const nodes = ((body as { nodes?: Array<{ ref_kind: string; ref_id: string }> }).nodes ?? [])
+    .map((node) => `${node.ref_kind}:${node.ref_id}`).sort();
+  expect(nodes, "history compare request names the 1→2 pair").toEqual([`baseline_node:${pair.baselineNodeId}`, `submission:${pair.submissionId}`].sort());
 }
 
 test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History and browser", async ({ browser }, testInfo) => {
@@ -368,7 +408,7 @@ test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History 
     const { submission: submissionV1 } = await waitForPendingSubmission(submitter, workspaceId, 900_000);
     const facts1 = (await getReviewFacts(reviewer, submissionV1.submission_id)).body;
     await applyReview(reviewer, submissionV1.submission_id, { expected_review_version: facts1.review_version, action: "APPROVE" });
-    await archiveViaApi(archiver, submissionV1.submission_id);
+    const archivedBaselineId = await archiveViaApi(archiver, submissionV1.submission_id);
     expect((await listHistory(submitter)).body.head.version, "baseline head after archiving com_cfg_test/1").toBe(1);
     recording1.dispose();
 
@@ -406,12 +446,15 @@ test("cfgtest com_cfg_test 1→2 secondary-device scope across Preview, History 
     await applyReview(reviewer, submissionV2.submission_id, { expected_review_version: facts2.review_version, action: "APPROVE" });
 
     // Step 3: History compare of the same 1→2 pair (archived 1, submission 2).
+    const pair = { baselineNodeId: archivedBaselineId, submissionId: submissionV2.submission_id };
     await openWorkbench(page);
-    await addToCompare(page);
+    await addPairToCompare(page, submitter, pair);
     const historyBodies = captureBundleDownloads(page, submitter);
     observations.push(historyBodies);
+    const compareRequest = page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname.endsWith("/history-compares"), { timeout: 300_000 });
     const compareResponse = await captureResponse(page, submitter, "POST", /\/history-compares$/, 300_000);
     await page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
+    assertCompareRequest((await compareRequest).postDataJSON(), pair);
     const compareAccepted = await compareResponse.read();
     expect(compareAccepted.status(), "history compare accepted").toBeLessThan(300);
     const historyOperationId = ((await compareAccepted.json()) as { operation_id: string }).operation_id;

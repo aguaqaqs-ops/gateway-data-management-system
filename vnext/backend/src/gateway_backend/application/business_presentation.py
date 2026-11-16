@@ -196,6 +196,7 @@ def publish_business_presentation(
     attribution: RiskAttribution, store: ArtifactStorePort, *,
     risk_report: RiskReport, before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
     same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],
+    initial_baseline: bool = False,
 ) -> tuple[tuple[SurfaceArtifactIndexEntry, ...], SurfaceProjectionRef, dict[str, int | float]]:
     context = current_kernel_context()
     if context is None:
@@ -295,7 +296,7 @@ def publish_business_presentation(
             risk_level=risk_levels.get(name),
             unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
     navigation_started = perf_counter()
-    navigation = build_navigation(tuple(tables), replacement=replacement,
+    navigation = build_navigation(tuple(tables), replacement=replacement, initial_baseline=initial_baseline,
         check=context.checkpoint, reserve=context.memory.reserve, resources=context.resources)
     navigation_seconds = perf_counter() - navigation_started
     tables.clear()

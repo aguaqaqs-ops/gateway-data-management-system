@@ -45,8 +45,8 @@ def device(old: tuple[Mapping[str, Scalar], ...], new: tuple[Mapping[str, Scalar
     return table("device", side(old, columns=columns), side(new, columns=columns))
 
 
-def build(*tables: NavigationTable, replacement: bool = False) -> Any:
-    return build_navigation(tables, replacement=replacement, check=lambda: None, reserve=lambda _: nullcontext(), resources=ExitStack())
+def build(*tables: NavigationTable, replacement: bool = False, initial_baseline: bool = False) -> Any:
+    return build_navigation(tables, replacement=replacement, initial_baseline=initial_baseline, check=lambda: None, reserve=lambda _: nullcontext(), resources=ExitStack())
 
 
 def tabs(result: Any, table_id: str, *, replacement_side: str | None = None) -> list[dict[str, Any]]:
@@ -56,6 +56,38 @@ def tabs(result: Any, table_id: str, *, replacement_side: str | None = None) -> 
 
 def diagnostics(result: Any, code: str) -> list[dict[str, Any]]:
     return [] if result.diagnostics is None else [d for d in result.diagnostics["diagnostics"] if d["code"] == code]
+
+
+def test_initial_baseline_membership_reason_keeps_real_unknowns_and_risk() -> None:
+    registry = table("device", None, side(({"dev_addr": 49, "gid": 7},), columns={"dev_addr": "INT", "gid": "INT"}))
+    point = table("device_st", None, side(({"dev_addr": 49},)), table_change=True)
+    result = build(registry, point, initial_baseline=True)
+    facts = tabs(result, "device_st")[0]["facts"]
+    assert result.document["initial_baseline"] is True
+    assert facts["membership_initial_baseline"] is True
+    assert facts["membership_complete"] is False
+    assert not diagnostics(result, "DEVICE_MEMBERSHIP_UNAVAILABLE")
+    assert facts["table_scope"] == {"change": True, "risk_level": None}
+    ordinary = build(registry, point)
+    assert tabs(ordinary, "device_st")[0]["facts"]["membership_initial_baseline"] is False
+    degraded = replace(point, evidence=evidence(degraded=True, risk_attribution_complete=False, table_risk=RiskLevel.HIGH))
+    facts = tabs(build(registry, degraded, initial_baseline=True), "device_st")[0]["facts"]
+    assert facts["membership_initial_baseline"] is False
+    assert facts["basis"] == "TABLE_FALLBACK" and facts["risk_complete"] is False
+    assert facts["table_scope"]["risk_level"] == "HIGH"
+    duplicate = table("device", None, side(({"dev_addr": 49, "gid": 7}, {"dev_addr": 49, "gid": 8}), columns={"dev_addr": "INT", "gid": "INT"}))
+    ambiguous = build(duplicate, point, initial_baseline=True)
+    assert tabs(ambiguous, "device_st")[0]["facts"]["membership_initial_baseline"] is False
+    assert diagnostics(ambiguous, "DEVICE_MEMBERSHIP_UNAVAILABLE")
+    missing_identity = table("device_st", None, side(({"other": 49},), columns={"other": "INT"}))
+    missing_tab = tabs(build(registry, missing_identity, initial_baseline=True), "device_st")[0]
+    assert missing_tab["row_filter"] is None and missing_tab["facts"] is None
+    bad = deepcopy(result.document)
+    bad["initial_baseline"] = False
+    with pytest.raises(ValueError, match="initial baseline membership"):
+        validate_navigation(bad, replacement=False)
+    with pytest.raises(ValueError, match="empty before"):
+        build(device(({"dev_addr": 49, "gid": 7},), ()), initial_baseline=True)
 
 
 @pytest.mark.parametrize("name,label", POINT_TABLES)

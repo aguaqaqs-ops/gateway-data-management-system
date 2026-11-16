@@ -173,8 +173,10 @@ HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
     "backend-vnext/history-compare/materialized-sides/v3"
 )
 HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
+# The publish step checks this version before consuming the assembled bundle;
+# v9 rejects checkpoints containing the previous navigation projection.
 HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
-    "backend-vnext/history-compare/assemble-state/v8"
+    "backend-vnext/history-compare/assemble-state/v9"
 )
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(

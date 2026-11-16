@@ -102,6 +102,7 @@ class NavigationResult:
 
 def build_navigation(
     tables: tuple[NavigationTable, ...], *, replacement: bool = False,
+    initial_baseline: bool = False,
     check: Callable[[], None], reserve: Callable[[int], AbstractContextManager[object]],
     resources: ExitStack,
     max_state_bytes: int = 16 * 1024 * 1024,
@@ -117,7 +118,7 @@ def build_navigation(
         raise ValueError("invalid navigation state bound")
     with ExitStack() as admission:
         admission.enter_context(reserve(max_state_bytes + 40 * 1024 * 1024))
-        result = _build_navigation(tables, replacement=replacement, check=check,
+        result = _build_navigation(tables, replacement=replacement, initial_baseline=initial_baseline, check=check,
                                    max_state_bytes=max_state_bytes)
         resources.callback(admission.pop_all().close)
         return result
@@ -125,6 +126,7 @@ def build_navigation(
 
 def _build_navigation(
     tables: tuple[NavigationTable, ...], *, replacement: bool = False,
+    initial_baseline: bool = False,
     check: Callable[[], None], max_state_bytes: int = 16 * 1024 * 1024,
 ) -> NavigationResult:
     """check shares the operation cancellation/deadline; state has an explicit bound.
@@ -134,7 +136,9 @@ def _build_navigation(
     """
     if len({t.table_id for t in tables}) != len(tables) or len({t.table_name for t in tables}) != len(tables):
         raise ValueError("duplicate navigation table")
-    builder = _Builder(tables, check, max_state_bytes)
+    if initial_baseline and (replacement or any(t.before is not None for t in tables)):
+        raise ValueError("initial baseline requires an empty before side")
+    builder = _Builder(tables, check, max_state_bytes, initial_baseline)
     if replacement:
         sides: dict[str, list[dict[str, Any]]] = {}
         for side in ("BEFORE", "CURRENT"):
@@ -144,9 +148,9 @@ def _build_navigation(
                 identity_excluded_sides=frozenset(),
             ) for t in tables if (t.before if side == "BEFORE" else t.current) is not None)
             sides[side.lower()] = builder.groups(subset, side) if subset else []
-        document: dict[str, Any] = {"contract_version": CONTRACT_VERSION, "groups": [], "replacement_sides": sides, "table_notices": [], "device_definition_changes": []}
+        document: dict[str, Any] = {"contract_version": CONTRACT_VERSION, "initial_baseline": initial_baseline, "groups": [], "replacement_sides": sides, "table_notices": [], "device_definition_changes": []}
     else:
-        document = {"contract_version": CONTRACT_VERSION,
+        document = {"contract_version": CONTRACT_VERSION, "initial_baseline": initial_baseline,
                     "groups": builder.groups(tables, None), "replacement_sides": None,
                     "table_notices": sorted(builder.notices, key=lambda n: n["table_id"].encode("utf-8")),
                     "device_definition_changes": sorted(builder.device_changes, key=lambda c: c["record_identity"])}
@@ -163,9 +167,10 @@ def _build_navigation(
 
 
 class _Builder:
-    def __init__(self, tables: tuple[NavigationTable, ...], check: Callable[[], None], limit: int):
+    def __init__(self, tables: tuple[NavigationTable, ...], check: Callable[[], None], limit: int, initial_baseline: bool):
         self.check = check
         self.limit = limit
+        self.initial_baseline = initial_baseline
         self.used = 0
         self.scanned = 0
         self.diagnostics: list[dict[str, Any]] = []
@@ -486,6 +491,8 @@ class _Builder:
         gids: dict[str, dict[int, set[Scalar]]] = {"BEFORE": defaultdict(set), "CURRENT": defaultdict(set)}
         unsafe_addresses: set[str] = set()
         unsafe_gids: set[str] = set()
+        ambiguous_addresses: set[int] = set()
+        ambiguous_gids: set[Scalar] = set()
         if device is not None:
             claimed.add("device")
             output.append(self.item("device:table", "TABLE", device.display_name, [self.tab(device)]))
@@ -520,9 +527,13 @@ class _Builder:
                     self.diagnostic("DEVICE_FILTER_VALUE_UNSUPPORTED", "SECONDARY_DEVICES", table=device, item="device:table", side=side, identity_column="dev_addr", reason="INTEGER_OUT_OF_RANGE" if source and scalar_reason(source.column_types.get("dev_addr"), None) is None else "UNSUPPORTED_TYPE")
                 for addr, count in address_counts.items():
                     if count > 1:
+                        if side == "CURRENT":
+                            ambiguous_addresses.add(addr)
                         self.diagnostic("DEVICE_ADDRESS_DUPLICATE", "SECONDARY_DEVICES", item=f"device:addr:{addr}" if addr != 65532 else "device:composite", side=side, dev_addr=addr)
                 for gid, count in gid_counts.items():
                     if count > 1:
+                        if side == "CURRENT":
+                            ambiguous_gids.add(gid)
                         self.diagnostic("DEVICE_GID_DUPLICATE", "SECONDARY_DEVICES", table=device, side=side, gid=gid)
         composite = names.get("composite_signal_point")
         if composite is not None:
@@ -735,6 +746,7 @@ class _Builder:
                     if count > 0 and owners["BEFORE"].get(value, set()) != owners["CURRENT"].get(value, set()):
                         membership.update(owners["BEFORE"].get(value, set()) ^ owners["CURRENT"].get(value, set()))
             published = False
+            membership_unknown = False
             scope = None if not table.table_change and table.evidence.table_risk is None else {
                 "change": table.table_change, "risk_level": table.evidence.table_risk}
             for addr, candidate in candidates.items():
@@ -754,11 +766,19 @@ class _Builder:
                 change = "UNCHANGED" if not has_change else (
                     "ADDED" if old == 0 and new is not None and new > 0 else (
                         "DELETED" if new == 0 and old is not None and old > 0 else "UPDATED"))
+                initial_membership = (self.initial_baseline and not membership_complete and reason is None
+                    and table.before is None and table.current is not None
+                    and not table.evidence.records
+                    and column in table.current.column_types and not table.identity_excluded_sides
+                    and addr not in ambiguous_addresses
+                    and (column != "gid" or not (gids["CURRENT"][addr] & ambiguous_gids)))
+                membership_unknown = membership_unknown or (not membership_complete and not initial_membership)
                 facts = None if replacement_side is not None else {
                     "basis": "EXACT" if reason is None else "TABLE_FALLBACK",
                     "change_kind": change if reason is None else None,
                     "risk_level": row_risk, "risk_complete": table.evidence.risk_attribution_complete,
                     "membership_changed": addr in membership, "membership_complete": membership_complete,
+                    "membership_initial_baseline": initial_membership,
                     "row_changes": row_changes if reason is None else None,
                     "before_row_count": old, "current_row_count": new, "table_scope": scope}
                 tab = {"tab_key": name, "label": tab_label, "table_id": table.table_id,
@@ -772,7 +792,7 @@ class _Builder:
                 self.notice(table, scope, orphan_risk, orphan_reasons)
             if published and replacement_side is None and not table.evidence.risk_attribution_complete:
                 self.diagnostic("DEVICE_TAB_RISK_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason="RISK_ATTRIBUTION_UNAVAILABLE")
-            if published and replacement_side is None and not membership_complete:
+            if published and replacement_side is None and membership_unknown:
                 self.diagnostic("DEVICE_MEMBERSHIP_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason="MEMBERSHIP_UNAVAILABLE")
             if published and reason:
                 self.diagnostic("DEVICE_TAB_FACTS_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason=reason)

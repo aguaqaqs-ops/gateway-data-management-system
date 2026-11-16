@@ -1,4 +1,4 @@
-"""Flow-neutral inputs and strict wire validation for business navigation v4.
+"""Flow-neutral inputs and strict wire validation for business navigation v5.
 
 Row identities, scalar encodings and comparison/risk facts are supplied by their owners.
 This capability never reconstructs a canonical row identity from business values.
@@ -22,7 +22,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
 from gateway_backend.capabilities.table_rules import parse_channel_table_name
 
-CONTRACT_VERSION = "backend-vnext/business-navigation/v4"
+CONTRACT_VERSION = "backend-vnext/business-navigation/v5"
 
 
 class NavigationChangeKind(StrEnum):
@@ -270,6 +270,7 @@ class _Facts(_Document):
     risk_complete: bool
     membership_changed: bool
     membership_complete: bool
+    membership_initial_baseline: bool
     row_changes: _RowChanges | None
     before_row_count: int | None
     current_row_count: int | None
@@ -340,6 +341,7 @@ class _DeviceChange(_Document):
 
 class _Navigation(_Document):
     contract_version: str
+    initial_baseline: bool
     groups: list[_Group]
     replacement_sides: _Sides | None
     table_notices: list[_TableNotice]
@@ -351,6 +353,8 @@ def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any
     if doc["contract_version"] != CONTRACT_VERSION:
         raise ValueError("unsupported navigation version")
     if replacement:
+        if doc["initial_baseline"]:
+            raise ValueError("replacement cannot establish an initial baseline")
         if doc["table_notices"] or doc["device_definition_changes"]:
             raise ValueError("replacement forbids ordinary notices and changes")
         if doc["groups"] != []:
@@ -366,6 +370,14 @@ def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any
     if [n["table_id"] for n in notices] != sorted({n["table_id"] for n in notices}, key=lambda x: x.encode("utf-8")):
         raise ValueError("table notices must be unique and ordered")
     groups = doc["groups"]
+    for group in groups:
+        for item in group["items"]:
+            for tab in item["tabs"]:
+                facts = tab["facts"]
+                if facts is not None and facts["membership_initial_baseline"]:
+                    if (not doc["initial_baseline"] or facts["membership_complete"]
+                            or facts["basis"] != "EXACT" or tab["row_filter"]["before"] is not None):
+                        raise ValueError("invalid initial baseline membership reason")
     tab_scopes = {tab["table_id"]: tab["facts"]["table_scope"] for group in groups
                   for item in group["items"] for tab in item["tabs"] if tab["facts"] is not None}
     table_ids = {tab["table_id"] for group in groups for item in group["items"] for tab in item["tabs"]}
@@ -469,7 +481,7 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
                     if tab["facts"] is not None:
                         raise ValueError("whole/replacement tabs forbid local facts")
                 else:
-                    facts = _object(tab["facts"], {"basis", "change_kind", "risk_level", "risk_complete", "membership_changed", "membership_complete", "row_changes", "before_row_count", "current_row_count", "table_scope"})
+                    facts = _object(tab["facts"], {"basis", "change_kind", "risk_level", "risk_complete", "membership_changed", "membership_complete", "membership_initial_baseline", "row_changes", "before_row_count", "current_row_count", "table_scope"})
                     _facts(facts)
                     if tab["table_id"] in scopes and scopes[tab["table_id"]] != facts["table_scope"]:
                         raise ValueError("table scope must agree across tabs")
@@ -591,7 +603,7 @@ def validate_diagnostics(
                     if local is not None:
                         if not local["risk_complete"]:
                             expected_risk.add(tab["table_id"])
-                        if not local["membership_complete"]:
+                        if not local["membership_complete"] and not local["membership_initial_baseline"]:
                             expected_membership.add(tab["table_id"])
     encoded: list[bytes] = []
     for raw in doc["diagnostics"]:

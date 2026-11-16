@@ -136,7 +136,7 @@ export interface ComparisonSurface {
   tables: SurfaceTable[];
 }
 
-export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v4";
+export const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v5";
 
 export type NavigationBasis = "EXACT" | "TABLE_FALLBACK";
 /** Local change kinds of a filtered tab (Business Navigation v4). */
@@ -171,6 +171,7 @@ export interface NavigationFacts {
   table_scope: NavigationTableScope | null;
   membership_changed: boolean;
   membership_complete: boolean;
+  membership_initial_baseline: boolean;
   row_changes: NavigationRowChanges | null;
 }
 
@@ -230,6 +231,8 @@ export interface NavigationTableNotice {
   table_scope: NavigationTableScope | null;
   unlocated_row_risk: UnlocatedRowRisk | null;
   risk_complete: boolean;
+  /** Presentation-only: the added table is the initial baseline. */
+  initial_table_change?: boolean;
 }
 
 export interface DeviceDefinitionChange {
@@ -255,6 +258,7 @@ export interface ReplacementNavigationSide {
 
 export interface BusinessNavigation {
   contract_version: string;
+  initial_baseline: boolean;
   groups: NavigationGroup[];
   /** Non-null exactly for DATASET_REPLACEMENT; each side owns its own key space. */
   replacement_sides: ReplacementNavigationSide | null;
@@ -380,6 +384,7 @@ export interface TabScope {
   riskComplete: boolean;
   membershipChanged: boolean;
   membershipComplete: boolean;
+  membershipInitialBaseline: boolean;
   rowChanges: NavigationRowChanges | null;
   beforeCount: number | null;
   currentCount: number | null;
@@ -397,6 +402,7 @@ export function tabScope(tab: Pick<DerivedNavigationTab, "rowFilter" | "facts" |
       riskComplete: true,
       membershipChanged: false,
       membershipComplete: true,
+      membershipInitialBaseline: false,
       rowChanges: null,
       beforeCount: whole ? tab.table?.rowCounts.before ?? null : null,
       currentCount: whole ? tab.table?.rowCounts.current ?? null : null,
@@ -410,6 +416,7 @@ export function tabScope(tab: Pick<DerivedNavigationTab, "rowFilter" | "facts" |
     riskComplete: facts.risk_complete,
     membershipChanged: facts.membership_changed,
     membershipComplete: facts.membership_complete,
+    membershipInitialBaseline: facts.membership_initial_baseline,
     rowChanges: facts.row_changes,
     beforeCount: facts.before_row_count,
     currentCount: facts.current_row_count,
@@ -420,7 +427,8 @@ export function tabScope(tab: Pick<DerivedNavigationTab, "rowFilter" | "facts" |
 /** Local content/membership change, unknown comparison, or located risk; public notices are listed separately. */
 export function navigationTabHasDifferences(tab: Pick<DerivedNavigationTab, "rowFilter" | "facts" | "table" | "notice">): boolean {
   const scope = tabScope(tab);
-  return scope.changeKind === null || scope.changeKind !== "UNCHANGED" || scope.riskLevel !== null || scope.membershipChanged;
+  return scope.changeKind === null || scope.changeKind !== "UNCHANGED" || scope.riskLevel !== null || !scope.riskComplete || scope.membershipChanged ||
+    (!scope.membershipComplete && !scope.membershipInitialBaseline);
 }
 
 export interface DerivedBundleView {
@@ -573,7 +581,7 @@ function decodeTableScope(value: unknown, where: string): NavigationTableScope |
 
 const LOCAL_CHANGE_KINDS: ReadonlySet<string> = new Set(["UNCHANGED", "ADDED", "DELETED", "UPDATED"]);
 const FACT_KEYS = ["basis", "change_kind", "risk_level", "risk_complete", "before_row_count", "current_row_count",
-  "table_scope", "membership_changed", "membership_complete", "row_changes"] as const;
+  "table_scope", "membership_changed", "membership_complete", "membership_initial_baseline", "row_changes"] as const;
 
 function decodeRowChanges(value: unknown, where: string): NavigationRowChanges | null {
   if (value === null) return null;
@@ -612,6 +620,7 @@ function decodeFacts(value: unknown, where: string): NavigationFacts {
     table_scope: decodeTableScope(raw.table_scope, where),
     membership_changed: strictBoolean(raw.membership_changed, `${where}.facts.membership_changed`),
     membership_complete: strictBoolean(raw.membership_complete, `${where}.facts.membership_complete`),
+    membership_initial_baseline: strictBoolean(raw.membership_initial_baseline, `${where}.facts.membership_initial_baseline`),
     row_changes: rowChanges,
   };
 }
@@ -800,12 +809,14 @@ function decodeDeviceDefinitionChanges(value: unknown, groups: NavigationGroup[]
 
 /** Strict decode of the single business navigation artifact belonging to a pair. */
 export function decodeBusinessNavigation(input: unknown, surface: ComparisonSurface): BusinessNavigation {
-  const raw = requireObject(input, ["contract_version", "groups", "replacement_sides", "table_notices", "device_definition_changes"], "business navigation");
+  const raw = requireObject(input, ["contract_version", "initial_baseline", "groups", "replacement_sides", "table_notices", "device_definition_changes"], "business navigation");
   if (raw.contract_version !== NAVIGATION_CONTRACT_VERSION) {
     reject(`不支持的 business navigation contract version：${String(raw.contract_version)}`);
   }
+  const initialBaseline = strictBoolean(raw.initial_baseline, "business navigation.initial_baseline");
   const tables = new Map(surface.tables.map((table) => [table.table_name, table]));
   if (raw.replacement_sides !== null) {
+    if (initialBaseline) reject("替换模式不能建立初始基线");
     const sides = requireObject(raw.replacement_sides, ["before", "current"], "replacement_sides");
     if (surface.comparison_mode !== "DATASET_REPLACEMENT") reject("非替换模式下出现 replacement_sides");
     if (!Array.isArray(raw.groups) || raw.groups.length > 0) reject("替换模式的 groups 必须为空");
@@ -813,6 +824,7 @@ export function decodeBusinessNavigation(input: unknown, surface: ComparisonSurf
     if (!Array.isArray(raw.device_definition_changes) || raw.device_definition_changes.length > 0) reject("替换模式的 device_definition_changes 必须为空");
     return {
       contract_version: NAVIGATION_CONTRACT_VERSION,
+      initial_baseline: initialBaseline,
       groups: [],
       replacement_sides: {
         before: decodeGroups(sides.before, tables, "replacement_sides.before", "BEFORE"),
@@ -824,8 +836,15 @@ export function decodeBusinessNavigation(input: unknown, surface: ComparisonSurf
   }
   if (surface.comparison_mode === "DATASET_REPLACEMENT") reject("替换模式缺少 replacement_sides");
   const groups = decodeGroups(raw.groups, tables, "groups", null);
+  for (const tab of groups.flatMap((group) => group.items.flatMap((item) => item.tabs))) {
+    const facts = tab.facts;
+    if (facts?.membership_initial_baseline && (!initialBaseline || facts.membership_complete || facts.basis !== "EXACT" || tab.row_filter?.before !== null)) {
+      reject("初始基线归属标记与页签不符");
+    }
+  }
   return {
     contract_version: NAVIGATION_CONTRACT_VERSION,
+    initial_baseline: initialBaseline,
     groups,
     replacement_sides: null,
     table_notices: decodeTableNotices(raw.table_notices, groups),
@@ -859,7 +878,8 @@ function deriveGroups(groups: NavigationGroup[], tables: Map<string, DerivedTabl
         showTabs: tabs.length > 1,
         changeKinds: item.summary.change_kinds,
         riskLevels: item.summary.risk_level === null ? [] : [item.summary.risk_level],
-        changeComplete: item.summary.change_complete,
+        changeComplete: item.tabs.filter((tab) => !tab.empty).every((tab) => tab.facts === null ||
+          (tab.facts.basis === "EXACT" && (tab.facts.membership_complete || tab.facts.membership_initial_baseline))),
         riskComplete: item.summary.risk_complete,
       };
     }),
@@ -900,7 +920,12 @@ export function deriveBundleView(input: {
   riskReport?: RiskReport;
 }): DerivedBundleView {
   const tableMap = tableProjection(input.surface, input.riskReport);
-  const notices = new Map(input.navigation.table_notices.map((notice) => [notice.table_id, notice]));
+  const visibleNotices = input.navigation.table_notices.flatMap((notice) => {
+    if (!input.navigation.initial_baseline || tableMap.get(notice.table_id)?.changeKind !== "ADDED" || !notice.table_scope?.change) return [notice];
+    if (notice.table_scope.risk_level === null && notice.unlocated_row_risk === null && notice.risk_complete) return [];
+    return [{ ...notice, initial_table_change: true }];
+  });
+  const notices = new Map(visibleNotices.map((notice) => [notice.table_id, notice]));
   const sides = input.navigation.replacement_sides;
   const replacementSides = sides === null ? null : {
     before: deriveGroups(sides.before, tableMap, notices),
@@ -916,7 +941,7 @@ export function deriveBundleView(input: {
     groups,
     tables: [...tableMap.values()],
     replacementSides,
-    tableNotices: input.navigation.table_notices,
+    tableNotices: visibleNotices,
     deviceDefinitionChanges: input.navigation.device_definition_changes,
     diagnostics: [],
   };

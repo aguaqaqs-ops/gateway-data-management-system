@@ -184,7 +184,10 @@ def run_preview_pair_pipeline(
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata,
     current_presentation: PresentationMetadata,
+    initial_baseline: bool = False,
 ) -> PreviewPairPipelineResult:
+    if initial_baseline and (before.summary.tables or assess_identity):
+        raise PairPipelineError("initial baseline requires the verified empty before side")
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
     if assess_identity:
@@ -227,6 +230,7 @@ def run_preview_pair_pipeline(
         include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
         dedup_session=dedup_session, table_exports=table_exports,
         before_presentation=before_presentation, current_presentation=current_presentation,
+        initial_baseline=initial_baseline,
     )
     records_closure = surface.published.records_closure
     if (
@@ -330,6 +334,7 @@ def _run_comparison_risk_surface(
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata,
     current_presentation: PresentationMetadata,
+    initial_baseline: bool = False,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     checkpoint = context.checkpoint if context is not None else lambda: None
@@ -352,6 +357,7 @@ def _run_comparison_risk_surface(
             repository_id=repository_id, export_cache=export_cache,
             table_exports=table_exports,
             before_presentation=before_presentation, current_presentation=current_presentation,
+            initial_baseline=initial_baseline,
         )
 
 
@@ -372,6 +378,7 @@ def _finish_comparison_risk_surface(
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata,
     current_presentation: PresentationMetadata,
+    initial_baseline: bool,
 ) -> _ComparisonRiskSurfaceResult:
     context = current_kernel_context()
     if context is None:
@@ -484,6 +491,7 @@ def _finish_comparison_risk_surface(
         plan, comparison_facts, published.records_closure, native_comparison.handles,
         table_artifacts, attribution, store, risk_report=risk.risk_report, before_presentation=before_presentation,
         current_presentation=current_presentation, same_complete=_same_complete_table_identity,
+        initial_baseline=initial_baseline,
     )
     with reserve_surface(8 * 16 * 1024**2):
         surface = assemble_surface(

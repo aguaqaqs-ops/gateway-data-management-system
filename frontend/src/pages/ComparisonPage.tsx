@@ -131,7 +131,11 @@ function noticeReasonText(code: string): string {
 function noticeLines(notice: NavigationTableNotice): string[] {
   const lines: string[] = [];
   if (notice.table_scope) {
-    lines.push((notice.table_scope.change ? "整表发生表级变化" : "整表无表级变化") + (notice.table_scope.risk_level ? " · 整表风险：" + riskLevelText(notice.table_scope.risk_level) : ""));
+    if (notice.initial_table_change) {
+      if (notice.table_scope.risk_level) lines.push("整表风险：" + riskLevelText(notice.table_scope.risk_level));
+    } else {
+      lines.push((notice.table_scope.change ? "整表发生表级变化" : "整表无表级变化") + (notice.table_scope.risk_level ? " · 整表风险：" + riskLevelText(notice.table_scope.risk_level) : ""));
+    }
   }
   const unlocated = notice.unlocated_row_risk;
   if (unlocated && (unlocated.risk_level !== null || unlocated.count !== null)) {
@@ -176,6 +180,7 @@ const scopeChangeText = (scope: TabScope) => describeScopeChange(scope, (kind) =
 function tabTitle(scope: TabScope): string {
   const change = scope.changeKind === null ? null : surfaceChangePresentation(scope.changeKind);
   return [scopeChangeText(scope), scope.kind === "WHOLE_TABLE" ? change?.tooltip : null, scope.riskLevel ? riskLevelText(scope.riskLevel) : null,
+    !scope.membershipComplete && !scope.membershipInitialBaseline ? "归属变化未知" : null,
     localRiskText(scope), scope.notice ? "该表另有公共提示" : null, `${scope.beforeCount ?? "—"} → ${scope.currentCount ?? "—"} 行`]
     .filter((item): item is string => Boolean(item)).join(" · ");
 }
@@ -984,6 +989,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       {browse.mode === "REVIEW" && reviewFacts?.submission_disposition && <ReviewDispositionLine facts={reviewFacts} />}
       {browse.mode === "REVIEW" && <div className="compare-header__notice" ref={reviewNoticeRef} />}
     </header>
+    {activePair?.presentation.navigation.initial_baseline && <div className="pair-diagnostic-strip" role="status">首次建立基线</div>}
     {activePair && pairDiagnosticDetails(activePair).codes.length > 0 && <div className="pair-diagnostic-strip" role="status">{pairDiagnosticDetails(activePair).codes.map((diagnostic) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <div key={diagnostic}><AlertTriangle size={14} /><span>{formatted.message}</span>{debugMode && <code>{formatted.raw}</code>}</div>; })}</div>}
     {!bundle && !error && <section className="compare-loading"><LoadingSkeleton label={loading.phase} /><div className="loading-progress"><span>{loading.phase}</span><span>{loading.total ? formatBytes(loading.received) + " / " + formatBytes(loading.total) : "正在准备"}</span></div></section>}
     {error && <section className="compare-error"><ErrorState code={error.code} details={error.details} title={error.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : bundleErrorTitle(error.code)} onRetry={() => void loadBundle()} /></section>}

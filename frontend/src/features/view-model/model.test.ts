@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { groupNavigationDiagnostics, type NavigationDiagnostic } from "./diagnostics";
 import {
   decodeBusinessNavigation,
   deriveBundleView,
@@ -42,12 +43,12 @@ function surface(tables: SurfaceTable[] = [surfaceTable("device"), surfaceTable(
 
 const exactFacts: NavigationFacts = {
   basis: "EXACT", change_kind: "UPDATED", risk_level: "MEDIUM_LOW", risk_complete: true, before_row_count: 3, current_row_count: 3,
-  table_scope: null, membership_changed: false, membership_complete: true, row_changes: { added: 0, deleted: 0, modified: 1, moved_in: 0, moved_out: 0 },
+  table_scope: null, membership_changed: false, membership_complete: true, membership_initial_baseline: false, row_changes: { added: 0, deleted: 0, modified: 1, moved_in: 0, moved_out: 0 },
 };
 
 const GROUP_KEYS = ["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"] as const;
 
-/** An ordinary v4 navigation: five fixed groups; the device item lives in SECONDARY_DEVICES. */
+/** An ordinary v5 navigation: five fixed groups; the device item lives in SECONDARY_DEVICES. */
 function navigation(overrides: Partial<BusinessNavigation> = {}): BusinessNavigation {
   const groups: NavigationGroup[] = GROUP_KEYS.map((group_key) => ({ group_key, label: group_key, items: [], nonempty_item_count: 0 }));
   groups[1] = { nonempty_item_count: 1, group_key: "SECONDARY_DEVICES", label: "二次装置列表", items: [{
@@ -57,7 +58,7 @@ function navigation(overrides: Partial<BusinessNavigation> = {}): BusinessNaviga
       { empty: false, tab_key: "second", label: "二", table_id: "device", row_filter: { before: null, current: { column: "dev_addr", values: [2] } }, facts: { ...exactFacts } },
     ],
   }] };
-  return { contract_version: "backend-vnext/business-navigation/v4", groups, replacement_sides: null, table_notices: [], device_definition_changes: [], ...overrides };
+  return { contract_version: "backend-vnext/business-navigation/v5", initial_baseline: false, groups, replacement_sides: null, table_notices: [], device_definition_changes: [], ...overrides };
 }
 
 const deviceItem = (doc: BusinessNavigation) => doc.groups[1]!.items[0]!;
@@ -79,6 +80,18 @@ function tableRisk(tableName: string, riskLevel: RiskTableReport["risk_level"], 
 }
 
 describe("business navigation decoding", () => {
+  it("requires the v5 initial baseline booleans and validates their relationship", () => {
+    const missingRoot = { ...navigation() } as Record<string, unknown>;
+    delete missingRoot.initial_baseline;
+    expect(() => decodeBusinessNavigation(missingRoot, surface())).toThrow(/字段无效/);
+    const missingFact = navigation();
+    delete (deviceItem(missingFact).tabs[0]!.facts as unknown as Record<string, unknown>).membership_initial_baseline;
+    expect(() => decodeBusinessNavigation(missingFact, surface())).toThrow(/字段无效/);
+    const invalid = navigation();
+    deviceItem(invalid).tabs[0]!.facts!.membership_initial_baseline = true;
+    expect(() => decodeBusinessNavigation(invalid, surface())).toThrow(/初始基线归属标记/);
+    expect(() => decodeBusinessNavigation({ ...navigation(), contract_version: "backend-vnext/business-navigation/v4" }, surface())).toThrow(/不支持的 business navigation/);
+  });
   it("rejects an unsupported contract version, a v3 payload and a missing navigation", () => {
     expect(() => decodeBusinessNavigation(null, surface())).toThrow(/字段无效/);
     expect(() => decodeBusinessNavigation({ ...navigation(), contract_version: "backend-vnext/business-navigation/v3" }, surface())).toThrow(/不支持的 business navigation contract version/);
@@ -88,7 +101,7 @@ describe("business navigation decoding", () => {
     expect(() => decodeBusinessNavigation(v3Shape, surface())).toThrow(/字段无效/);
   });
 
-  it("accepts a complete v4 document", () => {
+  it("accepts a complete v5 document", () => {
     expect(decodeBusinessNavigation(navigation(), surface()).groups).toHaveLength(5);
   });
 
@@ -155,6 +168,44 @@ describe("business navigation decoding", () => {
     const withNotices = { ...sameKeyReplacement(["device"]), table_notices: [{ table_id: "device", table_scope: { change: true, risk_level: null }, unlocated_row_risk: null, risk_complete: true }] };
     expect(() => decodeBusinessNavigation(withNotices, replacementSurface)).toThrow(/table_notices 必须为空/);
   });
+});
+
+it("only explains marked initial membership uncertainty and preserves other unknowns and table risks", () => {
+  const doc = navigation({ initial_baseline: true });
+  const item = deviceItem(doc);
+  for (const tab of item.tabs) {
+    tab.row_filter = { before: null, current: { column: "dev_addr", values: [1] } };
+    tab.facts = { ...exactFacts, membership_complete: false, membership_initial_baseline: true,
+      table_scope: { change: true, risk_level: "LOW" } };
+  }
+  item.summary.change_complete = false;
+  doc.table_notices = [{ table_id: "device", table_scope: { change: true, risk_level: "LOW" }, unlocated_row_risk: null, risk_complete: true }];
+  const initialSurface = surface([surfaceTable("device", { change_kind: "ADDED" })]);
+  const view = deriveBundleView({ surface: initialSurface, navigation: decodeBusinessNavigation(doc, initialSurface) });
+  expect(view.groups[1]!.items[0]!.changeComplete).toBe(true);
+  expect(view.tableNotices[0]).toMatchObject({ initial_table_change: true, table_scope: { risk_level: "LOW" } });
+  doc.table_notices[0]!.table_scope!.risk_level = null;
+  for (const tab of item.tabs) tab.facts!.table_scope!.risk_level = null;
+  const noRisk = deriveBundleView({ surface: initialSurface, navigation: decodeBusinessNavigation(doc, initialSurface) });
+  expect(noRisk.tableNotices).toEqual([]);
+  doc.table_notices[0]!.risk_complete = false;
+  for (const tab of item.tabs) tab.facts!.risk_complete = false;
+  item.summary.risk_complete = false;
+  const incompleteRisk = deriveBundleView({ surface: initialSurface, navigation: decodeBusinessNavigation(doc, initialSurface) });
+  expect(incompleteRisk.tableNotices[0]).toMatchObject({ initial_table_change: true, risk_complete: false });
+  expect(incompleteRisk.groups[1]!.items[0]!.riskComplete).toBe(false);
+  item.tabs[1]!.facts!.membership_initial_baseline = false;
+  const mixed = deriveBundleView({ surface: initialSurface, navigation: decodeBusinessNavigation(doc, initialSurface) });
+  expect(mixed.groups[1]!.items[0]!.changeComplete).toBe(false);
+  expect(navigationTabHasDifferences({ ...mixed.groups[1]!.items[0]!.tabs[1]!, facts: { ...item.tabs[1]!.facts!, change_kind: "UNCHANGED", risk_level: null } })).toBe(true);
+  const diagnostic: NavigationDiagnostic = { code: "DEVICE_MEMBERSHIP_UNAVAILABLE", target: { group_key: "SECONDARY_DEVICES", item_key: null, tab_key: null, table_id: "device" }, side: null, params: { identity_column: "dev_addr", reason: "MEMBERSHIP_UNAVAILABLE" } };
+  expect(groupNavigationDiagnostics([diagnostic], "SECONDARY_DEVICES", [item.item_key])).toEqual([diagnostic]);
+  expect(groupNavigationDiagnostics([], "SECONDARY_DEVICES", [item.item_key])).toEqual([]);
+  doc.initial_baseline = false;
+  item.tabs[0]!.facts!.membership_initial_baseline = false;
+  const ordinary = deriveBundleView({ surface: initialSurface, navigation: decodeBusinessNavigation(doc, initialSurface) });
+  expect(ordinary.groups[1]!.items[0]!.changeComplete).toBe(false);
+  expect(ordinary.tableNotices[0]!.initial_table_change).toBeUndefined();
 });
 
 /** Same-shape v4 faults whose only difference is the payload and the expected rejection. */
@@ -266,7 +317,7 @@ function sameKeyReplacement(tables: string[] = ["device", "device_ext"]): Busine
     ? { group_key, label: "装置", nonempty_item_count: 1, items }
     : { group_key, label: group_key, nonempty_item_count: 0, items: [] });
   const tab = (table: string) => ({ empty: false, tab_key: table, label: table, table_id: table, row_filter: null, facts: null });
-  return { contract_version: "backend-vnext/business-navigation/v4", groups: [], table_notices: [], device_definition_changes: [], replacement_sides: {
+  return { contract_version: "backend-vnext/business-navigation/v5", initial_baseline: false, groups: [], table_notices: [], device_definition_changes: [], replacement_sides: {
     before: groups([{ item_key: "same-device", item_kind: "DEVICE", label: "同一装置", attributes: {}, summary: { change_kinds: ["ADDED"], risk_level: "LOW", nonempty_tab_count: 1, change_complete: true, risk_complete: true }, tabs: [tab(tables[0]!)] }]),
     current: groups([{ item_key: "same-device", item_kind: "DEVICE", label: "同一装置", attributes: {}, summary: { change_kinds: ["DELETED"], risk_level: "HIGH", nonempty_tab_count: tables.length, change_complete: true, risk_complete: true }, tabs: tables.map(tab) }]),
   } };

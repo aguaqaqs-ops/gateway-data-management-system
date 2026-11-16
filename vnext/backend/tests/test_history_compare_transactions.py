@@ -241,7 +241,7 @@ def test_idempotent_replay_returns_existing_acceptance(db_path: Path) -> None:
 
 @pytest.mark.parametrize("old_ruleset,old_job", [
     ("sha256:old-ruleset", HISTORY_COMPARE_JOB_CONTRACT_VERSION),
-    (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v2"),
+    (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v3"),
 ])
 def test_semantic_drift_replay_raises_idempotency_conflict(
     db_path: Path, old_ruleset: str, old_job: str,
@@ -555,13 +555,13 @@ def test_new_history_key_does_not_reuse_old_successful_job(
     old_fingerprint = compute_accept_binding_fingerprint(
         gateway_device_external_key="device-1", business_project_id="project-1",
         repository_id="repo-1", nodes=bindings, comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
-        history_job_contract_version="backend-vnext/history-compare/v2",
+        history_job_contract_version="backend-vnext/history-compare/v3",
     )
     with ControlDbUnitOfWork(db_path) as uow:
         uow.connection.execute(
             "UPDATE operation_records SET status='SUCCEEDED', completed_at_us=created_at_us, "
             "job_contract_version=? WHERE operation_id=?",
-            ("backend-vnext/history-compare/v2", old_id),
+            ("backend-vnext/history-compare/v3", old_id),
         )
         if not fingerprint_matches_current:
             uow.connection.execute(
@@ -584,7 +584,7 @@ def test_new_history_key_does_not_reuse_old_successful_job(
     assert fresh.response.operation_id != old_id
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
         old_operation = uow.operations.get_operation(old_id)
-        assert old_operation.job_contract_version == "backend-vnext/history-compare/v2"
+        assert old_operation.job_contract_version == "backend-vnext/history-compare/v3"
         assert old_operation.status.value == "SUCCEEDED"
         assert uow.history_compare.count_aliases(old_id) == 0
 

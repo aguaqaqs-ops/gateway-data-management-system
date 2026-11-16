@@ -97,9 +97,9 @@ describe("navigation and surface diagnostic copy", () => {
 
 describe("navigation diagnostic decoding", () => {
   const target = { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null };
-  const document = (code: string, params: Record<string, unknown>) => ({ contract_version: "backend-vnext/business-navigation/v4", diagnostics: [{ code, target, side: "CURRENT", params }] });
+  const document = (code: string, params: Record<string, unknown>) => ({ contract_version: "backend-vnext/business-navigation/v5", diagnostics: [{ code, target, side: "CURRENT", params }] });
   const serial = { channel_prefix: "b12_c2", registry_table: "com_cfg" };
-  const tableWide = (code: string, reason: string) => ({ contract_version: "backend-vnext/business-navigation/v4", diagnostics: [{ code, target: { group_key: "SECONDARY_DEVICES", item_key: null, tab_key: null, table_id: "device_st" }, side: null, params: { identity_column: "dev_addr", reason } }] });
+  const tableWide = (code: string, reason: string) => ({ contract_version: "backend-vnext/business-navigation/v5", diagnostics: [{ code, target: { group_key: "SECONDARY_DEVICES", item_key: null, tab_key: null, table_id: "device_st" }, side: null, params: { identity_column: "dev_addr", reason } }] });
   it("accepts the table-wide risk and membership completeness diagnostics and words them as incomplete, not as risk", () => {
     const risk = decodeNavigationDiagnostics(tableWide("DEVICE_TAB_RISK_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE")).diagnostics[0]!;
     const membership = decodeNavigationDiagnostics(tableWide("DEVICE_MEMBERSHIP_UNAVAILABLE", "MEMBERSHIP_UNAVAILABLE")).diagnostics[0]!;
@@ -138,7 +138,7 @@ describe("navigation diagnostic decoding", () => {
     ["risk incomplete as a fallback reason", tableWide("DEVICE_TAB_FACTS_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE")],
     ["membership incomplete with a risk reason", tableWide("DEVICE_MEMBERSHIP_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE")],
     ["table-wide diagnostic on an item", { ...tableWide("DEVICE_TAB_RISK_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE"), diagnostics: [{ ...tableWide("DEVICE_TAB_RISK_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE").diagnostics[0], target: { group_key: "SECONDARY_DEVICES", item_key: "device:addr:1", tab_key: null, table_id: "device_st" } }] }],
-    ["empty diagnostics", { contract_version: "backend-vnext/business-navigation/v4", diagnostics: [] }],
+    ["empty diagnostics", { contract_version: "backend-vnext/business-navigation/v5", diagnostics: [] }],
     ["unknown reason", document("DEVICE_FILTER_VALUE_UNSUPPORTED", { identity_column: "gid", reason: "UNKNOWN" })],
     ["empty prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: [] })],
     ["too many prefixes", document("PROTOCOL_TABLE_NOT_FOUND", { ...serial, protocol: "x", expected_prefixes: ["b12_c2_a", "b12_c2_b", "b12_c2_c"] })],
@@ -150,7 +150,7 @@ describe("navigation diagnostic decoding", () => {
 
 
 it("keeps a zero-tab channel diagnostic in its group while avoiding duplicate visible-item notes", () => {
-  const hidden = decodeNavigationDiagnostics({ contract_version: "backend-vnext/business-navigation/v4", diagnostics: [{ code: "PROTOCOL_TABLE_NOT_FOUND", target: { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null }, side: "CURRENT", params: { channel_prefix: "b1_c2", registry_table: "com_cfg", protocol: "规约", expected_prefixes: ["b1_c2_x"] } }] }).diagnostics;
+  const hidden = decodeNavigationDiagnostics({ contract_version: "backend-vnext/business-navigation/v5", diagnostics: [{ code: "PROTOCOL_TABLE_NOT_FOUND", target: { group_key: "COMMUNICATION_PROTOCOLS", item_key: "channel:c2", tab_key: null, table_id: null }, side: "CURRENT", params: { channel_prefix: "b1_c2", registry_table: "com_cfg", protocol: "规约", expected_prefixes: ["b1_c2_x"] } }] }).diagnostics;
   expect(groupNavigationDiagnostics(hidden, "COMMUNICATION_PROTOCOLS", [])).toEqual(hidden);
   expect(groupNavigationDiagnostics(hidden, "COMMUNICATION_PROTOCOLS", ["channel:c2"])).toEqual([]);
   expect(groupNavigationDiagnostics(hidden, "OTHER_TABLES", [])).toEqual([]);

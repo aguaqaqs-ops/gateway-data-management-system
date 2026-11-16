@@ -127,7 +127,7 @@ describe("locator validation", () => {
 
 describe("unrecorded identity reuse criteria", () => {
   const exactFacts: NavigationFacts = { basis: "EXACT", change_kind: "UPDATED", risk_level: null, risk_complete: true, before_row_count: 1, current_row_count: 1,
-    table_scope: null, membership_changed: false, membership_complete: true, row_changes: { added: 0, deleted: 0, modified: 1, moved_in: 0, moved_out: 0 } };
+    table_scope: null, membership_changed: false, membership_complete: true, membership_initial_baseline: false, row_changes: { added: 0, deleted: 0, modified: 1, moved_in: 0, moved_out: 0 } };
   const exact = { facts: exactFacts };
   const fallback = { facts: { ...exactFacts, basis: "TABLE_FALLBACK" as const, change_kind: null, row_changes: null } };
   const riskIncomplete = { facts: { ...exactFacts, risk_complete: false, risk_level: "MEDIUM_HIGH" as const } };

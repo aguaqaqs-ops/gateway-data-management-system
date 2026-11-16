@@ -84,6 +84,9 @@ PAYLOAD_SHAPE_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
     ("unknown_field", {"unexpected": True}, "unknown preview payload keys"),
     ("empty_capabilities", {"capability_contract_versions": {}}, "capability versions"),
     ("stale_capabilities", {"capability_contract_versions": {"risk_model": "old"}}, "capability versions"),
+    ("old_navigation", {"capability_contract_versions": {
+        **current_preview_capabilities(), "business_navigation": "backend-vnext/business-navigation/v4",
+    }}, "capability versions"),
     ("missing_idempotency", {"idempotency_identity": {"workspace_id": WORKSPACE_ID}}, "idempotency_key"),
     (
         "full_missing_initial",

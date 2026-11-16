@@ -54,6 +54,8 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
+
+
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
@@ -81,6 +83,20 @@ from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from tests.test_submit_transactions import RecordingMainResolvePort
 
 pytestmark = [pytest.mark.unit, pytest.mark.integration]
+
+
+@pytest.mark.parametrize(("is_initial", "completeness", "pair_id", "expected"), (
+    (True, InputCompleteness.MODIFIED_ONLY, "initial_to_modified", True),
+    (True, InputCompleteness.FULL, "baseline_to_initial", True),
+    (True, InputCompleteness.FULL, "initial_to_modified", False),
+    (False, InputCompleteness.MODIFIED_ONLY, "initial_to_modified", False),
+    (False, InputCompleteness.FULL, "baseline_to_initial", False),
+    (True, InputCompleteness.MODIFIED_ONLY, "baseline_to_initial", False),
+))
+def test_initial_baseline_is_bound_to_the_actual_before_side(
+    is_initial: bool, completeness: InputCompleteness, pair_id: str, expected: bool,
+) -> None:
+    assert preview_jobs._initial_baseline_pair(is_initial, completeness, pair_id) is expected
 
 
 def _run_materialize(harness: PreviewJobHarness, operation_id: str) -> None:

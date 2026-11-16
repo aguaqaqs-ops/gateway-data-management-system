@@ -282,7 +282,9 @@ _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-c
 PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
 PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v3"
 PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
-PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v11"
+# The publish step verifies this version before consuming bundle refs; v12
+# excludes checkpoints whose navigation projection predates v5.
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v12"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -2111,6 +2113,8 @@ def _assemble_preview(
                 pair_id=pair_id,
                 before=before,
                 current=current,
+                initial_baseline=_initial_baseline_pair(
+                    canonical.baseline_is_initial, payload.input_completeness, pair_id),
                 before_presentation=display_inputs[_SIDE_BASELINE if pair_id == _PAIR_BASELINE_TO_INITIAL or payload.input_completeness is InputCompleteness.MODIFIED_ONLY else _SIDE_INITIAL],
                 current_presentation=display_inputs[_SIDE_INITIAL if pair_id == _PAIR_BASELINE_TO_INITIAL else _SIDE_MODIFIED],
                 store=store,
@@ -2217,6 +2221,13 @@ def _assemble_preview(
             computation_cache.release_operation_pins(CacheOperationOwner("preview-operation", operation_id))
 
 
+def _initial_baseline_pair(baseline_is_initial: bool, completeness: InputCompleteness, pair_id: str) -> bool:
+    return baseline_is_initial and (
+        (completeness is InputCompleteness.FULL and pair_id == _PAIR_BASELINE_TO_INITIAL)
+        or (completeness is InputCompleteness.MODIFIED_ONLY and pair_id == _PAIR_INITIAL_TO_MODIFIED)
+    )
+
+
 def _run_pair_pipeline(
     *,
     pair_id: str,
@@ -2232,10 +2243,12 @@ def _run_pair_pipeline(
     dedup_session: ComparisonTaskSession | None = None,
     before_presentation: PresentationMetadata,
     current_presentation: PresentationMetadata,
+    initial_baseline: bool = False,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
             before_presentation=before_presentation, current_presentation=current_presentation,
+            initial_baseline=initial_baseline,
             pair_id=pair_id,
             before=before,
             current=current,

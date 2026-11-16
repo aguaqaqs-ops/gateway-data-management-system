@@ -25,7 +25,9 @@ MAX_HISTORY_PAGE_LIMIT = 500
 MAX_HISTORY_CURSOR_BYTES = 1024
 
 HISTORY_COMPARE_JOB_KIND = "backend-vnext/history-compare"
-HISTORY_COMPARE_JOB_CONTRACT_VERSION = "backend-vnext/history-compare/v3"
+# Acceptance fingerprints and successful-operation preflight check this version;
+# v4 prevents reuse of results containing the previous navigation contract.
+HISTORY_COMPARE_JOB_CONTRACT_VERSION = "backend-vnext/history-compare/v4"
 HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION = COMPARISON_CONTRACT_VERSION
 HISTORY_COMPARE_MIN_NODES = 2
 HISTORY_COMPARE_MAX_NODES = 3

@@ -8,7 +8,8 @@ Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3�
 
 ```text
 BusinessNavigation:
-  contract_version: backend-vnext/business-navigation/v4
+  contract_version: backend-vnext/business-navigation/v5
+  initial_baseline: boolean
   groups: [Group]
   replacement_sides: null | {before: [Group], current: [Group]}
   table_notices: [TableNotice]
@@ -59,6 +60,8 @@ Predicate = {column: string, values: [string] | [integer]}
 
 ## 无记录行与完整性（FE-BEB-12）
 
+`initial_baseline` 仅在当前比较对的 before 由权威绑定证明为首次空 INITIAL 时为 true；FULL 的上传 INITIAL→MODIFIED 不满足。它随导航投影持久化并参与摘要，不能由缺表或空记录推断。`membership_initial_baseline` 仅在筛选 tab 的归属不完整由该空 before 导致、当前身份可用且无其他已知不完整或重复身份时为 true；此时 `membership_complete` 仍为 false。整表仅因此原因不完整时不发 DEVICE_MEMBERSHIP_UNAVAILABLE；只要有任一真实未知或歧义仍发。消费者可据此省略该原因对应的变化未知提示，不能屏蔽其他 tab 的未知、降级或风险。新增表的表级变化可在该模式作为首次建基线呈现，风险及待定位提示仍保留。
+
 两逻辑侧都存在时，有键筛选身份列须实际共存、类型兼容且参加有效比较，不在 ignored/compare_excluded/incompatible；有效键本身成立。keyless 身份列须进入 native 实际 identity frame（columns_added 分支为 selected 减 excluded），不能只核列名在 selected 中。B2 对 registry 和 schema 变化分支作此断言。整表新增/删除按存在侧筛选，不要求不存在侧有列。
 
 普通 pair 缺 before 快照时，当前未命中 row record 的行，仅在以下**全部**成立时才能以同一身份值执行 before/current 谓词：
@@ -81,7 +84,7 @@ gid 7→8 而 cfg gid=7 未改，或地址 49→50 而测点未改时，满足�
  risk_level: RiskLevel|null, risk_complete: boolean,
  before_row_count: integer|null, current_row_count: integer|null,
  table_scope: null|{change: boolean, risk_level: RiskLevel|null},
- membership_changed: boolean, membership_complete: boolean,
+ membership_changed: boolean, membership_complete: boolean, membership_initial_baseline: boolean,
  row_changes: null|{added, deleted, modified, moved_in, moved_out}}
 ```
 

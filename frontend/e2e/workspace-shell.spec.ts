@@ -1018,6 +1018,7 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   await screenshot(page, "s1-workbench", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
+  await page.getByRole("button", { name: "折叠详情面板" }).click();
   await expect(page.locator(".workspace-page")).toHaveClass(/details-collapsed/);
   await screenshot(page, "s1-workbench", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1049,6 +1050,7 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
+  await page.getByRole("button", { name: "折叠详情面板" }).click();
   await expect(page.locator(".workspace-page")).toHaveClass(/details-collapsed/);
   await expect(page.getByRole("button", { name: "展开详情面板" })).toBeVisible();
   await screenshot(page, "s2-compare-tray", 1280);

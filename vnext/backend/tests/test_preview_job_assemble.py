@@ -494,6 +494,8 @@ def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
             workspace.current_preview_result_id
         )
     assert preview_result is not None
+    from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+    assert preview_result.contract_version == PREVIEW_JOB_CONTRACT_VERSION
     assert [
         (item.applicability.value, item.status.value, item.mode.value)
         for item in preview_result.identity_pairs

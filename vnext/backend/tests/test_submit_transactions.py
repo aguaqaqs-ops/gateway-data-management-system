@@ -458,6 +458,7 @@ def seed_submit_ready_workspace(
     input_completeness: InputCompleteness = InputCompleteness.FULL,
 ) -> SubmitSeed:
     from tests.support.baseline_fixtures import read_authoritative_baseline_head
+    from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND
 
     _seed_provisioned_mapping(
         db_path,
@@ -518,6 +519,7 @@ def seed_submit_ready_workspace(
             upload_revision_id=upload_revision_id,
             repository_id=repository_id,
             operation_id=f"op-preview-{actor_id}",
+            contract_version=PREVIEW_JOB_CONTRACT_VERSION,
             business_baseline_node_id=baseline_head.business_baseline_node_id,
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
@@ -551,7 +553,6 @@ def seed_submit_ready_workspace(
             updated_workspace,
             expected_version=workspace.optimistic_version,
         )
-        from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND
         from gateway_backend.application.workspace.preview import build_preview_job_payload
         payload = build_preview_job_payload(
             workspace_id=workspace.workspace_id, upload_revision=upload_revision,
@@ -1067,13 +1068,23 @@ def test_t1_replay_rechecks_current_permission_and_exact_scope(db_path: Path) ->
         )
 
 
-def test_new_submit_rejects_preview_with_old_job_semantics(db_path: Path) -> None:
+@pytest.mark.parametrize("stale_binding", ("operation", "preview"))
+def test_new_submit_rejects_preview_with_old_job_semantics(db_path: Path, stale_binding: str) -> None:
     seed = seed_submit_ready_workspace(db_path)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute(
-            "UPDATE operation_records SET job_contract_version = ? WHERE operation_id = ?",
-            ("backend-vnext/preview/v4", seed.preview_result.operation_id),
-        )
+        if stale_binding == "operation":
+            unit_of_work.connection.execute(
+                "UPDATE operation_records SET job_contract_version = ? WHERE operation_id = ?",
+                ("backend-vnext/preview/v4", seed.preview_result.operation_id),
+            )
+        else:
+            from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+            preview = replace(seed.preview_result, contract_version="backend-vnext/preview/v4")
+            unit_of_work.connection.execute(
+                "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
+                (preview_result_to_row(preview)[5], preview.preview_result_id),
+            )
+            seed = replace(seed, preview_result=preview)
     with pytest.raises(PreviewBindingConflict, match="new key"):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-new"),

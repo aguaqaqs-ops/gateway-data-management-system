@@ -1,7 +1,6 @@
 """Strict persisted Preview binding documents; SQL scalar scope is checked first."""
 from __future__ import annotations
 
-from typing import Literal
 from pydantic import BaseModel, ConfigDict, JsonValue
 from gateway_shared_kernel import DigestRef
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
@@ -82,7 +81,8 @@ class PreviewBindingDocument(_StrictDocument):
     business_baseline_commit_id: str
     baseline_head_version: int
     ruleset_version: str
-    contract_version: Literal["backend-vnext/preview/v4"]
+    # Producer job identity; frozen READY, not the current global version, verifies it.
+    contract_version: str
     provider_versions: dict[str, str]
     digests: PreviewDigestsDocument
     canonical: PreviewCanonicalDocument

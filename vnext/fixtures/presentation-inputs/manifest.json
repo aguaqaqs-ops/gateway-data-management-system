@@ -531,22 +531,34 @@
       "coverage": [
         "gid-change-unrecorded-cfg",
         "address-change-unrecorded-point",
-        "update-only-suppressed-add-delete",
-        "table-fallback",
+        "all-changes-add-delete",
+        "exact-local-change",
         "orphan",
         "integer-utf8"
       ],
       "assertions": {
         "required_codes": [
-          "DEVICE_TAB_FACTS_UNAVAILABLE",
           "DEVICE_ROWS_UNASSIGNED"
         ],
-        "fallback_tables": [
-          "device_st"
+        "forbidden_codes": [
+          "DEVICE_TAB_FACTS_UNAVAILABLE"
         ],
         "exact_tables": [
-          "device_cfg"
+          "device_cfg",
+          "device_st"
         ]
+      },
+      "pair_assertions": {
+        "initial_to_modified": {
+          "record_kinds": {
+            "device_st": {
+              "STANDARD": [
+                "ROW_ADDED",
+                "ROW_DELETED"
+              ]
+            }
+          }
+        }
       }
     },
     {

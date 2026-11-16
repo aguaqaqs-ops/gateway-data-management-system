@@ -180,6 +180,7 @@ def _assert_current_preview_semantics(unit_of_work: SubmitControlTransaction, pr
         raise PreviewBindingConflict(message) from exc
     if (operation.job_kind != PREVIEW_JOB_KIND
             or operation.job_contract_version != PREVIEW_JOB_CONTRACT_VERSION
+            or preview.contract_version != operation.job_contract_version
             or operation.job_payload is None
             or BusinessReference(kind="workspace", value=preview.workspace_id) not in operation.business_refs
             or BusinessReference(kind="upload_revision", value=preview.upload_revision_id) not in operation.business_refs):

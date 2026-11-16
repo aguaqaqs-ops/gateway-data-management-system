@@ -163,7 +163,9 @@ def validate_scenario_assertions(surface: Any, store: InMemoryArtifactStore, exp
     diagnostics = [] if projection.diagnostics_ref is None else json.loads(store.locate(projection.diagnostics_ref))["diagnostics"]
     codes = {d["code"] for d in diagnostics}
     if not set(expected.get("required_codes", [])).issubset(codes) or set(expected.get("forbidden_codes", [])) & codes:
-        raise AssertionError("scenario navigation diagnostic codes disagree")
+        raise AssertionError(f"scenario navigation diagnostic codes disagree: actual={sorted(codes)}, "
+                             f"required={expected.get('required_codes', [])}, "
+                             f"forbidden={expected.get('forbidden_codes', [])}")
     for wanted in expected.get("required_diagnostics", []):
         if not any(d["code"] == wanted["code"] and d["side"] == wanted["side"]
             and d["target"]["table_id"] == wanted["table_id"] and d["params"].get("reason") == wanted["reason"] for d in diagnostics):

@@ -23,7 +23,14 @@ describe("risk reason copy", () => {
 
   it("states the net blank-point count of an interval region, never a per-position change", () => {
     expect(describeRiskReason("ORDERED_TAIL_BLANK_INTERVAL", [["count", 2], ["side", "CURRENT"]])).toBe("有序表末尾的空点区间净增 2 个空点，其后没有保留的有效测点。");
-    expect(describeRiskReason("ORDERED_MIDDLE_BLANK_INTERVAL", [["count", 1], ["side", "BEFORE"]])).toMatch(/^有序表中间的空点区间净减 1 个空点，/);
-    expect(describeRiskReason("ORDERED_MIDDLE_BLANK_INTERVAL")).toMatch(/^在有序表中间插入或删除了空点/);
+    const middleCases: Array<[Array<[string, unknown]>, string]> = [
+      [[["count", 2], ["side", "CURRENT"]], "有序表中间的空点区间净增 2 个空点，其后存在保留的有效测点，需要复核。"],
+      [[["count", 1], ["side", "BEFORE"]], "有序表中间的空点区间净减 1 个空点，其后存在保留的有效测点，需要复核。"],
+      [[["count", 2], ["side", "UNKNOWN"]], "有序表中间的空点数量发生变化，其后存在保留的有效测点，需要复核。"],
+      [[], "有序表中间的空点数量发生变化，其后存在保留的有效测点，需要复核。"],
+    ];
+    for (const [evidence, expected] of middleCases) {
+      expect(describeRiskReason("ORDERED_MIDDLE_BLANK_INTERVAL", evidence)).toBe(expected);
+    }
   });
 });

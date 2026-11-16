@@ -89,12 +89,13 @@ class FixtureGate(G.Gate):
     def git(self, *args, repo=None):
         if args == ("rev-parse", "HEAD"):
             return self.args.commit_sha
+        if args[0] == "rev-parse" and len(args) == 2 and args[1].endswith(":vnext"):
+            commit = args[1].removesuffix(":vnext")
+            return getattr(self, "vnext_trees", {}).get(commit, "vnext-tree")
         if args[0] == "status":
             return ""
         if args[0] == "merge-base":
             return ""
-        if args[0] == "log":
-            return getattr(self, "changed", "")
         raise AssertionError(args)
 
 
@@ -241,23 +242,24 @@ class StageGateTests(unittest.TestCase):
         self.assertTrue(gate.busy.exists())
         self.assertFalse(self.record(gate)["occupancy_released"])
 
-    def test_runtime_change_and_revert_or_image_label_change_prevents_container_carry(self):
+    def test_container_equivalent_rejects_vnext_tree_entry_or_label_change(self):
         gate = FixtureGate(self.root, head=OTHER)
         image = {"labels": {"gateway.p2r1.build-input-revision": "input", "gateway.p2r1.source-tree-sha256": "tree"}}
         source = {"commit_sha": SHA, "container_gate": {"status": "run", "images": {"repository_service": image, "entry": gate.entry_image()}}}
         with patch.object(gate, "repository_identity", return_value={"build_input_revision": "input", "source_tree_sha256": "tree"}), \
-             patch.object(gate, "image", return_value=image), \
-             patch.object(gate, "container_interval_touched", side_effect=lambda _: bool(getattr(gate, "changed", ""))):
+             patch.object(gate, "image", return_value=image):
             self.assertTrue(gate.container_equivalent(source, "backend")[0])
             with patch.object(gate, "entry_image", return_value={**gate.entry_image(), "image_id": "different"}):
                 self.assertFalse(gate.container_equivalent(source, "backend")[0])
-            gate.changed = "vnext/deploy/compose.yaml\nvnext/deploy/compose.yaml"
-            self.assertFalse(gate.container_equivalent(source, "backend")[0])
-            gate.changed = ""
+            gate.vnext_trees = {SHA: "tree-1", OTHER: "tree-2"}
+            equivalent, reason = gate.container_equivalent(source, "backend")
+            self.assertFalse(equivalent)
+            self.assertIn("vnext tree changed", reason)
+            gate.vnext_trees = {}
             image["labels"]["gateway.p2r1.source-tree-sha256"] = "changed"
             self.assertFalse(gate.container_equivalent(source, "repository_service")[0])
 
-    def test_container_interval_checks_side_branch_reverts_and_merge_changes(self):
+    def test_container_equivalent_allows_reverted_side_branch_and_rejects_merge_vnext_change(self):
         for kind in ("reverted-side-branch", "merge-change"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory(dir=self.root) as temporary:
                 repo = Path(temporary)
@@ -296,14 +298,63 @@ class StageGateTests(unittest.TestCase):
                 gate = FixtureGate(self.root, head=git("rev-parse", "HEAD"))
                 gate.worktree = repo
                 gate.directory.mkdir(parents=True)
-                source = {"commit_sha": base}
+                image = {"labels": {"gateway.p2r1.build-input-revision": "input", "gateway.p2r1.source-tree-sha256": "tree"}}
+                source = {"commit_sha": base, "container_gate": {"status": "run",
+                          "images": {"repository_service": image, "entry": gate.entry_image()}}}
                 # Invoke the real gate Git adapter and actual Git history rather than a path-list mock.
-                with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)):
+                with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)), \
+                     patch.object(gate, "repository_identity", return_value={"build_input_revision": "input", "source_tree_sha256": "tree"}), \
+                     patch.object(gate, "image", return_value=image):
                     equivalent, reason = gate.container_equivalent(source, "backend")
-                self.assertFalse(equivalent)
-                self.assertIn("source interval touched", reason)
+                if kind == "reverted-side-branch":
+                    self.assertTrue(equivalent, reason)
+                else:
+                    self.assertFalse(equivalent)
+                    self.assertIn("vnext tree changed", reason)
 
-    def test_container_interval_ignores_source_changes_missing_from_side_branch(self):
+    def test_container_equivalent_carries_side_and_octopus_merges_with_unchanged_vnext_tree(self):
+        for octopus in (False, True):
+            with self.subTest(octopus=octopus), tempfile.TemporaryDirectory(dir=self.root) as temporary:
+                repo = Path(temporary)
+                def git(*args):
+                    return subprocess.run(["git", "-C", str(repo), *args], check=True,
+                                          capture_output=True, text=True).stdout.strip()
+                git("init", "-b", "main")
+                git("config", "user.name", "Gate selftest")
+                git("config", "user.email", "gate-selftest@example.invalid")
+                (repo / "vnext").mkdir()
+                runtime = repo / "vnext/runtime.py"
+                runtime.write_text("initial\n")
+                git("add", ".")
+                git("commit", "-m", "initial")
+                git("checkout", "-b", "side1")
+                (repo / "side1.txt").write_text("side1\n")
+                git("add", ".")
+                git("commit", "-m", "side1")
+                if octopus:
+                    git("checkout", "-b", "side2", "main")
+                    (repo / "side2.txt").write_text("side2\n")
+                    git("add", ".")
+                    git("commit", "-m", "side2")
+                git("checkout", "main")
+                runtime.write_text("already tested\n")
+                git("commit", "-am", "source runtime")
+                source_sha = git("rev-parse", "HEAD")
+                merge_heads = ["side1", "side2"] if octopus else ["side1"]
+                git("merge", "--no-ff", "-m", "merge", *merge_heads)
+                gate = FixtureGate(self.root, head=git("rev-parse", "HEAD"))
+                gate.worktree = repo
+                gate.directory.mkdir(parents=True)
+                image = {"labels": {"gateway.p2r1.build-input-revision": "input", "gateway.p2r1.source-tree-sha256": "tree"}}
+                source = {"commit_sha": source_sha, "container_gate": {"status": "run",
+                          "images": {"repository_service": image, "entry": gate.entry_image()}}}
+                with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)), \
+                     patch.object(gate, "repository_identity", return_value={"build_input_revision": "input", "source_tree_sha256": "tree"}), \
+                     patch.object(gate, "image", return_value=image):
+                    equivalent, reason = gate.container_equivalent(source, "backend")
+                self.assertTrue(equivalent, reason)
+
+    def test_container_equivalent_rejects_non_ancestor_source(self):
         with tempfile.TemporaryDirectory(dir=self.root) as temporary:
             repo = Path(temporary)
             def git(*args):
@@ -313,85 +364,29 @@ class StageGateTests(unittest.TestCase):
             git("config", "user.name", "Gate selftest")
             git("config", "user.email", "gate-selftest@example.invalid")
             (repo / "vnext").mkdir()
-            runtime = repo / "vnext/runtime.py"
-            runtime.write_text("initial\n")
+            (repo / "vnext/runtime.py").write_text("initial\n")
             git("add", ".")
-            git("commit", "-m", "initial")
+            git("commit", "-m", "base")
             git("checkout", "-b", "side")
             (repo / "side.txt").write_text("side\n")
             git("add", ".")
-            git("commit", "-m", "side doc")
+            git("commit", "-m", "side")
+            source_sha = git("rev-parse", "HEAD")
             git("checkout", "main")
-            runtime.write_text("already tested\n")
-            git("commit", "-am", "source runtime")
-            source = git("rev-parse", "HEAD")
-            git("merge", "--no-ff", "-m", "merge side", "side")
-            gate = FixtureGate(self.root, head=git("rev-parse", "HEAD"))
-            gate.worktree = repo
-            gate.directory.mkdir(parents=True)
-            with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)):
-                self.assertFalse(gate.container_interval_touched(source))
-
-    def test_container_interval_rejects_unrelated_root(self):
-        with tempfile.TemporaryDirectory(dir=self.root) as temporary:
-            repo = Path(temporary)
-            def git(*args):
-                return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                                      capture_output=True, text=True).stdout.strip()
-            git("init", "-b", "main")
-            git("config", "user.name", "Gate selftest")
-            git("config", "user.email", "gate-selftest@example.invalid")
             (repo / "main.txt").write_text("main\n")
             git("add", ".")
-            git("commit", "-m", "source")
-            source = git("rev-parse", "HEAD")
-            git("checkout", "--orphan", "side")
-            # The orphan checkout retains the old tree as staged additions.
-            git("rm", "-rf", ".")
-            (repo / "side.txt").write_text("side\n")
-            git("add", ".")
-            git("commit", "-m", "unrelated root")
-            git("checkout", "main")
-            git("merge", "--allow-unrelated-histories", "--no-ff", "-m", "merge", "side")
+            git("commit", "-m", "main")
             gate = FixtureGate(self.root, head=git("rev-parse", "HEAD"))
             gate.worktree = repo
             gate.directory.mkdir(parents=True)
-            with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)):
-                self.assertTrue(gate.container_interval_touched(source))
-
-    def test_container_interval_handles_octopus_merge(self):
-        with tempfile.TemporaryDirectory(dir=self.root) as temporary:
-            repo = Path(temporary)
-            def git(*args):
-                return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                                      capture_output=True, text=True).stdout.strip()
-            git("init", "-b", "main")
-            git("config", "user.name", "Gate selftest")
-            git("config", "user.email", "gate-selftest@example.invalid")
-            (repo / "vnext").mkdir()
-            runtime = repo / "vnext/runtime.py"
-            runtime.write_text("initial\n")
-            git("add", ".")
-            git("commit", "-m", "initial")
-            git("branch", "side2")
-            git("checkout", "-b", "side1")
-            (repo / "side1.txt").write_text("side1\n")
-            git("add", ".")
-            git("commit", "-m", "side1")
-            git("checkout", "side2")
-            (repo / "side2.txt").write_text("side2\n")
-            git("add", ".")
-            git("commit", "-m", "side2")
-            git("checkout", "main")
-            runtime.write_text("already tested\n")
-            git("commit", "-am", "source runtime")
-            source = git("rev-parse", "HEAD")
-            git("merge", "--no-ff", "-m", "octopus", "side1", "side2")
-            gate = FixtureGate(self.root, head=git("rev-parse", "HEAD"))
-            gate.worktree = repo
-            gate.directory.mkdir(parents=True)
-            with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)):
-                self.assertFalse(gate.container_interval_touched(source))
+            image = {"labels": {"gateway.p2r1.build-input-revision": "input", "gateway.p2r1.source-tree-sha256": "tree"}}
+            source = {"commit_sha": source_sha, "container_gate": {"status": "run",
+                      "images": {"repository_service": image, "entry": gate.entry_image()}}}
+            with patch.object(gate, "git", side_effect=lambda *args: G.Gate.git(gate, *args)), \
+                 patch.object(gate, "repository_identity", return_value={"build_input_revision": "input", "source_tree_sha256": "tree"}), \
+                 patch.object(gate, "image", return_value=image):
+                equivalent, _reason = gate.container_equivalent(source, "backend")
+            self.assertFalse(equivalent)
 
     def test_container_config_rejects_empty_or_unidentified_cache_provenance(self):
         gate = FixtureGate(self.root, packages=["backend"])

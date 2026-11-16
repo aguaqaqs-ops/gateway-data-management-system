@@ -51,10 +51,7 @@ cache_provenance 和预置依赖设置。配置不在 Git 内，不允许更换 
 runner 结束后，所有本轮 carried 容器包重新计算闭包并对同一原始来源复核容器身份；准备和最终
 manifest 均保留，成功 entry 引用最终 manifest。期间 custom 镜像 tag 等输入变化即整次失败，保日志且不自动补跑。
 
-容器 carried 另核 RS build-input/source-tree labels，backend 同源闭包覆盖 backend/worker；区间逐提交扫描
-`vnext/`，包含完整分支历史及改后改回。merge 若有来源提交或其后代的 parent，只与这些 parent 比较；
-否则与所有 parent 比较，无法比较的无 parent 提交也保守触发重跑。这样不把来源已包含、旁支尚未包含的
-改动算作 merge 新改动，同时仍扫描旁支本身及 merge 的实际改动。其他 `vnext/` 改动保守触发容器包重跑。
+容器 carried 另核祖先关系、来源与目标提交的 `vnext` 树 ID 相等、以及 RS build-input/source-tree labels（backend 另核入口镜像身份），backend 同源闭包覆盖 backend/worker；闭包 manifest 已含 `vnext` 树，树相同时容器输入相同，因此树未变即允许沿用。
 容器结果的 `images` 记录 RS 身份，backend/worker 实跑身份从同目录 Compose provenance 引用。
 占用冲突 exit 3，不等待或接管。捕获信号后先停止本人子进程，再核现场、写结果和释放本人标记；无法确认
 收尾则保留标记。SSH 中断或 SIGKILL/断电时，协调者核远端进程/结果/标记后处理，不直接删除标记。

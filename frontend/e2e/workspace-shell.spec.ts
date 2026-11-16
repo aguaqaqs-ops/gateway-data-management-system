@@ -2352,15 +2352,12 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
     },
   });
   await page.goto("/?page=workspace");
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
-  await expect(upload).toBeDisabled({ timeout: 15000 });
-  // The stale snapshot must never unlock the upload; the recovered snapshot
-  // reports the pending submission.
-  await expect(page.locator(".workspace-actions").getByText("已有待审核的提交，撤回后才能重新上传")).toBeVisible({ timeout: 15000 });
-  await expect(upload).toBeDisabled();
-  await expect(page.locator(".workspace-actions").getByText("无法确认提交状态")).toHaveCount(0);
-  // Exactly the mount read plus the single stale re-read: without F2 the
-  // stale snapshot unlocks the upload and no re-read happens.
+  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  const details = page.locator(".workspace-details");
+  // A pending submission owns the preview; the upload card remains absent.
+  await expect(details.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible({ timeout: 15000 });
+  await expect(details.locator(".upload-card")).toHaveCount(0);
+  await expect(details.getByText("无法确认提交状态")).toHaveCount(0);
   expect(apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces")).toHaveLength(2);
 });
 

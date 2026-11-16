@@ -1,7 +1,7 @@
 {
   "format": "backend-presentation-golden/v1",
-  "generator_commit": "4352a3f0f02772905a0ea35cf7b4a1b9d8c314d9",
-  "generator_vnext_tree": "5439a5959a4b3dd629ae98703e9448cdbf5dce32",
+  "generator_commit": "794dce0e336fbcd4a59bbab22a5adaf9daa8b7dd",
+  "generator_vnext_tree": "bd4a2be69c2b875560a2c4c857e079a89feed5ec",
   "input_manifest_sha256": "f6be60fcb23944c7866d16291652811b32bd783ce0f4420c07bf9bba68f72837",
   "scenarios": [
     {

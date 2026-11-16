@@ -1009,7 +1009,7 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   await expect(page.locator(".workspace-page")).toHaveClass(/details-open/);
   await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
   await expect(page.locator(".workspace-details")).toContainText("本次上传已生成预览");
-  await page.locator(".workspace-reupload summary").click();
+  await page.locator(".workspace-reupload > summary").click();
   const upload = page.getByLabel("上传与预览");
   await expect(upload.locator('[data-slot="initial"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
   await expect(upload.locator('[data-slot="modified"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
@@ -1341,7 +1341,7 @@ const VALID_DIRECTORY = [
 
 async function openReuploadCard(page: Page) {
   await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
-  await page.locator(".workspace-reupload summary").click();
+  await page.locator(".workspace-reupload > summary").click();
 }
 
 test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {

@@ -291,7 +291,7 @@ async function selectModifiedDirectory(page: Page) {
   await openWorkspaceDetails(page);
   const reupload = page.locator(".workspace-reupload");
   if (await reupload.count() && await reupload.getAttribute("open") === null) {
-    await reupload.locator("summary").click();
+    await reupload.locator(":scope > summary").click();
   }
   await expect(page.getByTestId("upload-modified-input")).toBeAttached({ timeout: 10000 });
   await page.evaluate((files) => {
@@ -398,7 +398,7 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   await page.reload();
   await expect(page.getByText("已有待审核的提交，撤回后才能重新上传")).toHaveCount(0);
   await openWorkspaceDetails(page);
-  await page.locator(".workspace-reupload summary").click();
+  await page.locator(".workspace-reupload > summary").click();
   await selectModifiedDirectory(page);
   await expect(page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
 });

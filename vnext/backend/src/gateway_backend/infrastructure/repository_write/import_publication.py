@@ -8,7 +8,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from time import monotonic
 
 from gateway_shared_kernel import (
@@ -38,7 +38,7 @@ from gateway_backend.capabilities.mutation_planning import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
-    materialize_repository_ref,
+    describe_repository_ref,
     open_snapshot_table_artifact, current_kernel_context,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -48,7 +48,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationStage,
     RepositoryRef,
     RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
-    RepositoryTableAccessProvider,
+    RepositoryTableAccessProvider, RepositoryProviderError,
     SnapshotMaterializationStatus,
     SnapshotTable,
     SnapshotTableDescriptor,
@@ -136,6 +136,13 @@ def _format_projection_diagnostics(prefix: str, diagnostics: tuple[ProjectionDia
     return message
 
 
+@dataclass(frozen=True, slots=True)
+class _ParentAccess:
+    binding: CanonicalBinding
+    committed_tables: CommittedCanonicalTablesPort
+    tables: dict[str, SnapshotTable]
+
+
 class SubmitImportPublicationAdapter:
     """ADAPTIVE_PATCH adapter over Storage Projection and Mutation Planning."""
 
@@ -220,12 +227,12 @@ class SubmitImportPublicationAdapter:
             and parent_by_name[name].canonical_row_count > 0
             and _patch_comparable(parent_by_name[name], frozen_by_name[name])
         )
-        parent_access: tuple[CanonicalBinding, CommittedCanonicalTablesPort] | None = None
+        parent_access: _ParentAccess | None = None
         if parent_read_names:
             if self._repository_provider_factory is None or self._committed_tables is None:
                 raise SubmitImportPublicationError("Repository parent row access is unavailable")
-            parent_access = (
-                _canonical_binding_from_manifest(parent_manifest),
+            parent_access = self._describe_parent(
+                build_input, _canonical_binding_from_manifest(parent_manifest),
                 self._committed_tables(store, build_input.repository_id),
             )
         projected_tables: list[ProjectionTable] = []
@@ -426,57 +433,60 @@ class SubmitImportPublicationAdapter:
         )
         return PrepareImportPublicationResult(checkpoint=checkpoint, replay=False)
 
-    def _materialize_parent_table(
-        self,
-        build_input: PrepareImportBuildInput,
-        *,
-        table_name: str,
-        parent_access: tuple[CanonicalBinding, CommittedCanonicalTablesPort],
-    ) -> SnapshotTable:
+    def _describe_parent(
+        self, build_input: PrepareImportBuildInput, binding: CanonicalBinding,
+        committed_tables: CommittedCanonicalTablesPort,
+    ) -> _ParentAccess:
         if self._repository_provider_factory is None:
             raise SubmitImportPublicationError("Repository parent row provider is unavailable")
-        binding, committed_tables = parent_access
         context = current_kernel_context()
         if context is None:
             raise ValueError("Submit parent reads require an operation kernel context")
         request = RepositoryRefMaterializationRequest(
-            repository_ref=RepositoryRef(
-                repository_id=build_input.repository_id,
-                ref=build_input.expected_parent_commit_id,
-            ),
-            provider=self._repository_provider_factory(
-                build_input.repository_id,
-                build_input.expected_parent_commit_id,
-            ),
-            ruleset=None,
-            canonical_binding=binding,
-            table_ruleset_version=TABLE_RULESET_VERSION,
+            repository_ref=RepositoryRef(repository_id=build_input.repository_id,
+                                         ref=build_input.expected_parent_commit_id),
+            provider=self._repository_provider_factory(build_input.repository_id,
+                                                       build_input.expected_parent_commit_id),
+            ruleset=None, canonical_binding=binding, table_ruleset_version=TABLE_RULESET_VERSION,
             materialization_stage=MaterializationStage.FINAL,
             policy=MaterializationPolicy.READERS_REQUIRED,
             context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic),
-            requested_tables=(table_name,),
-            committed_tables=committed_tables,
-            frozen_storage_only=True,
+            requested_tables=(), committed_tables=committed_tables, frozen_storage_only=True,
         )
-        result = materialize_repository_ref(request)
+        result = describe_repository_ref(request)
         if result.status is not SnapshotMaterializationStatus.COMPLETE or result.table_set is None:
             diagnostic = result.diagnostics[0] if result.diagnostics else None
             raise SubmitImportPublicationError(
-                "parent rows could not be materialized"
-                if diagnostic is None
-                else diagnostic.message
+                "parent rows could not be materialized" if diagnostic is None else diagnostic.message
             )
-        if (
-            result.snapshot is None
-            or result.snapshot.source_context is None
-            or result.snapshot.source_context.resolved_commit_hash != build_input.expected_parent_commit_id
-            or len(result.table_set.tables) != 1
-            or result.table_set.tables[0].descriptor.table_name != table_name
-        ):
-            for table in result.table_set.tables:
-                _close_snapshot_table(table)
+        if (result.snapshot is None or result.snapshot.source_context is None
+                or result.snapshot.source_context.resolved_commit_hash != build_input.expected_parent_commit_id):
             raise SubmitImportPublicationError("parent rows do not match the frozen exact commit")
-        return result.table_set.tables[0]
+        return _ParentAccess(binding, committed_tables,
+            {table.descriptor.table_name: table for table in result.table_set.tables})
+
+    def _materialize_parent_table(
+        self, build_input: PrepareImportBuildInput, *, table_name: str, parent_access: _ParentAccess,
+    ) -> SnapshotTable:
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit parent reads require an operation kernel context")
+        descriptor = parent_access.tables[table_name].descriptor
+        identity = next(item for item in parent_access.binding.table_identities
+                        if item.canonical_table == table_name)
+        view = next(item for item in parent_access.binding.tables if item.canonical_table == table_name)
+        invocation = ParserInvocationContext(context.cancel_probe, context.deadline_monotonic)
+        try:
+            parent_access.committed_tables.prepare_table(
+                commit_id=build_input.expected_parent_commit_id, descriptor=descriptor, identity=identity,
+                storage_view=view, context=invocation, timeout_policy=None)
+            return parent_access.committed_tables.load_table(
+                commit_id=build_input.expected_parent_commit_id, descriptor=descriptor, identity=identity,
+                storage_view=view, context=invocation, timeout_policy=None)
+        except RepositoryProviderError as exc:
+            if exc.retryable:
+                raise
+            raise SubmitImportPublicationError(exc.message) from exc
 
     def read_back_package(
         self,

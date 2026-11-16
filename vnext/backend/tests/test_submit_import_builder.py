@@ -354,7 +354,7 @@ def _frozen_build_input(
 
 def _keyed_parent_submit(
     *, fault: str | None = None, ruleset: TableRulesetSnapshot | None = None,
-    equivalent_source_schema: bool = False,
+    equivalent_source_schema: bool = False, two_tables: bool = False,
 ) -> tuple[SubmitImportPublicationAdapter, PrepareImportBuildInput, InMemoryArtifactStore]:
     """Use the real canonical IPC and committed-table owners around a fake Repository source."""
     before_rows = tuple(
@@ -385,7 +385,14 @@ def _keyed_parent_submit(
             "a_widget", columns=(int_column("id"), varchar_column("value")),
             primary_key_columns=("id",), rows=rows,
         )
-        return (ProjectionTableInput("a_widget", reader, binding),)
+        inputs = [ProjectionTableInput("a_widget", reader, binding)]
+        if two_tables:
+            second_reader, second_binding = table_input(
+                "b_widget", columns=(int_column("id"), varchar_column("value")),
+                primary_key_columns=("id",), rows=rows,
+            )
+            inputs.append(ProjectionTableInput("b_widget", second_reader, second_binding))
+        return tuple(inputs)
 
     before_store = InMemoryArtifactStore()
     before_input = _frozen_build_input(before_store, raw_input(before_rows), ruleset=ruleset)
@@ -416,8 +423,9 @@ def _keyed_parent_submit(
         for index, column in enumerate(descriptor.columns)
     )
     catalog = make_catalog(
-        (catalog_table(descriptor.table_name, columns, primary_key=descriptor.primary_key_columns,
-                       row_count=99 if fault == "count" else 100),),
+        tuple(catalog_table(name, columns, primary_key=descriptor.primary_key_columns,
+                            row_count=99 if fault == "count" else 100)
+              for name in (("a_widget", "b_widget") if two_tables else (descriptor.table_name,))),
         repository_id="test-repository", ref="parent-commit-1", commit="parent-commit-1",
     )
     source_rows: tuple[tuple[object | None, ...], ...] = tuple(
@@ -427,7 +435,7 @@ def _keyed_parent_submit(
     if equivalent_source_schema:
         source_rows = tuple((f'port-{index}', index) for index in range(100))
     provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, rows={descriptor.table_name: source_rows},
+        catalog=catalog, rows={table.table_name: source_rows for table in catalog.tables},
         current_commit="other-commit" if fault == "commit" else "parent-commit-1",
     )
 
@@ -500,6 +508,28 @@ def test_submit_patch_uses_frozen_parent_after_ruleset_activation() -> None:
     assert "UPDATE `a_widget` SET" in sql
     assert "new-value" in sql
     assert "DROP TABLE" not in sql
+
+
+def test_submit_reuses_verified_parent_catalog_for_changed_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.capabilities.snapshot_materialization import describe_repository_ref
+
+    adapter, build_input, store = _keyed_parent_submit(two_tables=True)
+    original = describe_repository_ref
+    descriptions = 0
+
+    def describe(request: object) -> object:
+        nonlocal descriptions
+        descriptions += 1
+        return original(request)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "gateway_backend.infrastructure.repository_write.import_publication.describe_repository_ref", describe,
+    )
+    published = adapter.build_and_publish(build_input=build_input, store=store)
+    sql = _replay_sql_from_package(adapter.read_back_package(checkpoint=published.checkpoint, store=store))
+    assert descriptions == 1
+    assert "UPDATE `a_widget` SET" in sql
+    assert "UPDATE `b_widget` SET" in sql
 
 
 @pytest.mark.parametrize("fault", ("commit", "count", "content"))

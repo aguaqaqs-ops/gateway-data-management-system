@@ -288,8 +288,10 @@ async function openWorkspaceDetails(page: Page) {
 }
 
 async function selectModifiedDirectory(page: Page) {
-  if ((await page.getByTestId("upload-modified-input").count()) === 0) {
-    await page.getByRole("button", { name: "展开详情面板" }).click();
+  await openWorkspaceDetails(page);
+  const reupload = page.locator(".workspace-reupload");
+  if (await reupload.count() && await reupload.getAttribute("open") === null) {
+    await reupload.locator("summary").click();
   }
   await expect(page.getByTestId("upload-modified-input")).toBeAttached({ timeout: 10000 });
   await page.evaluate((files) => {
@@ -438,7 +440,7 @@ test("W10 陈旧指针重读后恢复可用（一次性重读，B2）", async ({
   };
   const { workspaceReadsOf } = await installModeRoutes(page, state);
   await page.goto("/?page=workspace");
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  const upload = page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
   await selectModifiedDirectory(page);
   await expect(upload).toBeEnabled({ timeout: 15000 });
   expect(workspaceReadsOf()).toBe(2);
@@ -686,7 +688,8 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   await expect(actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能继续" })).toBeVisible();
   await screenshot(page, "fe3b-w6-withdraw-busy", 1280);
   await page.goto("/?page=workspace");
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  await selectModifiedDirectory(page);
+  const upload = page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
   await expect(upload).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能继续")).toBeVisible();
   await screenshot(page, "fe3b-w6-attempt-running", 1280);
@@ -712,9 +715,9 @@ test("W6 刷新后找回操作卡片，终态未结束显示需要管理员处�
   await expect(page.getByRole("region", { name: "操作状态" })).toContainText("已等待 8 秒");
   await expect.poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 }).toBe("submit-op-1");
   await selectModifiedDirectory(page);
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  const upload = page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
   await expect(upload).toBeDisabled();
-  await expect(page.locator(".workspace-actions").getByText("提交正在执行，完成后才能继续")).toBeVisible();
+  await expect(page.locator(".upload-card").getByText("提交正在执行，完成后才能继续")).toBeVisible();
   await screenshot(page, "fe3b-w6-resumed-card", 1280);
 });
 
@@ -780,9 +783,9 @@ test("W6 操作终态而 attempt 未结束时显示需要管理员处理", async
   await freezePageClock(page);
   await page.goto("/?page=workspace&operationId=submit-op-1&operationKind=operation");
   await selectModifiedDirectory(page);
-  const upload = page.locator(".workspace-actions").getByRole("button", { name: "上传", exact: true });
+  const upload = page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
   await expect(upload).toBeDisabled({ timeout: 15000 });
-  await expect(page.locator(".workspace-actions").getByText("提交结果待确认，需要管理员处理")).toBeVisible();
+  await expect(page.locator(".upload-card").getByText("提交结果待确认，需要管理员处理")).toBeVisible();
   await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible();
   await screenshot(page, "fe3b-w6-recovery", 1280);
 });

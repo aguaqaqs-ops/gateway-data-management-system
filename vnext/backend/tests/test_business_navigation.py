@@ -80,8 +80,16 @@ def test_initial_baseline_membership_reason_keeps_real_unknowns_and_risk() -> No
     assert tabs(ambiguous, "device_st")[0]["facts"]["membership_initial_baseline"] is False
     assert diagnostics(ambiguous, "DEVICE_MEMBERSHIP_UNAVAILABLE")
     missing_identity = table("device_st", None, side(({"other": 49},), columns={"other": "INT"}))
-    missing_tab = tabs(build(registry, missing_identity, initial_baseline=True), "device_st")[0]
-    assert missing_tab["row_filter"] is None and missing_tab["facts"] is None
+    missing = build(registry, missing_identity, initial_baseline=True)
+    missing_tab = tabs(missing, "device_st")[0]
+    assert missing_tab["row_filter"] == {"before": None, "current": {"column": "dev_addr", "values": [49]}}
+    missing_facts = missing_tab["facts"]
+    assert missing_facts["basis"] == "TABLE_FALLBACK"
+    assert missing_facts["membership_initial_baseline"] is False
+    assert missing_facts["current_row_count"] is None
+    assert diagnostics(missing, "DEVICE_TAB_FACTS_UNAVAILABLE")[0]["params"]["reason"] == "RECORDS_UNAVAILABLE"
+    assert diagnostics(missing, "DEVICE_TAB_COUNT_UNKNOWN")[0]["side"] == "CURRENT"
+    assert diagnostics(missing, "DEVICE_MEMBERSHIP_UNAVAILABLE")
     bad = deepcopy(result.document)
     bad["initial_baseline"] = False
     with pytest.raises(ValueError, match="initial baseline membership"):

@@ -40,6 +40,7 @@ test.beforeAll(async () => {
       active_preview_operation_id: null, active_submit_attempt_id: null, current_preview_result_id: null, current_upload_revision_id: null,
     });
     if (path === "/v1/history") return reply(200, { ...HISTORY_PAGE_ONE, nodes: [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes], next_cursor: null });
+    if (request.method === "GET" && path === "/v1/history-compares") return reply(200, { items: [], next_cursor: null });
     if (request.method === "POST" && path === "/v1/history-compares") {
       sequence += 1;
       calls.push({ path, body, key: request.headers["idempotency-key"] as string,

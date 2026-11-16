@@ -300,10 +300,9 @@ async function installFixtureRoutes(page: Page, options: {
     historyCompareCounts.set(operationId, count);
     apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
     if (options.historyCompareErrors && count <= options.historyCompareErrors) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/history-compares/{operation_id}" && item.method === "GET" && item.status === 503);
-      if (!error) throw new Error("GET /v1/history-compares/{operation_id} 503 fixture missing");
-      apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: error.status, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+      // Exercise a transient connection failure; HISTORY_INTEGRITY_FAILURE is
+      // a terminal result error and must not be presented as disconnection.
+      return route.abort("failed");
     }
     const fixture = await loadFixture("history-three-nodes");
     const result = options.historyCompareStatus?.(operationId, count) ?? { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: operationId };

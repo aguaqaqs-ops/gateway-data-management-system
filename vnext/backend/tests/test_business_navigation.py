@@ -18,6 +18,7 @@ from gateway_backend.capabilities.business_navigation.contracts import (
 )
 from gateway_backend.capabilities.business_navigation.producer import scalar_reason
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
+from gateway_backend.capabilities.table_access import KernelExecutionContext, current_kernel_context
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceChangeKind
 
 pytestmark = pytest.mark.unit
@@ -870,14 +871,13 @@ def test_device_changes_use_actual_side_context_and_keep_original_record_identit
                         "risk_level": "LOW", "risk_complete": True}]
 
 
-def test_typed_row_pairs_and_ordered_intervals_remain_in_their_scopes() -> None:
+def test_typed_row_pairs_and_ordered_intervals_remain_in_their_scopes(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     from gateway_shared_kernel import raw_blob_digest
     from gateway_backend.application.business_presentation import RiskAttribution
     from gateway_backend.capabilities.risk_evaluation.contracts import (
         RiskAnnotation, RiskReason, RiskReasonCode, RiskRuleId, RiskTarget, RiskTargetType,
-    )
-    from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
     )
     before, current = raw_blob_digest(b"before"), raw_blob_digest(b"current")
     reason = RiskReason(RiskReasonCode.ROW_MODIFIED, "modified", RiskRuleId.ROW_MODIFIED)
@@ -885,11 +885,10 @@ def test_typed_row_pairs_and_ordered_intervals_remain_in_their_scopes() -> None:
         table_name="device_st", before_row_identity=before, current_row_identity=current), (reason,))
     interval = RiskAnnotation("interval", RiskLevel.LOW, RiskTarget(RiskTargetType.ROW_INTERVAL,
         table_name="ordered", position_range=(1, 3)), (reason,))
-    context = KernelExecutionContext(OperationMemoryBudget(1024 * 1024), NeverCancel(), 1)
-    with kernel_execution_scope(context):
-        attribution = RiskAttribution()
-        attribution.observe("device_st", (pair,), True)
-        attribution.observe("ordered", (interval,), True)
-        assert attribution.rows["device_st"] == {before.value: RiskLevel.HIGH, current.value: RiskLevel.HIGH}
-        assert attribution.unlocated["device_st"] is None and attribution.complete["device_st"]
-        assert attribution.unlocated["ordered"] is None and attribution.complete["ordered"]
+    assert current_kernel_context() is operation_kernel_context
+    attribution = RiskAttribution()
+    attribution.observe("device_st", (pair,), True)
+    attribution.observe("ordered", (interval,), True)
+    assert attribution.rows["device_st"] == {before.value: RiskLevel.HIGH, current.value: RiskLevel.HIGH}
+    assert attribution.unlocated["device_st"] is None and attribution.complete["device_st"]
+    assert attribution.unlocated["ordered"] is None and attribution.complete["ordered"]

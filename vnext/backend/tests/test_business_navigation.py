@@ -161,6 +161,19 @@ def test_unsupported_identity_downgrades_whole_table_per_affected_side(sql_type:
     assert not diagnostics(result, "DEVICE_TAB_FACTS_UNAVAILABLE")
 
 
+@pytest.mark.parametrize("value", (9007199254740992, -9007199254740992))
+def test_unrepresentable_identity_in_unchanged_table_reports_both_sides(value: int) -> None:
+    source = side(({"dev_addr": 49}, {"dev_addr": value}), sql_type="BIGINT")
+    shared = table("device_st", source, source, unchanged=True)
+    devs = ({"dev_addr": 49, "gid": 7},)
+    result = build(device(devs, devs), shared)
+    assert tabs(result, "device_st")[0]["row_filter"] is None
+    diag = diagnostics(result, "DEVICE_FILTER_VALUE_UNSUPPORTED")
+    assert {entry["side"] for entry in diag} == {"BEFORE", "CURRENT"}
+    assert all(entry["params"]["reason"] == "INTEGER_OUT_OF_RANGE" for entry in diag)
+    assert not diagnostics(result, "DEVICE_ROWS_UNASSIGNED")
+
+
 @pytest.mark.parametrize("excluded", [frozenset({"BEFORE"}), frozenset({"BEFORE", "CURRENT"})])
 def test_identity_exclusion_reports_each_existing_affected_side(excluded: frozenset[str]) -> None:
     source = side(({"dev_addr": 49},))

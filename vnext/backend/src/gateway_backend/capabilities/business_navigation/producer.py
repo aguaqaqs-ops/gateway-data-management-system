@@ -639,6 +639,9 @@ class _Builder:
                             reason = scalar_reason(source.column_types[column], value)
                             if reason:
                                 failures[side] = reason
+                                # This table will use the whole-table fallback. Do not
+                                # retain an unsupported scalar in JSON-charged state.
+                                continue
                         if value not in histogram:
                             self.charge([side, value])
                         histogram[value] += 1

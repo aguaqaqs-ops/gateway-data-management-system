@@ -12,3 +12,9 @@ manifest-path = "Cargo.toml"
 module-name = "gateway_compute._native"
 python-source = "python"
 features = ["extension-module"]
+
+[tool.maturin.sbom]
+# CycloneDX SBOM embeds a random serialNumber and build timestamp, which changes
+# the installed backend .venv digest on every build and prevents carry-over.
+rust = false
+auditwheel = false

@@ -64,7 +64,7 @@ async function installFixtureRoutes(page: Page, options: {
   /** F2: queued workspace snapshots; each POST /v1/workspaces consumes one. */
   workspaceSequence?: Schemas["WorkspaceResponse"][];
   /** C2: hold the next POST /v1/workspaces in flight until released. */
-  workspacePostHold?: { onHold: () => void; release: Promise<void> };
+  workspacePostHold?: { onHold: () => void; release: Promise<void>; onCall?: number };
   operationReadFails?: boolean;
   workspaceReadFails?: boolean;
   operationById?: Record<string, Schemas["OperationResponse"]>;
@@ -109,6 +109,7 @@ async function installFixtureRoutes(page: Page, options: {
   const operationCounts = new Map<string, number>();
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
+  let workspacePostCount = 0;
   let workspacePointerCleared = false;
   let submitAttemptPointer: string | null = null;
   let workspaceSubmitSucceeded = false;
@@ -120,8 +121,9 @@ async function installFixtureRoutes(page: Page, options: {
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
     if (await rejectInvalidRequest(route, request)) return;
+    workspacePostCount += 1;
     const postHold = options.workspacePostHold;
-    if (postHold) {
+    if (postHold && workspacePostCount === (postHold.onCall ?? 1)) {
       options.workspacePostHold = undefined;
       postHold.onHold();
       await postHold.release;
@@ -2341,8 +2343,11 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
     active_submission_id: "submission-1",
     active_submit_attempt_id: null,
   } satisfies Schemas["WorkspaceResponse"];
+  const rereadHeld = deferred();
+  const releaseReread = deferred();
   const { apiRequests } = await installFixtureRoutes(page, {
     workspaceSequence: [stale, recovered],
+    workspacePostHold: { onCall: 2, onHold: () => rereadHeld.resolve(), release: releaseReread.promise },
     submitAttemptState: "FINALIZED",
     // The submit operation stays polling (RUNNING): a terminal operation would
     // resume-navigate the workbench to the review page, while this case asserts
@@ -2351,8 +2356,13 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
       "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
     },
   });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace");
-  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
+  await rereadHeld.promise;
+  await openReuploadCard(page);
+  await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
+  await expect(page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" })).toBeDisabled();
+  releaseReread.resolve();
   const details = page.locator(".workspace-details");
   // A pending submission owns the preview; the upload card remains absent.
   await expect(details.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible({ timeout: 15000 });

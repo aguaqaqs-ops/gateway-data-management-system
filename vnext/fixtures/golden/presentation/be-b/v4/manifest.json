@@ -1,8 +1,8 @@
 {
   "format": "backend-presentation-golden/v1",
-  "generator_commit": "ab1a5537be7db7408e5607b85465fbdb85b66482",
-  "generator_vnext_tree": "2276a9ae97e1261353516dba8c85a1f20a3cf88b",
-  "input_manifest_sha256": "671a53df3bd56f1b18c2dc5062391669bdd5e86a010f5c48b1f5a6ea0070dc64",
+  "generator_commit": "3b58026ffa0a43ad0db6a61ff7ad1e5332dc6af9",
+  "generator_vnext_tree": "f1b165985e5da1bbc0c1e346099cdc3b4e204ae5",
+  "input_manifest_sha256": "f6be60fcb23944c7866d16291652811b32bd783ce0f4420c07bf9bba68f72837",
   "scenarios": [
     {
       "assertions": {},
@@ -2118,6 +2118,70 @@
       "output": "backend/scenarios/ownership-risk-incomplete",
       "scenario": "ownership-risk-incomplete",
       "submit_result": null
+    },
+    {
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      },
+      "assertions_result": "PASS",
+      "bundle_digest": "sha256:394b14052aabac9c7682b13e041e61851c0e894161426eec45e5e0ec25f03ee5",
+      "comparison_exclusions": {},
+      "coverage": [
+        "pure-add-delete-no-risk",
+        "full-delete-values-with-null",
+        "before-snapshot-absent"
+      ],
+      "flow": "PREVIEW",
+      "inputs": {
+        "empty.xml": "d516d86b8b1c8a21cd10943bc105f8b149cd7d372ced9ce65fe7ee9538c328eb",
+        "pure-row-changes-before.sql": "e955274f78e203a1c5d8ec87bf5571e0fbf930c7d92d287824ba78f165c14536",
+        "pure-row-changes-current.sql": "9e1e678d7da2e4228dacfa501826df99b049429273c0f4c9a48c0fffc9747e89"
+      },
+      "logical_paths": [
+        "pairs/initial_to_modified/comparison-surface.json",
+        "pairs/initial_to_modified/comparison/locators/device_st.parquet",
+        "pairs/initial_to_modified/comparison/records/closure.json",
+        "pairs/initial_to_modified/comparison/records/device_st/manifest.json",
+        "pairs/initial_to_modified/comparison/records/device_st/rows.bin",
+        "pairs/initial_to_modified/identity/assessment.json",
+        "pairs/initial_to_modified/projections/business_navigation.json",
+        "pairs/initial_to_modified/tables/current/device_st.parquet",
+        "shared/snapshot-tables/316d1b5d165e8672b0e9e802ba23bd382acf35a0878dbcf86a15af5083d52f2e.parquet",
+        "shared/snapshot-tables/55aee46ac70109c9cd5673ea1bf02af4757fb56e848f27ade0b547bcfa5be9c6.parquet"
+      ],
+      "manifest_fields": [
+        "bundle_contract_version",
+        "bundle_digest",
+        "bundle_profile",
+        "closure",
+        "closure_entries",
+        "closure_manifest_digest",
+        "diagnostics",
+        "failed_pairs",
+        "inputs",
+        "pairs",
+        "status"
+      ],
+      "members": {
+        "artifact-closure.json": "73f2553e1604af9ec8ba3ce4f3e382de440ae93184785c1301921a3fbc1840e3",
+        "manifest.json": "957f7cffaa9c1fca2715bdd6d3e5a4f06e229e13837479102501a6b1f31e3c80",
+        "pairs/initial_to_modified/comparison-surface.json": "f6d03511e49d61b478be8db0df1f7603155c9767eaa4e55b1bfbe02756f4ffff",
+        "pairs/initial_to_modified/comparison/locators/device_st.parquet": "c4c3d82337714798ba4e9af218bbd2037ddfe8b2d4c5d18097315be3f4b64a44",
+        "pairs/initial_to_modified/comparison/records/closure.json": "3c24ff8bd75f21c0fab2f1717271d87afaa653e053cda26e7ff4243959f60aac",
+        "pairs/initial_to_modified/comparison/records/device_st/manifest.json": "63a07ce06f2ab6595a0d338dca4b521bdb98efbba9e10705f104849931a1ab77",
+        "pairs/initial_to_modified/comparison/records/device_st/rows.bin": "2198249dad26dc3ef01b4469ee49b94e84270369a3251dc4ba078ea6ea62e5d9",
+        "pairs/initial_to_modified/identity/assessment.json": "604846386d7eaf116a824160f89311cb347eac5217c91deb79ff7344b843d88c",
+        "pairs/initial_to_modified/projections/business_navigation.json": "2fc0a32dab8a5a88daa5178fdc4989f4a6e06ba43c3fb6e611433ecb48216b81",
+        "pairs/initial_to_modified/tables/current/device_st.parquet": "4c1554cf1e9319e739f279a8471d157acea106d4119f7d6bbcff2bcf2dbee045",
+        "shared/snapshot-tables/316d1b5d165e8672b0e9e802ba23bd382acf35a0878dbcf86a15af5083d52f2e.parquet": "316d1b5d165e8672b0e9e802ba23bd382acf35a0878dbcf86a15af5083d52f2e",
+        "shared/snapshot-tables/55aee46ac70109c9cd5673ea1bf02af4757fb56e848f27ade0b547bcfa5be9c6.parquet": "55aee46ac70109c9cd5673ea1bf02af4757fb56e848f27ade0b547bcfa5be9c6"
+      },
+      "operation_result": "READY",
+      "output": "backend/scenarios/pure-row-changes",
+      "scenario": "pure-row-changes",
+      "submit_result": null
     }
   ],
   "files": {
@@ -2139,6 +2203,7 @@
     "bundle/preview-modified-only.json": "8b50834e803d54b71878e4332ba8fc23ba13de179c553c7fa3b6042f56bbfd13",
     "bundle/preview-replacement.json": "f8802533b19d8401908803a4417e36162f0d75437daffaf284b85a7f55741481",
     "bundle/preview-workbench-normal.json": "c3b36aa1265704304ce7c784678885296857d23e0974ef2d93d70877efc81988",
+    "bundle/pure-row-changes.json": "6f4beec0e3712b90922a0d1396bf2131fcc8e4c3b6fadc94e6b9efa6c917c119",
     "bundle/schema-keyless.json": "fb342514962c73bf69ac24d539f1bcab501cfa587b86754bef58fc119b8a8026",
     "bundle/table-addition.json": "df1e5844aa96ac43d13ad67b08c4f80fe3502746bdeb6f270ad1592e3eafe07f",
     "bundle/text-identities.json": "09c823bb108912f93fa6de8abe2376b88d1af7904266578dd6a10ee58ae9a329",
@@ -2160,6 +2225,7 @@
     "navigation/preview-modified-only.json": "d6f9accde707e320f01b08d7424a75f0cbd447c21f66dc02ffbb2c9954bd2650",
     "navigation/preview-replacement.json": "6cff777ffbc28804083d466bff5b471e40ed72f245742d65f2213e64830424a6",
     "navigation/preview-workbench-normal.json": "9e9f730688273feacca2ab5db1cc13f945f5528b9ecffa00000e5f78daf8a7a7",
+    "navigation/pure-row-changes.json": "3d5c2c9d8fe2809c1ad727f6554c6646bc00e1ee10c868674154a762e53d458f",
     "navigation/schema-keyless.json": "a72c5da827ed7f50ead2eb20a9225356f30cecd65a5f7af1caa786290ea5a128",
     "navigation/table-addition.json": "eec16d5d4771afd1d74dec36e395dd5e56adb6c56ea4062f09011d3f1e1f735c",
     "navigation/text-identities.json": "df0aab65ac00ea3087ce4d408256bda1c5e7aa004b95e0b8afb1426962734647",
@@ -2181,6 +2247,7 @@
     "navigation-diagnostics/preview-modified-only.json": "f634977c7d3d0eb9539f6096f010056edce1fff2f630798e4dcc7fe687d638ca",
     "navigation-diagnostics/preview-replacement.json": "de0c4c0458f98945ed098ba56212b9d0a742a16a489baf52d464daa9fbd3030c",
     "navigation-diagnostics/preview-workbench-normal.json": "268a2357a95d38d19dec6e232e50d57836e41cebcba455ed47ca39af6fa60316",
+    "navigation-diagnostics/pure-row-changes.json": "1a4f70b643cbebf40e9f5a69683258ada9686e22bce86c4687a9ecd48a88d363",
     "navigation-diagnostics/schema-keyless.json": "7f8d96082d4585658b40f3659f1db1764c093814d193066d8163dd3f9c2357b3",
     "navigation-diagnostics/table-addition.json": "7192a96560744fe4aca7909ce9005805ec967257e4509c7ea4a592b565fe7398",
     "navigation-diagnostics/text-identities.json": "52e3bff60d34e08774d1698f54f51e795aa65d2cfd77e6036a3416efbb285f80",
@@ -2202,6 +2269,7 @@
     "row-location/preview-modified-only.json": "618afc92ed2bf75ea71405b6555b7ac08b9262ae55a51e7e43bf52df453df55e",
     "row-location/preview-replacement.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "row-location/preview-workbench-normal.json": "00d78c80cd52116e06fdd726f8da7df26e2849e556f3f4815e2956356f35d3ba",
+    "row-location/pure-row-changes.json": "7fad18d70e58065440c5856d6a1c861bfb0d1bee2b4271712f8587619441a585",
     "row-location/schema-keyless.json": "715128c58b39e0019b31c79534ef57e596bf99641dd502434714fbabde65ca82",
     "row-location/table-addition.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "row-location/text-identities.json": "ee2c1ed9dae3e852eb902ffc3df50257b51d2b0ba8b302f768956717ca47a82c",
@@ -2223,6 +2291,7 @@
     "surface/preview-modified-only.json": "d1e91d929d82707f1535ef5d2b4b9fe8aa8e4211e18e4937eb9ea23df7389290",
     "surface/preview-replacement.json": "753ff98026c73972936ee778a1184d131759720cecc966502139595ca92015e6",
     "surface/preview-workbench-normal.json": "34729251e0d725374d2ceb72b643cd322b04daf7a69ca61a1b7daf52d43a8ca7",
+    "surface/pure-row-changes.json": "69c6afc2b403e8459d0b9e39dd575681363425e8a3080843f6a071892366d475",
     "surface/schema-keyless.json": "cbc963c161c92ea97e23ad095ffd4e31ecc7a5807ab3975854e37bd61a820acd",
     "surface/table-addition.json": "618a00931d9649e5bc355a8419d18cbc2debd4fd15ba14302a76cf48fc3f051d",
     "surface/text-identities.json": "35617ccc94b4a11c0f192544d25bdd76a1e20263f1b06a484371d0665a042728"

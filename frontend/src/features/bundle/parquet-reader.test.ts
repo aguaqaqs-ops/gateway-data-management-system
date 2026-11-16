@@ -28,7 +28,7 @@ describe("local Parquet browsing", () => {
     const pairId = (manifest.pairs[0] as { pair_id: string }).pair_id;
     const presentation = await loadComparisonPresentation(bundle, pairId);
     expect(presentation.view.groups.map((group) => group.groupKey)).toEqual(["FORWARD_CHANNELS", "SECONDARY_DEVICES", "COMMUNICATION_PROTOCOLS", "GLOBAL_PARAMETERS", "OTHER_TABLES"]);
-    expect(presentation.view.tables.find((table) => table.tableName === "device")?.riskLevel).toBe("MEDIUM_HIGH");
+    expect(presentation.view.tables.find((table) => table.tableName === "device")?.riskLevel).toBe("MEDIUM_LOW");
     expect(presentation.tableArtifacts.get("device")?.before).toContain("tables/before/device.parquet");
     expect(presentation.tableArtifacts.get("device")?.current).toMatch(/\.parquet$/);
     expect(presentation.tableArtifacts.get("device")?.before).not.toBe(presentation.tableArtifacts.get("device")?.current);

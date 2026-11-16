@@ -70,7 +70,7 @@ interface NavigationTab {
 interface NavigationItem {
   item_key: string;
   tabs: NavigationTab[];
-  summary?: { change_kinds?: unknown; risk_level?: unknown; nonempty_tab_count?: unknown };
+  summary?: { change_kinds?: unknown; risk_level?: unknown; nonempty_tab_count?: unknown; change_complete?: unknown; risk_complete?: unknown };
 }
 
 interface NavigationGroup {
@@ -83,6 +83,8 @@ interface NavigationDocument {
   contract_version?: unknown;
   groups?: NavigationGroup[];
   replacement_sides?: { before: NavigationGroup[]; current: NavigationGroup[] } | null;
+  table_notices?: unknown;
+  device_definition_changes?: unknown;
 }
 
 interface BindingSide {
@@ -137,7 +139,7 @@ export interface BundleCriteriaSummary {
 }
 
 const SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v4";
-const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v3";
+const NAVIGATION_CONTRACT_VERSION = "backend-vnext/business-navigation/v4";
 const FIXED_GROUPS = [
   "FORWARD_CHANNELS",
   "SECONDARY_DEVICES",
@@ -325,6 +327,9 @@ function checkNavigationShape(navigation: NavigationDocument, surface: Compariso
   if (navigation.contract_version !== NAVIGATION_CONTRACT_VERSION) {
     fail(where, `导航 contract version 不是 ${NAVIGATION_CONTRACT_VERSION}`);
   }
+  // v4 root: public table notices and device-definition changes are required arrays (empty for replacement).
+  if (!Array.isArray(navigation.table_notices) || !Array.isArray(navigation.device_definition_changes)) fail(where, "v4 导航缺少 table_notices 或 device_definition_changes");
+  if (navigation.replacement_sides && (navigation.table_notices.length > 0 || navigation.device_definition_changes.length > 0)) fail(where, "替换模式导航不能有公共提示或定义变化");
   const tableIds = new Set((surface.tables ?? []).map((table) => table.table_id));
   const tabs: NavigationTab[] = [];
   for (const { side, groups, where: sideWhere } of collectSideGroups(navigation, String(surface.comparison_mode ?? ""), where)) {
@@ -348,6 +353,7 @@ function checkNavigationShape(navigation: NavigationDocument, surface: Compariso
         const nonempty = (item.tabs ?? []).filter((tab) => tab.empty === false).length;
         if (!Number.isSafeInteger(summary.nonempty_tab_count) || summary.nonempty_tab_count !== nonempty) fail(sideWhere, `导航项 ${item.item_key} 的非空页签计数不符`);
         if (nonempty === 0 && (summary.change_kinds.length !== 0 || summary.risk_level !== null)) fail(sideWhere, `全空导航项 ${item.item_key} 的摘要不是中性`);
+        if (typeof summary.change_complete !== "boolean" || typeof summary.risk_complete !== "boolean") fail(sideWhere, `导航项 ${item.item_key} 缺少 v4 完整性摘要`);
         const tabKeys = new Set<string>();
         for (const tab of item.tabs ?? []) {
           if (typeof tab.empty !== "boolean" || (side !== null && tab.empty)) fail(sideWhere, `页签 ${tab.tab_key} 的 empty 标记无效`);

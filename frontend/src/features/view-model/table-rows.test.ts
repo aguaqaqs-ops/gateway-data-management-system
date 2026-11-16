@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { deriveChangeLocations, type RiskAnnotation, type RowDiffRecord, type SurfaceTable } from "./model";
+import type { NavigationFacts, RiskAnnotation, RowDiffRecord, SurfaceTable } from "./model";
 import {
   type BrowseRow,
   buildBrowseRows,
+  blankIntervalLabel,
   canReuseUnrecordedIdentity,
   collapseUnchangedRows,
+  columnHeaderTitle,
+  deriveChangeLocations,
   formatFloatBits,
   missingSideMarker,
   normalizeDisplayScalar,
@@ -123,8 +126,11 @@ describe("locator validation", () => {
 });
 
 describe("unrecorded identity reuse criteria", () => {
-  const exact = { facts: { basis: "EXACT" as const, change_kind: "MODIFIED", risk_level: null, before_row_count: 1, current_row_count: 1, table_scope: null } };
-  const fallback = { facts: { ...exact.facts, basis: "TABLE_FALLBACK" as const } };
+  const exactFacts: NavigationFacts = { basis: "EXACT", change_kind: "UPDATED", risk_level: null, risk_complete: true, before_row_count: 1, current_row_count: 1,
+    table_scope: null, membership_changed: false, membership_complete: true, row_changes: { added: 0, deleted: 0, modified: 1, moved_in: 0, moved_out: 0 } };
+  const exact = { facts: exactFacts };
+  const fallback = { facts: { ...exactFacts, basis: "TABLE_FALLBACK" as const, change_kind: null, row_changes: null } };
+  const riskIncomplete = { facts: { ...exactFacts, risk_complete: false, risk_level: "MEDIUM_HIGH" as const } };
 
   it("allows reuse only for EXACT, fully counted tables without a before snapshot", () => {
     expect(canReuseUnrecordedIdentity(table(), [exact], false, true)).toBe(true);
@@ -133,6 +139,8 @@ describe("unrecorded identity reuse criteria", () => {
     expect(canReuseUnrecordedIdentity(table(), [], false, true)).toBe(false);
     expect(canReuseUnrecordedIdentity(table(), [fallback], false, true)).toBe(false);
     expect(canReuseUnrecordedIdentity(table(), [exact, fallback], false, true)).toBe(false);
+    // Incomplete risk is not incomplete change: the identity reuse still holds.
+    expect(canReuseUnrecordedIdentity(table(), [riskIncomplete, exact], false, true)).toBe(true);
     expect(canReuseUnrecordedIdentity(table({ row_change_stats: { row_count_before: null, row_count_current: 1 } }), [exact], false, true)).toBe(false);
   });
 });
@@ -167,7 +175,7 @@ describe("browse rows from published locators", () => {
     expect(unchanged?.values.description).toBe("二");
   });
 
-  it("uses the recorded before context when the before snapshot is missing", () => {
+  it("rebuilds a modified row's before side from the record and keeps the context for identity only", () => {
     const locator = parseRowLocator([locatorRow(0x11, null, 0, { before: { gid: 8 } })]);
     const result = buildBrowseRows({
       table: table({ row_change_stats: { row_count_before: 3, row_count_current: 3 } }),
@@ -177,9 +185,50 @@ describe("browse rows from published locators", () => {
     });
     const before = result.rows.find((row) => row.kind === "modified-before");
     expect(before?.rowNumberTitle).toMatch(/^改前快照不在本 bundle 中/);
-    expect(before?.values.gid).toBe(8);
+    expect(before?.values.gid).toEqual({ kind: "int", text: "8" });
+    expect(before?.identityContext).toEqual({ gid: 8 });
     // Columns the record does not list as changed are equal on both sides.
     expect(before?.values.description).toBe("一改");
+  });
+
+  // Deleted rows without a before snapshot show record.before_values; the context only identifies them.
+  const DELETED_VALUE_CASES: Array<[string, Record<string, unknown> | undefined, Record<string, unknown>[] | undefined, RegExp | Record<string, unknown>]> = [
+    ["full before values with SQL NULL", { dev_addr: 49 }, [{ column_name: "dev_addr", value: { kind: "int", text: "49" } }, { column_name: "description", value: { kind: "null" } }],
+      { dev_addr: { kind: "int", text: "49" }, description: { kind: "null" } }],
+    ["a context that contradicts the record", { dev_addr: 50 }, [{ column_name: "dev_addr", value: { kind: "int", text: "49" } }], /与记录值矛盾/],
+    ["a NULL context against a value", { dev_addr: null }, [{ column_name: "dev_addr", value: { kind: "int", text: "49" } }], /与记录值矛盾/],
+    ["context only, no record values", { dev_addr: 49 }, undefined, {}],
+  ];
+  it.each(DELETED_VALUE_CASES)("deleted row without a before snapshot: %s", (_name, context, beforeValues, expected) => {
+    const locator = parseRowLocator([locatorRow(0x33, null, null, { before: context })]);
+    const build = () => buildBrowseRows({
+      table: table({ row_change_stats: { row_count_before: 1, row_count_current: 0, row_deleted_count: 1 } }),
+      beforeRows: [], currentRows: [], records: [record("ROW_DELETED", 0x33, beforeValues ? { before_values: beforeValues } : {})],
+      annotations: [], locator, hasBeforeSnapshot: false, hasCurrentSnapshot: false,
+    });
+    if (expected instanceof RegExp) { expect(build).toThrow(expected); return; }
+    const deleted = build().rows.find((row) => row.kind === "deleted");
+    expect(deleted?.values).toEqual(expected);
+    expect(deleted?.partialValues).toBe(true);
+    expect(deleted?.identityContext).toEqual(context);
+    expect(deleted?.rowNumberTitle).toBe(beforeValues ? "改前快照不在本 bundle 中：显示删除记录中的改前值" : "改前值不可得");
+  });
+
+  it("matches a deleted row to a device filter by its typed context, not by guessed snapshot types", () => {
+    const locator = parseRowLocator([locatorRow(0x33, null, null, { before: { dev_addr: 49 } })]);
+    const browse = (values: Array<number>) => buildBrowseRows({
+      table: table({ row_change_stats: { row_count_before: 1, row_count_current: 0, row_deleted_count: 1 } }),
+      beforeRows: [], currentRows: [], records: [record("ROW_DELETED", 0x33, { before_values: [{ column_name: "dev_addr", value: { kind: "int", text: "49" } }] })],
+      annotations: [], locator, hasBeforeSnapshot: false, hasCurrentSnapshot: false,
+      rowFilter: { before: { column: "dev_addr", values }, current: null }, beforeEncodings: new Map(), currentEncodings: browseEncodings(),
+    }).rows.length;
+    expect(browse([49])).toBe(1);
+    expect(browse([50])).toBe(0);
+    const stringContext = parseRowLocator([locatorRow(0x33, null, null, { before: { dev_addr: "49" } })]);
+    expect(() => buildBrowseRows({
+      table: table(), beforeRows: [], currentRows: [], records: [record("ROW_DELETED", 0x33)], annotations: [], locator: stringContext,
+      hasBeforeSnapshot: false, hasCurrentSnapshot: false, rowFilter: { before: { column: "dev_addr", values: [49] }, current: null },
+    })).toThrow(/上下文值类型与谓词矛盾/);
   });
 
   it("marks swapped ordered rows by their position when no row locator is published", () => {
@@ -207,45 +256,75 @@ describe("browse rows from published locators", () => {
     });
     expect(result.rows.map((row) => `${row.kind}:${row.rowNumber}:${rowMove(row)?.from ?? ""}>${rowMove(row)?.to ?? ""}`))
       .toEqual(["unchanged:1:>", "ordered:2:4>2", "unchanged:3:>", "modified-before:2:2>4", "modified-after:4:2>4"]);
-    // The jump list counts that row once.
-    expect(deriveChangeLocations(records).map((location) => location.position)).toEqual([4, 2]);
+    // The jump list counts that row once, in grid order.
+    expect(deriveChangeLocations(result.scoped).map((location) => location.position)).toEqual([2, 4]);
   });
 
-  it("shows only the net row_count of a blank run that grew or shrank", () => {
+  const blankRecord = (kind: string, interval: Record<string, number | null>) => ({ table_name: "device", record_kind: kind, interval }) as RowDiffRecord;
+  const intervalRisk = (side: "CURRENT" | "BEFORE", start: number, end: number, count: number, level: RiskAnnotation["risk_level"]): RiskAnnotation => ({
+    annotation_id: side + start, risk_level: level, diagnostics: [],
+    reasons: [{ reason_code: "ORDERED_MIDDLE_BLANK_INTERVAL", message: "", rule_id: "ORDERED_MIDDLE_BLANK_INTERVAL", evidence: [["count", count], ["side", side]] }],
+    target: { target_type: "ROW_INTERVAL", table_name: "device", row_identity: null, before_row_identity: null, current_row_identity: null,
+      changed_columns: [], coverage: null, position: null, position_range: [start, end] },
+  });
+
+  it("summarises each blank interval once and never invents per-position blank rows", () => {
     // Before: 1 2 _ _ 5 _ _ 8. Insert two blanks after 1 and shrink the 6-7 run to one blank.
     const current = ["1", "", "", "2", "", "", "5", "", "8"].map((label, index) => ({ dev_addr: label, description: label || "空点", no: String(index + 1) }));
-    const blank = (kind: string, interval: Record<string, number | null>) => ({ table_name: "device", record_kind: kind, interval }) as RowDiffRecord;
     const result = buildBrowseRows({
       table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 9 } }),
       beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations: [],
-      records: [blank("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 2, current_end: 3, row_count: 2 }),
-        blank("BLANK_DELETE_INTERVAL", { before_start: 6, before_end: 7, current_start: 8, current_end: 8, row_count: 1 })],
+      records: [blankRecord("BLANK_INSERT_INTERVAL", { before_start: null, before_end: null, current_start: 2, current_end: 3, row_count: 2 }),
+        blankRecord("BLANK_DELETE_INTERVAL", { before_start: 6, before_end: 7, current_start: 8, current_end: 8, row_count: 1 })],
     });
-    expect(result.rows.map((row) => `${row.kind === "deleted" ? "-" : row.kind === "added" ? "+" : " "}${row.rowNumber}`))
-      .toEqual([" 1", "+2", "+3", " 4", " 5", " 6", " 7", "-6", " 8", " 9"]);
+    expect(result.rows.map((row) => row.kind === "blank-interval" ? `[${row.interval?.direction}]` : `${row.kind}:${row.rowNumber}`))
+      .toEqual(["unchanged:1", "[INSERT]", "unchanged:2", "unchanged:3", "unchanged:4", "unchanged:5", "unchanged:6", "unchanged:7", "[DELETE]", "unchanged:8", "unchanged:9"]);
+    const summaries = result.rows.filter((row) => row.kind === "blank-interval");
+    expect(summaries.map((row) => row.rowNumber)).toEqual([null, null]);
+    expect(summaries.map((row) => blankIntervalLabel(row.interval!))).toEqual([
+      "空点区间插入 2 个 · 改前 no — → 改后 no 2–3",
+      "空点区间删除 1 个 · 改前 no 6–7 → 改后 no 8",
+    ]);
+    // Summaries are changes to jump to, but no business row is counted as added or deleted.
+    expect(deriveChangeLocations(result.scoped).map((location) => [location.recordKind, location.position]))
+      .toEqual([["BLANK_INSERT_INTERVAL", 2], ["BLANK_DELETE_INTERVAL", 8]]);
+    expect(result.rows.some((row) => row.kind === "added" || row.kind === "deleted")).toBe(false);
   });
 
-  it("maps blank-interval risks to the blank rows of the named side by position", () => {
-    const current = [1, 0, 2, 3].map((n, index) => ({ dev_addr: n, description: n ? `点${n}` : "空点", no: String(index + 1) }));
-    const interval = (side: "CURRENT" | "BEFORE", start: number, end: number, level: RiskAnnotation["risk_level"]): RiskAnnotation => ({
-      annotation_id: side + start, risk_level: level, diagnostics: [],
-      reasons: [{ reason_code: "ORDERED_MIDDLE_BLANK_INTERVAL", message: "", rule_id: "ORDERED_MIDDLE_BLANK_INTERVAL", evidence: [["count", end - start + 1], ["side", side]] }],
-      target: { target_type: "ROW_INTERVAL", table_name: "device", row_identity: null, before_row_identity: null, current_row_identity: null,
-        changed_columns: [], coverage: null, position: null, position_range: [start, end] },
-    });
-    const blank = (kind: string, side: "current" | "before", position: number) => ({ table_name: "device", record_kind: kind,
-      interval: { before_start: side === "before" ? position : null, before_end: side === "before" ? position : null,
-        current_start: side === "current" ? position : null, current_end: side === "current" ? position : null, row_count: 1 } }) as RowDiffRecord;
-    const annotations = [interval("CURRENT", 2, 2, "MEDIUM_HIGH"), interval("BEFORE", 4, 4, "LOW")];
+  it("keeps a range wider than the occupancy change as one region and its interval risk on the summary only", () => {
+    // Current 1..6: a sparse gap whose blank region 2..5 also spans a real new point at 4; net change is 1.
+    const current = [1, 2, 3, 4, 5, 6].map((no) => ({ dev_addr: no === 4 ? 40 : no, description: no === 4 ? "新点" : no === 2 || no === 5 ? "" : `点${no}`, no: String(no) }));
+    const added = record("ORDERED_ROW_ADDED", 0x40, { current_position: 4 });
+    const pointRisk: RiskAnnotation = { ...intervalRisk("CURRENT", 0, 0, 0, "LOW"), annotation_id: "point", reasons: [{ reason_code: "ORDERED_MIDDLE_INSERT_DELETE", message: "", rule_id: "ORDERED_MIDDLE_INSERT_DELETE", evidence: [] }],
+      target: { ...intervalRisk("CURRENT", 0, 0, 0, "LOW").target, target_type: "ROW", row_identity: `sha256:${"40".repeat(32)}`, position_range: null, position: 4 } };
+    const annotations = [intervalRisk("CURRENT", 2, 5, 1, "MEDIUM_HIGH"), pointRisk];
     const result = buildBrowseRows({
-      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 4 } }),
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 6 } }),
       beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations,
-      records: [blank("BLANK_INSERT_INTERVAL", "current", 2), blank("BLANK_DELETE_INTERVAL", "before", 4)],
+      records: [blankRecord("BLANK_INSERT_INTERVAL", { before_start: 2, before_end: 3, current_start: 2, current_end: 5, row_count: 1 }), added],
     });
-    expect(result.rows.map((row) => `${row.kind}:${row.rowNumber}:${row.riskLevel ?? "-"}`))
-      .toEqual(["unchanged:1:-", "added:2:MEDIUM_HIGH", "unchanged:3:-", "unchanged:4:-", "deleted:4:LOW"]);
-    const inserted = result.rows.find((row) => row.kind === "added");
-    expect(inserted && rowRiskAnnotation(inserted, annotations)?.annotation_id).toBe("CURRENT2");
+    const summary = result.rows.find((row) => row.kind === "blank-interval")!;
+    expect(summary.interval).toEqual({ direction: "INSERT", before: [2, 3], current: [2, 5], rowCount: 1 });
+    expect(summary.riskLevel).toBe("MEDIUM_HIGH");
+    expect(rowRiskAnnotation(summary, annotations)?.annotation_id).toBe("CURRENT2");
+    // The real new point keeps its own ROW risk; nothing else in the region is painted.
+    expect(result.rows.find((row) => row.kind === "added")?.riskLevel).toBe("LOW");
+    expect(result.rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null)).toEqual([]);
+    expect(result.rows.filter((row) => row.kind === "added")).toHaveLength(1);
+    // A device filter never claims the ordered summary, while search finds it by its description.
+    const searched = buildBrowseRows({
+      table: table({ ordered_extension: {}, row_change_stats: { row_count_before: null, row_count_current: 6 } }),
+      beforeRows: [], currentRows: current, hasBeforeSnapshot: false, locator: new Map(), annotations,
+      records: [blankRecord("BLANK_INSERT_INTERVAL", { before_start: 2, before_end: 3, current_start: 2, current_end: 5, row_count: 1 })], search: "空点区间",
+    });
+    expect(searched.rows.map((row) => row.kind)).toEqual(["blank-interval"]);
+  });
+
+  it("rejects a blank interval without the changed side's range", () => {
+    expect(() => buildBrowseRows({
+      table: table({ ordered_extension: {} }), beforeRows: [], currentRows: [{ no: "1" }], hasBeforeSnapshot: false, locator: new Map(), annotations: [],
+      records: [blankRecord("BLANK_DELETE_INTERVAL", { before_start: null, before_end: null, current_start: 1, current_end: 1, row_count: 1 })],
+    })).toThrow(/变化侧范围/);
   });
 
   it("shows a FLOAT column's bit pattern as its number", () => {
@@ -315,11 +394,8 @@ describe("browse rows from published locators", () => {
       .toEqual([" 1", "-2", "+2", "-3", "+3", " 4"]);
   });
 
-  // A blank row (published only as a blank interval) displays and shifts later rows exactly like an ordinary insert.
   const INSERTED_ROW_SHAPES: Array<[string, RowDiffRecord[], Array<Record<string, unknown>>]> = [
     ["an ordinary row", [record("ROW_ADDED", 0x0b)], [locatorRow(0x0b, null, 1)]],
-    ["a blank row", [{ table_name: "device", record_kind: "BLANK_INSERT_INTERVAL",
-      interval: { before_start: null, before_end: null, current_start: 2, current_end: 2, row_count: 1 } } as RowDiffRecord], []],
   ];
   it.each(INSERTED_ROW_SHAPES)("pairs shifted replacements after inserting %s above them", (_, insertRecords, insertLocator) => {
     const current = [1, 0, 2, 31, 41, 5].map((n) => ({ dev_addr: n, description: `新${n}` }));
@@ -336,12 +412,9 @@ describe("browse rows from published locators", () => {
       .toEqual([" 1", "+2", " 3", "-3", "+4", "-4", "+5", " 6"]);
   });
 
-  // Deleting a blank row displays and shifts later rows exactly like an ordinary delete.
   const no = (value: number) => [{ column_name: "no", value: { kind: "unsigned-integer", text: String(value) } }];
   const DELETED_ROW_SHAPES: Array<[string, RowDiffRecord[], Array<Record<string, unknown>>]> = [
     ["an ordinary row", [record("ROW_DELETED", 0x02, { before_values: no(2) })], [locatorRow(0x02, null, null)]],
-    ["a blank row", [{ table_name: "device", record_kind: "BLANK_DELETE_INTERVAL",
-      interval: { before_start: 2, before_end: 2, current_start: null, current_end: null, row_count: 1 } } as RowDiffRecord], []],
   ];
   it.each(DELETED_ROW_SHAPES)("pairs shifted replacements after deleting %s above them", (_, deleteRecords, deleteLocator) => {
     const current = [1, 3, 41, 51, 6].map((n) => ({ dev_addr: n, description: `新${n}` }));
@@ -411,6 +484,15 @@ describe("browse rows from published locators", () => {
       degraded: true,
     });
     expect(result.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("grid column headers", () => {
+  it("show the raw field name in Debug and the COMMENT otherwise", () => {
+    const column = { name: "dev_addr", display_name: "装置地址" };
+    expect(columnHeaderTitle(column, true)).toBe("dev_addr");
+    expect(columnHeaderTitle(column, false)).toBe("装置地址");
+    expect(columnHeaderTitle({ name: "no_comment", display_name: "" }, false)).toBe("no_comment");
   });
 });
 

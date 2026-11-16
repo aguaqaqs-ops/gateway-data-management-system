@@ -15,13 +15,14 @@ export interface NavigationDiagnostic {
 }
 
 export interface NavigationDiagnosticsDocument {
-  contract_version: "backend-vnext/business-navigation/v3";
+  contract_version: typeof NAVIGATION_CONTRACT_VERSION;
   diagnostics: NavigationDiagnostic[];
 }
 
 const REASON_COPY: Readonly<Record<string, string>> = {
   RECORDS_UNAVAILABLE: "变更记录不完整",
-  RISK_ATTRIBUTION_UNAVAILABLE: "风险无法归属到行",
+  RISK_ATTRIBUTION_UNAVAILABLE: "部分风险无法归属到具体装置",
+  MEMBERSHIP_UNAVAILABLE: "无法完整判断测点归属是否变化",
   TABLE_DEGRADED: "该表比较已降级",
   INTEGER_OUT_OF_RANGE: "数值超出可精确处理的范围",
   UNSUPPORTED_TYPE: "列类型不支持筛选",
@@ -38,11 +39,16 @@ const NAVIGATION_COPY: Readonly<Record<string, { template: string; params: reado
   APP_TABLE_CFG_MISSING: { template: "{side}全局参数 {app_name} 未指定参数表", params: ["app_name"] },
   APP_TABLE_CFG_DUPLICATE: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次", params: ["app_name", "table_cfg"] },
   APP_TABLE_NOT_FOUND: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 不存在", params: ["app_name", "table_cfg"] },
-  DEVICE_TAB_FACTS_UNAVAILABLE: { template: "{table}的装置页签无法确定逐行的变化与风险（{reason}），页签按整表提示", params: ["identity_column", "reason"] },
+  DEVICE_TAB_FACTS_UNAVAILABLE: { template: "{table}的装置页签无法确定本装置的逐行变化（{reason}），变化显示为未知，不代表整表结果", params: ["identity_column", "reason"] },
+  DEVICE_TAB_RISK_UNAVAILABLE: { template: "{table}的风险信息不完整（{reason}），装置页签只列出已确认的风险", params: ["identity_column", "reason"] },
+  DEVICE_MEMBERSHIP_UNAVAILABLE: { template: "{table}的测点归属变化无法完整判断（{reason}），装置页签只列出已确认的归属变化", params: ["identity_column", "reason"] },
   DEVICE_FILTER_VALUE_UNSUPPORTED: { template: "{side}{table}的 {identity_column} 无法用于按装置筛选（{reason}），已改为整表显示", params: ["identity_column", "reason"] },
 };
 
 export const NAVIGATION_DIAGNOSTIC_CODES = Object.keys(NAVIGATION_COPY);
+
+/** Local-fact diagnostics are table-wide: side null, target the shared table in SECONDARY_DEVICES. */
+const TABLE_WIDE_CODES: ReadonlySet<string> = new Set(["DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_TAB_RISK_UNAVAILABLE", "DEVICE_MEMBERSHIP_UNAVAILABLE"]);
 
 const SURFACE_COPY: Readonly<Record<string, string>> = {
   DEGRADE_NO_COMPARE_KEY: "本表没有可用的比较键",
@@ -167,7 +173,9 @@ export function decodeNavigationDiagnostics(input: unknown): NavigationDiagnosti
     if (!record(raw) || !exactKeys(raw, ["code", "target", "side", "params"]) || typeof raw.code !== "string" || !Object.hasOwn(NAVIGATION_COPY, raw.code) || !record(raw.params) || !record(raw.target)) return fail();
     const keys = NAVIGATION_COPY[raw.code].params;
     if (!exactKeys(raw.params, keys) || !exactKeys(raw.target, ["group_key", "item_key", "tab_key", "table_id"]) || !Object.values(raw.target).every((value) => value === null || typeof value === "string") || ![null, "BEFORE", "CURRENT"].includes(raw.side as null | string)) return fail();
-    if (raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" ? raw.side !== null : raw.side === null) return fail();
+    const tableWide = TABLE_WIDE_CODES.has(raw.code);
+    if (tableWide ? raw.side !== null : raw.side === null) return fail();
+    if (tableWide && (raw.target.group_key !== "SECONDARY_DEVICES" || raw.target.item_key !== null || raw.target.tab_key !== null || typeof raw.target.table_id !== "string")) return fail();
     for (const [key, value] of Object.entries(raw.params)) {
       if (key === "expected_prefixes") {
         if (!Array.isArray(value) || value.length < 1 || value.length > 2 || !value.every((v: unknown) => typeof v === "string" && v.length > 0)) return fail();
@@ -183,7 +191,9 @@ export function decodeNavigationDiagnostics(input: unknown): NavigationDiagnosti
       if (raw.code === "PROTOCOL_TABLE_NOT_FOUND" && !(raw.params.expected_prefixes as string[]).every((value) => value.startsWith((prefix as string) + "_"))) return fail();
     }
     if (raw.code === "DEVICE_FILTER_VALUE_UNSUPPORTED" && !["INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"].includes(raw.params.reason as string)) return fail();
-    if (raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" && !["RECORDS_UNAVAILABLE", "RISK_ATTRIBUTION_UNAVAILABLE", "TABLE_DEGRADED"].includes(raw.params.reason as string)) return fail();
+    if (raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" && !["RECORDS_UNAVAILABLE", "TABLE_DEGRADED"].includes(raw.params.reason as string)) return fail();
+    if (raw.code === "DEVICE_TAB_RISK_UNAVAILABLE" && raw.params.reason !== "RISK_ATTRIBUTION_UNAVAILABLE") return fail();
+    if (raw.code === "DEVICE_MEMBERSHIP_UNAVAILABLE" && raw.params.reason !== "MEMBERSHIP_UNAVAILABLE") return fail();
     return raw as unknown as NavigationDiagnostic;
   });
   return { contract_version: NAVIGATION_CONTRACT_VERSION, diagnostics };

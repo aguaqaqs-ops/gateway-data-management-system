@@ -7,13 +7,13 @@ import { useBoundGatewayApi, boundBundleFetch } from "../features/api/applicatio
 import { assertSubmissionReviewBundle, pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
-import { deriveChangeLocations, deriveFormulaDisplays, navigationTabHasDifferences, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
+import { deriveFormulaDisplays, navigationTabHasDifferences, normalizeRowIdentity, tabScope, type DerivedNavigationGroup, type DeviceDefinitionChange, type NavigationPredicate, type NavigationTableNotice, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable, type TabScope } from "../features/view-model/model";
 import { alignFormulaLines, renderFormulaLines } from "../features/view-model/formula-view";
 import { readParquetMetadata, readParquetTable } from "../features/bundle/parquet-reader";
 import { decodeSnapshotEncodings, type SnapshotColumnEncoding } from "../features/view-model/snapshot-encoding";
-import { buildBrowseRows, canReuseUnrecordedIdentity, missingSideMarker, normalizeDisplayScalar, parseRowLocator, rowMove, rowRiskAnnotation, validateRowLocations, type BrowseRow, type DeletionLayout } from "../features/view-model/table-rows";
-import { formatNavigationDiagnostic, formatSurfaceDiagnostic, groupNavigationDiagnostics, pairSurfaceDiagnosticCodes } from "../features/view-model/diagnostics";
-import { describeRiskReason } from "../features/view-model/risk-copy";
+import { blankIntervalLabel, buildBrowseRows, canReuseUnrecordedIdentity, columnHeaderTitle, deriveChangeLocations, missingSideMarker, normalizeDisplayScalar, parseRowLocator, rowMove, rowRiskAnnotation, validateRowLocations, type BrowseRow, type ChangeLocation, type DeletionLayout } from "../features/view-model/table-rows";
+import { formatNavigationDiagnostic, formatSurfaceDiagnostic, groupNavigationDiagnostics, pairSurfaceDiagnosticCodes, type NavigationDiagnostic } from "../features/view-model/diagnostics";
+import { describeRiskReason, isKnownRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
 import { SurfaceChangeBadge, TableFailureNotice, surfaceChangePresentation, tableStatusText } from "../features/view-model/table-state";
 import { presentViewStatus } from "../features/view-model/view-status";
@@ -121,17 +121,38 @@ function pairDiagnosticDetails(pair: PairPresentation): { codes: string[]; table
   return { codes: pairSurfaceDiagnosticCodes(surface), tableCount };
 }
 
-function tabCount(tab: Pick<NavTab, "facts" | "table" | "rowFilter">, side: "before" | "current"): number | null {
-  if (tab.rowFilter !== null) return (side === "before" ? tab.facts?.before_row_count : tab.facts?.current_row_count) ?? null;
-  return tab.table?.rowCounts[side] ?? null;
+/** Reason codes in a public notice mix risk reasons and surface diagnostics; both have user copy. */
+function noticeReasonText(code: string): string {
+  return isKnownRiskReason(code) ? describeRiskReason(code) : formatSurfaceDiagnostic(code).message;
 }
 
-function tabChangeKind(tab: { facts: { change_kind?: string | null } | null; table: { changeKind: string } | null }): string {
-  return tab.table?.changeKind ?? tab.facts?.change_kind ?? "UNCHANGED";
+/** One line per public fact of a shared table; never phrased as a device's own result. */
+function noticeLines(notice: NavigationTableNotice): string[] {
+  const lines: string[] = [];
+  if (notice.table_scope) {
+    lines.push((notice.table_scope.change ? "整表发生表级变化" : "整表无表级变化") + (notice.table_scope.risk_level ? " · 整表风险：" + riskLevelText(notice.table_scope.risk_level) : ""));
+  }
+  const unlocated = notice.unlocated_row_risk;
+  if (unlocated && (unlocated.risk_level !== null || unlocated.count !== null)) {
+    lines.push("待定位风险" + (unlocated.risk_level ? "：" + riskLevelText(unlocated.risk_level) : "") + (unlocated.count !== null ? " · " + unlocated.count + " 项" : "") + "（不能归属到具体装置）");
+  }
+  if (!notice.risk_complete) lines.push("风险信息不完整：未生成标注不代表没有风险");
+  return lines;
 }
 
-function tabRiskLevel(tab: { facts: { risk_level?: RiskLevel | null } | null; table: { riskLevel: RiskLevel | null } | null }): RiskLevel | null {
-  return tab.facts?.risk_level ?? tab.table?.riskLevel ?? null;
+function definitionChangeText(change: DeviceDefinitionChange): string {
+  const verb = change.change_kind === "ADDED" ? "新增" : change.change_kind === "DELETED" ? "删除" : "修改";
+  const address = change.before_dev_addr !== null && change.current_dev_addr !== null && change.before_dev_addr !== change.current_dev_addr
+    ? `地址 ${change.before_dev_addr} → ${change.current_dev_addr}`
+    : `地址 ${change.current_dev_addr ?? change.before_dev_addr ?? "未知"}`;
+  return `${verb}装置定义 · ${address}`;
+}
+
+/** Local risk status text for a filtered tab: confirmed, none generated, or incomplete. */
+function localRiskText(scope: TabScope): string | null {
+  if (scope.kind === "WHOLE_TABLE") return null;
+  if (!scope.riskComplete) return scope.riskLevel ? "已确认风险之外，风险信息不完整" : "风险信息不完整";
+  return scope.riskLevel ? null : "未生成风险标注";
 }
 
 type NavItem = DerivedNavigationGroup["items"][number];
@@ -149,10 +170,42 @@ function riskLevelText(level: RiskLevel): string {
   return ({ HIGH: "高风险", MEDIUM_HIGH: "中高风险", MEDIUM_LOW: "中低风险", LOW: "低风险", UNKNOWN: "未知风险" })[level];
 }
 
-function tabTitle(changeKind: string, risk: RiskLevel | null, beforeCount: number | null, currentCount: number | null): string {
-  const change = surfaceChangePresentation(changeKind);
-  return [change.text, change.tooltip, risk ? riskLevelText(risk) : null, `${beforeCount ?? "—"} → ${currentCount ?? "—"} 行`]
+/** User wording for a scope's change: whole-table status, or local rows created/removed vs moved between devices. */
+function scopeChangeText(scope: TabScope): string {
+  if (scope.changeKind === null) return "变化未知";
+  if (scope.kind === "WHOLE_TABLE") return surfaceChangePresentation(scope.changeKind).text;
+  const changes = scope.rowChanges;
+  const parts: string[] = [];
+  if (changes) {
+    if (changes.added) parts.push(`新建 ${changes.added} 行`);
+    if (changes.deleted) parts.push(`删除 ${changes.deleted} 行`);
+    if (changes.moved_in) parts.push(`移入本装置 ${changes.moved_in} 行`);
+    if (changes.moved_out) parts.push(`移出本装置 ${changes.moved_out} 行`);
+    const plainModified = changes.modified - changes.moved_in - changes.moved_out;
+    if (plainModified > 0) parts.push(`修改 ${plainModified} 行`);
+  }
+  if (scope.membershipChanged) parts.push("装置归属变化");
+  return parts.length ? parts.join("、") : "未变化";
+}
+
+function tabTitle(scope: TabScope): string {
+  const change = scope.changeKind === null ? null : surfaceChangePresentation(scope.changeKind);
+  return [scopeChangeText(scope), scope.kind === "WHOLE_TABLE" ? change?.tooltip : null, scope.riskLevel ? riskLevelText(scope.riskLevel) : null,
+    localRiskText(scope), scope.notice ? "该表另有公共提示" : null, `${scope.beforeCount ?? "—"} → ${scope.currentCount ?? "—"} 行`]
     .filter((item): item is string => Boolean(item)).join(" · ");
+}
+
+/** Change badge of a scope; an unknown local change is a neutral marker, never a guessed kind. */
+function ScopeChangeBadge({ scope }: { scope: TabScope }) {
+  if (scope.changeKind === null) return <span className="scope-marker scope-marker--unknown" title="本页签的逐行变化无法确定">变化未知</span>;
+  if (scope.kind !== "WHOLE_TABLE") {
+    const changes = scope.rowChanges;
+    // Rows that only moved between devices are a migration, not a creation or deletion.
+    if (scope.changeKind === "ADDED" && changes && changes.added === 0 && changes.moved_in > 0) return <span className="scope-marker" title="测点从其他装置移入本装置">移入</span>;
+    if (scope.changeKind === "DELETED" && changes && changes.deleted === 0 && changes.moved_out > 0) return <span className="scope-marker" title="测点移出本装置，未被删除">移出</span>;
+    if (scope.changeKind === "UNCHANGED" && scope.membershipChanged) return <span className="scope-marker" title="测点内容未变，但所属装置变化">归属变化</span>;
+  }
+  return <SurfaceChangeBadge kind={scope.changeKind} />;
 }
 
 function riskTokens(level: RiskLevel): { bg: string; rail: string; text: string; cell: string } {
@@ -174,19 +227,12 @@ function orderedMovedCount(table: SurfaceTable): number {
 
 function rowLabel(row: BrowseRow): string {
   if (row.kind === "collapsed") return row.expanded ? "▴ 收起 " + (row.collapsedCount ?? 0) + " 行未变更" : "▾ " + (row.collapsedCount ?? 0) + " 行未变更 · 展开";
-  if (row.recordKind === "BLANK_DELETE_INTERVAL" || row.recordKind === "BLANK_INSERT_INTERVAL") {
-    const interval = row.values.interval && typeof row.values.interval === "object" ? row.values.interval as Record<string, unknown> : {};
-    const start = Number(interval.before_start ?? interval.current_start ?? row.beforePosition ?? row.currentPosition ?? 0);
-    const end = Number(interval.before_end ?? interval.current_end ?? start);
-    const insert = row.recordKind === "BLANK_INSERT_INTERVAL";
-    return "第 " + start + "–" + end + " 行：" + (insert ? "插入" : "删除") + " " + Math.max(0, end - start + 1) + " 个空行";
-  }
+  if (row.kind === "blank-interval" && row.interval) return blankIntervalLabel(row.interval);
   if (row.kind === "added") return "+ 新增";
   if (row.kind === "deleted") return "− 删除";
   if (row.recordKind === "ORDERED_ROW_MOVED" || row.kind === "ordered") return "↕ 移动 · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—");
   // Leading space keeps room for the line drawn between a modified pair.
   if (row.kind === "modified-before" || row.kind === "modified-after") { const move = rowMove(row); return "\u2002\u2002修改" + (move ? " · ↕ " + move.from + " → " + move.to : ""); }
-  if (row.kind === "blank") return "空行区间";
   return "";
 }
 
@@ -402,7 +448,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [rows, setRows] = useState<BrowseRow[]>([]);
   const [beforeRows, setBeforeRows] = useState<Record<string, unknown>[]>([]);
   const [currentRows, setCurrentRows] = useState<Record<string, unknown>[]>([]);
-  const [records, setRecords] = useState<RowDiffRecord[]>([]);
+  const [scopedRows, setScopedRows] = useState<BrowseRow[]>([]);
   const [annotations, setAnnotations] = useState<Awaited<ReturnType<typeof readLocalRiskAnnotations>>>([]);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [tableLoading, setTableLoading] = useState(false);
@@ -548,6 +594,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       if (selected && runtime.snapshot.state.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
       if (initialBundleLoad && currentState.nodeKey && runtime.snapshot.state.nodeKey !== currentState.nodeKey) runtime.execute({ name: "select-node", nodeKey: currentState.nodeKey }, "external");
       if (initialBundleLoad && currentState.tabKey && runtime.snapshot.state.tabKey !== currentState.tabKey) runtime.execute({ name: "select-tab", tabKey: currentState.tabKey }, "external");
+      if (initialBundleLoad && currentState.unassignedSide && runtime.snapshot.state.unassignedSide !== currentState.unassignedSide) runtime.execute({ name: "set-unassigned", side: currentState.unassignedSide }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
       loadedRequest.current = null;
@@ -637,8 +684,9 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     setShowEmptyTabs((value) => !value);
   };
   const selectedTab = useMemo(() => wholeTable && wholeTableName
-    ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, empty: false, rowFilter: null, facts: null, table: wholeTable }
-    : selectedEntry?.tab ?? null, [selectedEntry, wholeTable, wholeTableName]);
+    ? { tabKey: "__whole__:" + wholeTableName, label: wholeTable.label, tableName: wholeTableName, empty: false, rowFilter: null, facts: null, table: wholeTable,
+      notice: presentation?.view.tableNotices.find((notice) => notice.table_id === wholeTableName) ?? null }
+    : selectedEntry?.tab ?? null, [presentation, selectedEntry, wholeTable, wholeTableName]);
   const selectedNodeKey = wholeTableName
     ? groups.flatMap((group) => group.items).find((item) => item.tabs.some((tab) => tab.tableName === wholeTableName))?.itemKey ?? browse.nodeKey ?? ""
     : selectedEntry?.item.itemKey ?? "";
@@ -665,8 +713,38 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       : presentation.view.groups;
     return sides.flatMap((group) => group.items.flatMap((item) => item.tabs)).filter((tab) => tab.tableName === tableName && tab.rowFilter !== null);
   }, [presentation]);
+  /**
+   * Predicates of every device filter on one side of a table, for orphan
+   * browsing. Null when the side cannot be judged: replacement, no published
+   * predicate, unsupported identity, or a missing current snapshot.
+   */
+  const unassignedPredicates = useCallback((tableName: string, side: "BEFORE" | "CURRENT"): NavigationPredicate[] | null => {
+    if (!presentation || presentation.view.replacementSides) return null;
+    const diagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.table_id === tableName && diagnostic.side === side);
+    if (!diagnostics.some((diagnostic) => diagnostic.code === "DEVICE_ROWS_UNASSIGNED")) return null;
+    if (diagnostics.some((diagnostic) => diagnostic.code === "DEVICE_FILTER_VALUE_UNSUPPORTED")) return null;
+    if (side === "CURRENT" && !presentation.tableArtifacts.get(tableName)?.current) return null;
+    const predicates = filterTabsForTable(tableName).flatMap((tab) => {
+      const predicate = side === "BEFORE" ? tab.rowFilter?.before : tab.rowFilter?.current;
+      return predicate ? [predicate] : [];
+    });
+    return predicates.length > 0 ? predicates : null;
+  }, [filterTabsForTable, presentation]);
+  const canBrowseUnassigned = useCallback((diagnostic: NavigationDiagnostic) => diagnostic.code === "DEVICE_ROWS_UNASSIGNED"
+    && typeof diagnostic.target.table_id === "string" && diagnostic.side !== null
+    && unassignedPredicates(diagnostic.target.table_id, diagnostic.side) !== null, [unassignedPredicates]);
+  const browseUnassigned = (tableName: string, side: "BEFORE" | "CURRENT") => {
+    openWholeTable(tableName);
+    runtime.execute({ name: "set-unassigned", side });
+  };
+  const activeUnassigned = useMemo(() => wholeTableName && browse.unassignedSide ? unassignedPredicates(wholeTableName, browse.unassignedSide) : null,
+    [browse.unassignedSide, unassignedPredicates, wholeTableName]);
+  // An orphan state restored from the URL that this table cannot honour falls back to the plain whole table.
+  useEffect(() => {
+    if (presentation && browse.unassignedSide && !activeUnassigned) runtime.execute({ name: "set-unassigned", side: null }, "external");
+  }, [activeUnassigned, browse.unassignedSide, presentation, runtime]);
   const loadTable = useCallback(async () => {
-    if (!bundle || !presentation || !selectedTab || !surfaceTable) { setRows([]); return; }
+    if (!bundle || !presentation || !selectedTab || !surfaceTable) { setRows([]); setScopedRows([]); return; }
     setTableLoading(true);
     try {
       const paths = presentation.tableArtifacts.get(selectedTab.tableName);
@@ -677,7 +755,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         : Promise.resolve([] as Record<string, unknown>[]);
       if (replacement) {
         const [before, current] = await Promise.all([beforePromise, currentPromise]);
-        setBeforeRows(before as Record<string, unknown>[]); setCurrentRows(current as Record<string, unknown>[]); setRows([]); setRecords([]); setAnnotations([]); return;
+        setBeforeRows(before as Record<string, unknown>[]); setCurrentRows(current as Record<string, unknown>[]); setRows([]); setScopedRows([]); setAnnotations([]); return;
       }
       const [before, current, rowRecords, risks, locatorRows] = await Promise.all([beforePromise, currentPromise, readLocalChangeRecords(bundle, presentation, selectedTab.tableName), readLocalRiskAnnotations(bundle, presentation, selectedTab.tableName), locatorPromise]);
       const beforeSnapshotRows = before as Record<string, unknown>[]; const currentSnapshotRows = current as Record<string, unknown>[];
@@ -690,7 +768,9 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
         publishesFilterTabs: filterTabs.length > 0, exactTable });
       const degraded = tableRecords.some((record) => record.record_kind === "TABLE_DEGRADED" || record.record_kind === "ORDERED_TABLE_DEGRADED");
-      const needsEncodings = selectedTab.rowFilter !== null && !degraded;
+      const unassigned = activeUnassigned && browse.unassignedSide
+        ? { side: browse.unassignedSide === "BEFORE" ? "before" as const : "current" as const, predicates: activeUnassigned } : null;
+      const needsEncodings = (selectedTab.rowFilter !== null || unassigned !== null) && !degraded;
       const [beforeMeta, currentMeta] = needsEncodings
         ? await Promise.all([
           paths?.before ? readParquetMetadata(bundle, paths.before) : Promise.resolve(null),
@@ -700,43 +780,63 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       const tableLabel = `表 ${surfaceTable.table_name}`;
       const beforeEncodings: Map<string, SnapshotColumnEncoding> = beforeMeta ? decodeSnapshotEncodings(beforeMeta.key_value_metadata, `${tableLabel}.改前`) : new Map();
       const currentEncodings: Map<string, SnapshotColumnEncoding> = currentMeta ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableLabel}.改后`) : new Map();
-      setBeforeRows(beforeSnapshotRows); setCurrentRows(currentSnapshotRows); setRecords(tableRecords); setAnnotations(risks);
+      setBeforeRows(beforeSnapshotRows); setCurrentRows(currentSnapshotRows); setAnnotations(risks);
       const built = buildBrowseRows({ table: surfaceTable, beforeRows: beforeSnapshotRows, currentRows: currentSnapshotRows, records: tableRecords, annotations: risks, locator,
         hasBeforeSnapshot: Boolean(paths?.before), hasCurrentSnapshot: Boolean(paths?.current),
         rowFilter: selectedTab.rowFilter, beforeEncodings, currentEncodings, degraded,
         reuseUnrecordedBefore: canReuseUnrecordedIdentity(surfaceTable, filterTabs, Boolean(paths?.before), Boolean(paths?.current)),
-        onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns, deletionLayout: settings.deletionLayout });
-      setRows(built.rows);
+        unassigned, onlyInteresting: browse.onlyInteresting, search: browse.search, expandedRuns, deletionLayout: settings.deletionLayout });
+      setRows(built.rows); setScopedRows(built.scoped);
     } catch (cause) {
       setError({ code: "TABLE_READ_FAILED", details: cause instanceof Error ? cause.message : String(cause) });
     } finally { setTableLoading(false); }
-  }, [browse.onlyInteresting, browse.search, bundle, expandedRuns, filterTabsForTable, presentation, replacement, selectedTab, settings.deletionLayout, surfaceTable]);
+  }, [activeUnassigned, browse.onlyInteresting, browse.search, browse.unassignedSide, bundle, expandedRuns, filterTabsForTable, presentation, replacement, selectedTab, settings.deletionLayout, surfaceTable]);
   useEffect(() => { void loadTable(); }, [loadTable]);
 
-  const locations = useMemo(() => deriveChangeLocations(records, annotations), [annotations, records]);
+  // Locations, risk counts and reasons all follow the current scope: the device
+  // filter or orphan view, never the whole table's records behind it.
+  const locations = useMemo(() => deriveChangeLocations(scopedRows), [scopedRows]);
   const rowRiskCounts = useMemo(() => {
     const risks = new Map<string, RiskLevel>();
-    for (const annotation of annotations) {
-      for (const identity of riskAnnotationRowIdentities(annotation)) risks.set(identity, annotation.risk_level);
-    }
+    for (const row of scopedRows) if (row.riskLevel) risks.set(row.pairKey ?? row.rowIdentity ?? row.key, row.riskLevel);
     return [...risks.values()].reduce((levels, level) => {
       const match = levels.find((item) => item.level === level);
       if (match) match.count += 1;
       else levels.push({ level, count: 1 });
       return levels;
     }, [] as Array<{ level: RiskLevel; count: number }>);
-  }, [annotations]);
+  }, [scopedRows]);
   const currentIndex = Math.min(browse.changeIndex, Math.max(0, locations.length - 1));
+  const selectedScopeKind = selectedTab ? tabScope(selectedTab).kind : "WHOLE_TABLE";
   const riskReasonDetails = useMemo(() => {
     const result = new Map<string, { reasonCode: string; ruleId: string | null; copy: string }>();
-    for (const annotation of annotations) for (const reason of annotation.reasons) {
-      result.set(reason.reason_code + "|" + reason.rule_id, { reasonCode: reason.reason_code, ruleId: reason.rule_id, copy: describeRiskReason(reason.reason_code) });
+    for (const row of scopedRows) {
+      if (!row.riskLevel) continue;
+      const annotation = rowRiskAnnotation(row, annotations);
+      for (const reason of annotation?.reasons ?? []) {
+        result.set(reason.reason_code + "|" + reason.rule_id, { reasonCode: reason.reason_code, ruleId: reason.rule_id, copy: describeRiskReason(reason.reason_code, reason.evidence) });
+      }
     }
-    for (const code of surfaceTable?.risk_refs?.reason_codes ?? []) {
-      if (![...result.values()].some((detail) => detail.reasonCode === code)) result.set(code, { reasonCode: code, ruleId: null, copy: describeRiskReason(code) });
+    // Table-level reasons belong to the whole-table view; a device tab lists them under the public notice.
+    if (selectedScopeKind === "WHOLE_TABLE" && !browse.unassignedSide) {
+      for (const code of surfaceTable?.risk_refs?.reason_codes ?? []) {
+        if (![...result.values()].some((detail) => detail.reasonCode === code)) result.set(code, { reasonCode: code, ruleId: null, copy: describeRiskReason(code) });
+      }
     }
     return [...result.values()];
-  }, [annotations, surfaceTable]);
+  }, [annotations, browse.unassignedSide, scopedRows, selectedScopeKind, surfaceTable]);
+  const unassignedView = useMemo(() => {
+    if (!activeUnassigned || !browse.unassignedSide || !wholeTableName || !presentation) return null;
+    const diagnostic = presentation.navigationDiagnostics.find((item) => item.code === "DEVICE_ROWS_UNASSIGNED" && item.target.table_id === wholeTableName && item.side === browse.unassignedSide);
+    const side = browse.unassignedSide === "BEFORE" ? "before" : "current";
+    return {
+      side: browse.unassignedSide,
+      rowCount: typeof diagnostic?.params.row_count === "number" ? diagnostic.params.row_count : null,
+      changedRowCount: typeof diagnostic?.params.changed_row_count === "number" ? diagnostic.params.changed_row_count : null,
+      browsableCount: new Set(scopedRows.filter((row) => row.side === side).map((row) => row.key)).size,
+      partial: browse.unassignedSide === "BEFORE" && !presentation.tableArtifacts.get(wholeTableName)?.before,
+    };
+  }, [activeUnassigned, browse.unassignedSide, presentation, scopedRows, wholeTableName]);
   // The tab strip belongs to the selected navigation item only; the selected
   // tab stays visible even when the scope filter would hide it.
   const selectedItem = useMemo(() => groups.flatMap((group) => group.items).find((item) => item.itemKey === selectedNodeKey) ?? null, [groups, selectedNodeKey]);
@@ -768,6 +868,13 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const owner = groups.flatMap((group) => group.items).find((item) => item.itemKey === itemKey || item.tabs.some((tab) => tab.tableName === tableName));
     runtime.execute({ name: "select-node", nodeKey: itemKey ?? owner?.itemKey ?? selectedNodeKey });
     runtime.execute({ name: "select-tab", tabKey: "__whole__:" + tableName });
+  };
+  const itemLabels = useMemo(() => new Map(groups.flatMap((group) => group.items.map((item) => [item.itemKey, item.label] as const))), [groups]);
+  // A definition change may point at an item whose tabs are all empty; it still opens.
+  const openItem = (itemKey: string) => {
+    const item = groups.flatMap((group) => group.items).find((candidate) => candidate.itemKey === itemKey);
+    const tab = item ? shownTabs(item)[0] ?? item.tabs[0] : undefined;
+    if (item && tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey);
   };
   // Double-clicking the sidebar edge fits the longest visible name; doing it
   // again at that width goes back to the default.
@@ -897,66 +1004,86 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     {error && <section className="compare-error"><ErrorState code={error.code} details={error.details} title={error.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : bundleErrorTitle(error.code)} onRetry={() => void loadBundle()} /></section>}
     {bundle && presentation && <div ref={workspaceRef} className={"compare-workspace" + (collapsed ? " sidebar-is-collapsed" : "")} style={{ "--sidebar-width": settings.sidebarWidth + "px" } as CSSProperties}>
       <aside className="navigation-sidebar" aria-label="比较导航"><div className="sidebar-heading"><div className="sidebar-search"><Search size={14} /><input ref={searchInputRef} aria-label="搜索组、节点或页签" value={search} onChange={(event) => runtime.execute({ name: "set-search", search: event.currentTarget.value })} placeholder={`搜索 · ${presentation.view.tables.length} 张表`} /></div><button className="icon-button" aria-label="收起导航" title="收起导航" onClick={() => setSettings((state) => ({ ...state, sidebarCollapsed: true }))}><ChevronLeft size={16} /></button></div>
-        {globalNavigationDiagnostics.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
-        <div className="sidebar-scroll">{visibleGroups.map((group) => {
+        {globalNavigationDiagnostics.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} onBrowseUnassigned={browseUnassigned} canBrowseUnassigned={canBrowseUnassigned} />)}
+        <div className="sidebar-scroll"><PublicNoticesPanel notices={presentation.view.tableNotices} changes={presentation.view.deviceDefinitionChanges} tables={presentation.surface.tables} items={itemLabels} debug={debugMode} onOpenWholeTable={openWholeTable} onOpenItem={openItem} />{visibleGroups.map((group) => {
           const items = shownItems(group);
           const groupDiagnostics = presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.group_key === group.groupKey);
           if (items.length === 0 && groupDiagnostics.length === 0) return null;
           return <section className="nav-group" key={group.groupKey}><button className="nav-group__heading" aria-expanded={!settings.collapsedGroups.includes(group.groupKey)} onClick={() => { runtime.execute({ name: "toggle-group", groupKey: group.groupKey }); setSettings((state) => ({ ...state, collapsedGroups: state.collapsedGroups.includes(group.groupKey) ? state.collapsedGroups.filter((key) => key !== group.groupKey) : [...state.collapsedGroups, group.groupKey] })); }}><ChevronDown className={settings.collapsedGroups.includes(group.groupKey) ? "is-closed" : ""} size={14} /><span className="nav-group__label">{group.label}</span><small title="非空项">{items.filter((item) => item.nonemptyTabCount > 0).length}</small>{groupDiagnostics.length > 0 && <small className="nav-group__diagnostic-count">{groupDiagnostics.length} 条提示</small>}</button>
-          {groupNavigationDiagnostics(presentation.navigationDiagnostics, group.groupKey, items.map((item) => item.itemKey)).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
-          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = item; const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}</button>
-            {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
+          {groupNavigationDiagnostics(presentation.navigationDiagnostics, group.groupKey, items.map((item) => item.itemKey)).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} onBrowseUnassigned={browseUnassigned} canBrowseUnassigned={canBrowseUnassigned} />)}
+          {!settings.collapsedGroups.includes(group.groupKey) && items.map((item) => { const itemTabs = shownTabs(item); const active = item.itemKey === selectedNodeKey; const { changeKinds, riskLevels } = item; const itemState = changeKinds.map((kind) => surfaceChangePresentation(kind).text).join("、") || "未变化"; const itemKind = itemBadgeKind(changeKinds); const itemTitle = `${item.label} · ${itemState}${itemStatusTooltip(changeKinds) ? " · " + itemStatusTooltip(changeKinds) : ""}${riskLevels[0] ? " · " + riskLevelText(riskLevels[0]) : ""}`; return <div className={active ? "nav-item is-active" : "nav-item"} key={item.itemKey} data-item-key={item.itemKey} ref={active ? selectedNavRef : undefined}><button className="nav-item__button" onClick={() => { const tab = itemTabs[0]; if (tab) chooseTab(tab.tableName, tab.tabKey, item.itemKey); }} title={itemTitle}><span className={"nav-icon nav-icon--" + item.itemKind.toLowerCase()}><Table2 size={15} /></span><span className={changeKinds.some((kind) => surfaceChangePresentation(kind).deleted) ? "nav-item__label is-deleted" : "nav-item__label"}>{item.label}</span>{riskLevels[0] ? <RiskBadge level={riskLevels[0]} /> : <SurfaceChangeBadge kind={itemKind} />}{!item.changeComplete && <span className="scope-marker scope-marker--unknown" title="部分页签的变化或归属无法完整确定">变化?</span>}{!item.riskComplete && <span className="scope-marker scope-marker--incomplete" title="风险信息不完整，未标注不代表没有风险">风险?</span>}{item.tabs.some((tab) => tab.notice !== null && tab.rowFilter !== null) && <span className="scope-marker scope-marker--public" title="相关表有整表或待定位提示，不是本装置自己的风险">表提示</span>}</button>
+            {presentation.navigationDiagnostics.filter((diagnostic) => diagnostic.target.item_key === item.itemKey && !diagnostic.target.tab_key).map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} onBrowseUnassigned={browseUnassigned} canBrowseUnassigned={canBrowseUnassigned} />)}
           </div>; })}</section>; })}</div>
       </aside>
       {!collapsed && <div className="sidebar-resize" role="separator" aria-label="调整侧栏宽度（双击适应名称）" title="拖动调整宽度，双击适应名称" onDoubleClick={fitSidebarWidth} aria-orientation="vertical" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={settings.sidebarWidth} tabIndex={0} onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)} onPointerMove={(event) => { if (event.buttons) updateSidebarWidth(event.clientX); }} onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)} onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettings((state) => ({ ...state, sidebarWidth: clampSidebar(state.sidebarWidth + (event.key === "ArrowRight" ? 16 : -16)) })); } }} />}
       <button className="sidebar-expand" aria-label="展开导航" onClick={() => { setSettings((state) => ({ ...state, sidebarCollapsed: false })); window.requestAnimationFrame(() => searchInputRef.current?.focus()); }}><ChevronRight size={16} /><Search size={15} /><span>{selectedTab?.label ?? "当前位置"}</span></button>
       <section className="comparison-content" aria-label="比较内容">
-        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><ScrollStrip>{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const risk = tabRiskLevel(tab); const kind = tabChangeKind(tab); const change = surfaceChangePresentation(kind); const beforeCount = tabCount(tab, "before"); const currentCount = tabCount(tab, "current"); const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(kind, risk, beforeCount, currentCount) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={change.deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{beforeCount ?? "—"} → {currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <SurfaceChangeBadge kind={kind} />}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</ScrollStrip>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="没有行的页签" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
+        {selectedItem && stripVisible && <div className="overflow-tabs" role="tablist" aria-label="表格页签"><ScrollStrip>{stripTabs.map((tab) => { const active = !wholeTable && selectedTab?.tabKey === tab.tabKey && selectedTab.tableName === tab.tableName; const scope = tabScope(tab); const risk = scope.riskLevel; const deleted = scope.kind === "WHOLE_TABLE" && surfaceChangePresentation(scope.changeKind ?? "UNCHANGED").deleted; const warned = presentation.navigationDiagnostics.some(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === tab.tabKey); return <button role="tab" aria-selected={active} key={tab.tabKey + "|" + tab.tableName} data-tab-key={tab.tabKey} className={active ? "is-active" : ""} onClick={() => chooseTab(tab.tableName, tab.tabKey, selectedItem.itemKey)} title={tabTitle(scope) + (warned ? " · 有提示" : "")}>{warned && <AlertTriangle className="overflow-tabs__warn" size={12} aria-label="有提示" />}<span className={deleted ? "nav-item__label is-deleted" : "nav-item__label"}>{tab.label}</span><small>{scope.beforeCount ?? "—"} → {scope.currentCount ?? "—"}</small>{risk ? <RiskBadge level={risk} /> : <ScopeChangeBadge scope={scope} />}{!scope.riskComplete && <span className="scope-marker scope-marker--incomplete" title="风险信息不完整">风险?</span>}</button>; })}{wholeTable && <button role="tab" aria-selected className="is-active" data-tab-key={"__whole__:" + wholeTable.tableName}><span className="nav-item__label">整表：{wholeTable.label}</span></button>}</ScrollStrip>{itemEmptyTabCount > 0 && <button className="overflow-tabs__empty-toggle" aria-pressed={showEmptyTabs} title="没有行的页签" onClick={toggleEmptyTabs}>{showEmptyTabs ? "隐藏空页签" : `+${itemEmptyTabCount} 个空页签`}</button>}</div>}
           {selectedTab && table && surfaceTable ? <>
             {(() => {
-              // One info line: what changed and how many rows; reasons and notes open as popovers.
+              // One info line: what this scope changed and how many rows; reasons and notes open as popovers.
               const tabNotes = selectedItem ? presentation.navigationDiagnostics.filter(({ target }) => target.item_key === selectedItem.itemKey && target.tab_key === selectedTab.tabKey) : [];
-              const tableNotes = presentation.navigationDiagnostics.filter((item) => !item.target.group_key && !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName);
+              const tableNotes = presentation.navigationDiagnostics.filter((item) => !item.target.item_key && !item.target.tab_key && item.target.table_id === selectedTab.tableName);
               const surfaceNotes = surfaceTable.diagnostics?.diagnostics_summary ?? [];
-              const fallback = selectedTab.facts?.basis === "TABLE_FALLBACK";
+              const scope = tabScope(selectedTab);
+              const filtered = scope.kind !== "WHOLE_TABLE";
+              const fallback = scope.kind === "LOCAL_FALLBACK";
               const schemaChanged = table.changeKind === "SCHEMA_CHANGED";
               const noteCount = surfaceNotes.length + tabNotes.length + tableNotes.length + (fallback ? 1 : 0) + (schemaChanged ? 1 : 0);
-              const filtered = selectedTab.rowFilter !== null;
               const wholeTableChange = table.changeKind === "ADDED" || table.changeKind === "DELETED";
-              const scope = filtered ? selectedTab.facts?.table_scope ?? table.tableScope : table.tableScope;
               const change = surfaceChangePresentation(table.changeKind);
               const viewKey = selectedNodeKey + "|" + selectedTab.tabKey + "|" + selectedTab.tableName;
-              return <div className="table-info">
+              const riskText = localRiskText(scope);
+              const local = scope.rowChanges;
+              const moved = orderedMovedCount(surfaceTable);
+              const wholeStats = wholeTableChange ? null : `+${surfaceTable.row_change_stats?.row_added_count ?? 0} / −${surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔${surfaceTable.row_change_stats?.row_modified_count ?? 0}${moved ? " / ↕" + moved : ""}`;
+              return <div className="table-info" data-scope={scope.kind}>
                 <h2 className={stripVisible ? "sr-only" : "table-info__title"}>{selectedTab.label || table.label}</h2>
-                <SurfaceChangeBadge kind={table.changeKind} />
-                {table.riskLevel && <span title={riskLevelText(table.riskLevel)}><RiskBadge level={table.riskLevel} /></span>}
-                <span className={table.changeKind === "DEGRADED" ? "table-info__warn" : "table-info__muted"} title={[change.text, change.tooltip].filter(Boolean).join(" · ")}>{tableStatusText(table)}</span>
-                {filtered && <span className="table-info__counts">本页 {tabCount(selectedTab, "before") ?? "—"} → {tabCount(selectedTab, "current") ?? "—"} 行</span>}
-                <span className={filtered ? "table-info__muted table-info__counts" : "table-info__counts"}>{filtered ? "整表 " : ""}{table.rowCounts.before ?? "—"} → {table.rowCounts.current ?? "—"} 行</span>
-                {!wholeTableChange && (() => { const moved = orderedMovedCount(surfaceTable); return <span className="table-info__muted table-info__counts" title={moved ? "新增 / 删除 / 修改 / 移动的行" : "新增 / 删除 / 修改的行"}>+{surfaceTable.row_change_stats?.row_added_count ?? 0} / −{surfaceTable.row_change_stats?.row_deleted_count ?? 0} / ↔{surfaceTable.row_change_stats?.row_modified_count ?? 0}{moved ? " / ↕" + moved : ""}</span>; })()}
-                {rowRiskCounts.map(({ level, count }) => <span className="table-info__risk-count" key={level}><RiskBadge level={level} /><span>{count}</span></span>)}
-                {table.annotationCount > 0 && <span className="table-info__muted">{table.annotationCount} 条风险标注</span>}
-                {selectedTab.tabKey.startsWith("__whole__:") && <span className="table-info__muted">整表视图</span>}
-                {scope && <span className="table-scope-marker" title={scope.risk_level ? riskLevelText(scope.risk_level) : "整表范围"}>{scope.change ? "整表发生变化" : "整表未变化"}{scope.risk_level ? " · 整表风险" : ""}</span>}
+                {filtered ? <>
+                  <ScopeChangeBadge scope={scope} />
+                  {scope.riskLevel && <span title={"本页已确认风险：" + riskLevelText(scope.riskLevel)}><RiskBadge level={scope.riskLevel} /></span>}
+                  <span className="table-info__muted" title="本页签自己的变化">{scopeChangeText(scope)}</span>
+                  {riskText && <span className={scope.riskComplete ? "table-info__muted" : "scope-marker scope-marker--incomplete"}>{riskText}</span>}
+                  <span className="table-info__counts" title="本页（本装置）的行数">本页 {scope.beforeCount ?? "—"} → {scope.currentCount ?? "—"} 行</span>
+                  {local && <span className="table-info__counts" title="本页新增 / 删除 / 修改的行（修改含迁移行）">+{local.added} / −{local.deleted} / ↔{local.modified}{local.moved_in || local.moved_out ? `（移入 ${local.moved_in} · 移出 ${local.moved_out}）` : ""}</span>}
+                  <span className="table-info__muted table-info__counts" title={"整表统计，不是本页签自己的结果" + (wholeStats ? "：新增 / 删除 / 修改" + (moved ? " / 移动" : "") : "")}>整表 {table.rowCounts.before ?? "—"} → {table.rowCounts.current ?? "—"} 行{wholeStats ? " · " + wholeStats : ""}</span>
+                </> : <>
+                  <SurfaceChangeBadge kind={table.changeKind} />
+                  {table.riskLevel && <span title={riskLevelText(table.riskLevel)}><RiskBadge level={table.riskLevel} /></span>}
+                  <span className={table.changeKind === "DEGRADED" ? "table-info__warn" : "table-info__muted"} title={[change.text, change.tooltip].filter(Boolean).join(" · ")}>{tableStatusText(table)}</span>
+                  <span className="table-info__counts">{table.rowCounts.before ?? "—"} → {table.rowCounts.current ?? "—"} 行</span>
+                  {wholeStats && <span className="table-info__muted table-info__counts" title={moved ? "新增 / 删除 / 修改 / 移动的行" : "新增 / 删除 / 修改的行"}>{wholeStats}</span>}
+                  {table.annotationCount > 0 && <span className="table-info__muted">{table.annotationCount} 条风险标注</span>}
+                  {selectedTab.tabKey.startsWith("__whole__:") && <span className="table-info__muted">整表视图</span>}
+                </>}
+                {rowRiskCounts.map(({ level, count }) => <span className="table-info__risk-count" key={level} title={(filtered ? "本页" : "本表") + "带风险的变化数"}><RiskBadge level={level} /><span>{count}</span></span>)}
                 <span className="table-info__spacer" />
+                {scope.notice && <InfoPopover key={viewKey + "|public"} tone="warn" label="表公共提示">
+                  <div className="info-popover__list">
+                    {noticeLines(scope.notice).map((line) => <span key={line}>{line}</span>)}
+                    {scope.notice.unlocated_row_risk?.reason_codes.map((code) => <span key={code}>{noticeReasonText(code)}{debugMode && <code>{code}</code>}</span>)}
+                    {filtered && <span>以上属于整张表，不是本装置自己的风险。</span>}
+                  </div>
+                  {filtered && <button className="link-button" onClick={() => openWholeTable(selectedTab.tableName)}>查看整表</button>}
+                </InfoPopover>}
                 {riskReasonDetails.length > 0 && <InfoPopover key={viewKey + "|risk"} tone="risk" label={`风险原因 ${riskReasonDetails.length}`}>
                   <div className="info-popover__list">{riskReasonDetails.map((detail) => <span key={detail.reasonCode + detail.ruleId} title={`reason_code=${detail.reasonCode}${detail.ruleId ? ` · rule_id=${detail.ruleId}` : ""}`}>{detail.copy}{debugMode && <code>{detail.reasonCode}{detail.ruleId ? " · " + detail.ruleId : ""}</code>}</span>)}</div>
                 </InfoPopover>}
                 {noteCount > 0 && <InfoPopover key={viewKey + "|notes"} tone="warn" label={`提示 ${noteCount}`}>
                   <div className="info-popover__list">
                     {surfaceNotes.map((diagnostic, index) => { const formatted = formatSurfaceDiagnostic(diagnostic); return <span key={diagnostic + index}>{formatted.message}{debugMode && <code>{formatted.raw}</code>}</span>; })}
-                    {fallback && <span>此页签的变化和风险按整表提示，不是本页签自己的。</span>}
+                    {fallback && <span>本页签的逐行变化无法确定，显示为“变化未知”；整表结果不代表本装置。</span>}
                     {schemaChanged && <span>{formatSchemaSummary(surfaceTable.schema_summary)}</span>}
-                    {tableNotes.map((item, index) => <span key={item.code + index}>{formatNavigationDiagnostic(item, presentation.surface.tables)}{debugMode && <code>{item.code}</code>}</span>)}
                   </div>
-                  {tabNotes.map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} />)}
+                  {[...tableNotes, ...tabNotes].map((diagnostic, index) => <NavigationDiagnosticNote key={diagnostic.code + index} diagnostic={diagnostic} tables={presentation.surface.tables} debug={debugMode} onOpenWholeTable={openWholeTable} onBrowseUnassigned={browseUnassigned} canBrowseUnassigned={canBrowseUnassigned} />)}
                 </InfoPopover>}
               </div>;
             })()}
+            {unassignedView && <div className="unassigned-banner" role="status"><span>未归属浏览 · {unassignedView.side === "BEFORE" ? "改前侧" : "改后侧"}：显示{unassignedView.side === "BEFORE" ? "改前" : "改后"}没有被任何装置筛选认领的行（共 {unassignedView.rowCount ?? "—"} 行未归属{unassignedView.changedRowCount === null ? "，其中变化行数未知" : `，其中 ${unassignedView.changedRowCount} 行有变化`}；当前可浏览 {unassignedView.browsableCount} 行）。</span>{unassignedView.partial && <span>本结果缺少改前快照：只列出有改前记录的行，不代表全部旧的未归属行。</span>}<button className="link-button" onClick={() => runtime.execute({ name: "set-unassigned", side: null })}>返回整表</button></div>}
             {debugMode && <DebugInfoBar table={surfaceTable} reasonDetails={riskReasonDetails} />}
-            {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
+            {replacement ? <ReplacementBrowser before={beforeRows} current={currentRows} table={surfaceTable} assessment={presentation.projectIdentityAssessment} side={browse.side} debug={debugMode} onSelectSide={(side) => runtime.execute({ name: "select-side", side })} /> : table.changeKind === "FAILED" ? <TableFailureNotice table={table} /> : <>
               {tableLoading ? <LoadingSkeleton label="正在读取本地表格" /> : <div className={`table-grid-area${locations.length || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null) ? " has-distribution" : ""}`}>
-                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlightedIdentity={locations[currentIndex]?.rowIdentity ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={(pointKey) => void openFormula(pointKey)} />
+                <GridTable rows={rows} table={surfaceTable} tabKey={selectedTab.tabKey} annotations={annotations} debug={debugMode} highlighted={locations[currentIndex] ?? null} storedWidths={storedWidths} onWidthChange={changeColumnWidth} onVisibleRows={setVisibleRows} onExpand={(row) => setExpandedRuns((old) => { const next = new Set(old); if (next.has(row.key)) next.delete(row.key); else next.add(row.key); return next; })} onOpenFormula={(pointKey) => void openFormula(pointKey)} />
                 {(locations.length > 0 || rows.some((row) => row.kind === "unchanged" && row.riskLevel !== null)) && <ChangeNavigator locations={locations} riskRows={rows.filter((row) => row.kind === "unchanged" && row.riskLevel !== null && row.rowNumber !== null)} rowCount={Math.max(table.rowCounts.before ?? 0, table.rowCounts.current ?? 0)} visibleRows={visibleRows} currentIndex={currentIndex} onJump={(index) => runtime.execute({ name: "jump-to-change", index })}
                   deletionLayout={settings.deletionLayout} onDeletionLayout={(deletionLayout) => setSettings((state) => ({ ...state, deletionLayout }))} />}
               </div>}
@@ -1093,15 +1220,58 @@ function ChangeNavigator({ locations, riskRows, rowCount, visibleRows, currentIn
   </div></div>;
 }
 
-function NavigationDiagnosticNote({ diagnostic, tables, debug, onOpenWholeTable }: {
-  diagnostic: Parameters<typeof formatNavigationDiagnostic>[0];
+function NavigationDiagnosticNote({ diagnostic, tables, debug, onOpenWholeTable, onBrowseUnassigned, canBrowseUnassigned }: {
+  diagnostic: NavigationDiagnostic;
   tables: readonly SurfaceTable[];
   debug: boolean;
   onOpenWholeTable: (tableName: string, itemKey?: string | null) => void;
+  onBrowseUnassigned: (tableName: string, side: "BEFORE" | "CURRENT") => void;
+  canBrowseUnassigned: (diagnostic: NavigationDiagnostic) => boolean;
 }) {
   const message = formatNavigationDiagnostic(diagnostic, tables);
-  const canOpenWholeTable = diagnostic.code === "DEVICE_ROWS_UNASSIGNED" && Boolean(diagnostic.target.table_id);
-  return <div className="diagnostic-note diagnostic-note--navigation"><AlertTriangle size={14} /><span>{message}</span>{canOpenWholeTable && <button onClick={() => onOpenWholeTable(diagnostic.target.table_id as string, diagnostic.target.item_key)}>查看整表</button>}{debug && <code>{JSON.stringify({ code: diagnostic.code, target: diagnostic.target, side: diagnostic.side, params: diagnostic.params })}</code>}</div>;
+  const orphan = diagnostic.code === "DEVICE_ROWS_UNASSIGNED" && Boolean(diagnostic.target.table_id);
+  const browsable = orphan && canBrowseUnassigned(diagnostic);
+  return <div className="diagnostic-note diagnostic-note--navigation"><AlertTriangle size={14} /><span>{message}{orphan && !browsable && <small className="diagnostic-note__hint">（无法按装置条件筛出未归属行，请查看整表）</small>}</span>
+    {orphan && <button onClick={() => onOpenWholeTable(diagnostic.target.table_id as string, diagnostic.target.item_key)}>查看整表</button>}
+    {browsable && diagnostic.side && <button onClick={() => onBrowseUnassigned(diagnostic.target.table_id as string, diagnostic.side as "BEFORE" | "CURRENT")}>浏览未归属行</button>}
+    {debug && <code>{JSON.stringify({ code: diagnostic.code, target: diagnostic.target, side: diagnostic.side, params: diagnostic.params })}</code>}</div>;
+}
+
+/**
+ * Public table facts and device-definition changes, listed independently of
+ * device items so they stay reachable when empty tabs are hidden or only
+ * differences are shown. Nothing here paints a device with personal risk.
+ */
+function PublicNoticesPanel({ notices, changes, tables, items, debug, onOpenWholeTable, onOpenItem }: {
+  notices: readonly NavigationTableNotice[];
+  changes: readonly DeviceDefinitionChange[];
+  tables: readonly SurfaceTable[];
+  items: ReadonlyMap<string, string>;
+  debug: boolean;
+  onOpenWholeTable: (tableName: string, itemKey?: string | null) => void;
+  onOpenItem: (itemKey: string) => void;
+}) {
+  if (notices.length === 0 && changes.length === 0) return null;
+  const tableLabel = (tableId: string) => tables.find((table) => table.table_name === tableId)?.display_name || tableId;
+  return <section className="public-notices" aria-label="表公共提示与装置定义变化">
+    {notices.length > 0 && <details className="public-notices__section" open>
+      <summary>表公共提示 <small>{notices.length}</small></summary>
+      {notices.map((notice) => <div className="public-notice" key={notice.table_id} data-table-id={notice.table_id}>
+        <button className="public-notice__title" onClick={() => onOpenWholeTable(notice.table_id)} title="打开整表">{tableLabel(notice.table_id)}</button>
+        {noticeLines(notice).map((line) => <span key={line}>{line}</span>)}
+        {notice.unlocated_row_risk && notice.unlocated_row_risk.reason_codes.length > 0 && <span className="public-notice__reasons">{notice.unlocated_row_risk.reason_codes.map((code) => <span key={code}>{noticeReasonText(code)}{debug && <code>{code}</code>}</span>)}</span>}
+      </div>)}
+    </details>}
+    {changes.length > 0 && <details className="public-notices__section" open>
+      <summary>装置定义变化 <small>{changes.length}</small></summary>
+      {changes.map((change) => <div className="public-notice" key={change.record_identity} data-record-identity={change.record_identity}>
+        <button className="public-notice__title" onClick={() => onOpenWholeTable("device")} title="在装置总表中查看">{definitionChangeText(change)}</button>
+        <span>{change.risk_level ? "风险：" + riskLevelText(change.risk_level) : change.risk_complete ? "未生成风险标注" : "风险信息不完整"}{change.risk_level && !change.risk_complete ? "（风险信息不完整）" : ""}</span>
+        <span className="public-notice__links">{[change.before_item_key, change.current_item_key].filter((key, index, keys): key is string => key !== null && keys.indexOf(key) === index).map((key) => <button key={key} className="link-button" onClick={() => onOpenItem(key)}>{items.get(key) ?? key}</button>)}</span>
+        {debug && <code>{change.record_identity}</code>}
+      </div>)}
+    </details>}
+  </section>;
 }
 
 type RiskReasonDetail = { reasonCode: string; ruleId: string | null; copy: string };
@@ -1137,7 +1307,7 @@ function CopyDebugValue({ label, value }: { label: string; value: string }) {
   return <button className="debug-info-value" type="button" aria-label={`复制 ${label}`} title={`复制完整值：${value}`} onClick={() => void copy()}><span>{label}</span><code>{display}</code><Copy size={12} />{copied && <span className="sr-only" aria-live="polite">已复制</span>}</button>;
 }
 
-function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentity, storedWidths, onWidthChange, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlightedIdentity: string | null; storedWidths: Readonly<Record<string, number>>; onWidthChange: (columnId: string, width: number) => void; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: (pointKey: string | null) => void }) {
+function GridTable({ rows, table, tabKey, annotations, debug, highlighted, storedWidths, onWidthChange, onVisibleRows, onExpand, onOpenFormula }: { rows: BrowseRow[]; table: SurfaceTable; tabKey: string; annotations: RiskAnnotation[]; debug: boolean; highlighted: ChangeLocation | null; storedWidths: Readonly<Record<string, number>>; onWidthChange: (columnId: string, width: number) => void; onVisibleRows: (range: { start: number; end: number }) => void; onExpand: (row: BrowseRow) => void; onOpenFormula: (pointKey: string | null) => void }) {
   const gridRef = useRef<DataEditorRef>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   // The hover detail follows the pointer and flips to stay inside the viewport.
@@ -1186,7 +1356,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const autoWidths = useMemo(() => {
     const sample = sampleRows(rows, 600);
     const widths = new Map<string, number>([["__diff", fitColumn("__diff", "变更", sample, "auto")]]);
-    for (const column of orderedColumns) widths.set(column.name, fitColumn(column.name, column.display_name || column.name, sample, "auto"));
+    for (const column of orderedColumns) widths.set(column.name, fitColumn(column.name, columnHeaderTitle(column, debug), sample, "auto"));
     return widths;
     // Keyed on the table view, not on rows: later row changes must not move columns.
   }, [autoWidthKey, fitColumn, orderedColumns]);
@@ -1194,7 +1364,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const width = (id: string, fallback: number) => storedWidths[id] ?? autoWidths.get(id) ?? fallback;
     const meta: SizedGridColumn[] = [{ id: "__number", title: "#", width: 60 }, { id: "__diff", title: "变更", width: width("__diff", 150) }];
     if (debug) meta.push({ id: "__kind", title: "Diff Kind", width: width("__kind", 210) }, { id: "__role", title: "Row Role", width: width("__role", 84) }, { id: "__semantic", title: "Ordered Semantic / Position", width: width("__semantic", 260) });
-    return [...meta, ...orderedColumns.map((column) => ({ id: column.name, title: column.display_name || column.name, width: width(column.name, 120) }))];
+    return [...meta, ...orderedColumns.map((column) => ({ id: column.name, title: columnHeaderTitle(column, debug), width: width(column.name, 120) }))];
   }, [autoWidths, debug, orderedColumns, storedWidths]);
   const resizeColumn = useCallback((column: GridColumn, newSize: number) => {
     if (typeof column.id === "string" && column.id !== "__number") onWidthChange(column.id, Math.round(newSize));
@@ -1226,11 +1396,14 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   // The row position is a ruler, not data: smaller, lighter, on the header tone.
   const numberTheme = useMemo<Partial<Theme>>(() => ({ textDark: "#8B95A1", bgCell: theme.bgHeader, baseFontStyle: "12px" }), [theme.bgHeader]);
   const pairRows = useMemo(() => { const result = new Map<string, number[]>(); rows.forEach((row, index) => { if (row.pairKey) result.set(row.pairKey, [...(result.get(row.pairKey) ?? []), index]); }); return result; }, [rows]);
+  // A pair shares one identity: both halves highlight; a blank-interval summary is found by its row key.
+  const isHighlighted = useCallback((row: BrowseRow) => highlighted !== null
+    && (highlighted.rowIdentity !== null ? row.rowIdentity === highlighted.rowIdentity : row.key === highlighted.rowKey), [highlighted]);
   useEffect(() => {
-    if (!highlightedIdentity) return;
-    const row = rows.findIndex((item) => item.rowIdentity === highlightedIdentity);
+    if (!highlighted) return;
+    const row = rows.findIndex(isHighlighted);
     if (row >= 0) gridRef.current?.scrollTo(1, row, "vertical", 0, 0, { vAlign: "center" });
-  }, [highlightedIdentity, rows]);
+  }, [highlighted, isHighlighted, rows]);
   const getCellContent = useCallback(([columnIndex, rowIndex]: readonly [number, number]): GridCell => {
     const row = rows[rowIndex]; const column = columns[columnIndex];
     if (!row || !column || typeof column.id !== "string") return { kind: GridCellKind.Loading, allowOverlay: false };
@@ -1250,7 +1423,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     else if (columnId === "formula_ast_json" && table.table_name === "composite_signal_point") {
       value = "查看公式" + (formulaChanged ? " · 公式已改" : "");
     } else {
-      value = missingSideMarker(row.side, columnShape?.present_in) ?? row.values[columnId];
+      value = missingSideMarker(row.side, columnShape?.present_in)
+        ?? (row.partialValues && !Object.hasOwn(row.values, columnId) ? "不可得" : row.values[columnId]);
     }
     const risk = row.riskLevel ? riskTokens(row.riskLevel) : null;
     const changed = row.changedColumns.includes(columnId);
@@ -1271,8 +1445,8 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     if (args.col === 0 && row.riskLevel) { args.ctx.fillStyle = riskTokens(row.riskLevel).rail; args.ctx.fillRect(args.rect.x, args.rect.y, 4, args.rect.height); }
     if (args.col === 1 && row.pairKey) { const pair = pairRows.get(row.pairKey) ?? []; const at = pair.indexOf(args.row); if (pair.length === 2 && Math.abs((pair[0] ?? 0) - (pair[1] ?? 0)) === 1) { args.ctx.strokeStyle = "#68798A"; args.ctx.lineWidth = 1.5; args.ctx.beginPath(); const x = args.rect.x + 14; const center = args.rect.y + args.rect.height / 2; args.ctx.moveTo(x, at === 0 ? center : args.rect.y); args.ctx.lineTo(x, at === 0 ? args.rect.y + args.rect.height : center); args.ctx.stroke(); } }
     if (row.kind === "deleted" && args.col >= (debug ? 5 : 2)) { args.ctx.strokeStyle = "#535D69"; args.ctx.lineWidth = 1; args.ctx.beginPath(); const y = args.rect.y + args.rect.height / 2; args.ctx.moveTo(args.rect.x + 8, y); args.ctx.lineTo(args.rect.x + args.rect.width - 8, y); args.ctx.stroke(); }
-    if (highlightedIdentity && row.rowIdentity === highlightedIdentity) { args.ctx.strokeStyle = "#1F5FBF"; args.ctx.lineWidth = 1; args.ctx.beginPath(); args.ctx.moveTo(args.rect.x, args.rect.y + .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + .5); args.ctx.moveTo(args.rect.x, args.rect.y + args.rect.height - .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + args.rect.height - .5); if (args.col === 0) { args.ctx.moveTo(args.rect.x + .5, args.rect.y); args.ctx.lineTo(args.rect.x + .5, args.rect.y + args.rect.height); } if (args.col === columns.length - 1) { args.ctx.moveTo(args.rect.x + args.rect.width - .5, args.rect.y); args.ctx.lineTo(args.rect.x + args.rect.width - .5, args.rect.y + args.rect.height); } args.ctx.stroke(); }
-  }, [columns.length, debug, highlightedIdentity, markPainted, pairRows, rows]);
+    if (isHighlighted(row)) { args.ctx.strokeStyle = "#1F5FBF"; args.ctx.lineWidth = 1; args.ctx.beginPath(); args.ctx.moveTo(args.rect.x, args.rect.y + .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + .5); args.ctx.moveTo(args.rect.x, args.rect.y + args.rect.height - .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + args.rect.height - .5); if (args.col === 0) { args.ctx.moveTo(args.rect.x + .5, args.rect.y); args.ctx.lineTo(args.rect.x + .5, args.rect.y + args.rect.height); } if (args.col === columns.length - 1) { args.ctx.moveTo(args.rect.x + args.rect.width - .5, args.rect.y); args.ctx.lineTo(args.rect.x + args.rect.width - .5, args.rect.y + args.rect.height); } args.ctx.stroke(); }
+  }, [columns.length, debug, isHighlighted, markPainted, pairRows, rows]);
   // A single click on an unchanged-run row toggles it; Enter/Space (activation)
   // toggles too, but the activation that follows a double click is ignored.
   const lastToggleClick = useRef(0);
@@ -1335,7 +1509,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   </div>;
 }
 
-function ReplacementBrowser({ before, current, table, assessment, side, onSelectSide }: { before: Record<string, unknown>[]; current: Record<string, unknown>[]; table: SurfaceTable; assessment?: Record<string, unknown>; side: "before" | "current" | null; onSelectSide: (side: "before" | "current") => void }) {
+function ReplacementBrowser({ before, current, table, assessment, side, debug, onSelectSide }: { before: Record<string, unknown>[]; current: Record<string, unknown>[]; table: SurfaceTable; assessment?: Record<string, unknown>; side: "before" | "current" | null; debug: boolean; onSelectSide: (side: "before" | "current") => void }) {
   const summary = table.replacement_summary && typeof table.replacement_summary === "object" ? table.replacement_summary : {};
   const identityStatus = assessment?.status;
   const beforeSide = summary.before && typeof summary.before === "object" ? summary.before as Record<string, unknown> : {};
@@ -1344,20 +1518,20 @@ function ReplacementBrowser({ before, current, table, assessment, side, onSelect
   const currentColumns = Array.isArray(currentSide.columns) ? currentSide.columns as NonNullable<SurfaceTable["columns"]> : table.columns ?? [];
   const beforeTitle = typeof beforeSide.display_name === "string" && beforeSide.display_name ? beforeSide.display_name : "替换前";
   const currentTitle = typeof currentSide.display_name === "string" && currentSide.display_name ? currentSide.display_name : "替换后";
-  return <section className="replacement-browser"><div className="replacement-summary"><strong>数据集替换 · 双侧浏览</strong><span className="replacement-status">身份结论：{identityStatusText(identityStatus)}</span><div className="identity-pair-summary"><span>匹配条目：{String(assessment?.matched_entry_count ?? "—")}</span><span>替换前：{String(assessment?.before_distinct_entry_count ?? "—")} 个身份条目</span><span>替换后：{String(assessment?.current_distinct_entry_count ?? "—")} 个身份条目</span></div><div className="replacement-side-toggle" role="tablist" aria-label="替换侧"><button role="tab" aria-selected={side === "before"} className={side === "before" ? "is-active" : ""} onClick={() => onSelectSide("before")}>{beforeTitle}</button><button role="tab" aria-selected={side === "current"} className={side === "current" ? "is-active" : ""} onClick={() => onSelectSide("current")}>{currentTitle}</button></div><small>{beforeTitle}：{before.length} 行 · {beforeColumns.length} 列</small><small>{currentTitle}：{current.length} 行 · {currentColumns.length} 列</small></div><div className="replacement-sides"><ReplacementSide title={beforeTitle} rows={before} columns={beforeColumns} active={side === null || side === "before"} /><ReplacementSide title={currentTitle} rows={current} columns={currentColumns} active={side === null || side === "current"} /></div></section>;
+  return <section className="replacement-browser"><div className="replacement-summary"><strong>数据集替换 · 双侧浏览</strong><span className="replacement-status">身份结论：{identityStatusText(identityStatus)}</span><div className="identity-pair-summary"><span>匹配条目：{String(assessment?.matched_entry_count ?? "—")}</span><span>替换前：{String(assessment?.before_distinct_entry_count ?? "—")} 个身份条目</span><span>替换后：{String(assessment?.current_distinct_entry_count ?? "—")} 个身份条目</span></div><div className="replacement-side-toggle" role="tablist" aria-label="替换侧"><button role="tab" aria-selected={side === "before"} className={side === "before" ? "is-active" : ""} onClick={() => onSelectSide("before")}>{beforeTitle}</button><button role="tab" aria-selected={side === "current"} className={side === "current" ? "is-active" : ""} onClick={() => onSelectSide("current")}>{currentTitle}</button></div><small>{beforeTitle}：{before.length} 行 · {beforeColumns.length} 列</small><small>{currentTitle}：{current.length} 行 · {currentColumns.length} 列</small></div><div className="replacement-sides"><ReplacementSide title={beforeTitle} rows={before} columns={beforeColumns} debug={debug} active={side === null || side === "before"} /><ReplacementSide title={currentTitle} rows={current} columns={currentColumns} debug={debug} active={side === null || side === "current"} /></div></section>;
 }
 
-function ReplacementSide({ title, rows, columns, active }: { title: string; rows: Record<string, unknown>[]; columns: NonNullable<SurfaceTable["columns"]>; active: boolean }) {
+function ReplacementSide({ title, rows, columns, debug, active }: { title: string; rows: Record<string, unknown>[]; columns: NonNullable<SurfaceTable["columns"]>; debug: boolean; active: boolean }) {
   const theme = useMemo(() => createTableTheme(), []);
   const gridColumns = useMemo<GridColumn[]>(() => {
     const measureCell = createTextMeasure(`${theme.baseFontStyle} ${theme.fontFamily}`);
     const measureHeader = createTextMeasure(`${theme.headerFontStyle} ${theme.fontFamily}`);
     const sample = sampleRows(rows, 600);
     return columns.map((column) => {
-      const title = column.display_name || column.name;
+      const title = columnHeaderTitle(column, debug);
       return { id: column.name, title, width: fitWidth(measureHeader(title), sample.map((row) => measureCell(normalizeDisplayScalar(row[column.name], column))), "auto") };
     });
-  }, [columns, rows, theme]);
+  }, [columns, debug, rows, theme]);
   const getCellContent = useCallback(([column, row]: readonly [number, number]): GridCell => {
     const key = gridColumns[column]?.id; const item = rows[row]; if (!key || !item) return { kind: GridCellKind.Loading, allowOverlay: false };
     const value = normalizeDisplayScalar(item[key], columns[column]); return { kind: GridCellKind.Text, data: value, displayData: value, allowOverlay: false };

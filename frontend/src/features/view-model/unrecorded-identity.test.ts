@@ -53,12 +53,12 @@ describe("unrecorded identity reuse against generated fixtures", () => {
   });
 
   it("never reuses an unrecorded identity under TABLE_FALLBACK", async () => {
-    const table = await loadTableCase("identity-changes", "device_st");
+    const table = await loadTableCase("missing-identity-column", "device_cfg");
     expect(exactTableOf(table.filterTabs)).toBe(false);
     const reuse = canReuseUnrecordedIdentity(table.surfaceTable, table.filterTabs, table.hasBeforeSnapshot, table.hasCurrentSnapshot);
     expect(reuse).toBe(false);
-    const beforeOnly = findTabFilter(table.presentation, "device:addr:49", "device_st");
-    expect(beforeOnly).toEqual({ before: { column: "dev_addr", values: [49] }, current: null });
+    const beforeOnly = findTabFilter(table.presentation, "device:addr:49", "device_cfg");
+    expect(beforeOnly).toEqual({ before: { column: "gid", values: [7] }, current: null });
     const shown = buildBrowseRows({
       table: table.surfaceTable, beforeRows: table.beforeRows, currentRows: table.currentRows,
       records: table.tableRecords, annotations: [], locator: table.locator,
@@ -66,7 +66,7 @@ describe("unrecorded identity reuse against generated fixtures", () => {
       rowFilter: beforeOnly, beforeEncodings: table.beforeEncodings, currentEncodings: table.currentEncodings,
       reuseUnrecordedBefore: false,
     });
-    expect(shown.rows).toHaveLength(0);
+    expect(shown.rows.filter((row) => row.side === "current" && row.recordKind === null)).toHaveLength(0);
   });
 });
 

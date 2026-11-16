@@ -2542,20 +2542,22 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await page.waitForTimeout(500);
   });
   await capture("fe4b-table-fallback", async () => {
-    await openPreview("identity-changes");
+    await openPreview("missing-identity-column");
     await openItem("device:addr:49");
-    await openTab("device_st");
+    await openTab("device_cfg");
+    await expect(page.locator(".table-info .scope-marker--unknown")).toContainText("变化未知");
     await page.getByRole("button", { name: /^提示 / }).click({ timeout: 5000 });
-    await expect(page.getByText("此页签的变化和风险按整表提示，不是本页签自己的。")).toBeVisible();
+    await expect(page.getByText("本页签的逐行变化无法确定，显示为“变化未知”；整表结果不代表本装置。")).toBeVisible();
   });
   await capture("fe4b-table-scope", async () => {
     await openPreview("table-addition");
     await openItem("device:composite");
     await openTab("device_st");
-    const scopeMarker = page.locator(".table-info .table-scope-marker");
-    await expect(scopeMarker).toHaveCount(1);
-    await expect(scopeMarker).toContainText("整表发生变化");
-    await expect(page.locator(".grid-frame .table-scope-marker")).toHaveCount(0);
+    // A table-level fact is public: it opens from the notice, never as the tab's own badge.
+    await expect(page.locator(".table-info[data-scope=LOCAL_EXACT] .risk-badge")).toHaveCount(0);
+    await page.getByRole("button", { name: "表公共提示" }).click();
+    await expect(page.getByRole("dialog", { name: "表公共提示" })).toContainText("整表发生表级变化");
+    await expect(page.locator(".public-notices .public-notice[data-table-id=device_st]")).toBeVisible();
   });
   await capture("fe4b-filter-unsupported", async () => {
     await openPreview("excluded-identity");
@@ -2606,6 +2608,83 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await expect(page.locator(".compare-status .device-bar")).toHaveCount(0);
   });
   expect(failures, failures.join("\n")).toEqual([]);
+});
+
+test("P3 二次装置范围：公共提示、定义变化、删除值、空点区间与未归属浏览", async ({ page }) => {
+  test.setTimeout(300000);
+  await installFixtureRoutes(page);
+  const shot = async (name: string) => { for (const width of [1920, 1280]) await screenshot(page, name, width); await page.setViewportSize({ width: 1920, height: 1080 }); };
+  const open = async (fixture: string, extra: Record<string, string> = {}) => {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.goto(browseUrl("PREVIEW", fixture, extra));
+    await waitForBrowse(page);
+  };
+  const item = (key: string) => page.locator(`.nav-item[data-item-key="${key}"]`);
+
+  // Public notices and definition changes stay reachable with differences only and empty tabs hidden.
+  await open("ownership", { changed: "1" });
+  const notices = page.locator(".public-notices");
+  await expect(notices.locator(".public-notice[data-table-id=device_st]")).toContainText("待定位风险：低风险");
+  await expect(notices.locator(".public-notice[data-table-id=device_st]")).toContainText("只修改了名称或描述");
+  await expect(notices.locator(".public-notice[data-record-identity]")).toHaveCount(2);
+  await expect(notices.getByRole("button", { name: /删除装置定义 · 地址 49/ })).toBeVisible();
+  // A device with only the shared notice carries a neutral scope marker, never a personal risk badge.
+  // Device 51's badge is its own device_cfg risk; the shared LOW risk of device_st only adds the neutral marker.
+  await expect(item("device:addr:51").locator(".scope-marker--public")).toBeVisible();
+  await expect(item("device:addr:51").locator(".risk-badge")).toHaveText("中高风险");
+  await shot("p3-public-notices");
+  await notices.getByRole("button", { name: "装置五十", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("node")).toBe("device:addr:50");
+  await expect(page.locator(".table-info")).toContainText("移入本装置 1 行");
+  await shot("p3-ownership-moved-in");
+
+  // EXACT local change beside incomplete risk.
+  await open("ownership-risk-incomplete", { node: "device:addr:49", tab: "device_st" });
+  await expect(page.locator(".table-info[data-scope=LOCAL_EXACT]")).toContainText("移出本装置 1 行");
+  await expect(page.locator(".table-info .scope-marker", { hasText: "移出" }).first()).toBeVisible();
+  await expect(page.locator(".table-info .surface-change-badge")).toHaveCount(0);
+  await expect(page.locator(".table-info .risk-badge")).toHaveCount(1);
+  await expect(page.locator(".table-info .scope-marker--incomplete")).toContainText("风险信息不完整");
+  await expect(item("device:addr:49").locator(".scope-marker--incomplete")).toBeVisible();
+  await shot("p3-risk-incomplete");
+
+  // Pure additions and deletions: EXACT, no risk annotations, deleted values from the record.
+  await open("pure-row-changes", { node: "device:addr:49", tab: "device_st" });
+  await expect(page.locator(".table-info")).toContainText("新建 1 行、删除 1 行");
+  await expect(page.locator(".table-info")).toContainText("未生成风险标注");
+  await expect(page.locator(".table-info .risk-badge")).toHaveCount(0);
+  await shot("p3-pure-row-changes");
+
+  // A blank delete interval is one summary row with its own interval risk.
+  await open("preview-full", { pair: "baseline_to_initial", node: "table:b1_n1_iec104_syx_list", tab: "table" });
+  await page.getByRole("button", { name: /^风险原因/ }).click();
+  await expect(page.getByRole("dialog", { name: /^风险原因/ })).toContainText("有序表中间的空点区间净减 1 个空点");
+  await page.keyboard.press("Escape");
+  await shot("p3-blank-interval");
+
+  // Orphan browsing is bound to its table and side, survives a reload, and is dropped on another table.
+  await open("ownership");
+  const orphanNote = page.locator(".diagnostic-note--navigation", { hasText: "改后侧" }).filter({ hasText: "dev_addr" }).first();
+  await expect(orphanNote).toBeVisible();
+  await orphanNote.getByRole("button", { name: "浏览未归属行" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBe("CURRENT");
+  await expect(page.locator(".unassigned-banner")).toContainText("改后侧");
+  await shot("p3-unassigned-current");
+  await page.reload();
+  await waitForBrowse(page);
+  await expect(page.locator(".unassigned-banner")).toContainText("改后侧");
+  await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("__whole__:device_st");
+  await item("device:addr:51").locator(".nav-item__button").click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBeNull();
+  await expect(page.locator(".unassigned-banner")).toHaveCount(0);
+  // An orphan state in the URL that the table cannot honour falls back to the plain whole table.
+  await open("ownership", { node: "device:table", tab: "__whole__:device", unassigned: "BEFORE" });
+  await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBeNull();
+  await expect(page.locator(".unassigned-banner")).toHaveCount(0);
+
+  // Debug shows raw field names in the grid header.
+  await open("ownership", { node: "device:addr:49", tab: "device_st", debug: "1" });
+  await shot("p3-debug-raw-columns");
 });
 
 async function expectSidebarSticky(page: Page, label: string) {
@@ -3233,7 +3312,7 @@ test("F all-empty pair exposes a discoverable selected tab and expansion control
 });
 
 
-test("F filtered navigation counts reflect search and table-scope differences", async ({ page }) => {
+test("F filtered navigation counts reflect search and local differences; public table scope stays in notices", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "schema-keyless"));
@@ -3242,11 +3321,12 @@ test("F filtered navigation counts reflect search and table-scope differences", 
   const count = group.locator('.nav-group__heading small[title="非空项"]');
   await expect(count).toHaveText("3");
   await page.getByRole("button", { name: "仅看差异", exact: true }).click();
-  await expect(count).toHaveText("2");
-  await expect(group.locator('.nav-item[data-item-key="device:table"]')).toHaveCount(0);
-  await expect(group.locator('.nav-item[data-item-key="device:addr:49"]')).toBeVisible();
-  await expect(group.locator('.nav-item[data-item-key="device:composite"]')).toBeVisible();
+  // device_st only has a table-level (structural) fact: it is public, so no device item keeps it as its own difference.
+  await expect(group).toHaveCount(0);
+  await expect(page.locator(".public-notices .public-notice[data-table-id=device_st]")).toContainText("整表发生表级变化");
   for (const width of [1920, 1280]) await screenshot(page, "f-filtered-scope-count", width);
+  await page.getByRole("button", { name: "全部", exact: true }).click();
+  await expect(count).toHaveText("3");
   await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill("复合信号");
   await expect(group.locator(".nav-item")).toHaveCount(1);
   await expect(count).toHaveText("1");

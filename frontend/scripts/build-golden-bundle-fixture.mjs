@@ -28,6 +28,9 @@ const fixtureDirectories = {
   "missing-identity-column": "scenarios/missing-identity-column",
   "empty-tabs": "scenarios/empty-tabs",
   "channel-rules": "scenarios/channel-rules",
+  "pure-row-changes": "scenarios/pure-row-changes",
+  "ownership": "scenarios/ownership",
+  "ownership-risk-incomplete": "scenarios/ownership-risk-incomplete",
 };
 const fixtureNames = Object.keys(fixtureDirectories);
 

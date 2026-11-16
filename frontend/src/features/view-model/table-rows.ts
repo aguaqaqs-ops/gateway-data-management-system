@@ -4,6 +4,7 @@ import {
   riskAnnotationRowIdentities,
   type ColumnPresentIn,
   type NavigationFacts,
+  type NavigationPredicate,
   type NavigationRowFilter,
   type RiskAnnotation,
   type RiskLevel,
@@ -17,13 +18,33 @@ import {
   type SnapshotColumnEncoding,
 } from "./snapshot-encoding";
 
-export type BrowseRowKind = "unchanged" | "added" | "deleted" | "modified-before" | "modified-after" | "ordered" | "blank" | "collapsed";
+export type BrowseRowKind = "unchanged" | "added" | "deleted" | "modified-before" | "modified-after" | "ordered" | "blank-interval" | "collapsed";
+
+/**
+ * One published blank-interval record. The ranges are the affected region of
+ * one skeleton gap (they may span non-skeleton rows or sparse `no`); rowCount
+ * is the net occupancy difference, not the range length.
+ */
+export interface BlankIntervalSummary {
+  direction: "INSERT" | "DELETE";
+  before: readonly [number, number] | null;
+  current: readonly [number, number] | null;
+  rowCount: number | null;
+}
 
 export interface BrowseRow {
   key: string;
   kind: BrowseRowKind;
-  /** Physical side this row comes from; null for blank intervals. */
+  /** Physical side this row comes from; null for blank-interval summaries. */
   side: "before" | "current" | null;
+  /** Same-side identity context from the locator when that side has no snapshot; used only to match filters. */
+  identityContext?: Record<string, unknown> | null;
+  /** Values come from a record or context, not a snapshot row: absent columns are unavailable, not NULL. */
+  partialValues?: boolean;
+  /** Present exactly on "blank-interval" summary rows. */
+  interval?: BlankIntervalSummary;
+  /** Grid placement of rows without a business row number (blank-interval summaries). */
+  sortPosition?: number;
   rowNumber: number | null;
   rowNumberTitle?: string;
   rowIdentity: string | null;
@@ -109,7 +130,11 @@ export function locatorIdentity(record: RowDiffRecord): string | null {
   return normalizeRowIdentity(record.row_identity ?? undefined);
 }
 
-/** Criteria from Business Navigation / FE-BEB-12: only EXACT, fully counted tables may reuse an identity. */
+/**
+ * Criteria from Business Navigation / FE-BEB-12: only tables whose local change
+ * is complete (basis EXACT) and fully counted may reuse an identity. Risk
+ * completeness is a separate fact and never blocks the reuse.
+ */
 export function canReuseUnrecordedIdentity(
   table: SurfaceTable,
   filterTabs: readonly { facts: NavigationFacts | null }[],
@@ -282,6 +307,7 @@ function isBinaryColumn(column: SurfaceColumn): boolean {
 }
 
 export function displayRowSearchText(row: BrowseRow, columns: SurfaceColumn[]): string {
+  if (row.interval) return blankIntervalLabel(row.interval).toLocaleLowerCase();
   return columns.filter((column) => !isBinaryColumn(column) && !(row.values[column.name] instanceof ArrayBuffer)
     && !ArrayBuffer.isView(row.values[column.name]))
     .map((column) => displayValue(row.values[column.name], column)).join(" ").toLocaleLowerCase();
@@ -330,30 +356,89 @@ function scalarPosition(value: unknown): number | null {
   return positionNumber(text);
 }
 
+function intervalRange(interval: Record<string, unknown>, side: "before" | "current"): readonly [number, number] | null {
+  const start = positionNumber(interval[`${side}_start`]);
+  const end = positionNumber(interval[`${side}_end`]);
+  if (start === null && end === null) return null;
+  if (start === null || end === null || end < start) throw new ComparisonDecodeError(`空点区间的 ${side} 范围无效`);
+  return [start, end];
+}
+
 /**
- * Row numbers covered by blank insert (current side) and blank delete (before side) intervals.
- * Blank rows have no stable key, so the backend publishes them only as intervals; the grid
- * shows them as ordinary added/deleted rows.
+ * Decodes one published blank-interval record into its summary. It never
+ * expands the range into per-position rows: the range is a region, and
+ * row_count is the net change in occupancy.
  */
-function blankIntervalRows(records: RowDiffRecord[]): { insertedCurrent: Set<number>; deletedBefore: Map<RowDiffRecord, number[]> } {
-  const insertedCurrent = new Set<number>();
-  const deletedBefore = new Map<RowDiffRecord, number[]>();
-  for (const record of records) {
-    const side = record.record_kind === "BLANK_INSERT_INTERVAL" ? "current" : record.record_kind === "BLANK_DELETE_INTERVAL" ? "before" : null;
-    const interval = record.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : null;
-    if (!side || !interval) continue;
-    const start = positionNumber(interval[`${side}_start`]);
-    const end = positionNumber(interval[`${side}_end`]) ?? start;
-    if (start === null || end === null) continue;
-    // The interval spans the whole blank run on that side; row_count is the net
-    // number inserted or deleted (a run of 2 shrinking to 1 deletes 1). Blank
-    // rows are interchangeable, so the change is shown at the start of the run.
-    const span = Math.max(0, end - start + 1);
-    const count = positionNumber(interval.row_count);
-    const positions = Array.from({ length: count === null ? span : Math.min(count, span) }, (_, offset) => start + offset);
-    if (side === "current") positions.forEach((position) => insertedCurrent.add(position)); else deletedBefore.set(record, positions);
+export function blankIntervalSummary(record: RowDiffRecord): BlankIntervalSummary | null {
+  const direction = record.record_kind === "BLANK_INSERT_INTERVAL" ? "INSERT" : record.record_kind === "BLANK_DELETE_INTERVAL" ? "DELETE" : null;
+  if (direction === null) return null;
+  const interval = record.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : null;
+  if (!interval) throw new ComparisonDecodeError("空点区间记录缺少 interval");
+  const before = intervalRange(interval, "before");
+  const current = intervalRange(interval, "current");
+  if ((direction === "INSERT" ? current : before) === null) throw new ComparisonDecodeError("空点区间缺少变化侧范围");
+  const rawCount = interval.row_count;
+  const rowCount = rawCount === null || rawCount === undefined ? null : positionNumber(rawCount);
+  if (rawCount !== null && rawCount !== undefined && rowCount === null) throw new ComparisonDecodeError("空点区间的 row_count 无效");
+  return { direction, before, current, rowCount };
+}
+
+const rangeText = (range: readonly [number, number] | null) => range === null ? "—" : range[0] === range[1] ? `${range[0]}` : `${range[0]}–${range[1]}`;
+
+/** One-line description of a blank-interval change: affected region and net count, never a per-position claim. */
+export function blankIntervalLabel(interval: BlankIntervalSummary): string {
+  const action = interval.direction === "INSERT" ? "插入" : "删除";
+  const amount = interval.rowCount === null ? "数量未知" : `${interval.rowCount} 个`;
+  return `空点区间${action} ${amount} · 改前 no ${rangeText(interval.before)} → 改后 no ${rangeText(interval.current)}`;
+}
+
+function unwrapRecordScalar(value: unknown): { present: boolean; isNull: boolean; text: string | null } {
+  if (value === null) return { present: true, isNull: true, text: null };
+  if (value && typeof value === "object" && !(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) {
+    const document = value as Record<string, unknown>;
+    if (document.kind === "null") return { present: true, isNull: true, text: null };
+    return { present: true, isNull: false, text: typeof document.text === "string" ? document.text : null };
   }
-  return { insertedCurrent, deletedBefore };
+  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") return { present: true, isNull: false, text: String(value) };
+  return { present: true, isNull: false, text: null };
+}
+
+/**
+ * The locator context and the record's own before/current values describe the
+ * same row; an overlapping identity value that disagrees is a decode error.
+ */
+function assertContextAgrees(context: Record<string, unknown> | null, values: Record<string, unknown>, where: string): void {
+  if (!context) return;
+  for (const [column, expected] of Object.entries(context)) {
+    if (!Object.hasOwn(values, column)) continue;
+    const actual = unwrapRecordScalar(values[column]);
+    const agrees = expected === null ? actual.isNull
+      : typeof expected === "number" || typeof expected === "string" ? !actual.isNull && actual.text === String(expected)
+        : false;
+    if (!agrees) throw new ComparisonDecodeError(`${where} 的过滤上下文 ${column} 与记录值矛盾`);
+  }
+}
+
+/**
+ * Matches a predicate against the typed locator context of a side without a
+ * snapshot. Context values are JSON scalars typed by the navigation owner: a
+ * safe integer for integer predicates, a string for string predicates. SQL NULL
+ * or a missing column never matches.
+ */
+function matchesContextPredicate(predicate: NavigationPredicate | null, context: Record<string, unknown>, where: string): boolean {
+  if (!predicate || !Object.hasOwn(context, predicate.column)) return false;
+  const value = context[predicate.column];
+  if (value === null) return false;
+  const integer = typeof predicate.values[0] === "number";
+  if (integer ? !(typeof value === "number" && Number.isSafeInteger(value)) : typeof value !== "string") {
+    throw new ComparisonDecodeError(`${where} 的上下文值类型与谓词矛盾：${predicate.column}`);
+  }
+  return predicate.values.includes(value as string | number);
+}
+
+function matchesSide(predicate: NavigationPredicate | null, row: BrowseRow, encodings: ReadonlyMap<string, SnapshotColumnEncoding>, where: string): boolean {
+  if (row.identityContext) return matchesContextPredicate(predicate, row.identityContext, where);
+  return matchesTypedPredicate(predicate, row.values, encodings, where);
 }
 
 /** Rows that exist on both sides and keep their before-side order. */
@@ -424,10 +509,15 @@ export function buildBrowseRows(input: {
   /** A degraded table publishes no predicate assertions: its filter is skipped. */
   degraded?: boolean;
   reuseUnrecordedBefore?: boolean;
+  /**
+   * Whole-table orphan browsing: keep rows whose given side matches none of the
+   * table's published predicates for that side. Pairs stay together.
+   */
+  unassigned?: { side: "before" | "current"; predicates: readonly NavigationPredicate[] } | null;
   search?: string;
   expandedRuns?: ReadonlySet<string>;
   deletionLayout?: DeletionLayout;
-}): { rows: BrowseRow[] } {
+}): { rows: BrowseRow[]; scoped: BrowseRow[] } {
   const hasBeforeSnapshot = input.hasBeforeSnapshot ?? input.beforeRows.length > 0;
   const hasCurrentSnapshot = input.hasCurrentSnapshot ?? input.currentRows.length > 0;
   const records = input.records.filter((record) => typeof record.record_kind === "string");
@@ -440,19 +530,17 @@ export function buildBrowseRows(input: {
     pairKey?: string | null; formulaChanged?: boolean;
   }): BrowseRow => {
     const record = args.record;
-    const interval = record?.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : {};
     return {
       key: args.key, kind: args.kind, side: args.side, rowNumber: args.rowNumber, ...(args.rowNumberTitle ? { rowNumberTitle: args.rowNumberTitle } : {}),
       rowIdentity: args.identity ?? null, riskLevel: args.identity ? risks.get(args.identity) ?? null : null,
       recordKind: typeof record?.record_kind === "string" ? record.record_kind : null,
       semanticKind: typeof record?.semantic_kind === "string" ? record.semantic_kind : null,
-      beforePosition: positionNumber(record?.before_position) ?? positionNumber(interval.before_start),
-      currentPosition: positionNumber(record?.current_position) ?? positionNumber(interval.current_start),
+      beforePosition: positionNumber(record?.before_position),
+      currentPosition: positionNumber(record?.current_position),
       changedColumns: Array.isArray(record?.changed_columns) ? record.changed_columns : [],
       ...(args.formulaChanged !== undefined ? { formulaChanged: args.formulaChanged } : {}),
-      values: { ...(args.values ?? args.source), ...(record?.interval ? { interval: record.interval } : {}) },
+      values: { ...(args.values ?? args.source) },
       pairKey: args.pairKey ?? null,
-      ...(record && (String(record.record_kind).startsWith("BLANK_") && !record.semantic_kind) ? { semanticKind: String(record.record_kind) } : {}),
     };
   };
 
@@ -497,13 +585,13 @@ export function buildBrowseRows(input: {
     input.beforeRows.forEach((source, index) => rows.push(makeRow({ key: `table-deleted:${index}`, kind: "deleted", side: "before", source, rowNumber: index + 1 })));
   } else {
     const consumed = new Set<RowDiffRecord>();
-    const blanks = blankIntervalRows(records);
     input.currentRows.forEach((source, index) => {
       if (!hasCurrentSnapshot) return;
       const candidate = recordByCurrentIndex.get(index);
       if (!candidate) {
-        const blankInsert = blanks.insertedCurrent.has(index + 1);
-        rows.push(makeRow({ key: `${blankInsert ? "blank-added" : "current"}:${index + 1}`, kind: blankInsert ? "added" : "unchanged", side: "current", source, rowNumber: index + 1 }));
+        // Real snapshot rows stay as they are, blank points included: a blank
+        // interval is summarised once, never painted onto the rows it spans.
+        rows.push(makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source, rowNumber: index + 1 }));
         return;
       }
       consumed.add(candidate);
@@ -528,6 +616,7 @@ export function buildBrowseRows(input: {
         let beforeValues: Record<string, unknown>;
         let beforeNumber: number | null;
         let title: string | undefined;
+        let beforeContext: Record<string, unknown> | null = null;
         if (hasBeforeSnapshot && beforeIndex !== null) {
           beforeValues = input.beforeRows[beforeIndex] ?? oldRecordValues;
           beforeNumber = beforeIndex + 1;
@@ -541,7 +630,9 @@ export function buildBrowseRows(input: {
             if (!ignored.has(name) && (!effective.length || effective.includes(name))) beforeValues[name] = value;
           }
           for (const column of changedColumns) if (column in oldRecordValues) beforeValues[column] = oldRecordValues[column];
-          Object.assign(beforeValues, entry?.beforeFilterContext ?? {}); // raw identity values that row filters match
+          // The before context identifies the row for filters; it never replaces values.
+          beforeContext = entry?.beforeFilterContext ?? null;
+          assertContextAgrees(beforeContext, oldRecordValues, `表 ${input.table.table_name} 的修改行 ${identity ?? index + 1}`);
           beforeNumber = null;
           title = "改前快照不在本 bundle 中：改前值由改后行与修改记录推出" + (ignored.size ? "，不参与比较的列不可得" : "");
         }
@@ -552,9 +643,11 @@ export function buildBrowseRows(input: {
         if (beforeNumber === null && movedFrom !== null) beforeNumber = movedFrom;
         if (title && beforeNumber === null) title += "；改前行号不可得";
         const pairKey = `pair:${identity ?? index + 1}`;
+        const beforeRow = makeRow({ key: `${pairKey}:before`, kind: "modified-before", side: "before", source: beforeValues, rowNumber: beforeNumber,
+          rowNumberTitle: title, identity, record: candidate, values: beforeValues, pairKey });
+        if (beforeContext) beforeRow.identityContext = beforeContext;
         const pair = [
-          makeRow({ key: `${pairKey}:before`, kind: "modified-before", side: "before", source: beforeValues, rowNumber: beforeNumber,
-            rowNumberTitle: title, identity, record: candidate, values: beforeValues, pairKey }),
+          beforeRow,
           makeRow({ key: `${pairKey}:after`, kind: "modified-after", side: "current", source, rowNumber: index + 1,
             identity, record: candidate, values: source, pairKey, formulaChanged }),
         ];
@@ -585,6 +678,7 @@ export function buildBrowseRows(input: {
       });
     }
 
+    let blankIndex = 0;
     for (const record of records) {
       if (consumed.has(record)) continue;
       const kind = String(record.record_kind);
@@ -592,30 +686,41 @@ export function buildBrowseRows(input: {
         const entry = located(record);
         const identity = locatorIdentity(record);
         const beforeIndex = entry?.beforeRowIndex ?? null;
-        const hasContext = entry?.beforeFilterContext != null;
-        const source = hasBeforeSnapshot && beforeIndex !== null ? input.beforeRows[beforeIndex] : hasContext ? { ...entry?.beforeFilterContext } : recordValues(record.before_values);
+        const where = `表 ${input.table.table_name} 的删除行 ${identity ?? insertion}`;
+        const recorded = recordValues(record.before_values);
+        // Value source order: the real before snapshot row, else the validated
+        // record.before_values. The locator context only identifies the row.
+        const fromSnapshot = hasBeforeSnapshot && beforeIndex !== null;
+        const context = fromSnapshot ? null : entry?.beforeFilterContext ?? null;
+        if (!fromSnapshot) assertContextAgrees(context, recorded, where);
+        const hasRecordValues = Object.keys(recorded).length > 0;
+        const source = fromSnapshot ? input.beforeRows[beforeIndex] ?? {} : recorded;
         // Preview has no before snapshot; an ordered table's deleted record still carries its before `no`.
-        const orderedBefore = !hasBeforeSnapshot && input.table.ordered_extension
-          ? scalarPosition(recordValues(record.before_values)[ORDERED_POSITION_COLUMN]) : null;
-        rows.push(makeRow({ key: `deleted:${identity ?? insertion}`, kind: "deleted", side: "before", source, values: source,
-          rowNumber: hasBeforeSnapshot && beforeIndex !== null ? beforeIndex + 1 : orderedBefore,
-          rowNumberTitle: hasBeforeSnapshot || orderedBefore !== null ? undefined : hasContext ? "改前值不在本 bundle 中" : "改前值不可得", identity, record }));
-        insertion += 1;
-        consumed.add(record);
-      } else if (hasCurrentSnapshot && kind === "BLANK_INSERT_INTERVAL") {
-        consumed.add(record); // its current rows are already shown as added
-      } else if (hasCurrentSnapshot && blanks.deletedBefore.has(record)) {
-        for (const position of blanks.deletedBefore.get(record) ?? []) {
-          const source = hasBeforeSnapshot ? input.beforeRows[position - 1] ?? {} : input.table.ordered_extension ? { [ORDERED_POSITION_COLUMN]: position } : {};
-          rows.push(makeRow({ key: `blank-deleted:${position}`, kind: "deleted", side: "before", source, values: source, rowNumber: position }));
+        const orderedBefore = !fromSnapshot && input.table.ordered_extension ? scalarPosition(recorded[ORDERED_POSITION_COLUMN]) : null;
+        const row = makeRow({ key: `deleted:${identity ?? insertion}`, kind: "deleted", side: "before", source, values: source,
+          rowNumber: fromSnapshot ? beforeIndex + 1 : orderedBefore,
+          rowNumberTitle: fromSnapshot ? undefined : hasRecordValues ? "改前快照不在本 bundle 中：显示删除记录中的改前值" : "改前值不可得", identity, record });
+        if (!fromSnapshot) {
+          row.partialValues = true;
+          if (context) row.identityContext = context;
         }
-        consumed.add(record);
-      } else if (kind.startsWith("BLANK_")) {
-        const interval = record.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : {};
-        const position = positionNumber(record.before_position) ?? positionNumber(interval.before_start)
-          ?? positionNumber(record.current_position) ?? positionNumber(interval.current_start) ?? input.currentRows.length + insertion + 1;
-        rows.push(makeRow({ key: `blank:${insertion}`, kind: "blank", side: null, source: {}, rowNumber: position, record, values: {} }));
+        rows.push(row);
         insertion += 1;
+        consumed.add(record);
+      } else if (kind === "BLANK_INSERT_INTERVAL" || kind === "BLANK_DELETE_INTERVAL") {
+        const interval = blankIntervalSummary(record);
+        if (!interval) continue;
+        const changed = interval.direction === "INSERT" ? interval.current : interval.before;
+        const anchor = interval.current ?? interval.before;
+        rows.push({
+          key: `blank-interval:${blankIndex}`, kind: "blank-interval", side: null, rowNumber: null,
+          rowIdentity: null, riskLevel: blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null,
+          recordKind: kind, semanticKind: kind, beforePosition: null, currentPosition: null, changedColumns: [],
+          values: {}, pairKey: null, interval,
+          // Sit just above the nearest real row at the gap's `no`.
+          sortPosition: (anchor ?? changed ?? [Number.MAX_SAFE_INTEGER])[0] - 0.5,
+        });
+        blankIndex += 1;
         consumed.add(record);
       }
     }
@@ -627,6 +732,7 @@ export function buildBrowseRows(input: {
       const rightDeleted = right.kind === "deleted" ? 1 : 0;
       if (leftDeleted !== rightDeleted) return leftDeleted - rightDeleted;
       const position = (row: BrowseRow) => {
+        if (row.kind === "blank-interval") return row.sortPosition ?? Number.MAX_SAFE_INTEGER;
         if (row.kind === "deleted") return hasBeforeSnapshot ? row.rowNumber ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
         if (row.kind === "modified-before" && row.pairKey) return afterPositionByPair.get(row.pairKey) ?? row.beforePosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
         return row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
@@ -636,62 +742,97 @@ export function buildBrowseRows(input: {
     if (hasCurrentSnapshot) placeDeletedRowsInline(rows, input.deletionLayout ?? "interleave");
   }
 
-  for (const row of rows) {
-    if (row.riskLevel) continue;
-    const annotation = intervalRiskAnnotation(row, input.annotations);
-    if (annotation) row.riskLevel = annotation.risk_level;
-  }
-
-  let visible = rows;
+  let scoped = rows;
+  const beforeEncodings = input.beforeEncodings ?? EMPTY_ENCODINGS;
+  const currentEncodings = input.currentEncodings ?? EMPTY_ENCODINGS;
+  const pairs = new Map<string, BrowseRow[]>();
+  for (const row of rows) if (row.pairKey) pairs.set(row.pairKey, [...(pairs.get(row.pairKey) ?? []), row]);
+  const keepPairs = (matches: (row: BrowseRow) => boolean) =>
+    rows.filter((row) => row.pairKey ? (pairs.get(row.pairKey) ?? []).some(matches) : matches(row));
   const filter = input.degraded === true ? null : input.rowFilter ?? null;
   if (filter) {
-    const beforeEncodings = input.beforeEncodings ?? EMPTY_ENCODINGS;
-    const currentEncodings = input.currentEncodings ?? EMPTY_ENCODINGS;
     assertPredicateCompatible(filter.before, beforeEncodings, "改前筛选");
     assertPredicateCompatible(filter.current, currentEncodings, "改后筛选");
     const reusable = input.reuseUnrecordedBefore === true && !hasBeforeSnapshot && hasCurrentSnapshot;
-    const matches = (row: BrowseRow) => {
-      if (row.side === "before") return matchesTypedPredicate(filter.before, row.values, beforeEncodings, "改前筛选");
+    scoped = keepPairs((row) => {
+      if (row.side === "before") return matchesSide(filter.before, row, beforeEncodings, "改前筛选");
       if (row.side === "current") {
-        if (matchesTypedPredicate(filter.current, row.values, currentEncodings, "改后筛选")) return true;
+        if (matchesSide(filter.current, row, currentEncodings, "改后筛选")) return true;
         return reusable && row.recordKind === null && matchesTypedPredicate(filter.before, row.values, currentEncodings, "改前筛选");
       }
+      // A blank-interval summary belongs to the ordered table, not to a device filter.
       return false;
-    };
-    const pairs = new Map<string, BrowseRow[]>();
-    for (const row of rows) if (row.pairKey) pairs.set(row.pairKey, [...(pairs.get(row.pairKey) ?? []), row]);
-    visible = rows.filter((row) => row.pairKey ? (pairs.get(row.pairKey) ?? []).some(matches) : matches(row));
+    });
+  } else if (input.unassigned && input.degraded !== true) {
+    const { side, predicates } = input.unassigned;
+    const encodings = side === "before" ? beforeEncodings : currentEncodings;
+    const where = side === "before" ? "改前未归属" : "改后未归属";
+    for (const predicate of predicates) assertPredicateCompatible(predicate, encodings, where);
+    scoped = keepPairs((row) => row.side === side && !predicates.some((predicate) => matchesSide(predicate, row, encodings, where)));
   }
   const query = input.search?.trim().toLocaleLowerCase();
-  visible = visible.filter((row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query));
+  let visible = scoped.filter((row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query));
   if (input.onlyInteresting) visible = collapseUnchangedRows(visible, input.expandedRuns ?? new Set());
-  return { rows: visible };
+  return { rows: visible, scoped };
+}
+
+function annotationSide(annotation: RiskAnnotation): unknown {
+  return annotation.reasons.flatMap((reason) => reason.evidence).find(([name]) => name === "side")?.[1];
 }
 
 /**
- * ROW_INTERVAL annotations (blank intervals in ordered tables) carry no row
- * identity: they cover the `no` range of one side, named by the CURRENT or
- * BEFORE `side` evidence. Inserted blanks are added rows, deleted blanks are
- * deleted rows.
+ * The ROW_INTERVAL annotation of one blank-interval record: same changed side
+ * and the same affected range. It is never matched to the real rows the range spans.
  */
-function intervalRiskAnnotation(row: BrowseRow, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
-  if (row.kind !== "added" && row.kind !== "deleted") return undefined;
-  const side = row.kind === "added" ? "CURRENT" : "BEFORE";
-  const position = scalarPosition(row.values[ORDERED_POSITION_COLUMN]) ?? row.rowNumber;
-  if (position === null) return undefined;
-  return annotations.find((annotation) => {
-    if (annotation.target.target_type !== "ROW_INTERVAL" || !annotation.target.position_range) return false;
-    const [start, end] = annotation.target.position_range;
-    const annotationSide = annotation.reasons.flatMap((reason) => reason.evidence).find(([name]) => name === "side")?.[1];
-    return annotationSide === side && position >= start && position <= end;
-  });
+function blankIntervalRiskAnnotation(interval: BlankIntervalSummary, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
+  const side = interval.direction === "INSERT" ? "CURRENT" : "BEFORE";
+  const range = interval.direction === "INSERT" ? interval.current : interval.before;
+  if (!range) return undefined;
+  return annotations.find((annotation) => annotation.target.target_type === "ROW_INTERVAL"
+    && annotationSide(annotation) === side
+    && annotation.target.position_range?.[0] === range[0] && annotation.target.position_range?.[1] === range[1]);
 }
 
-/** The annotation behind a row's risk: by row identity, or by blank interval position. */
+/** The annotation behind a row's risk: by row identity, or the interval risk of a blank-interval summary. */
 export function rowRiskAnnotation(row: BrowseRow, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
   const identity = row.rowIdentity;
-  return (identity ? annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(identity)) : undefined)
-    ?? intervalRiskAnnotation(row, annotations);
+  if (identity) return annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(identity));
+  return row.interval ? blankIntervalRiskAnnotation(row.interval, annotations) : undefined;
+}
+
+/** One change the navigator can jump to: a row record (one per pair) or a blank-interval summary. */
+export interface ChangeLocation {
+  index: number;
+  /** Grid row key used to scroll to and highlight the change. */
+  rowKey: string;
+  rowIdentity: string | null;
+  recordKind: string;
+  riskLevel: RiskLevel | null;
+  position: number | null;
+}
+
+const LOCATION_KINDS: ReadonlySet<BrowseRowKind> = new Set(["added", "deleted", "modified-before", "modified-after", "ordered", "blank-interval"]);
+
+/** Changes in the current scope (after the device filter, before search), in grid order. */
+export function deriveChangeLocations(rows: readonly BrowseRow[]): ChangeLocation[] {
+  const seen = new Set<string>();
+  const locations: ChangeLocation[] = [];
+  for (const row of rows) {
+    if (!LOCATION_KINDS.has(row.kind) || row.recordKind === null) continue;
+    const key = row.pairKey ?? row.rowIdentity ?? row.key;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const range = row.interval ? row.interval.current ?? row.interval.before : null;
+    locations.push({
+      index: locations.length + 1,
+      rowKey: row.key,
+      rowIdentity: row.rowIdentity,
+      recordKind: row.recordKind,
+      riskLevel: row.riskLevel,
+      position: range ? range[0] : row.currentPosition ?? row.beforePosition ?? row.rowNumber,
+    });
+  }
+  return locations;
 }
 
 /** Before → current position when the row changed position, else null. */
@@ -701,3 +842,8 @@ export function rowMove(row: BrowseRow): { from: number; to: number } | null {
 }
 
 export function normalizeDisplayScalar(value: unknown, column?: SurfaceColumn): string { return displayValue(value, column); }
+
+/** Grid header text: Debug shows the raw field name, User mode the column COMMENT (display_name). */
+export function columnHeaderTitle(column: Pick<SurfaceColumn, "name" | "display_name">, debug: boolean): string {
+  return debug ? column.name : column.display_name || column.name;
+}

@@ -432,6 +432,11 @@ def test_many_shared_gid_rows_aggregate_without_per_device_record_state() -> Non
     result = build_navigation((device(devs, devs), shared), check=lambda: None, reserve=lambda _: nullcontext(), resources=ExitStack(), max_state_bytes=300000)
     assert len(tabs(result, "device_cfg")) == 100
     assert all(t["facts"]["current_row_count"] == 1000 and t["facts"]["risk_level"] == "LOW" for t in tabs(result, "device_cfg"))
+    # The parents and appended tabs must still consume the same bounded budget.
+    with ExitStack() as resources, pytest.raises(ValueError, match="RESOURCE_LIMIT_EXCEEDED"):
+        build_navigation((device(devs, devs), shared), check=lambda: None,
+                         reserve=lambda _: nullcontext(), resources=resources,
+                         max_state_bytes=100000)
 
 
 @pytest.mark.parametrize("name,values,columns", [

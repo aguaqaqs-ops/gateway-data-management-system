@@ -137,6 +137,8 @@ class RiskRuleId(StrEnum):
     STANDARD_NAME_UPDATE = "STANDARD_NAME_UPDATE"
     ORDERED_MOVE = "ORDERED_MOVE"
     ORDERED_REPLACEMENT = "ORDERED_REPLACEMENT"
+    ORDERED_MIDDLE_YK_INSERT_DELETE = "ORDERED_MIDDLE_YK_INSERT_DELETE"
+    ORDERED_MIDDLE_YK_BLANK_INTERVAL = "ORDERED_MIDDLE_YK_BLANK_INTERVAL"
     ORDERED_MIDDLE_INSERT_DELETE = "ORDERED_MIDDLE_INSERT_DELETE"
     ORDERED_TAIL_INSERT_DELETE = "ORDERED_TAIL_INSERT_DELETE"
     ORDERED_NAME_UPDATE = "ORDERED_NAME_UPDATE"
@@ -1482,6 +1484,8 @@ V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
             _default_rule(RiskRuleId.ORDERED_MOVE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MOVE, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.ORDERED_REPLACEMENT, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_REPLACEMENT, RiskLevel.MEDIUM_LOW),
             _default_rule(RiskRuleId.ORDERED_MIDDLE_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE, RiskLevel.MEDIUM_HIGH),
+            _default_rule(RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE, RiskLevel.HIGH, (("channel_table_name", True), ("name_contains:yk", True))),
+            _default_rule(RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL, RiskLevel.HIGH, (("channel_table_name", True), ("name_contains:yk", True))),
             _default_rule(RiskRuleId.ORDERED_TAIL_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_TAIL_INSERT_DELETE, RiskLevel.LOW),
             _default_rule(RiskRuleId.ORDERED_NAME_UPDATE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_NAME_UPDATE, RiskLevel.LOW),
             _default_rule(RiskRuleId.ORDERED_CONTENT_UPDATE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_CONTENT_UPDATE, RiskLevel.MEDIUM_LOW),

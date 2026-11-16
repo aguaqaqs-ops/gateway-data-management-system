@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from gateway_backend.capabilities.table_rules import parse_channel_table_name
+
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RISK_MODEL_VERSION,
     RISK_RULESET_ID,
@@ -56,6 +58,14 @@ def standard_rule_applicability(
         not has(RiskRuleId.ROW_DELETED, "exclude_table"),
         True,
     )
+
+
+def ordered_yk_name_applies(snapshot: RiskRulesetSnapshot, table_name: str) -> bool:
+    """Resolve the frozen literal selector shared by evaluation and cache keys."""
+    rule = next(rule for rule in snapshot.rules if rule.rule_id is RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE)
+    return (("channel_table_name", True) in rule.params
+            and ("name_contains:yk", True) in rule.params
+            and "yk" in table_name and parse_channel_table_name(table_name) is not None)
 
 
 def level_for(rule: RiskRuleSpec) -> RiskLevel:

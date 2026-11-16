@@ -584,3 +584,32 @@ def test_new_table_risk_distinguishes_empty_baseline_from_incremental_addition(
         assert all(t.risk_refs.risk_level is None for t in surface.tables)
     projection, = surface.projections
     assert projection.diagnostics_ref is None
+
+
+@pytest.mark.parametrize("registered", (False, True))
+@pytest.mark.parametrize("blank", (False, True))
+def test_preview_channel_yk_middle_risk_reaches_surface(registered: bool, blank: bool) -> None:
+    from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+
+    name = "b1_n2_iec104_yk_list"
+    schema = (
+        "CREATE TABLE net_cfg(gid BIGINT PRIMARY KEY,board INT,link_no INT,exe TEXT);"
+        f"CREATE TABLE {name}(gid BIGINT NULL,no INT NOT NULL,name TEXT) COMMENT='遥控引用表';"
+    )
+    registry = "INSERT INTO net_cfg VALUES(1,1,2,'iec104');" if registered else ""
+    before_sql = schema + registry + f"INSERT INTO {name} VALUES(1,1,'a'),(2,2,'b');"
+    inserted = "(NULL,2,NULL)" if blank else "(3,2,'new')"
+    current_sql = schema + registry + f"INSERT INTO {name} VALUES(1,1,'a'),{inserted},(2,3,'b');"
+    store = InMemoryArtifactStore()
+    before = _materialize_business_pair_input(before_sql, store)
+    current = _materialize_business_pair_input(current_sql, store)
+    result = run_preview_pair_pipeline(before_presentation=before.presentation or PresentationMetadata(),
+        current_presentation=current.presentation or PresentationMetadata(), pair_id="initial_to_modified",
+        before=before, current=current, store=store, control=ExecutionControl(),
+        on_cancel=lambda: pytest.fail("unexpected cancellation"),
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        assess_identity=False, repository_id="replacement-fixture")
+    assert result.surface_result.surface is not None
+    table = next(t for t in result.surface_result.surface.tables if t.table_name == name)
+    assert table.risk_refs.risk_level is not None
+    assert table.risk_refs.risk_level.value == "HIGH"

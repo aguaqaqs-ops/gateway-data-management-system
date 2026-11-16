@@ -34,6 +34,7 @@ from gateway_backend.capabilities.risk_evaluation._facts import (
 from gateway_backend.capabilities.risk_evaluation._rules import (
     InvalidRiskRuleset,
     level_for,
+    ordered_yk_name_applies,
     reason_for,
     standard_rule_applicability,
     validate_risk_ruleset,
@@ -806,6 +807,8 @@ def _emit_ordered_rows(
                     rule = RiskRuleId.ORDERED_TAIL_INSERT_DELETE
                 else:
                     rule = RiskRuleId.ORDERED_MIDDLE_INSERT_DELETE
+                    if ordered_yk_name_applies(evaluation_input.risk_ruleset, name):
+                        rule = RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE
                 emit(rule, RiskTarget(target_type=RiskTargetType.ROW, table_name=name,
                      row_identity=identity, position=position), (("side", side.upper()),))
 
@@ -844,6 +847,8 @@ def _emit_blank_intervals(
             raise _PairFailure("invalid blank interval position")
         rule = (RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL if last is None or last < start
                 else RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL)
+        if rule is RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL and ordered_yk_name_applies(evaluation_input.risk_ruleset, item.table_fact.table_name):
+            rule = RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL
         emit(rule, RiskTarget(target_type=RiskTargetType.ROW_INTERVAL,
              table_name=item.table_fact.table_name, position_range=(start, end)),
              (("count", count), ("side", side.upper())))

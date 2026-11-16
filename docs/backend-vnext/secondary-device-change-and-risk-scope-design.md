@@ -53,7 +53,7 @@
 1. 十类测点表 `device_st/device_mx/device_co/device_sg/device_sp/device_cnt/device_sn/device_tap/device_other/device_disturb` 改 ALL_CHANGES。`device_cfg` 保持现有 ALL_CHANGES 与业务键。完整保留新增、删除、修改的 facts/records、必要原侧值和 locator，现有 bundle 闭合展示数据。无新账本、第二套 diff 或删除行专用 bundle。
 2. 上述十一张 STANDARD 表的普通 ROW_ADDED/ROW_DELETED **不生成风险**，但计入变化、统计、归属、差异过滤。其他表的普通增删、整表新增/删除、schema/降级/一致性风险、有序表专项规则不变。键变化仍由 owning Comparison 识别，不猜测增删行之间存在修改关系。
 3. 所有普通表和有序表的行修改，只要变化列集合非空且为 `{name, description}` 的子集，即为 LOW；混入其他字段时依原修改规则。`device.description` 和 `device_cfg` 适用该规则；`composite_signal_point.point_name` 不是这两个字段，现有排除比较规则不改。有序行的移动、替换等独立风险仍按原规则叠加。
-4. 正常尾部空点增删 LOW；中间插空改变后续有效点地址保留 MEDIUM_HIGH。中间空点但地址未变仍沿用当前中间风险，不引入尚未确认的进一步降级。全空表的纯空点容量变化归尾部 LOW。
+4. 正常尾部空点增删 LOW；通道命名有序表的表名包含小写字面 `yk` 时，中间普通行或空点增删为 HIGH，其余中间增删保留 MEDIUM_HIGH。中间空点但地址未变仍沿用当前中间风险，不引入尚未确认的进一步降级。全空表的纯空点容量变化归尾部 LOW。
 5. 所有已有确认风险继续在整体报告可见。装置个人风险只来自有依据的装置行/定义归属；真正表级风险和待定位风险独立展示。未知不等于无风险，也不凭空生成 UNKNOWN。
 6. 无旧 DTO/载荷兼容、历史结果回填或存量数据迁移。本次只定设计与实施计划；产品实施和08部署不因设计审核通过自动获授权。
 
@@ -188,6 +188,8 @@ replacement 根 table_notices=[]、device_definition_changes=[]，保留原两�
 前端 decoder 同步 v4 必填字段、唯一性、引用表/项存在性、数值与summary一致性。row scope摘要校验不再假定 fallback 风险必为null；Preview/History/提交绑定审核消费同一个文档。修改 frontend/ 前按 AGENTS 告知前端设计会话范围并列入审核，本轮只改文档，无需假装已通知。
 
 ## 7 有序空点的精确尾部判据
+
+有序增删的中间等级另按 Table Rules 通道名解析器和小写 `yk` 字面匹配适用 HIGH；其余表和尾部等级不变。风险判定不依赖 Navigation 的注册归属，Owner 已确认口径可暂时不同；单表风险候选 key 绑定该表的匹配结果。
 
 本次只改 BLANK interval 风险分类，不改非空行新增/删除、替换配对、移动及 Comparison 顺序算法。空点沿用 canonical pseudo-gid/provenance，不能用 name为空识别。
 

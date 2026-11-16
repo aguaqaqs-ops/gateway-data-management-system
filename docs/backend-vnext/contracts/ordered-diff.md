@@ -4,7 +4,7 @@
 
 Ordered diff 是 comparison 的扩展事实，不是前端 UI contract，也不是 Dolt native provider contract。实现设计见 `../capabilities/ordered-diff-compute.md`。
 
-通道表按真实 COMMENT 中的“引用表”判定有序；pseudo blank 处理和 tail/middle/move 风险语义继续保留。
+通道表按真实 COMMENT 中的“引用表”判定有序；pseudo blank 与 tail/middle/move 比较语义继续保留。通道命名有序表中表名含小写 `yk` 的中间增删风险分级见 [Risk Contract](risk.md)。
 
 ## 范围
 

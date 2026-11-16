@@ -839,3 +839,52 @@ def test_empty_baseline_publishes_no_risk_marks_and_complete_attribution(table: 
     assert result.risk_report is not None and result.risk_report.tables == ()
     assert result.annotation_artifacts == ()
     assert observed == [(table.table_name, (), True)]
+
+
+@pytest.mark.parametrize("name", ("b1_n2_iec104_yk_list", "b2_c7_yk", "b1_n2_iec104_yx_list", "nonchannel_yk"))
+@pytest.mark.parametrize("blank", (False, True))
+@pytest.mark.parametrize("added", (False, True))
+@pytest.mark.parametrize("tail,expected", (
+    (False, RiskLevel.HIGH),
+    (True, RiskLevel.LOW),
+))
+def test_channel_yk_middle_insert_delete_risk(
+    name: str, blank: bool, added: bool, tail: bool, expected: RiskLevel,
+) -> None:
+    from gateway_backend.capabilities.comparison.contracts import (
+        BlankRecord, BlankRecordKind, BlankSemanticKind, OrderedInterval,
+    )
+    from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
+
+    if ("yk" not in name or name == "nonchannel_yk") and expected is RiskLevel.HIGH:
+        expected = RiskLevel.MEDIUM_HIGH
+    position = 4 if tail else 2
+    if blank:
+        record = BlankRecord(table_name=name,
+            record_kind=BlankRecordKind.INSERT_INTERVAL if added else BlankRecordKind.DELETE_INTERVAL,
+            semantic_kind=BlankSemanticKind.INSERT_INTERVAL if added else BlankSemanticKind.DELETE_INTERVAL,
+            interval=OrderedInterval(current_start=position if added else None,
+                current_end=position if added else None, before_start=None if added else position,
+                before_end=None if added else position, row_count=1))
+        ordered = OrderedExtension(status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary())
+        blanks = BlankExtension(status=OrderedStatus.CHANGED,
+            blank_summary=BlankSummary(interval_inserted_count=int(added),
+                interval_deleted_count=int(not added), blank_changed_count=1), records=(record,))
+    else:
+        row = OrderedRecord(table_name=name,
+            record_kind=OrderedRecordKind.ROW_ADDED if added else OrderedRecordKind.ROW_DELETED,
+            semantic_kind=OrderedSemanticKind.DATA_INSERT if added else OrderedSemanticKind.DATA_DELETE,
+            row_identity=raw_blob_digest(b"yk point"),
+            current_position=position if added else None, before_position=None if added else position)
+        ordered = OrderedExtension(status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(row_added_count=int(added), row_deleted_count=int(not added)),
+            records=(row,))
+        blanks = None
+    table = ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=ordered, blank_extension=blanks)
+    result = evaluate_risk(RiskEvaluationInput(comparison_facts=_facts(table), risk_ruleset=_ruleset(),
+        ordered_tail_bounds={name: OrderedTailBounds(
+            3 if tail and not blank and added else 4,
+            3 if tail and not blank and not added else 4, 3, 3, True)}), artifact_store=InMemoryArtifactStore())
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is expected

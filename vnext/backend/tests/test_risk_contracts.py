@@ -137,6 +137,8 @@ def test_v1_rules_freeze_rule_ids_scopes_reasons_and_levels() -> None:
     assert levels[RiskRuleId.ROW_DELETED] is RiskLevel.MEDIUM_LOW
     assert levels[RiskRuleId.ROW_MODIFIED] is RiskLevel.MEDIUM_HIGH
     assert levels[RiskRuleId.STANDARD_NAME_UPDATE] is RiskLevel.LOW
+    assert levels[RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE] is RiskLevel.HIGH
+    assert levels[RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL] is RiskLevel.HIGH
     assert levels[RiskRuleId.KEY_DEGRADED] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.ORDERED_DIFF_UNSUPPORTED] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.COMPARISON_FAILED] is RiskLevel.HIGH

@@ -536,9 +536,13 @@ class _Builder:
                 gid = current.values.get("gid")
                 if type(gid) is int and abs(gid) <= SAFE_INTEGER:
                     attrs["gid"] = gid
-            candidates[addr] = {"item_key": "device:composite" if addr == 65532 else f"device:addr:{addr}",
+            candidate: dict[str, Any] = {"item_key": "device:composite" if addr == 65532 else f"device:addr:{addr}",
                 "item_kind": "COMPOSITE_SIGNAL_DEVICE" if addr == 65532 else "DEVICE",
                 "label": label, "attributes": attrs, "tabs": []}
+            # Admit the parent before retaining it. Filtered and composite tabs
+            # are charged as they are appended, so never count them twice.
+            self.charge(candidate)
+            candidates[addr] = candidate
         if device is not None and replacement_side is None:
             for record in device.evidence.records:
                 device_addresses = []
@@ -558,7 +562,9 @@ class _Builder:
                 self.device_changes.append(device_change)
         if composite is not None:
             claimed.add(composite.table_name)
-            candidates[65532]["tabs"].append(self.tab(composite))
+            composite_tab = self.tab(composite)
+            self.charge(composite_tab)
+            candidates[65532]["tabs"].append(composite_tab)
         whole_items: list[dict[str, Any]] = []
         for name, tab_label in POINT_TABLES:
             table = names.get(name)
@@ -779,7 +785,6 @@ class _Builder:
                     self.diagnostic("DEVICE_ROWS_UNASSIGNED", "SECONDARY_DEVICES", table=table, side=side, identity_column=column,
                         row_count=orphans[side], changed_row_count=(changed_orphans[side] if reason is None and replacement_side is None else None))
         for candidate in candidates.values():
-            self.charge(candidate)
             output.append(candidate)
         output.extend(whole_items)
         visible = {item["item_key"] for item in output}

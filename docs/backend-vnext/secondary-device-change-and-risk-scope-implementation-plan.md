@@ -5,7 +5,7 @@
 ## 1 输入和开工条件
 
 - 源码基线：gw08-dual-env 的 0c34339a125d6ff5f0ccfe42af97603a47c7523d。文档独立提交后以完整SHA固定审核对象；实现启动时若源码前移，先核对受影响文件差异，不覆盖他人在途文件。
-- 已定范围：十类测点表完整records；device_cfg保持原ALL_CHANGES/业务键；十一标准表普通增删不产风险；所有普通/有序表 name、description-only LOW；局部/共享范围分离；删除值完整展示；尾部空点LOW、中间规则保守保留。
+- 已定范围：十类测点表完整records；device_cfg保持原ALL_CHANGES/业务键；十一标准表普通增删不产风险；所有普通/有序表 name、description-only LOW；局部/共享范围分离；删除值完整展示；尾部空点LOW；通道命名有序 `yk` 表中间增删 HIGH，其余中间规则保留。
 - 不待决的默认边界：不将 point_name 视为 name/description，不把中间未推移地址的空点进一步降级，不改审批/CAS/存储schema/资源预算。
 - 现场实际pair与空点表是复现及退出证据缺口，不阻止明确语义的编码；未取得时相应实际故障闭环仍为UNKNOWN，不用synthetic通过代签。
 - 前端实施前告知前端设计会话目的、涉及目录/Contract版本与验收范围；按AGENTS由其纳入审核调试。Owner指定手动转发提示词：协调者在本会话交付准确提示词，由Owner转发给前端agent，不自行发送外部消息。当前不要求前端立即改代码，具体时点见§2.1。
@@ -119,7 +119,7 @@ application/pair_pipeline.py新增operation-local tail bounds准备函数，替�
 | V4 | 双侧归属、迁移、计数相等registry-only、孤儿/重复/NULL/超域/缺列 | test_business_navigation.py及现有导航测试模块共享参数表 |
 | V5 | locator真实位置/旧值/context矛盾拒绝、无before完整删除值 | test_row_location.py；前端table-rows.test.ts各自边界 |
 | V6 | typed scope与残余row identity不丢；变化EXACT+风险不完整；正常非筛选ordered ROW/ROW_PAIR/ROW_INTERVAL不新增装置待定位或不完整诊断 | business_navigation tests、test_business_presentation_flow.py |
-| V7 | Tail判定：尾部追加/删除/已有空尾/全空/稀疏/新增点后缀/间隙内保留点/move | test_risk_evaluation.py及现有ordered fixture，复用旧负例 |
+| V7 | Tail判定：尾部追加/删除/已有空尾/全空/稀疏/新增点后缀/间隙内保留点/move；通道命名 yk 表普通行与空行中间增删 HIGH，其他表及尾部不变，注册归属不参与风险选择 | test_risk_evaluation.py及现有ordered fixture，复用旧负例 |
 | V8 | v4decoder、summary/筛选/空页签/公共风险/定义与孤儿URL恢复 | model.test.ts、table-rows.test.ts、ComparisonPage相关测试 |
 | V9 | 新旧job/checkpoint/成功复用身份；同键不改绑；新T1拒绝旧语义而已受理Attempt的finalize/审核仍按冻结身份；权限/crossscope不回退 | 现有preview binding/history compare及job tests，最小反例 |
 | V10 | 真实1→2与一个空点表；Preview/History相同pair；bundle/浏览器一致 | 受控真实旅程及frontend真实backend e2e |

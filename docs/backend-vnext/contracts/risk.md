@@ -456,8 +456,8 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 | --- | --- | --- |
 | `ORDERED_REPLACEMENT` | `MEDIUM_LOW` | `ROW_PAIR` |
 | `ORDERED_MOVE` | `MEDIUM_HIGH` | `ROW` |
-| `ORDERED_MIDDLE_INSERT_DELETE` | `MEDIUM_HIGH` | `ROW` / `ROW_INTERVAL` |
-| `ORDERED_MIDDLE_BLANK_INTERVAL` | `MEDIUM_HIGH` | `ROW_INTERVAL` |
+| `ORDERED_MIDDLE_INSERT_DELETE` | `MEDIUM_HIGH`；表名匹配通道命名且含 `yk` 时 `HIGH` | `ROW` / `ROW_INTERVAL` |
+| `ORDERED_MIDDLE_BLANK_INTERVAL` | `MEDIUM_HIGH`；表名匹配通道命名且含 `yk` 时 `HIGH` | `ROW_INTERVAL` |
 | `ORDERED_TAIL_INSERT_DELETE` | `LOW` | `ROW` / `ROW_INTERVAL` |
 | `ORDERED_TAIL_BLANK_INTERVAL` | `LOW` | `ROW_INTERVAL` |
 | `ORDERED_NAME_UPDATE` | `LOW` | `ROW` |
@@ -473,6 +473,9 @@ ordered provider 接入后，第一版 ordered risk 需要恢复旧分级：
 当前 ruleset v8 对有序表使用专项规则，不重复应用普通行风险。`ORDERED_ROW_MOVED` 逐行产生 `ORDERED_MOVE`。有序比较层在同一对骨架锚点之间忽略空点；两侧非空新增/删除数量相同且该区间无移动实体时，按相对顺序给新增行附上删除行身份与原位置。风险层核对对应删除记录后配成 `ORDERED_REPLACEMENT`，目标位置取新增侧 `no`；有空点变化而缺少可信配对证据时不按相同绝对 `no` 猜测替换。无空点变化时保留相同 `no` 的配对。单独的新增、删除按该位置是否超出另一侧实际最大 `no` 区分尾部与中间。修改列仅由 `name`、`description` 中一个或两个字段组成时使用 LOW 专项，包含其他列时使用 `ORDERED_CONTENT_UPDATE`。无法确定修改列、缺少必要记录或仅有不可解释的位置变化时输出 `ORDERED_RISK_UNKNOWN`；非 EXACT 的有序或空点重放也输出 UNKNOWN，degraded 沿用 review-required 诊断。
 
 对 `BLANK_INSERT_INTERVAL` 和 `BLANK_DELETE_INTERVAL` 分别读取改后侧或改前侧的最后保留有效位置：证据完整且该位置不存在或小于区间 start 时为尾部 LOW，否则为中间 MEDIUM_HIGH。保留有效点包括移动行，不包括 canonical blank 或本侧纯增删位置；证据不完整产生 ORDERED_RISK_UNKNOWN。区间可能跨越非骨架行或稀疏 no，row_count 是两侧空点数净差的绝对值，而非范围跨度；风险 target 表示受影响区域，evidence.count 保留净变化数，不将整个范围声称为逐点变化。
+
+对中间普通行增删和中间空点增删，有序表名经 Table Rules 通道名解析器匹配 `b数字_n数字_...` 或 `b数字_c数字_...` 且含小写字面 `yk` 时使用 HIGH 专项规则；其余表保持 MEDIUM_HIGH，尾部、移动与替换规则不变。此风险选择只依表名和有序事实，不依赖 Navigation 的通道注册归属；Owner 已确认两者口径可暂时不同。单表候选 key 绑定该匹配结果，规则参数及 HIGH 专项由 ruleset digest 与 validator 核对。边界或记录证据不足仍按原契约报告 UNKNOWN。
+
 
 风险输入按表携带 `ordered_tail_bounds={before_max_position,current_max_position,before_last_retained_position,current_last_retained_position,complete}`。两侧扫描排除实际增删记录位置并核对记录数量、位置及非降级证据；候选 key 绑定当前表的边界和完整性。History 缓存命中仍须恢复必要 reader。Preview assemble-state v11、History assemble-state v8 由 checkpoint 解码器核对。
 

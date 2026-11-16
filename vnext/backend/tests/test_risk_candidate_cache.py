@@ -787,3 +787,12 @@ def test_ordered_tail_bounds_are_part_of_the_table_candidate_key() -> None:
         source, ordered_tail_bounds={"t": replace(tail, complete=False)}))
     assert _candidate_key(baseline) == _candidate_key(replace(
         source, ordered_tail_bounds={"t": tail, "other": replace(tail, complete=False)}))
+
+
+def test_candidate_key_binds_channel_yk_name_selection() -> None:
+    def key(name: str) -> str:
+        return _candidate_key(_input((_added_rows(name, 1),)))
+
+    selected = key("b1_n2_yk_list")
+    assert selected != key("b1_n2_yx_list")
+    assert selected != key("nonchannel_yk")

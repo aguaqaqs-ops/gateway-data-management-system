@@ -1015,6 +1015,8 @@ test("比较表格的真实选中单元格焦点在两种宽度可见", async ({
     if (!bounds) throw new Error("comparison grid has no bounding box");
     // Click a value cell on the updated row, rather than the collapsed-run row.
     await page.mouse.click(bounds.x + 300, bounds.y + 34 + 2 * 34 + 17);
+    await page.mouse.move(10, 10);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect.poll(() => grid.evaluate((element) => element.contains(document.activeElement))).toBe(true);
     await screenshot(page, "s4-grid-selected-cell", width);
   }

@@ -11,12 +11,14 @@ import { defineConfig, devices } from "@playwright/test";
  *   smoke    -> e2e-real/smoke.spec.ts
  *   journeys -> e2e-real/journeys.spec.ts
  *   t1       -> e2e-real/t1.spec.ts
+ *   cfgtest  -> e2e-real/cfgtest.spec.ts
  */
 const suite = process.env.GATEWAY_FE_SUITE ?? "smoke";
 const testMatch = {
   smoke: /smoke\.spec\.ts$/,
   journeys: /(?:journeys|processing-groups)\.spec\.ts$/,
   t1: /t1\.spec\.ts$/,
+  cfgtest: /cfgtest\.spec\.ts$/,
 } satisfies Record<string, RegExp>;
 
 if (!(suite in testMatch)) {

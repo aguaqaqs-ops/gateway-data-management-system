@@ -25,9 +25,15 @@
 #             --input-root <absolute-dir> with t1-v1 and t1-v2 source dirs;
 #             re-verifies inputs, mounts read-only, and exports
 #             GATEWAY_FE_T1_INPUT_ROOT and GATEWAY_FE_T1_EXPECTED_JSON.
+#   cfgtest   Secondary-device risk scope real journey (Owner-confirmed
+#             minimal real range): requires --input-root <absolute-dir> with
+#             cfgtest-v1/cfgtest-v2 copies of legacy/data/com_cfg_test/{1,2}
+#             and SHA256SUMS-cfgtest-v{1,2}.txt beside them; re-verifies every
+#             file against the pinned manifests, mounts read-only and exports
+#             GATEWAY_FE_CFGTEST_INPUT_ROOT.
 #
 # Usage:
-#   frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys|t1 --session <name> \
+#   frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys|t1|cfgtest --session <name> \
 #     --log-dir <absolute-dir> [--evidence-dir <absolute-dir>] \
 #     [--subphase <name>] [--input-root <absolute-dir>]
 #
@@ -57,7 +63,7 @@ RUN_STAGE="argument-validation"
 
 usage() {
   cat <<'USAGE'
-usage: frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys|t1 --session <name> [--subphase <name>] [--input-root <absolute-dir>] --log-dir <absolute-dir> [--evidence-dir <absolute-dir>]
+usage: frontend/scripts/run-real-backend-e2e.sh --suite smoke|journeys|t1|cfgtest --session <name> [--subphase <name>] [--input-root <absolute-dir>] --log-dir <absolute-dir> [--evidence-dir <absolute-dir>]
 USAGE
 }
 
@@ -302,9 +308,9 @@ trap 'on_signal TERM 143' TERM
 trap 'on_signal HUP 129' HUP
 
 case "$SUITE" in
-  smoke|journeys|t1) ;;
+  smoke|journeys|t1|cfgtest) ;;
   *)
-    printf 'error=unknown --suite %s; expected smoke, journeys or t1\n' "$SUITE" >&2
+    printf 'error=unknown --suite %s; expected smoke, journeys, t1 or cfgtest\n' "$SUITE" >&2
     exit 2 ;;
 esac
 if [[ "$SUITE" == "journeys" ]]; then
@@ -312,14 +318,14 @@ if [[ "$SUITE" == "journeys" ]]; then
     printf 'error=--suite journeys requires --subphase fe3b|fe3c|fe4a|fe4b|s2b-routing (got %s)\n' "$SUBPHASE" >&2
     exit 2
   }
-elif [[ "$SUITE" == "t1" ]]; then
-  [[ -n "$INPUT_ROOT" ]] || { printf 'error=--suite t1 requires --input-root <absolute-dir>\n' >&2; exit 2; }
+elif [[ "$SUITE" == "t1" || "$SUITE" == "cfgtest" ]]; then
+  [[ -n "$INPUT_ROOT" ]] || { printf 'error=--suite %s requires --input-root <absolute-dir>\n' "$SUITE" >&2; exit 2; }
 elif [[ "$SUBPHASE" != "fe3a" ]]; then
   printf 'error=--suite smoke only runs with --subphase fe3a (got %s)\n' "$SUBPHASE" >&2
   exit 2
 fi
-if [[ "$SUITE" != "t1" && -n "$INPUT_ROOT" ]]; then
-  printf 'error=--input-root is for the FE3c t1 suite; journeys builds its own upload directories\n' >&2
+if [[ "$SUITE" != "t1" && "$SUITE" != "cfgtest" && -n "$INPUT_ROOT" ]]; then
+  printf 'error=--input-root is for the t1 and cfgtest real-data suites; journeys builds its own upload directories\n' >&2
   exit 2
 fi
 
@@ -358,8 +364,14 @@ FE4A_SCOPE_SLUGS=(j1-archive-mainline j2-manual-close)
 T1_SCOPE_ROLE_SPEC=(
   "t1=submitter,reviewer,archiver"
 )
+# cfgtest: one scope on the read-only com_cfg_test copies.
+CFGTEST_SCOPE_ROLE_SPEC=(
+  "cfgtest=submitter,reviewer,archiver"
+)
 if [[ "$SUITE" == "t1" ]]; then
   ACTIVE_SCOPE_ROLE_SPEC=("${T1_SCOPE_ROLE_SPEC[@]}")
+elif [[ "$SUITE" == "cfgtest" ]]; then
+  ACTIVE_SCOPE_ROLE_SPEC=("${CFGTEST_SCOPE_ROLE_SPEC[@]}")
 elif [[ "$SUITE" == "journeys" && "$SUBPHASE" == "fe3b" ]]; then
   ACTIVE_SCOPE_ROLE_SPEC=()
   for journey_spec in "${JOURNEY_SCOPE_ROLE_SPEC[@]}"; do
@@ -625,13 +637,16 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 fi
 
-if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" || "$SUITE" == "cfgtest" ]]; then
   # One identity per (journey scope, role); every identity carries its own
   # random token and actor id, and shares the scope's gateway device and
   # business project. Tokens never reach the log (names/permissions only).
   if [[ "$SUITE" == "t1" ]]; then
     T1_INPUT_MOUNT="/t1-inputs"
     SCOPES_INPUT_MOUNT="$T1_INPUT_MOUNT"
+  elif [[ "$SUITE" == "cfgtest" ]]; then
+    CFGTEST_INPUT_MOUNT="/cfgtest-inputs"
+    SCOPES_INPUT_MOUNT="$CFGTEST_INPUT_MOUNT"
   else
     SCOPES_INPUT_MOUNT="$JOURNEY_INPUT_MOUNT"
   fi
@@ -725,6 +740,13 @@ for spec in specs:
             "full_initial": f"{input_mount}/t1-v1",
             "full_modified": f"{input_mount}/t1-v2",
         }
+    if slug == "cfgtest":
+        # Owner-confirmed real range: com_cfg_test 1 then 2, mounted read-only.
+        inputs = {
+            "modified_only": f"{input_mount}/cfgtest-v1",
+            "full_initial": f"{input_mount}/cfgtest-v1",
+            "full_modified": f"{input_mount}/cfgtest-v2",
+        }
     scopes.append({
         "slug": slug,
         "roles": declared,
@@ -805,7 +827,7 @@ GROUPS_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/gateway-fe-groups.XXXXXX")"
 GROUPS_CONTROL="$LOG_DIR/groups-control"
 mkdir "$GROUPS_CONTROL"
 SCOPES_ARGS=()
-if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then SCOPES_ARGS=(--scopes "$RUN_ROOT/journey-scopes.json"); fi
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" || "$SUITE" == "cfgtest" ]]; then SCOPES_ARGS=(--scopes "$RUN_ROOT/journey-scopes.json"); fi
 # Hand flock ownership to the sole stack process, retaining our node marker.
 exec 9>&-
 HAVE_FLOCK=0
@@ -905,6 +927,40 @@ print(json.dumps(wanted))
 PY
 )"
   log "t1_expected_from=vnext/backend/benchmarks/real_dump_journey.py"
+elif [[ "$SUITE" == "cfgtest" ]]; then
+  # Owner-confirmed real range: copies of legacy/data/com_cfg_test/{1,2}. Every
+  # file is re-verified against manifests whose own digests are pinned here,
+  # then the root is mounted read-only. The inputs are never written.
+  INPUT_ROOT="$(realpath -m -- "$INPUT_ROOT")"
+  for cfg_dir in cfgtest-v1 cfgtest-v2; do
+    [[ -d "$INPUT_ROOT/$cfg_dir" ]] || { log "error=cfgtest input dir missing: $INPUT_ROOT/$cfg_dir"; exit 2; }
+    pmc_count="$(find "$INPUT_ROOT/$cfg_dir" -maxdepth 1 -name '*.pmc' | wc -l)"
+    [[ "$pmc_count" == "1" ]] || { log "error=cfgtest input dir must contain exactly one .pmc: $cfg_dir (got $pmc_count)"; exit 2; }
+    [[ -f "$INPUT_ROOT/$cfg_dir/sql/dbcfg.sql" ]] || { log "error=cfgtest input dir missing sql/dbcfg.sql: $cfg_dir"; exit 2; }
+    [[ -f "$INPUT_ROOT/$cfg_dir/comps/logic/logics.xml" ]] || { log "error=cfgtest input dir missing comps/logic/logics.xml: $cfg_dir"; exit 2; }
+    case "$cfg_dir" in
+      cfgtest-v1) expected_manifest=ff5fd0e8e783a906d4d21a605782bc0eb9591b8d6b8e88dc59e8b21c3a7e3823; expected_files=139 ;;
+      cfgtest-v2) expected_manifest=7885ebeb371a3774f3fe562282b203f77a53bfeeb9b1c7584549adf4e1b7c7f1; expected_files=140 ;;
+    esac
+    manifest="$INPUT_ROOT/SHA256SUMS-$cfg_dir.txt"
+    [[ -f "$manifest" ]] || { log "error=cfgtest checksum manifest missing: $manifest"; exit 2; }
+    actual_manifest="$(sha256sum "$manifest" | cut -d' ' -f1)"
+    log "cfgtest_manifest=${cfg_dir} path=${manifest} sha256=${actual_manifest}"
+    if [[ "$actual_manifest" != "$expected_manifest" ]]; then
+      log "error=cfgtest manifest sha256 mismatch: $cfg_dir expected=$expected_manifest actual=$actual_manifest"
+      exit 2
+    fi
+    actual_files="$(find "$INPUT_ROOT/$cfg_dir" -type f | wc -l)"
+    [[ "$actual_files" == "$expected_files" && "$(wc -l < "$manifest")" == "$expected_files" ]] || {
+      log "error=cfgtest file count mismatch: $cfg_dir files=$actual_files manifest=$(wc -l < "$manifest") expected=$expected_files"; exit 2; }
+    (cd "$INPUT_ROOT/$cfg_dir" && sha256sum --quiet -c -- "$manifest") | tee -a "$LOG_FILE"
+    log "cfgtest_input_dir=${cfg_dir} files=${actual_files} bytes=$(du -sb "$INPUT_ROOT/$cfg_dir" | cut -f1) sql_sha256=$(sha256sum "$INPUT_ROOT/$cfg_dir/sql/dbcfg.sql" | cut -d' ' -f1) verified=true"
+  done
+  CFGTEST_INPUT_MOUNT="/cfgtest-inputs"
+  INPUT_MOUNT_SOURCE="$INPUT_ROOT"
+  INPUT_MOUNT_TARGET="$CFGTEST_INPUT_MOUNT"
+  log "cfgtest_input_root=$INPUT_ROOT"
+  log "cfgtest_input_mount=$CFGTEST_INPUT_MOUNT (read-only)"
 else
   JOURNEY_INPUT_ROOT="$RUN_ROOT/journey-inputs"
   mkdir -p -- "$JOURNEY_INPUT_ROOT"
@@ -1101,6 +1157,9 @@ else
   if [[ "$SUITE" == "t1" ]]; then
     PREFLIGHT_INPUT_ROOT="$INPUT_ROOT"
     PREFLIGHT_INPUT_MOUNT="$T1_INPUT_MOUNT"
+  elif [[ "$SUITE" == "cfgtest" ]]; then
+    PREFLIGHT_INPUT_ROOT="$INPUT_ROOT"
+    PREFLIGHT_INPUT_MOUNT="$CFGTEST_INPUT_MOUNT"
   else
     PREFLIGHT_INPUT_ROOT="$JOURNEY_INPUT_ROOT"
     PREFLIGHT_INPUT_MOUNT="$JOURNEY_INPUT_MOUNT"
@@ -1200,7 +1259,7 @@ fi
 
 chmod 0600 "$IDENTITIES_FILE"
 docker cp "$IDENTITIES_FILE" "$TOOLCHAIN_CONTAINER:/tmp/identities.json"
-if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
+if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" || "$SUITE" == "cfgtest" ]]; then
   docker cp "$RUN_ROOT/journey-scopes.json" "$TOOLCHAIN_CONTAINER:/tmp/journey-scopes.json"
   if [[ "$SUITE" == "t1" ]]; then
     SUITE_ENV=(
@@ -1210,6 +1269,13 @@ if [[ "$SUITE" == "journeys" || "$SUITE" == "t1" ]]; then
       --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
     )
     SUITE_SPEC="e2e-real/t1.spec.ts"
+  elif [[ "$SUITE" == "cfgtest" ]]; then
+    SUITE_ENV=(
+      --env "GATEWAY_FE_JOURNEY_INPUT_ROOT=$CFGTEST_INPUT_MOUNT"
+      --env "GATEWAY_FE_CFGTEST_INPUT_ROOT=$CFGTEST_INPUT_MOUNT"
+      --env "GATEWAY_FE_PREVIEW_URL=http://127.0.0.1:4173"
+    )
+    SUITE_SPEC="e2e-real/cfgtest.spec.ts"
   else
     SUITE_ENV=(
       --env "GATEWAY_FE_JOURNEY_INPUT_ROOT=$JOURNEY_INPUT_MOUNT"

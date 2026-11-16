@@ -58,6 +58,11 @@ from gateway_backend.application.checkpoints import (
     put_checkpoint_state_artifact,
 )
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.application.preview_job_identity import (
+    PREVIEW_JOB_CONTRACT_VERSION,
+    PREVIEW_JOB_KIND,
+    PREVIEW_STEP_MATERIALIZE,
+)
 from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
 from gateway_backend.application.pair_pipeline import (
     ComparisonTaskSession,
@@ -243,9 +248,6 @@ from gateway_backend.operations.worker import (
 
 _LOG = logging.getLogger(__name__)
 
-PREVIEW_JOB_KIND = "backend-vnext/preview"
-PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v5"
-PREVIEW_STEP_MATERIALIZE = "materialize_inputs"
 PREVIEW_STEP_ASSEMBLE = "assemble_preview"
 PREVIEW_STEP_PUBLISH = "publish_preview"
 

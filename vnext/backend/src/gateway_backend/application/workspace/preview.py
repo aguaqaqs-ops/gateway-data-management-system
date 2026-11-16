@@ -12,7 +12,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
 from gateway_backend.application.preview_semantics import current_preview_capabilities
-from gateway_backend.application.preview_jobs import (
+from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_CONTRACT_VERSION,
     PREVIEW_JOB_KIND,
     PREVIEW_STEP_MATERIALIZE,

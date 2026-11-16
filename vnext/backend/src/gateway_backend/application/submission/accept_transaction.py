@@ -9,9 +9,6 @@ from datetime import datetime
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
 from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
-from gateway_backend.application.preview_jobs import (
-    PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND, decode_preview_payload,
-)
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     assert_no_canonical_change,
@@ -171,6 +168,11 @@ def accept_submit_transaction(
 
 def _assert_current_preview_semantics(unit_of_work: SubmitControlTransaction, preview: PreviewResult) -> None:
     """Check only new T1 accepts; replay and frozen readers retain original identity."""
+    # Preview job initialization imports workspace, whose public API imports this module.
+    from gateway_backend.application.preview_jobs import (
+        PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND, decode_preview_payload,
+    )
+
     message = "preview semantics changed; use a new key to create a new preview"
     try:
         operation = unit_of_work.operations.get_operation(preview.operation_id)

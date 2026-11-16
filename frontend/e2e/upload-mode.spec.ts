@@ -162,6 +162,7 @@ async function installModeRoutes(page: Page, state: ModeState) {
     headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
     body: bundle.tar,
   }));
+  await page.route("**/v1/history-compares?*", (route) => json(route, 200, { items: [], next_cursor: null } satisfies Schemas["HistoryCompareListResponse"]));
   await page.route("**/v1/history-compares", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     return json(route, 202, { operation_id: "history-compare-d", status: "QUEUED", replayed: false });

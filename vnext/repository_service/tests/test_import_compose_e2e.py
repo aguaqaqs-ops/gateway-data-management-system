@@ -27,6 +27,8 @@ from support.snapshot_admin_harness import list_dolt_pids, snapshot_check_temp_h
 from support.import_admission_crash_harness import build_import_package_bytes
 from test_import_package import write_artifact
 
+pytestmark = pytest.mark.container
+
 RUNNER = Path(__file__).resolve().parent / "support" / "import_compose_http_runner.py"
 _CONTAINER_TOKEN_PATH = "/run/secrets/repository-bearer-token"
 

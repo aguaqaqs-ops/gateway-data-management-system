@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 VNEXT = Path(__file__).resolve().parents[2]
 
 

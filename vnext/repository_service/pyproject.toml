@@ -43,6 +43,7 @@ markers = [
     "integration: needs real dolt, subprocesses, or durable on-disk state",
     "serial: timing sensitive; must not compete for CPU with other tests",
     "parallel_safe: serial-origin test reviewed as independent and safe for the parallel batch",
+    "container: requires Docker or Compose (excluded when GATEWAY_TEST_SCOPE=package)",
 ]
 filterwarnings = [
     "error::starlette.exceptions.StarletteDeprecationWarning",

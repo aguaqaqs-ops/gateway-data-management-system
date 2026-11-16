@@ -19,7 +19,7 @@ import pytest
 from gateway_backend.processing_group_config import DeviceDirectory, DeviceDirectoryEntry, ProcessingGroupsConfig
 from gateway_backend.device_identity import device_route_key
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 SCRIPTS = Path(__file__).resolve().parents[2] / 'scripts'
 FIXTURES = Path(__file__).resolve().parents[2] / 'fixtures/processing-groups/v1'
 

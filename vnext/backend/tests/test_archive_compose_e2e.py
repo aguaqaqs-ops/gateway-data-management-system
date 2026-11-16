@@ -41,7 +41,7 @@ from tests.support.upload_http_packages import (
 )
 from tests.support.source_package_fixtures import pack_tar_gz
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 ARCHIVER_TOKEN = "compose-archiver-token"
 ARCHIVE_ONLY_TOKEN = "compose-archive-only-token"

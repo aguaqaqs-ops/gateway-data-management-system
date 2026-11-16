@@ -44,6 +44,8 @@ from support.snapshot_admin_harness import (
     snapshot_check_temp_homes,
 )
 
+pytestmark = pytest.mark.container
+
 _TOKEN = "compose-e2e-bearer-token"
 _WRONG_TOKEN = "compose-e2e-wrong-token"
 

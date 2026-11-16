@@ -29,7 +29,7 @@ from tests.support.compose_gate_harness import (
 )
 from tests.support.container_input_files import write_container_readable_text
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 SELF_TOKEN = "compose-self-only-token"
 

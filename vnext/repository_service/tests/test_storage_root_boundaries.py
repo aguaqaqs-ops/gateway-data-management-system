@@ -121,6 +121,7 @@ def _run_container(command: list[str], args: list[str], *, timeout: int) -> subp
 
 @pytest.mark.integration
 @pytest.mark.serial
+@pytest.mark.container
 def test_nested_mount_is_rejected_before_creation_or_permission_changes(tmp_path: Path) -> None:
     command = _container_command(tmp_path, nested_mount=True)
     script = r"""
@@ -157,6 +158,7 @@ print('NESTED_MOUNT_REJECTED_BEFORE_MUTATION')
 
 @pytest.mark.integration
 @pytest.mark.serial
+@pytest.mark.container
 def test_entrypoint_prepares_known_parent_and_runs_real_create_as_gateway(tmp_path: Path) -> None:
     command = _container_command(tmp_path)
     script = r"""

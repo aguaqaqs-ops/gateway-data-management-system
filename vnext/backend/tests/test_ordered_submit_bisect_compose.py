@@ -44,7 +44,7 @@ from tests.support.container_input_files import write_container_readable_text
 from tests.support.source_package_fixtures import pack_tar_gz
 from tests.support.upload_http_packages import upload_files
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 ACTOR2_TOKEN = "compose-actor-2-token"
 _SUBMIT_STEP_TIMEOUT_SECONDS = 90.0

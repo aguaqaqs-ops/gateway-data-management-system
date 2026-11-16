@@ -18,7 +18,7 @@ from tests.support.container_input_files import write_container_readable_text
 from tests.support.processing_groups_harness import EXECUTOR_BARRIER, wait_for
 from tests.test_submit_compose_e2e import ACTOR2_TOKEN, _compose_env
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 
 def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[Path],

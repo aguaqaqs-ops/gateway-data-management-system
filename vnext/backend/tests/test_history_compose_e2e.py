@@ -57,7 +57,7 @@ from tests.support.composite_signal import load_text as load_composite_fixture_t
 from tests.support.upload_http_packages import composite_signal_upload_files, upload_files
 from tests.support.source_package_fixtures import pack_tar_gz
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 ARCHIVER_TOKEN = "compose-archiver-token"
 ACTOR2_TOKEN = "compose-actor-2-token"

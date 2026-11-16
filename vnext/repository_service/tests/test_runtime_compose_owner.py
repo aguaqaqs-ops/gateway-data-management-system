@@ -10,7 +10,7 @@ import pytest
 
 from support import compose_lifecycle_harness as harness
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 
 @pytest.mark.parametrize("retain", (False, True))

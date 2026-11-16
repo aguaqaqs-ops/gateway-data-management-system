@@ -31,6 +31,15 @@ def requires_dolt() -> None:
         pytest.skip("dolt is not available")
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    # Registered here rather than backend/pyproject.toml because pyproject.toml is hashed
+    # into the preloaded gateway-backend-deps:lock-* base image.
+    config.addinivalue_line(
+        "markers",
+        "container: requires Docker or Compose (excluded when GATEWAY_TEST_SCOPE=package)",
+    )
+
+
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:

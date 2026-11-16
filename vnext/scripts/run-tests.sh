@@ -15,6 +15,7 @@ VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${VNEXT_ROOT}/scripts/lib/gateway-index-env.sh"
 UV_CONSUME="${GATEWAY_UV_CONSUME:-${VNEXT_ROOT}/scripts/uv-consume.sh}"
 TEST_WORKERS="${GATEWAY_TEST_WORKERS:-auto}"
+TEST_SCOPE="${GATEWAY_TEST_SCOPE:-stage}"
 
 RUNNER_TMPDIR="${TMPDIR:-/tmp}"
 if [[ "${RUNNER_TMPDIR}" != /* ]]; then
@@ -107,23 +108,6 @@ for package in "${SELECTED_PACKAGES[@]}"; do
     PACKAGE_STATUS["${package}"]=not_run
 done
 
-BACKEND_COMPOSE_TEST_FILES=(
-    tests/test_archive_compose_e2e.py
-    tests/test_backend_http_container_gate.py
-    tests/test_fixed_workers_compose_e2e.py
-    tests/test_history_compose_e2e.py
-    tests/test_ordered_compare_compose.py
-    tests/test_ordered_submit_bisect_compose.py
-    tests/test_review_compose_e2e.py
-    tests/test_submit_compose_e2e.py
-)
-
-REPOSITORY_SERVICE_COMPOSE_TEST_FILES=(
-    tests/test_compose_lifecycle_negative_probes.py
-    tests/test_import_compose_e2e.py
-    tests/test_versioned_read_compose_e2e.py
-)
-
 runner_hypothesis_storage_path() {
     printf '%s/%s\n' "${RUNNER_HYPOTHESIS_ROOT}" "$1"
 }
@@ -193,6 +177,10 @@ fi
 
 if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
     echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
+    exit 2
+fi
+if [[ "${TEST_SCOPE}" != "stage" && "${TEST_SCOPE}" != "package" ]]; then
+    echo "error: GATEWAY_TEST_SCOPE must be stage or package" >&2
     exit 2
 fi
 if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
@@ -308,12 +296,16 @@ run_rust_step() {
 
 run_parallel_batch() {
     local package="$1"
+    local marker_expr="(not serial) or parallel_safe"
+    if [[ "${TEST_SCOPE}" == "package" ]]; then
+        marker_expr="((not serial) or parallel_safe) and not container"
+    fi
     echo "==> ${package} (parallel)"
     local parallel_start=${SECONDS}
     local parallel_status=0
     if ! (
         cd "${VNEXT_ROOT}/${package}"
-        run_locked_pytest -q -m "(not serial) or parallel_safe" -n "${TEST_WORKERS}" "${RUNNER_PYTEST_ARGS[@]}"
+        run_locked_pytest -q -m "${marker_expr}" -n "${TEST_WORKERS}" "${RUNNER_PYTEST_ARGS[@]}"
     ); then
         test_exit=1
         parallel_status=1
@@ -324,23 +316,24 @@ run_parallel_batch() {
 
 run_serial_batches() {
     local package="$1"
-    shift
-    local compose_files=("$@")
     echo "==> ${package} (serial)"
     local serial_start=${SECONDS}
     local serial_status=0
-    if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
-        # Docker secret bind mounts cannot be remounted from an LXC-provided
-        # tmpfs in the authoritative Compose path. Keep those host paths on the
-        # real filesystem while using tmpfs for all other test-owned workspaces.
-        local compose_ignores=()
-        local compose_file
-        for compose_file in "${compose_files[@]}"; do
-            compose_ignores+=("--ignore=${compose_file}")
-        done
+    if [[ "${TEST_SCOPE}" == "package" ]]; then
         if ! (
             cd "${VNEXT_ROOT}/${package}"
-            run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${compose_ignores[@]}" "${RUNNER_PYTEST_ARGS[@]}"
+            run_locked_pytest -q -m "(serial and not parallel_safe) and not container" -n 0 "${RUNNER_PYTEST_ARGS[@]}"
+        ); then
+            test_exit=1
+            serial_status=1
+        fi
+    elif [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
+        # Docker secret bind mounts cannot be remounted from an LXC-provided
+        # tmpfs in the authoritative Compose path. Keep container tests on the
+        # real filesystem while using tmpfs for all other test-owned workspaces.
+        if ! (
+            cd "${VNEXT_ROOT}/${package}"
+            run_locked_pytest -q -m "(serial and not parallel_safe) and not container" -n 0 "${RUNNER_PYTEST_ARGS[@]}"
         ); then
             test_exit=1
             serial_status=1
@@ -348,7 +341,7 @@ run_serial_batches() {
         PYTEST_TMP_ARGS=()
         if ! (
             cd "${VNEXT_ROOT}/${package}"
-            run_locked_pytest -q -m "serial and not parallel_safe" -n 0 "${compose_files[@]}" "${RUNNER_PYTEST_ARGS[@]}"
+            run_locked_pytest -q -m "(serial and not parallel_safe) and container" -n 0 "${RUNNER_PYTEST_ARGS[@]}"
         ); then
             test_exit=1
             serial_status=1
@@ -416,11 +409,11 @@ if [[ "${test_exit}" -ne 0 ]] && [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" || -
 fi
 
 if [[ "${skip_serial}" -eq 0 && -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
-    run_serial_batches backend "${BACKEND_COMPOSE_TEST_FILES[@]}"
+    run_serial_batches backend
 fi
 
 if [[ "${skip_serial}" -eq 0 && -n "${SELECTED_PACKAGE_SET[repository_service]:-}" ]]; then
-    run_serial_batches repository_service "${REPOSITORY_SERVICE_COMPOSE_TEST_FILES[@]}"
+    run_serial_batches repository_service
 fi
 
 if ! gateway_assert_lockfiles_unchanged "${VNEXT_ROOT}" "${LOCK_SNAPSHOT}"; then

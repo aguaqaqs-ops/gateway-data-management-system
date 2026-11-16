@@ -26,7 +26,7 @@ from tests.support.compose_gate_harness import (
 )
 from tests.support.container_input_files import write_container_readable_text
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 
 def _compose_env(tmp_path: Path) -> dict[str, str]:

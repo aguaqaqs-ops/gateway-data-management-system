@@ -51,6 +51,8 @@ from support.compose_lifecycle_harness import (
 )
 from support.snapshot_admin_harness import list_dolt_pids, snapshot_check_temp_homes
 
+pytestmark = pytest.mark.container
+
 _TOKEN = "compose-e2e-bearer-token"
 
 

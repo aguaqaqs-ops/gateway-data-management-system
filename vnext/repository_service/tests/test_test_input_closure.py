@@ -1205,3 +1205,44 @@ def test_mixed_stage_gate_rechecks_carried_backend_after_repository_runner(
     if change == "unchanged":
         assert entry["manifest"] == entry["final_manifest"]
         assert entry["manifest"]["path"] == str(gate.directory / "final-carried-backend.json")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("package", "expected_status"),
+    [
+        ("rust", "可沿用"),
+        ("shared_kernel", "可沿用"),
+        ("repository_contracts", "可沿用"),
+        ("repository_client", "可沿用"),
+        ("backend", "运行"),
+        ("repository_service", "运行"),
+    ],
+)
+def test_package_test_scope_isolates_container_packages_only(
+    package: str,
+    expected_status: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    monkeypatch.setitem(
+        CLOSURE_GLOBALS,
+        "_docker_image_id",
+        lambda _root, tag: "sha256:" + hashlib.sha256(tag.encode()).hexdigest(),
+    )
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_inventory", lambda _root: [])
+
+    def manifest(environ: dict[str, str]) -> dict[str, Any]:
+        inputs = CLOSURE["_docker_build_inputs"](repo_root, package, environ=environ)
+        environment = dict(FAKE_ENVIRONMENT)
+        environment["docker_build_inputs"] = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+        return cast(
+            dict[str, Any],
+            CLOSURE["build_manifest"](repo_root, package, environment=environment),
+        )
+
+    stage_manifest = manifest({})
+    package_manifest = manifest({"GATEWAY_TEST_SCOPE": "package"})
+    assert CLOSURE["compare_manifests"](stage_manifest, package_manifest)["status"] == expected_status
+    assert CLOSURE["compare_manifests"](package_manifest, stage_manifest)["status"] == expected_status

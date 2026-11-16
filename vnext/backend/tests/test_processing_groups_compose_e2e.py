@@ -13,7 +13,7 @@ import pytest
 from tests.support import compose_gate_harness as harness
 from tests.support.processing_groups_harness import ProcessingGroupsStack, session, wait_for
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 
 def _internal_statistics(stack: ProcessingGroupsStack) -> None:

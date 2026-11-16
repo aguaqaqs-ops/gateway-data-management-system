@@ -208,12 +208,12 @@
     },
     {
       "path": "pure-row-changes-before.sql",
-      "sha256": "c3dafa95c693eb34fbfbf5c136a41ad48560ed449237d957f596ffbe5b5049e4",
+      "sha256": "e955274f78e203a1c5d8ec87bf5571e0fbf930c7d92d287824ba78f165c14536",
       "source": "Pure added/deleted device point rows and full old values"
     },
     {
       "path": "pure-row-changes-current.sql",
-      "sha256": "559e12b616d92ed31fa3867ea82fb0edd90fb35df46e7a561ed3141d65751fca",
+      "sha256": "9e1e678d7da2e4228dacfa501826df99b049429273c0f4c9a48c0fffc9747e89",
       "source": "Pure added/deleted device point rows and full old values"
     }
   ],

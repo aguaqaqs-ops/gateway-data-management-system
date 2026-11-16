@@ -1,0 +1,1 @@
+[{"document":{"contract_version":"backend-vnext/business-navigation/v5","diagnostics":[{"code":"DEVICE_MEMBERSHIP_UNAVAILABLE","params":{"identity_column":"dev_addr","reason":"MEMBERSHIP_UNAVAILABLE"},"side":null,"target":{"group_key":"SECONDARY_DEVICES","item_key":null,"tab_key":null,"table_id":"device_st"}}]},"pair_id":"initial_to_modified","scenario":"table-addition"}]

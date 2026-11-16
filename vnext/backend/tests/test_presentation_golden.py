@@ -17,7 +17,7 @@ from gateway_backend.capabilities.business_navigation.contracts import validate_
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.capabilities.row_location import LOCATOR_SCHEMA
 
-GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v3"
+GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v4"
 MANIFEST: dict[str, Any] = json.loads((GOLDEN / "manifest.json").read_bytes())
 SCENARIOS = tuple(item["scenario"] for item in MANIFEST["scenarios"])
 CODE_INVENTORY: dict[str, Any] = json.loads((Path(__file__).resolve().parents[2] / "fixtures/presentation-inputs/diagnostic-codes.json").read_bytes())
@@ -60,13 +60,13 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
             items = [item for group in navigation["groups"] for item in group["items"]]
             tabs = [tab for item in items for tab in item["tabs"]]
             assert tabs and all(tab["empty"] is True for tab in tabs)
-            assert all(item["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0} for item in items)
+            assert all(item["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0, "change_complete": True, "risk_complete": True} for item in items)
             assert all(group["nonempty_item_count"] == 0 for group in navigation["groups"])
         if scenario == "table-addition":
             secondary = navigation["groups"][1]
             empty_device = next(i for i in secondary["items"] if i["item_key"] == "device:addr:49")
             assert all(t["empty"] for t in empty_device["tabs"])
-            assert empty_device["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0}
+            assert empty_device["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0, "change_complete": True, "risk_complete": True}
             assert secondary["nonempty_item_count"] == 1
             added_empty = next(t for g in navigation["groups"] for i in g["items"] for t in i["tabs"]
                                if t["table_id"] == "b1_n1_sg_cfg")

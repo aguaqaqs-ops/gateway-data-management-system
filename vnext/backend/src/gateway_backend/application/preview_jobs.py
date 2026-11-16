@@ -244,7 +244,7 @@ from gateway_backend.operations.worker import (
 _LOG = logging.getLogger(__name__)
 
 PREVIEW_JOB_KIND = "backend-vnext/preview"
-PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v4"
+PREVIEW_JOB_CONTRACT_VERSION = "backend-vnext/preview/v5"
 PREVIEW_STEP_MATERIALIZE = "materialize_inputs"
 PREVIEW_STEP_ASSEMBLE = "assemble_preview"
 PREVIEW_STEP_PUBLISH = "publish_preview"
@@ -280,7 +280,7 @@ _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-c
 PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
 PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v3"
 PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
-PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v10"
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v11"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -505,6 +505,10 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
         payload_object.get("capability_contract_versions"),
         label="capability_contract_versions",
     )
+    from gateway_backend.application.preview_semantics import current_preview_capabilities
+
+    if capability_contract_versions != current_preview_capabilities():
+        raise PayloadDecodeError("preview capability versions do not match current semantics", code="PAYLOAD_SHAPE_INVALID")
     provider_versions = _decode_string_map(payload_object.get("provider_versions"), label="provider_versions")
     ready_closure_contract_version = _require_non_empty_str(
         payload_object,

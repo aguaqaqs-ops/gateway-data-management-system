@@ -136,11 +136,24 @@ def test_v1_rules_freeze_rule_ids_scopes_reasons_and_levels() -> None:
     assert levels[RiskRuleId.ROW_ADDED] is RiskLevel.MEDIUM_LOW
     assert levels[RiskRuleId.ROW_DELETED] is RiskLevel.MEDIUM_LOW
     assert levels[RiskRuleId.ROW_MODIFIED] is RiskLevel.MEDIUM_HIGH
+    assert levels[RiskRuleId.STANDARD_NAME_UPDATE] is RiskLevel.LOW
     assert levels[RiskRuleId.KEY_DEGRADED] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.ORDERED_DIFF_UNSUPPORTED] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.COMPARISON_FAILED] is RiskLevel.HIGH
     assert levels[RiskRuleId.COMPOSITE_SIGNAL_POINT] is RiskLevel.UNKNOWN
     assert levels[RiskRuleId.UNKNOWN_CHANGE_TARGET] is RiskLevel.UNKNOWN
+
+
+@pytest.mark.parametrize("params", ((), (("exclude_table:device_mx", True),), (("unknown", True),)))
+def test_ruleset_rejects_missing_or_unapproved_table_exclusions(
+    params: tuple[tuple[str, bool], ...],
+) -> None:
+    from gateway_backend.capabilities.risk_evaluation._rules import InvalidRiskRuleset, validate_risk_ruleset
+
+    rules = tuple(replace(rule, params=params) if rule.rule_id is RiskRuleId.ROW_ADDED else rule
+                  for rule in V1_RISK_RULE_SPECS)
+    with pytest.raises(InvalidRiskRuleset, match="parameters"):
+        validate_risk_ruleset(RiskRulesetSnapshot(rules=rules))
 
 
 def test_ruleset_document_round_trip_and_digest_are_stable() -> None:

@@ -11,6 +11,7 @@ from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.preview_semantics import current_preview_capabilities
 from gateway_backend.application.preview_jobs import (
     PREVIEW_JOB_CONTRACT_VERSION,
     PREVIEW_JOB_KIND,
@@ -259,7 +260,7 @@ def build_preview_job_payload(
         "input_digest": upload_revision.request_fingerprint,
         "ruleset_version": PREVIEW_FROZEN_RULESET_VERSION,
         "comparison_ruleset_digest": comparison_ruleset_digest,
-        "capability_contract_versions": {},
+        "capability_contract_versions": current_preview_capabilities(),
         "provider_versions": {},
         "ready_closure_contract_version": "v1",
         "idempotency_identity": {

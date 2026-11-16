@@ -29,7 +29,9 @@ import pyarrow.parquet as pq
 from gateway_compute._native import _init_kernel_native
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.application import pair_pipeline
 from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
+from gateway_backend.capabilities.risk_evaluation.contracts import RiskExecutionPolicy
 from gateway_backend.application.preview_jobs import _comparison_storage_facts, _publish_canonical_table_set_closure, surface_artifact_closure
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -234,10 +236,17 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
             rules = table_ruleset_from_document(document)
         common["rule_set"] = comparison_rule_set(rules)
         history = scenario["flow"] == "HISTORY"
-        if history:
-            result = run_history_pair_pipeline(**common)
-        else:
-            result = run_preview_pair_pipeline(**common, view_id=pair["id"])
+        with ExitStack() as fixture_controls:
+            if "risk_artifact_limit" in scenario:
+                original_evaluate = pair_pipeline.evaluate_risk
+                policy = RiskExecutionPolicy(max_annotation_artifact_bytes_per_table=scenario["risk_artifact_limit"])
+                def evaluate_with_limit(*args: Any, **kwargs: Any) -> Any:
+                    return original_evaluate(*args, **kwargs, execution_policy=policy)
+                fixture_controls.enter_context(patch.object(pair_pipeline, "evaluate_risk", evaluate_with_limit))
+            if history:
+                result = run_history_pair_pipeline(**common)
+            else:
+                result = run_preview_pair_pipeline(**common, view_id=pair["id"])
         surface = result.surface_result.surface
         if surface is None or len([p for p in surface.projections if p.projection_kind == "BUSINESS_NAVIGATION"]) != 1:
             raise ValueError("production pair did not publish exactly one navigation")
@@ -263,7 +272,22 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
         label = {"scenario": scenario["id"], "pair_id": pair["id"]}
         for projection in surface.projections:
             if projection.projection_kind == "BUSINESS_NAVIGATION":
-                golden["navigation"].append({**label, "document": json.loads(store.locate(projection.projection_ref))})
+                document = json.loads(store.locate(projection.projection_ref))
+                if scenario["id"] in {"ownership", "ownership-risk-incomplete"}:
+                    tabs = [tab for group in document["groups"] for item in group["items"]
+                            for tab in item["tabs"] if tab["table_id"] == "device_st" and tab["facts"] is not None]
+                    if not any(tab["facts"]["row_changes"]["moved_in"] for tab in tabs):
+                        raise AssertionError("ownership fixture lacks an address migration")
+                    if not document["device_definition_changes"]:
+                        raise AssertionError("ownership fixture lacks device definition changes")
+                    if not any(notice["table_id"] == "device_st" and notice["unlocated_row_risk"] is not None
+                               for notice in document["table_notices"]):
+                        raise AssertionError("ownership fixture lacks public risk")
+                    if scenario["id"] == "ownership-risk-incomplete" and not any(
+                        not tab["facts"]["risk_complete"] and tab["facts"]["basis"] == "EXACT" for tab in tabs
+                    ):
+                        raise AssertionError("fixture lacks exact changes with incomplete risk")
+                golden["navigation"].append({**label, "document": document})
                 golden["navigation-diagnostics"].append({**label, "document": None if projection.diagnostics_ref is None
                     else json.loads(store.locate(projection.diagnostics_ref))})
         physical_tables = []

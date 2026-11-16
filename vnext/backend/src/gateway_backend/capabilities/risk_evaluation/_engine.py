@@ -35,6 +35,7 @@ from gateway_backend.capabilities.risk_evaluation._rules import (
     InvalidRiskRuleset,
     level_for,
     reason_for,
+    standard_rule_applicability,
     validate_risk_ruleset,
 )
 from gateway_backend.capabilities.risk_evaluation.candidates import (
@@ -96,11 +97,12 @@ _MESSAGES: dict[RiskReasonCode, str] = {
     RiskReasonCode.ROW_ADDED: "row added",
     RiskReasonCode.ROW_DELETED: "row deleted",
     RiskReasonCode.ROW_MODIFIED: "row modified",
+    RiskReasonCode.STANDARD_NAME_UPDATE: "row name or description changed",
     RiskReasonCode.ORDERED_MOVE: "ordered row moved",
     RiskReasonCode.ORDERED_REPLACEMENT: "ordered row replaced at the same position",
     RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE: "ordered row inserted or deleted in the middle",
     RiskReasonCode.ORDERED_TAIL_INSERT_DELETE: "ordered row inserted or deleted at the end",
-    RiskReasonCode.ORDERED_NAME_UPDATE: "ordered row name changed",
+    RiskReasonCode.ORDERED_NAME_UPDATE: "ordered row name or description changed",
     RiskReasonCode.ORDERED_CONTENT_UPDATE: "ordered row content changed",
     RiskReasonCode.ORDERED_RISK_UNKNOWN: "ordered change requires review",
     RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL: "blank interval changed in the middle of the table",
@@ -724,7 +726,7 @@ def _emit_ordered_rows(
         if identity is None:
             raise _PairFailure("ordered row missing identity")
         if kind == "ORDERED_ROW_MODIFIED":
-            rule = (RiskRuleId.ORDERED_NAME_UPDATE if columns == ("name",)
+            rule = (RiskRuleId.ORDERED_NAME_UPDATE if columns and set(columns) <= {"name", "description"}
                     else RiskRuleId.ORDERED_CONTENT_UPDATE if columns
                     else RiskRuleId.ORDERED_RISK_UNKNOWN)
             emit(rule, RiskTarget(target_type=RiskTargetType.ROW, table_name=name,
@@ -792,11 +794,11 @@ def _emit_ordered_rows(
             emit(RiskRuleId.ORDERED_REPLACEMENT, RiskTarget(
                 target_type=RiskTargetType.ROW_PAIR, table_name=name, position=position,
                 before_row_identity=deleted.pop(position), current_row_identity=added.pop(position)[0]))
-        maxima_map = evaluation_input.ordered_position_maxima
+        maxima_map = evaluation_input.ordered_tail_bounds
         maxima = None if maxima_map is None else maxima_map.get(name)
         for rows, side in (({position: value[0] for position, value in added.items()}, "current"),
                            (deleted, "before")):
-            opposite_max = None if maxima is None else maxima[0 if side == "current" else 1]
+            opposite_max = None if maxima is None else (maxima.before_max_position if side == "current" else maxima.current_max_position)
             for position, identity in sorted(rows.items()):
                 if maxima is None:
                     rule = RiskRuleId.ORDERED_RISK_UNKNOWN
@@ -818,9 +820,9 @@ def _emit_blank_intervals(
     extension = item.table_fact.blank_extension
     if extension is None or not extension.blank_summary.blank_changed_count:
         return
-    maxima_map = evaluation_input.ordered_position_maxima
+    maxima_map = evaluation_input.ordered_tail_bounds
     maxima = None if maxima_map is None else maxima_map.get(item.table_fact.table_name)
-    if maxima is None:
+    if maxima is None or not maxima.complete:
         emit(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskTarget(
             target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name))
         return
@@ -829,10 +831,10 @@ def _emit_blank_intervals(
     def emit_interval(kind: str, interval: Mapping[str, object]) -> None:
         nonlocal inserted, deleted
         if kind == "BLANK_INSERT_INTERVAL":
-            side, maximum = "current", maxima[1]
+            side, maximum, last = "current", maxima.current_max_position, maxima.current_last_retained_position
             inserted += 1
         elif kind == "BLANK_DELETE_INTERVAL":
-            side, maximum = "before", maxima[0]
+            side, maximum, last = "before", maxima.before_max_position, maxima.before_last_retained_position
             deleted += 1
         else:
             raise _PairFailure("unexpected blank interval record")
@@ -840,7 +842,7 @@ def _emit_blank_intervals(
         if (type(start) is not int or type(end) is not int or type(count) is not int
                 or start < 1 or end < start or count < 1 or maximum is None or end > maximum):
             raise _PairFailure("invalid blank interval position")
-        rule = (RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL if end == maximum
+        rule = (RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL if last is None or last < start
                 else RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL)
         emit(rule, RiskTarget(target_type=RiskTargetType.ROW_INTERVAL,
              table_name=item.table_fact.table_name, position_range=(start, end)),
@@ -883,6 +885,9 @@ def _emit_row_risks(
     require_closure: Callable[[], None],
 ) -> None:
     table = item.table_fact
+    emit_added, emit_deleted, name_low = standard_rule_applicability(
+        evaluation_input.risk_ruleset, table.table_name,
+    )
     counts = {
         ComparisonRecordKind.ROW_ADDED: table.row_added_count,
         ComparisonRecordKind.ROW_DELETED: table.row_deleted_count,
@@ -895,6 +900,9 @@ def _emit_row_risks(
     }
     for record_kind, count in counts.items():
         if count <= 0:
+            continue
+        if ((record_kind is ComparisonRecordKind.ROW_ADDED and not emit_added)
+                or (record_kind is ComparisonRecordKind.ROW_DELETED and not emit_deleted)):
             continue
         rule_id = {
             ComparisonRecordKind.ROW_ADDED: RiskRuleId.ROW_ADDED,
@@ -915,7 +923,11 @@ def _emit_row_risks(
                 row_identity=record.row_identity,
                 changed_columns=record.changed_columns,
             )
-            emit(rule_id, target)
+            actual_rule = (RiskRuleId.STANDARD_NAME_UPDATE
+                if record_kind is ComparisonRecordKind.ROW_MODIFIED
+                and name_low and bool(record.changed_columns)
+                and set(record.changed_columns) <= {"name", "description"} else rule_id)
+            emit(actual_rule, target)
         if not matching_count:
             if suppressed_counts[record_kind] == count:
                 emit(

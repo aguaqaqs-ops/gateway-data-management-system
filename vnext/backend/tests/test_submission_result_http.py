@@ -62,6 +62,19 @@ def _environment(tmp_path: Path, *, identity: Any = None,
 
 
 @pytest.mark.parametrize("endpoint", _RESULT_ENDPOINTS)
+def test_frozen_review_result_survives_current_rule_change(
+    tmp_path: Path, endpoint: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, _seed = _environment(tmp_path)
+    monkeypatch.setattr(
+        "gateway_backend.application.preview_semantics.current_preview_capabilities",
+        lambda: {"risk_model": "future"},
+    )
+    response = env.client.get(f"/v1/submissions/sub-1/{endpoint}", headers=env.auth_headers())
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("endpoint", _RESULT_ENDPOINTS)
 @pytest.mark.parametrize("label,actor,permissions,device,project,expected", _ACCESS_CASES,
     ids=[case[0] for case in _ACCESS_CASES])
 def test_result_authorizes_current_review_scope_before_artifacts(

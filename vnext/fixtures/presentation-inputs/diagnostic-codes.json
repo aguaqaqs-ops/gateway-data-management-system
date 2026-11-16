@@ -26,6 +26,10 @@
     "DEVICE_GID_DUPLICATE": [
       "gid"
     ],
+    "DEVICE_MEMBERSHIP_UNAVAILABLE": [
+      "identity_column",
+      "reason"
+    ],
     "DEVICE_ROWS_UNASSIGNED": [
       "changed_row_count",
       "identity_column",
@@ -35,6 +39,10 @@
       "identity_column"
     ],
     "DEVICE_TAB_FACTS_UNAVAILABLE": [
+      "identity_column",
+      "reason"
+    ],
+    "DEVICE_TAB_RISK_UNAVAILABLE": [
       "identity_column",
       "reason"
     ],

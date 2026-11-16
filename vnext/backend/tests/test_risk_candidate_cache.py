@@ -176,6 +176,15 @@ def test_risk_key_uses_neutral_task_rules_options_and_diagnostics() -> None:
     assert all(_candidate_key(variant) != key for variant in variants)
 
 
+def test_risk_key_separates_shared_table_addition_exclusion() -> None:
+    source = _input((_added_rows("orders", 1),))
+    table = source.comparison_facts.tables[0]
+    excluded = replace(source, comparison_facts=replace(
+        source.comparison_facts, tables=(replace(table, table_name="device_mx"),),
+    ))
+    assert _candidate_key(source) != _candidate_key(excluded)
+
+
 def _evaluate_with_operation(
     evaluation_input: RiskEvaluationInput,
     *,
@@ -265,6 +274,22 @@ class _Candidates:
         if self.charges is not None:
             self.charges.close()
             self.charges = None
+
+
+def test_empty_shared_table_risk_replays_as_complete() -> None:
+    source = _input((_added_rows("device_mx", 1),))
+    cache = _Candidates()
+    cached = replace(source, risk_cache_session=cache, risk_task_keys={"device_mx": "t-key"})
+    try:
+        first = _evaluate_with_operation(cached, artifact_store=InMemoryArtifactStore())
+        second = _evaluate_with_operation(cached, artifact_store=InMemoryArtifactStore())
+        assert first.status is second.status is RiskEvaluationStatus.READY
+        assert cache.events == ()
+        assert cache.hits == 1
+        assert first.risk_report is not None and second.risk_report is not None
+        assert first.risk_report.tables == second.risk_report.tables == ()
+    finally:
+        cache.close()
 
 
 class _MultiCandidates:
@@ -748,3 +773,17 @@ def test_attribution_observer_sees_actual_typed_cold_and_replayed_outcomes(limit
         assert cache.hits == 1
     finally:
         cache.close()
+
+
+def test_ordered_tail_bounds_are_part_of_the_table_candidate_key() -> None:
+    from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
+
+    source = _input((_added_rows("t", 1),))
+    tail = OrderedTailBounds(4, 6, 3, 3, True)
+    baseline = replace(source, ordered_tail_bounds={"t": tail})
+    assert _candidate_key(baseline) != _candidate_key(replace(
+        source, ordered_tail_bounds={"t": replace(tail, current_last_retained_position=5)}))
+    assert _candidate_key(baseline) != _candidate_key(replace(
+        source, ordered_tail_bounds={"t": replace(tail, complete=False)}))
+    assert _candidate_key(baseline) == _candidate_key(replace(
+        source, ordered_tail_bounds={"t": tail, "other": replace(tail, complete=False)}))

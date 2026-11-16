@@ -376,3 +376,7 @@ Surface / Bundle：
 facts ordered records 按 kind、`current_position or before_position or 0`、identity（缺省空）排序；这是现行 facts 序，与 Comparison Records 产物的统一排序不同。gid/no 校验、伪 gid provenance、相邻真实 identity 锚定的空白区间及 occupancy digest 均保留；排序中的首尾空锚按空字符串处理。
 
 未变化表仍按本次有效 pair 策略（含共有列）对当前侧计算单侧 ordered/occupancy 摘要并同时填两侧；不得读取 before 行或运行 LIS/生成 records，不在上传阶段提前计算依赖 pair 的摘要。具体 Arrow 接口与验证见 [S3 设计](../refactoring/formal/plans/p6-s3-design.md)。
+
+## 空点区间与风险
+
+blank interval 的两侧 start/end 是同一骨架间隙的空点包围范围，可能跨非骨架行或稀疏 no；row_count 为两侧占用数净差的绝对值，不是区间跨度。风险目标表示受影响区域且 evidence.count 保持净变化数，不切分区间或伪造逐点变更。尾部分类按 [Risk](risk.md) 的保留有效位置和完整性执行，不改变有序比较或替换配对。

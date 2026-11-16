@@ -925,3 +925,7 @@ surface/workbench assembly
 Comparison 的公共 package facade 提供 `structure_change_is_audit_only`、`visible_table_fact`、`visible_comparison_facts`，作为 application、risk 和 surface 消费同一展示策略的入口；调用方不导入 `comparison.presentation` 内部模块。DAG 方向保持 Comparison → 已有上游不变，risk/surface 仅沿既有 Comparison 公共能力依赖。
 
 `ComparisonTableFactDocument` 与 `describe_table_fact` 是 Comparison 拥有的 flow-neutral 严格原始结果文档及构造入口，供后台审计消费；同一内部字节编码供 neutral cache 使用。文档保留原有字段、严格解码和禁止 row details 的约束，不暴露 cache session、Arrow handle、artifact authority 或缓存私有 helper。此次只收口模块归属与 API，JSON 载荷、digest preimage、算法/Contract/cache identity 和审计/缓存行为均不变；不增加版本或架构豁免。
+
+## 二次装置表规则
+
+`device_st/device_mx/device_co/device_sg/device_sp/device_cnt/device_sn/device_tap/device_other/device_disturb` 采用 STANDARD/ALL_CHANGES；`device_cfg` 沿用 ALL_CHANGES 和既有业务键。table rules registry 的规范快照/digest 由 Comparison planner 和 cache 核对，确保旧 scope 不被复用。行记录及完整展示值参见 [Comparison Contract](../contracts/comparison.md)。

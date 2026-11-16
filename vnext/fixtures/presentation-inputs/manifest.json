@@ -32,7 +32,7 @@
     },
     {
       "path": "diagnostic-codes.json",
-      "sha256": "3e592f5089b35f9d0f68fa9523ba236c4622f4add0b02a31f177a42eb4fda4c9",
+      "sha256": "a074c0ac44f59833cf0f4c53140b2d6a3c5a80a3d8e6f365bfb7c2b5e0f1690c",
       "source": "Business Navigation validator params and current owning diagnostic emit mapping"
     },
     {
@@ -200,6 +200,11 @@
       "path": "workbench-current.sql",
       "sha256": "1cb152de0c97b49b940f8a6199f1de81bedda563ca7cd0fd134d2a007d702d35",
       "source": "BE-b bounded presentation scenario"
+    },
+    {
+      "path": "ownership-current.sql",
+      "sha256": "78fbf55b5b8594160b554c8cba7b1db30111ff4823b7df8801cd3241b93770d9",
+      "source": "Device ownership migration and full add/delete records"
     }
   ],
   "format": "backend-presentation-fixture-inputs/v1",
@@ -1104,6 +1109,84 @@
           "b1_c2_short": "ORDERED_REQUIRED_COLUMN_MISSING"
         }
       }
+    },
+    {
+      "id": "ownership",
+      "output": "backend/scenarios/ownership",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "ownership-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "device-address-migration",
+        "device-definition-changes",
+        "unassigned-rows",
+        "full-before-delete",
+        "standard-add-delete-no-risk"
+      ],
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      }
+    },
+    {
+      "id": "ownership-risk-incomplete",
+      "output": "backend/scenarios/ownership-risk-incomplete",
+      "flow": "PREVIEW",
+      "nodes": [
+        {
+          "sql": "identity-before.sql",
+          "xml": "empty.xml",
+          "role": "baseline",
+          "label": "Baseline"
+        },
+        {
+          "sql": "ownership-current.sql",
+          "xml": "empty.xml",
+          "role": "modified",
+          "label": "Modified"
+        }
+      ],
+      "pairs": [
+        {
+          "id": "initial_to_modified",
+          "before": 0,
+          "current": 1
+        }
+      ],
+      "coverage": [
+        "device-address-migration",
+        "device-definition-changes",
+        "unassigned-rows",
+        "full-before-delete",
+        "standard-add-delete-no-risk",
+        "incomplete-risk"
+      ],
+      "assertions": {
+        "exact_tables": [
+          "device_st"
+        ]
+      },
+      "risk_artifact_limit": 1
     }
   ],
   "root_bundle_source": "backend/pairs/initial_to_modified_fixture_for_backend_digest_cross_implementation",

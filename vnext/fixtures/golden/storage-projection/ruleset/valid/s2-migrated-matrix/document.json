@@ -585,7 +585,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -608,7 +608,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -631,7 +631,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -681,7 +681,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -704,7 +704,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -727,7 +727,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -750,7 +750,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -773,7 +773,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -796,7 +796,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"
@@ -819,7 +819,7 @@
       "table_storage": "PROJECT"
     },
     {
-      "artifact_scope": "UPDATE_ONLY",
+      "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
       "compare_key_columns": [
         "gid"

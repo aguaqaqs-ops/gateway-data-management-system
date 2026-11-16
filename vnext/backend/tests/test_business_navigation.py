@@ -93,14 +93,13 @@ FALLBACK_CASES = (
     ({"expected_record_counts": (1, 0, 0)}, "RECORDS_UNAVAILABLE"),
     ({"suppressed_added_count": 1}, "RECORDS_UNAVAILABLE"),
     ({"suppressed_deleted_count": 1}, "RECORDS_UNAVAILABLE"),
-    ({"risk_attribution_complete": False}, "RISK_ATTRIBUTION_UNAVAILABLE"),
     ({"schema_only": True}, "TABLE_DEGRADED"),
     ({"degraded": True}, "TABLE_DEGRADED"),
 )
 
 
 @pytest.mark.parametrize("changes,reason", FALLBACK_CASES)
-def test_incomplete_records_or_risk_never_report_exact(changes: dict[str, Any], reason: str) -> None:
+def test_incomplete_records_never_report_exact(changes: dict[str, Any], reason: str) -> None:
     source = side(({"dev_addr": 49},))
     shared = replace(table("device_st", source, source), evidence=evidence(**changes))
     result = build(device(({"dev_addr": 49, "gid": 7},), ({"dev_addr": 49, "gid": 8},)), shared)
@@ -140,6 +139,8 @@ def test_row_changes_and_risk_attribute_both_sides_once_per_tab() -> None:
     result = build(device(devs, devs), shared)
     assert [t["facts"]["change_kind"] for t in tabs(result, "device_st")] == ["DELETED", "ADDED"]
     assert all(t["facts"]["risk_level"] == "HIGH" and t["facts"]["table_scope"] is None for t in tabs(result, "device_st"))
+    changes = [t["facts"]["row_changes"] for t in tabs(result, "device_st")]
+    assert [(c["modified"], c["moved_out"], c["moved_in"]) for c in changes] == [(1, 1, 0), (1, 0, 1)]
 
 
 @pytest.mark.parametrize("sql_type,value,reason", [
@@ -583,7 +584,8 @@ def test_empty_marks_existing_zero_sides_without_deleting_audit_tabs(
     assert group["nonempty_item_count"] == int(not empty)
     summary = group["items"][0]["summary"]
     assert summary == {"change_kinds": [] if empty else [kind.value],
-                       "risk_level": None if empty else "HIGH", "nonempty_tab_count": int(not empty)}
+                       "risk_level": None if empty else "HIGH", "nonempty_tab_count": int(not empty),
+                       "change_complete": True, "risk_complete": True}
 
 
 @pytest.mark.parametrize("fallback", (False, True))
@@ -601,8 +603,8 @@ def test_filtered_zero_tab_ignores_other_device_changes_and_table_risks(fallback
     items = result.document["groups"][1]["items"]
     populated = next(i for i in items if i["item_key"] == "device:addr:49")
     all_empty = next(i for i in items if i["item_key"] == "device:addr:50")
-    assert populated["summary"]["risk_level"] == "HIGH"
-    assert all_empty["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0}
+    assert populated["summary"]["risk_level"] == "LOW"
+    assert all_empty["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0, "change_complete": True, "risk_complete": True}
     assert len(marked) == 2  # Audit and browsing keep the empty tab, even under fallback.
 
 
@@ -640,7 +642,7 @@ def test_nonempty_navigation_summary_preserves_every_surface_change_kind(kind: S
     source = side(({},))
     result = build(table("other", source, source, change_kind=NavigationChangeKind(kind.value)))
     summary = result.document["groups"][4]["items"][0]["summary"]
-    assert summary == {"change_kinds": [kind.value], "risk_level": None, "nonempty_tab_count": 1}
+    assert summary == {"change_kinds": [kind.value], "risk_level": None, "nonempty_tab_count": 1, "change_complete": True, "risk_complete": True}
     validate_navigation(result.document, replacement=False)
 
 
@@ -736,10 +738,10 @@ def test_protocol_mapping_claims_literal_prefix(kind: str, exe: str, segment: st
     assert not diagnostics(result, "PROTOCOL_TABLE_NOT_FOUND")
 
 
-def test_navigation_v3_rejects_old_diagnostic_shape_and_version() -> None:
+def test_navigation_v4_rejects_old_diagnostic_shape_and_version() -> None:
     result = build(table("com_cfg", None, side(({"board": 1, "com_no": 2, "exe": "x"},))))
     old_navigation = deepcopy(result.document)
-    old_navigation["contract_version"] = "backend-vnext/business-navigation/v2"
+    old_navigation["contract_version"] = "backend-vnext/business-navigation/v3"
     with pytest.raises(ValueError):
         validate_navigation(old_navigation, replacement=False)
     old_diagnostics = deepcopy(result.diagnostics)
@@ -796,3 +798,73 @@ def test_empty_serial_registry_stays_in_other_tables_when_referenced_by_app() ->
     result = build(registry, app)
     assert any(item["item_key"] == "table:com_cfg" for item in result.document["groups"][4]["items"])
     assert len(tabs(result, "com_cfg")) == 1
+
+
+def test_risk_incomplete_preserves_exact_change_and_known_risk() -> None:
+    old = side(({"dev_addr": 49},))
+    record = FilterRecord("row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 49}, RiskLevel.LOW)
+    shared = replace(table("device_st", old, old), evidence=evidence(records=(record,),
+        expected_record_counts=(0, 0, 1), locator_complete=True, risk_attribution_complete=False))
+    result = build(device(({"dev_addr": 49, "gid": 1},), ({"dev_addr": 49, "gid": 1},)), shared)
+    facts = tabs(result, "device_st")[0]["facts"]
+    assert facts["basis"] == "EXACT" and facts["risk_level"] == "LOW" and not facts["risk_complete"]
+    assert facts["row_changes"]["modified"] == 1
+    assert diagnostics(result, "DEVICE_TAB_RISK_UNAVAILABLE")
+    assert result.document["table_notices"][0]["unlocated_row_risk"]["risk_level"] is None
+
+
+def test_registry_only_equal_count_exchange_marks_membership() -> None:
+    old = ({"dev_addr": 49, "gid": 1}, {"dev_addr": 50, "gid": 2})
+    new = ({"dev_addr": 49, "gid": 2}, {"dev_addr": 50, "gid": 1})
+    source = side(({"gid": 1}, {"gid": 2}), column="gid")
+    result = build(device(old, new), table("device_cfg", source, source, unchanged=True))
+    facts = [tab["facts"] for tab in tabs(result, "device_cfg")]
+    assert all(f["membership_changed"] and f["membership_complete"] and f["change_kind"] == "UPDATED" for f in facts)
+    assert all(f["row_changes"]["modified"] == 0 for f in facts)
+
+
+def test_unowned_row_risk_is_public_and_not_assigned_to_other_devices() -> None:
+    source = side(({"dev_addr": 49}, {"dev_addr": 99}))
+    record = FilterRecord("orphan", "ROW_MODIFIED", {"dev_addr": 99}, {"dev_addr": 99},
+                          RiskLevel.HIGH, ("ROW_MODIFIED",))
+    shared = replace(table("device_st", source, source), evidence=evidence(records=(record,),
+        expected_record_counts=(0, 0, 1), locator_complete=True))
+    result = build(device(({"dev_addr": 49, "gid": 1},), ({"dev_addr": 49, "gid": 1},)), shared)
+    assert tabs(result, "device_st")[0]["facts"]["risk_level"] is None
+    notice = result.document["table_notices"][0]
+    assert notice["unlocated_row_risk"] == {"risk_level": "HIGH", "count": None, "reason_codes": ["ROW_MODIFIED"]}
+
+
+def test_device_changes_use_actual_side_context_and_keep_original_record_identity() -> None:
+    old, new = ({"dev_addr": 49, "gid": 1},), ({"dev_addr": 50, "gid": 1},)
+    record = FilterRecord("device-row", "ROW_MODIFIED", {"dev_addr": 49}, {"dev_addr": 50}, RiskLevel.LOW)
+    registry = replace(device(old, new), evidence=evidence(records=(record,), expected_record_counts=(0, 0, 1), locator_complete=True))
+    changes = build(registry).document["device_definition_changes"]
+    assert changes == [{"record_identity": "device-row", "change_kind": "UPDATED", "before_item_key": "device:addr:49",
+                        "current_item_key": "device:addr:50", "before_dev_addr": 49, "current_dev_addr": 50,
+                        "risk_level": "LOW", "risk_complete": True}]
+
+
+def test_typed_row_pairs_and_ordered_intervals_remain_in_their_scopes() -> None:
+    from gateway_shared_kernel import raw_blob_digest
+    from gateway_backend.application.business_presentation import RiskAttribution
+    from gateway_backend.capabilities.risk_evaluation.contracts import (
+        RiskAnnotation, RiskReason, RiskReasonCode, RiskRuleId, RiskTarget, RiskTargetType,
+    )
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+    )
+    before, current = raw_blob_digest(b"before"), raw_blob_digest(b"current")
+    reason = RiskReason(RiskReasonCode.ROW_MODIFIED, "modified", RiskRuleId.ROW_MODIFIED)
+    pair = RiskAnnotation("pair", RiskLevel.HIGH, RiskTarget(RiskTargetType.ROW_PAIR,
+        table_name="device_st", before_row_identity=before, current_row_identity=current), (reason,))
+    interval = RiskAnnotation("interval", RiskLevel.LOW, RiskTarget(RiskTargetType.ROW_INTERVAL,
+        table_name="ordered", position_range=(1, 3)), (reason,))
+    context = KernelExecutionContext(OperationMemoryBudget(1024 * 1024), NeverCancel(), 1)
+    with kernel_execution_scope(context):
+        attribution = RiskAttribution()
+        attribution.observe("device_st", (pair,), True)
+        attribution.observe("ordered", (interval,), True)
+        assert attribution.rows["device_st"] == {before.value: RiskLevel.HIGH, current.value: RiskLevel.HIGH}
+        assert attribution.unlocated["device_st"] is None and attribution.complete["device_st"]
+        assert attribution.unlocated["ordered"] is None and attribution.complete["ordered"]

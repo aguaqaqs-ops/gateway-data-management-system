@@ -1,6 +1,6 @@
 {
   "contract_version": "backend-vnext/risk/v2",
-  "model_version": "backend-vnext/risk-model/v4",
+  "model_version": "backend-vnext/risk-model/v5",
   "cases": {
     "whole_table_added": {
       "status": "READY",

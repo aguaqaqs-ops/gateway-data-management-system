@@ -1,8 +1,8 @@
 # 二次装置变化归属与风险范围修正设计
 
-状态：设计审核已收口，可作为代码实施依据。已完成用户指定的 gpt-6.1-sol / xhigh 独立审核及原审复核，无未决阻塞；本轮授权限文档和设计审核，不含产品实施、部署或联调数据写入。
+状态：原设计审核已收口；Owner 后续将描述性修改 LOW 的范围扩展至所有普通表和有序表，以下相应段落按新决定更新。已完成用户指定的 gpt-6.1-sol / xhigh 独立审核及原审复核，无未决阻塞；本轮授权限文档和设计审核，不含产品实施、部署或联调数据写入。
 
-本设计修正共享测点表变化与风险向无关装置扩散的问题，同时覆盖二次装置相关表仅修改 `name` 的低风险规则，以及转发有序表尾部空点风险。继续由 Comparison、Risk、Navigation 各自拥有比较、风险与归属，前端统一按发布的范围展示。无法定位的风险集中说明，不能隐藏，也不能当作每台装置的已确认风险。根据 Owner 后续讨论，当前推荐完整保留相关标准表增删事实与展示数据，但增删本身不生成风险；保留必要展示成本，省去无业务需要的风险标注，见 §3.1。
+本设计修正共享测点表变化与风险向无关装置扩散的问题，同时覆盖所有普通表和有序表仅修改 `name`、`description` 的低风险规则，以及转发有序表尾部空点风险。继续由 Comparison、Risk、Navigation 各自拥有比较、风险与归属，前端统一按发布的范围展示。无法定位的风险集中说明，不能隐藏，也不能当作每台装置的已确认风险。根据 Owner 后续讨论，当前推荐完整保留相关标准表增删事实与展示数据，但增删本身不生成风险；保留必要展示成本，省去无业务需要的风险标注，见 §3.1。
 
 ## 1 核实范围与证据
 
@@ -52,7 +52,7 @@
 
 1. 十类测点表 `device_st/device_mx/device_co/device_sg/device_sp/device_cnt/device_sn/device_tap/device_other/device_disturb` 改 ALL_CHANGES。`device_cfg` 保持现有 ALL_CHANGES 与业务键。完整保留新增、删除、修改的 facts/records、必要原侧值和 locator，现有 bundle 闭合展示数据。无新账本、第二套 diff 或删除行专用 bundle。
 2. 上述十一张 STANDARD 表的普通 ROW_ADDED/ROW_DELETED **不生成风险**，但计入变化、统计、归属、差异过滤。其他表的普通增删、整表新增/删除、schema/降级/一致性风险、有序表专项规则不变。键变化仍由 owning Comparison 识别，不猜测增删行之间存在修改关系。
-3. 十类测点表只有 name 修改为 LOW；混合修改依原修改规则。device.description、device_cfg、composite_signal_point.point_name 不纳入本次降级；其中 point_name 现有排除比较规则不改。
+3. 所有普通表和有序表的行修改，只要变化列集合非空且为 `{name, description}` 的子集，即为 LOW；混入其他字段时依原修改规则。`device.description` 和 `device_cfg` 适用该规则；`composite_signal_point.point_name` 不是这两个字段，现有排除比较规则不改。有序行的移动、替换等独立风险仍按原规则叠加。
 4. 正常尾部空点增删 LOW；中间插空改变后续有效点地址保留 MEDIUM_HIGH。中间空点但地址未变仍沿用当前中间风险，不引入尚未确认的进一步降级。全空表的纯空点容量变化归尾部 LOW。
 5. 所有已有确认风险继续在整体报告可见。装置个人风险只来自有依据的装置行/定义归属；真正表级风险和待定位风险独立展示。未知不等于无风险，也不凭空生成 UNKNOWN。
 6. 无旧 DTO/载荷兼容、历史结果回填或存量数据迁移。本次只定设计与实施计划；产品实施和08部署不因设计审核通过自动获授权。
@@ -71,17 +71,17 @@ Comparison 已做两侧键匹配并计增删，改变 scope 主要增加记录�
 
 ### 4.1 使用现有冻结规则参数
 
-不向风险层传前端分组名。ROW_ADDED、ROW_DELETED 的 RiskRuleSpec.params 各增加十一项 `("exclude_table:<exact_name>", true)`；新增 STANDARD_NAME_UPDATE rule/reason，target_scope=STANDARD_ROWS、默认 LOW，params 用十项 `("include_table:<exact_name>", true)`。使用现有标量参数类型，不嵌 JSON 字符串、不添 profile ID。规则 validator 严格核对允许参数名、集合和 true 值，未知参数拒绝，不允许调用方靠漏规则关闭未授权范围。
+不向风险层传前端分组名。ROW_ADDED、ROW_DELETED 的 RiskRuleSpec.params 各增加十一项 `("exclude_table:<exact_name>", true)`；新增普通行描述性修改的 LOW rule/reason，target_scope=STANDARD_ROWS，适用所有普通表，不使用表名单限定。使用现有标量参数类型，不嵌 JSON 字符串、不添 profile ID。规则 validator 严格核对允许参数名、集合和 true 值，未知参数拒绝，不允许调用方靠漏规则关闭未授权范围。
 
-Risk owner 的单一解析函数从 frozen rules 和实际 table_name 得到三个 boolean：`emit_standard_added`、`emit_standard_deleted`、`standard_name_low`。它同时供 evaluator 和 cache key 使用。只在 STANDARD_ROWS 分支应用；ordered 与 structural 分支不受表名规则影响。
+Risk owner 的单一解析函数从 frozen rules 和实际 table_name 得到两个 boolean：`emit_standard_added`、`emit_standard_deleted`。它同时供 evaluator 和 cache key 使用。增删表名规则只在 STANDARD_ROWS 分支应用；ordered 与 structural 分支不受该规则影响。
 
-`_emit_row_risks` 在按 kind 遍历/计数兜底前跳过被排除的增删 kind；COUNTS_ONLY、抑制记录、缺记录都不得把这两个 kind 重新发成 TABLE/UNKNOWN。修改逐条核 changed_columns：集合恰为 {name} 且适用专项则只发 STANDARD_NAME_UPDATE，否则发 ROW_MODIFIED。没有修改列证据时仍按修改默认风险，不能猜 LOW。缺/无效 records、真实任务失败仍按原 Contract 处理，排除风险不代表允许损坏记录进入展示。
+`_emit_row_risks` 在按 kind 遍历/计数兜底前跳过被排除的增删 kind；COUNTS_ONLY、抑制记录、缺记录都不得把这两个 kind 重新发成 TABLE/UNKNOWN。普通行修改逐条核 changed_columns：集合非空且为 `{name, description}` 的子集则只发描述性修改 LOW，否则发 ROW_MODIFIED。有序行修改同样依据该列集合判定 LOW，混入其他字段沿用有序修改原规则。没有修改列证据时仍按修改默认风险，不能猜 LOW。缺/无效 records、真实任务失败仍按原 Contract 处理，排除风险不代表允许损坏记录进入展示。
 
 正常被排除的增删返回 complete=true 的空风险 outcome。RiskAttribution.observe 不要求每个 record 都有 annotation；记录完整性由 Comparison/locator owner 校验，风险完整性由 evaluator outcome 的 complete 提供。annotation 不存在时 risk_level=null，而非 LOW 或 UNKNOWN。空 baseline 原有全无风险语义保留。
 
 ### 4.2 缓存输入闭合
 
-`risk_evaluation/candidates.py::optional_candidate_input` 当前删除 table_name，使同语义表可共享纯结果；新增按表规则后，必须把上述三个适用 boolean 放入 facts_jcs 的 `standard_rule_applicability`。不得只将统一 ruleset digest 加入 key：所有表共享 ruleset，仍不足区分适用与非适用表。候选 replay 经过同一适用性检查，空 outcome 也可合法命中。
+`risk_evaluation/candidates.py::optional_candidate_input` 当前删除 table_name，使同语义表可共享纯结果；新增按表规则后，必须把上述两个增删适用 boolean 放入 facts_jcs 的 `standard_rule_applicability`。不得只将统一 ruleset digest 加入 key：所有表共享 ruleset，仍不足区分适用与非适用表。候选 replay 经过同一适用性检查，空 outcome 也可合法命中。
 
 有序空点规则的新输入 `ordered_tail_bounds`（§7）也进入此 key，包含当前表实际两侧边界/证据是否完整；不把整个映射塞入单表 key。不使用 host path/operation ID，不为此另加缓存版本轴。
 
@@ -217,7 +217,7 @@ RiskEvaluationInput 使用现有字段位置的目标形态 `ordered_tail_bounds
 
 唯一权威测试owner和命令见[实施计划](secondary-device-change-and-risk-scope-implementation-plan.md)。真实输入1→2必须确认 device_mx +0/-2/修改5，1753–1757命中旧34/新9234，5009/5012只属65532且删除值可见、没有普通删除风险；未受影响装置不继承测量整表风险。其他表风险不能被这个断言覆盖。
 
-必须覆盖纯增删无风险但EXACT、name-only LOW/混合修改、registry-only归属变化且计数相同、孤儿与重复身份、缺before快照、风险不完整与变化精确并存、剩余suppressed、真正表级/全局风险、跨表风险cache适用性、空点尾部/中间/跨界/稀疏/全空/混合move、各入口冷生成和cache replay、旧语义结果不复用。
+必须覆盖纯增删无风险但EXACT、所有普通/有序表 name、description 单独或共同修改 LOW，混合其他字段按原规则、registry-only归属变化且计数相同、孤儿与重复身份、缺before快照、风险不完整与变化精确并存、剩余suppressed、真正表级/全局风险、跨表风险cache适用性、空点尾部/中间/跨界/稀疏/全空/混合move、各入口冷生成和cache replay、旧语义结果不复用。
 
 主要为C类可重算派生结果；内部转换D类。本次不改commit/main/审批授权/控制DB schema。若实施发现必须改权威绑定的事务/跨scope逻辑，则拆A/B包逐包独审；不能借修改常量扩大写边界。保持N1、M24GiB、32GiB worker envelope/8GiB reserve。
 

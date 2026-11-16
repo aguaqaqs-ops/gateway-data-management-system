@@ -8,10 +8,9 @@ from gateway_backend.application.business_presentation import RiskAttribution, p
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
-from collections.abc import Callable, Mapping
-from contextlib import closing
+from collections.abc import Callable, Iterable, Mapping
+from contextlib import closing, ExitStack
 from dataclasses import dataclass, replace
-import pyarrow.compute as pc  # type: ignore[import-untyped]
 from gateway_backend.statistics.metrics import ordered_input_table, pair_table, pair_totals, timed
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -50,7 +49,10 @@ from gateway_backend.capabilities.comparison import (
     RecordsPublicationPolicy,
     RecordsDetailPolicy,
 )
-from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
+from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds, RiskEvaluation
+from gateway_backend.capabilities.comparison.blank_identity import ordered_blank_identity
+from gateway_backend.capabilities.comparison.contracts import OrderedStatus
+from gateway_backend.capabilities.snapshot_materialization.contracts import BlankRowProvenance
 from gateway_backend.capabilities.risk_evaluation import (
     PersistentRiskCandidates,
     RiskEvaluationInput,
@@ -442,7 +444,7 @@ def _finish_comparison_risk_surface(
             risk_options=RiskOptions(empty_baseline=not plan.before.summary.tables),
             record_views=native_comparison.risk_handles,
             ordered_record_views=native_comparison.handles,
-            ordered_position_maxima=_ordered_position_maxima(plan, comparison_facts),
+            ordered_tail_bounds=_ordered_tail_bounds(plan, comparison_facts, native_comparison.handles),
             record_view_metrics=risk_conversion,
             risk_cache_session=native_comparison.session,
             risk_task_keys=native_comparison.task_keys,
@@ -537,43 +539,120 @@ def _finish_comparison_risk_surface(
     )
 
 
-def _ordered_position_maxima(
-    plan: ComparisonPlan, facts: ComparisonFacts,
-) -> dict[str, tuple[int | None, int | None]]:
-    """Find the actual end of each changed side, including sparse `no` values."""
-    changed = {table.table_name for table in facts.tables
-               if (table.blank_extension is not None and table.blank_extension.blank_summary.blank_changed_count)
-               or (table.ordered_extension is not None and
-                   (table.ordered_extension.ordered_summary.row_added_count
-                    or table.ordered_extension.ordered_summary.row_deleted_count))}
+def _ordered_tail_bounds(
+    plan: ComparisonPlan, facts: ComparisonFacts, handles: Mapping[str, object],
+) -> dict[str, OrderedTailBounds]:
+    """Scan both sides once, excluding actual added/deleted positions from anchors."""
     context = current_kernel_context()
     if context is None:
         raise PairPipelineError("operation kernel context was lost")
-    result: dict[str, tuple[int | None, int | None]] = {}
+    result: dict[str, OrderedTailBounds] = {}
+    facts_by_name = {fact.table_name: fact for fact in facts.tables}
     for task in plan.tasks:
-        if task.table_name not in changed:
+        fact = facts_by_name.get(task.table_name)
+        if fact is None or fact.ordered_extension is None:
             continue
-        maxima: list[int | None] = []
-        for table in (task.before_table, task.current_table):
-            if table is None or table.reader is None:
-                break
-            stream, owner = comparison_input_stream(table)
-            maximum: int | None = None
-            try:
-                with closing(stream):
-                    for batch in stream:
+        ordered = fact.ordered_extension
+        blank = fact.blank_extension
+        if not (ordered.ordered_summary.row_added_count or ordered.ordered_summary.row_deleted_count
+                or (blank is not None and blank.blank_summary.blank_changed_count)):
+            continue
+        complete = (ordered.status is not OrderedStatus.DEGRADED and
+                    (blank is None or blank.status is not OrderedStatus.DEGRADED))
+        positions: tuple[set[int], set[int]] = (set(), set())
+        with ExitStack() as reservations:
+            summary = ordered.ordered_summary
+            reservations.enter_context(context.memory.reserve(256 * (summary.row_deleted_count + summary.row_added_count)))
+            handle = handles.get(task.table_name)
+            if handle is None:
+                if not ordered.records:
+                    complete = False
+                records = ((r.record_kind.value, r.before_position, r.current_position)
+                           for r in ordered.records)
+                def collect(rows: Iterable[tuple[str, int | None, int | None]]) -> None:
+                    nonlocal complete
+                    for kind, before, current in rows:
+                        side = 0 if kind == "ORDERED_ROW_DELETED" else 1 if kind == "ORDERED_ROW_ADDED" else -1
+                        if side < 0:
+                            continue
+                        position = before if side == 0 else current
+                        if type(position) is not int or position < 1 or position in positions[side] or len(positions[side]) >= (summary.row_deleted_count if side == 0 else summary.row_added_count):
+                            complete = False
+                        else:
+                            positions[side].add(position)
+                collect(records)
+            else:
+                with closing(getattr(handle, "risk_record_batches")("ORDERED")) as reader:
+                    for batch in reader:
                         context.checkpoint()
-                        index = batch.schema.get_field_index("no")
-                        if index < 0:
-                            raise PairPipelineError("blank interval risk requires position column")
-                        value = pc.max(batch.column(index)).as_py()
-                        if value is not None:
-                            maximum = value if maximum is None else max(maximum, value)
-            finally:
-                owner.close()
-            maxima.append(maximum)
-        if len(maxima) == 2:
-            result[task.table_name] = (maxima[0], maxima[1])
+                        with context.memory.reserve(8192 + batch.nbytes * 16 + batch.num_rows * 512):
+                            names = ("record_kind", "before_position", "current_position")
+                            columns = [batch.column(batch.schema.get_field_index(name)).to_pylist() for name in names]
+                            # Collection only retains the two position sets.
+                            for kind, before, current in zip(*columns, strict=True):
+                                side = 0 if kind == "ORDERED_ROW_DELETED" else 1 if kind == "ORDERED_ROW_ADDED" else -1
+                                if side < 0:
+                                    continue
+                                position = before if side == 0 else current
+                                if type(position) is not int or position < 1 or position in positions[side] or len(positions[side]) >= (summary.row_deleted_count if side == 0 else summary.row_added_count):
+                                    complete = False
+                                else:
+                                    positions[side].add(position)
+            if len(positions[0]) != summary.row_deleted_count or len(positions[1]) != summary.row_added_count:
+                complete = False
+            maxima_available = True
+            maxima: list[int | None] = []
+            retained: list[int | None] = []
+            for side, table in enumerate((task.before_table, task.current_table)):
+                maximum: int | None = None
+                last: int | None = None
+                seen: set[int] = set()
+                if table is None or table.reader is None:
+                    complete = False
+                    maxima_available = False
+                else:
+                    provenance = (BlankRowProvenance.NONE if table.ordered_metadata is None
+                                  else table.ordered_metadata.blank_provenance)
+                    if provenance is BlankRowProvenance.NONE:
+                        complete = False
+                    stream, owner = comparison_input_stream(table)
+                    try:
+                        with closing(stream):
+                            for batch in stream:
+                                context.checkpoint()
+                                no_index = batch.schema.get_field_index("no")
+                                gid_index = batch.schema.get_field_index("gid")
+                                if no_index < 0:
+                                    complete = False
+                                    maxima_available = False
+                                    continue
+                                if gid_index < 0:
+                                    complete = False
+                                    maxima_available = False
+                                    continue
+                                with context.memory.reserve(8192 + batch.nbytes * 16 + batch.num_rows * 128):
+                                    for position, gid in zip(batch.column(no_index).to_pylist(), batch.column(gid_index).to_pylist(), strict=True):
+                                        if type(position) is not int or position < 1:
+                                            complete = False
+                                            continue
+                                        maximum = position if maximum is None else max(maximum, position)
+                                        is_blank = ordered_blank_identity(gid, provenance)
+                                        if is_blank is None:
+                                            complete = False
+                                        if position in positions[side]:
+                                            if position in seen or is_blank is not False:
+                                                complete = False
+                                            seen.add(position)
+                                        elif is_blank is False:
+                                            last = position if last is None else max(last, position)
+                    finally:
+                        owner.close()
+                if seen != positions[side]:
+                    complete = False
+                maxima.append(maximum)
+                retained.append(last)
+            if maxima_available:
+                result[task.table_name] = OrderedTailBounds(maxima[0], maxima[1], retained[0], retained[1], complete)
     return result
 
 

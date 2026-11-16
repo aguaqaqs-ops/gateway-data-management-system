@@ -39,7 +39,7 @@ from gateway_backend.capabilities.table_rules.registry import (
     COMPOSITE_SIGNAL_POINT_TABLE_NAME,
     DEFAULT_BROWSE_ONLY_TABLE_NAMES,
     DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS,
-    DEVICE_CFG_UPDATE_ONLY_TABLE_NAME,
+    DEVICE_CFG_TABLE_NAME,
     migrated_table_rule_records,
 )
 from gateway_shared_kernel import DigestRef
@@ -80,7 +80,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
         if record.selector.value == DEFAULT_BROWSE_ONLY_TABLE_NAMES[0]
     )
     device_cfg = next(
-        record for record in records if record.selector.value == DEVICE_CFG_UPDATE_ONLY_TABLE_NAME
+        record for record in records if record.selector.value == DEVICE_CFG_TABLE_NAME
     )
     raw_fallback = next(
         record

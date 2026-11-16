@@ -1,6 +1,7 @@
 """Ordered risk uses Comparison facts order through both cache layers."""
 from __future__ import annotations
 
+
 import json
 from contextlib import closing
 from dataclasses import replace
@@ -13,6 +14,7 @@ from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.cache_codec import ComparisonCacheCodec
 from gateway_backend.capabilities.comparison.production import compare_plan_native
+from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
 from gateway_backend.capabilities.risk_evaluation import (
     AnnotationDetailPolicy, RiskEvaluationInput, RiskExecutionPolicy, RiskOptions,
     RiskRulesetSnapshot, V1_RISK_RULE_SPECS,
@@ -118,7 +120,7 @@ def test_ordered_facts_projection_and_risk_replay_preserve_order_digest_and_caps
     options = RiskOptions(annotation_detail_policy=(AnnotationDetailPolicy.COUNTS_ONLY if counts_only
                                                    else AnnotationDetailPolicy.TARGETS_WITH_EVIDENCE))
     source = RiskEvaluationInput(comparison_facts=facts, risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
-        risk_options=options, ordered_record_views={'t': cold}, ordered_position_maxima={'t': (36, 36)})
+        risk_options=options, ordered_record_views={'t': cold}, ordered_tail_bounds={'t': OrderedTailBounds(36, 36, 36, 36, True)})
 
     def evaluate(source: RiskEvaluationInput, cap: int) -> tuple[Any, list[Any]]:
         store = InMemoryArtifactStore()
@@ -248,7 +250,7 @@ def test_ordered_index_admission_evicts_optional_candidate_before_failing(monkey
         assert product.result.facts is not None
         source = RiskEvaluationInput(comparison_facts=product.result.facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS), ordered_record_views=product.handles,
-            ordered_position_maxima={'t': (2, 4)})
+            ordered_tail_bounds={'t': OrderedTailBounds(2, 4, 2, 4, True)})
         baseline = _evaluate_with_operation(source, artifact_store=InMemoryArtifactStore())
         original = context.memory.reserve
 
@@ -289,7 +291,7 @@ def test_ordered_index_pressure_discards_current_unpublished_candidate(monkeypat
         assert product.result.facts is not None
         source = RiskEvaluationInput(comparison_facts=product.result.facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS), ordered_record_views=product.handles,
-            ordered_position_maxima={'t': (36, 36)})
+            ordered_tail_bounds={'t': OrderedTailBounds(36, 36, 36, 36, True)})
         baseline = _evaluate_with_operation(source, artifact_store=InMemoryArtifactStore())
         cache = _Candidates()
         original = context.memory.reserve
@@ -320,3 +322,36 @@ def test_ordered_index_pressure_discards_current_unpublished_candidate(monkeypat
             if pressure is not None:
                 pressure.close()
             cache.close()
+
+
+@pytest.mark.parametrize(('before_rows', 'current_rows', 'before_last', 'current_last', 'reason'), (
+    ("(1,1,'a');", "(1,1,'a'),(NULL,2,NULL),(NULL,3,NULL);", 1, 1, "ORDERED_TAIL_BLANK_INTERVAL"),
+    ("(1,1,'a'),(NULL,2,NULL),(NULL,3,NULL);", "(1,1,'a');", 1, 1, "ORDERED_TAIL_BLANK_INTERVAL"),
+    ("(1,1,'a'),(2,2,'b');", "(1,1,'a'),(NULL,2,NULL),(2,3,'b');", 2, 3, "ORDERED_MIDDLE_BLANK_INTERVAL"),
+    ("(1,1,'a');", "(1,1,'a'),(NULL,2,NULL),(2,3,'new');", 1, 1, "ORDERED_TAIL_BLANK_INTERVAL"),
+    ("(NULL,1,NULL);", "(NULL,1,NULL),(NULL,3,NULL);", None, None, "ORDERED_TAIL_BLANK_INTERVAL"),
+))
+def test_tail_bounds_use_retained_real_rows(
+    before_rows: str, current_rows: str, before_last: int | None, current_last: int | None, reason: str,
+) -> None:
+    from gateway_backend.application.pair_pipeline import _ordered_tail_bounds
+    ddl = 'CREATE TABLE t (gid BIGINT NULL, no INT NULL, name TEXT); INSERT INTO t VALUES '
+    planned = plan(*(complete_canonical_bound(canonical_bound(ddl + rows), ordered=True)
+                     for rows in (before_rows, current_rows)), ordered=True)
+    with closing(compare_plan_native(planned)) as product:
+        assert product.result.facts is not None
+        bounds = _ordered_tail_bounds(planned, product.result.facts, product.handles)['t']
+        assert bounds.complete
+        assert (bounds.before_last_retained_position, bounds.current_last_retained_position) == (before_last, current_last)
+        source = RiskEvaluationInput(comparison_facts=product.result.facts,
+            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
+            ordered_record_views=product.handles, ordered_tail_bounds={'t': bounds})
+        result = _evaluate_with_operation(source, artifact_store=InMemoryArtifactStore())
+        assert result.risk_report is not None
+        assert reason in {code.value for table in result.risk_report.tables for code in table.reason_codes}
+        incomplete = _evaluate_with_operation(replace(source,
+            ordered_tail_bounds={'t': replace(bounds, complete=False)}), artifact_store=InMemoryArtifactStore())
+        assert incomplete.risk_report is not None
+        assert 'ORDERED_RISK_UNKNOWN' in {
+            code.value for table in incomplete.risk_report.tables for code in table.reason_codes
+        }

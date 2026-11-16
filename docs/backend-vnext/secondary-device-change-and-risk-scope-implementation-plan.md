@@ -5,8 +5,8 @@
 ## 1 输入和开工条件
 
 - 源码基线：gw08-dual-env 的 0c34339a125d6ff5f0ccfe42af97603a47c7523d。文档独立提交后以完整SHA固定审核对象；实现启动时若源码前移，先核对受影响文件差异，不覆盖他人在途文件。
-- 已定范围：十类测点表完整records；device_cfg保持原ALL_CHANGES/业务键；十一标准表普通增删不产风险；十表name-only LOW；局部/共享范围分离；删除值完整展示；尾部空点LOW、中间规则保守保留。
-- 不待决的默认边界：不将device.description/point_name一起降LOW，不把中间未推移地址的空点进一步降级，不改审批/CAS/存储schema/资源预算。
+- 已定范围：十类测点表完整records；device_cfg保持原ALL_CHANGES/业务键；十一标准表普通增删不产风险；所有普通/有序表 name、description-only LOW；局部/共享范围分离；删除值完整展示；尾部空点LOW、中间规则保守保留。
+- 不待决的默认边界：不将 point_name 视为 name/description，不把中间未推移地址的空点进一步降级，不改审批/CAS/存储schema/资源预算。
 - 现场实际pair与空点表是复现及退出证据缺口，不阻止明确语义的编码；未取得时相应实际故障闭环仍为UNKNOWN，不用synthetic通过代签。
 - 前端实施前告知前端设计会话目的、涉及目录/Contract版本与验收范围；按AGENTS由其纳入审核调试。Owner指定手动转发提示词：协调者在本会话交付准确提示词，由Owner转发给前端agent，不自行发送外部消息。当前不要求前端立即改代码，具体时点见§2.1。
 - 当前设计及计划不直接改owning Contract；产品实施的第一包必须同步改正式Contract，防止候选设计被误当已实现合同。
@@ -16,7 +16,7 @@
 | 包 | 输入与输出 | 前置 | 风险与退出条件 |
 | --- | --- | --- | --- |
 | P0 Contract与语义绑定 | 正式Contract、目标schema、规则参数、版本与复用测试计划 | 设计审核通过且产品实施获授权 | C；若需改事务/授权逻辑拆A/B包；版本身份有明确核对者 |
-| P1 比较记录与风险 | 十表scope、增删排除/name规则、candidate key、空风险complete | P0 | C；纯增删可展示无风险、混合修改保留风险、跨表cache不串 |
+| P1 比较记录与风险 | 十表scope、增删排除及全部普通/有序表描述性修改规则、candidate key、空风险complete | P0 | C；纯增删可展示无风险、混合修改保留风险、跨表cache不串 |
 | P2 归属与公共提示 | 新导航producer/validator、typed归约、registry变化与orphan动作数据 | P1 | C；无整表个人风险扩散、精确变化与未知风险可并存 |
 | P3 前端消费 | v4 decoder、范围选择器、完整删除值、定义/未归属/公共风险入口 | P2且完成前端告知 | C；fixture与页面各状态一致，mock与真实贯通 |
 | P4 有序空点 | 新tail bounds、Risk分类、cache输入 | P0；与P1共享风险接口变更串行合入 | C；边界/区间计数正确，旧配对负例不回退 |
@@ -59,7 +59,7 @@ P0退出：源码依据说明每条身份由谁计算、在哪里检查；参数
 
 `capabilities/table_rules/registry.py`：十类scope→ALL_CHANGES；device_cfg保持现有值。同步contracts.py中相关固定规则约束；常量更名及引用/测试同步，不留旧别名。
 
-`risk_evaluation/contracts.py/_rules.py/_engine.py`：使用设计§4规则params解析适用性；_default_rule允许显式params，除指定规则外不改severity。增删排除在任何COUNTS_ONLY或缺records兜底前执行；name-only逐条判定，普通修改不双发name与ROW_MODIFIED。新reason映射由前端P3消费。
+`risk_evaluation/contracts.py/_rules.py/_engine.py`：使用设计§4规则params解析适用性；_default_rule允许显式params，除指定规则外不改severity。增删排除在任何COUNTS_ONLY或缺records兜底前执行；对所有普通/有序表逐条判定非空变化列是否仅含 name、description；混合其他字段按原规则，普通修改不双发描述性修改与 ROW_MODIFIED。新reason映射由前端P3消费。
 
 `risk_evaluation/candidates.py`：单表facts_jcs加入standard_rule_applicability与ordered_tail_bounds；纯新增/删除空事件cache合法。`persistence.py`/evaluator replay接线沿用当前候选机制，不增加格式轴，改变key足以隔离旧输入。
 
@@ -114,7 +114,7 @@ application/pair_pipeline.py新增operation-local tail bounds准备函数，替�
 | ID | 断言 | 主要文件/owner |
 | --- | --- | --- |
 | V1 | 十表scope、cfg不变、键与excluded不变 | test_table_rules_contracts.py、test_table_rules_resolver.py |
-| V2 | 纯增删零annotation且complete；name-only/混合/其他表/COUNTS_ONLY不误降 | test_risk_evaluation.py共享参数表；test_risk_contracts.py |
+| V2 | 纯增删零annotation且complete；所有普通/有序表的 name、description 单独或共同修改为 LOW，混合其他字段按原规则；缺列证据、COUNTS_ONLY 不误降，point_name 排除规则不变 | test_risk_evaluation.py共享参数表；test_risk_contracts.py |
 | V3 | 同facts/task的适用/非适用表不串cache；空事件replay；tail输入变化隔离 | test_risk_candidate_cache.py |
 | V4 | 双侧归属、迁移、计数相等registry-only、孤儿/重复/NULL/超域/缺列 | test_business_navigation.py及现有导航测试模块共享参数表 |
 | V5 | locator真实位置/旧值/context矛盾拒绝、无before完整删除值 | test_row_location.py；前端table-rows.test.ts各自边界 |

@@ -392,6 +392,91 @@ def test_standard_rows_are_row_targeted_and_digest_is_stable() -> None:
     assert first.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
 
 
+@pytest.mark.parametrize(("name", "columns", "level", "reason"), (
+    ("device_mx", ("name",), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+    ("device_cfg", ("description",), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+    ("orders", ("description", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+    ("orders", ("name", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+    ("device_mx", (), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+))
+def test_standard_updates_classify_only_descriptive_changes(
+    name: str, columns: tuple[str, ...], level: RiskLevel, reason: RiskReasonCode,
+) -> None:
+    record = ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_MODIFIED,
+        row_identity=raw_blob_digest(b"point"), changed_columns=columns)
+    result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
+        row_modified_count=1, records=(record,)), store=InMemoryArtifactStore())
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is level
+    assert result.risk_report.tables[0].reason_codes == (reason,)
+
+
+@pytest.mark.parametrize("name", (
+    "device_st", "device_mx", "device_co", "device_sg", "device_sp", "device_cnt",
+    "device_sn", "device_tap", "device_other", "device_disturb", "device_cfg",
+))
+@pytest.mark.parametrize("policy", (AnnotationDetailPolicy.COUNTS_ONLY, AnnotationDetailPolicy.TARGETS_WITH_EVIDENCE))
+def test_shared_standard_additions_and_deletions_have_no_risk(
+    name: str, policy: AnnotationDetailPolicy,
+) -> None:
+    table = ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
+        row_added_count=1, row_deleted_count=1, suppressed_added_count=1, suppressed_deleted_count=1)
+    result = _evaluate(table, options=RiskOptions(annotation_detail_policy=policy), store=InMemoryArtifactStore())
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables == ()
+
+
+def test_unrelated_standard_additions_keep_risk() -> None:
+    table = ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.MODIFIED,
+        row_added_count=1, suppressed_added_count=1)
+    result = _evaluate(table, options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
+        store=InMemoryArtifactStore())
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ROW_ADDED,)
+
+
+def test_shared_table_mixed_addition_and_address_change_retains_update_risk() -> None:
+    name = "device_mx"
+    records = (
+        ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_ADDED,
+            row_identity=raw_blob_digest(b"added")),
+        ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_MODIFIED,
+            row_identity=raw_blob_digest(b"modified"), changed_columns=("dev_addr",)),
+    )
+    result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
+        row_added_count=1, row_modified_count=1, records=records), store=InMemoryArtifactStore())
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ROW_MODIFIED,)
+
+
+@pytest.mark.parametrize(("columns", "level", "reason"), (
+    (("name",), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
+    (("description",), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
+    (("description", "name"), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
+    (("name", "value"), RiskLevel.MEDIUM_LOW, RiskReasonCode.ORDERED_CONTENT_UPDATE),
+))
+def test_ordered_updates_classify_only_descriptive_changes(
+    columns: tuple[str, ...], level: RiskLevel, reason: RiskReasonCode,
+) -> None:
+    name = "b1_n2_iec104_syx_list"
+    table = ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(row_modified_count=1),
+            records=(OrderedRecord(table_name=name, record_kind=OrderedRecordKind.ROW_MODIFIED,
+                semantic_kind=OrderedSemanticKind.CONTENT_UPDATE, row_identity=raw_blob_digest(b"point"),
+                before_position=1, current_position=1, changed_columns=columns),)))
+    result = _evaluate(table, store=InMemoryArtifactStore())
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is level
+    assert result.risk_report.tables[0].reason_codes == (reason,)
+
+
 @pytest.mark.parametrize(
     ("table", "diagnostics", "reason"),
     (

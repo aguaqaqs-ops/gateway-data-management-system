@@ -135,6 +135,39 @@ def test_start_preview_replays_queued_operation_with_live_clock(tmp_path: Path) 
     assert acceptance.operation_id == first.json()["operation_id"]
 
 
+def test_preview_http_replays_same_key_and_creates_new_key_after_semantic_change(
+    env: WorkspaceHttpTestEnvironment, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
+    url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
+    body = _preview_body(workspace, upload)
+    first = env.client.post(url, headers=env.auth_headers(idempotency_key="old-key"), json=body)
+    assert first.status_code == 202, first.text
+    old_id = first.json()["operation_id"]
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as uow:
+        old_payload = uow.operations.get_operation(old_id).job_payload
+    assert old_payload is not None
+    old_capabilities = json.loads(old_payload)["capability_contract_versions"]
+    future_capabilities = {**old_capabilities, "risk_model": "future-risk-model"}
+    monkeypatch.setattr(
+        "gateway_backend.application.workspace.preview.current_preview_capabilities",
+        lambda: future_capabilities,
+    )
+
+    replay = env.client.post(url, headers=env.auth_headers(idempotency_key="old-key"), json=body)
+    fresh = env.client.post(url, headers=env.auth_headers(idempotency_key="new-key"), json=body)
+    assert replay.status_code == 202, replay.text
+    assert replay.json()["operation_id"] == old_id
+    assert fresh.status_code == 202, fresh.text
+    assert fresh.json()["operation_id"] != old_id
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as uow:
+        original = uow.operations.get_operation(old_id)
+        new_operation = uow.operations.get_operation(fresh.json()["operation_id"])
+    assert original.job_payload == old_payload
+    assert new_operation.job_payload is not None
+    assert json.loads(new_operation.job_payload)["capability_contract_versions"] == future_capabilities
+
+
 def test_start_preview_rejects_unknown_options_keys(env: WorkspaceHttpTestEnvironment) -> None:
     workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
     body = _preview_body(workspace, upload)

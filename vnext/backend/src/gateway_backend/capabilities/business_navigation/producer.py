@@ -144,10 +144,12 @@ def _build_navigation(
                 identity_excluded_sides=frozenset(),
             ) for t in tables if (t.before if side == "BEFORE" else t.current) is not None)
             sides[side.lower()] = builder.groups(subset, side) if subset else []
-        document: dict[str, Any] = {"contract_version": CONTRACT_VERSION, "groups": [], "replacement_sides": sides}
+        document: dict[str, Any] = {"contract_version": CONTRACT_VERSION, "groups": [], "replacement_sides": sides, "table_notices": [], "device_definition_changes": []}
     else:
         document = {"contract_version": CONTRACT_VERSION,
-                    "groups": builder.groups(tables, None), "replacement_sides": None}
+                    "groups": builder.groups(tables, None), "replacement_sides": None,
+                    "table_notices": sorted(builder.notices, key=lambda n: n["table_id"].encode("utf-8")),
+                    "device_definition_changes": sorted(builder.device_changes, key=lambda c: c["record_identity"])}
     payload = navigation_bytes(document, replacement=replacement)
     diagnostics = sorted({canonicalize_json_value(d) for d in builder.diagnostics})
     import json
@@ -167,6 +169,8 @@ class _Builder:
         self.used = 0
         self.scanned = 0
         self.diagnostics: list[dict[str, Any]] = []
+        self.notices: list[dict[str, Any]] = []
+        self.device_changes: list[dict[str, Any]] = []
         self.tables_by_id = {t.table_id: t for t in tables}
 
     def charge(self, value: object) -> None:
@@ -220,25 +224,25 @@ class _Builder:
                 kinds: set[str] = set()
                 risk: RiskLevel | None = None
                 nonempty = 0
+                change_complete = risk_complete = True
                 for tab in item["tabs"]:
                     if tab["empty"]:
                         continue
                     nonempty += 1
                     table = self.tables_by_id[tab["table_id"]]
                     facts = tab["facts"]
-                    if facts is None or facts["basis"] == "TABLE_FALLBACK":
+                    if facts is None:
                         kinds.add(table.change_kind.value)
                         risk = maximum_risk(risk, table.risk_level)
                     else:
-                        kinds.add(facts["change_kind"])
+                        change_complete = change_complete and facts["basis"] == "EXACT" and facts["membership_complete"]
+                        risk_complete = risk_complete and facts["risk_complete"]
+                        if facts["change_kind"] is not None:
+                            kinds.add(facts["change_kind"])
                         risk = maximum_risk(risk, facts["risk_level"])
-                        scope = facts["table_scope"]
-                        if scope is not None:
-                            if scope["change"]:
-                                kinds.add(table.change_kind.value)
-                            risk = maximum_risk(risk, scope["risk_level"])
                 item["summary"] = {"change_kinds": sorted(kinds), "risk_level": risk,
-                                   "nonempty_tab_count": nonempty}
+                                   "nonempty_tab_count": nonempty,
+                                   "change_complete": change_complete, "risk_complete": risk_complete}
                 self.charge(item["summary"])
             group["nonempty_item_count"] = sum(i["summary"]["nonempty_tab_count"] > 0 for i in group["items"])
 
@@ -462,6 +466,18 @@ class _Builder:
             label = self.business_label(rows.get("CURRENT"), rows.get("BEFORE"), "app_name", table.display_name)
             output.append(self.item(f"global:{target}", "TABLE", label, [self.tab(table)]))
 
+    def notice(self, table: NavigationTable, scope: dict[str, Any] | None,
+               risk: RiskLevel | None, reasons: set[str]) -> None:
+        unlocated = None
+        if risk is not None or not table.evidence.risk_attribution_complete:
+            unlocated = {"risk_level": risk, "count": table.evidence.unlocated_count,
+                         "reason_codes": sorted(reasons)}
+        if scope is not None or unlocated is not None:
+            notice = {"table_id": table.table_id, "table_scope": scope,
+                      "unlocated_row_risk": unlocated, "risk_complete": table.evidence.risk_attribution_complete}
+            self.charge(notice)
+            self.notices.append(notice)
+
     def devices(self, output: list[dict[str, Any]], names: dict[str, NavigationTable],
                 claimed: set[str], replacement_side: str | None) -> None:
         diagnostic_start = len(self.diagnostics)
@@ -523,6 +539,23 @@ class _Builder:
             candidates[addr] = {"item_key": "device:composite" if addr == 65532 else f"device:addr:{addr}",
                 "item_kind": "COMPOSITE_SIGNAL_DEVICE" if addr == 65532 else "DEVICE",
                 "label": label, "attributes": attrs, "tabs": []}
+        if device is not None and replacement_side is None:
+            for record in device.evidence.records:
+                device_addresses = []
+                keys = []
+                for side, device_values in (("BEFORE", record.before), ("CURRENT", record.current)):
+                    address = None if device_values is None else device_values.get("dev_addr")
+                    if type(address) is not int or abs(address) > SAFE_INTEGER:
+                        address = None
+                    device_addresses.append(address)
+                    keys.append(candidates[address]["item_key"] if address in candidates and side in representatives[address] else None)
+                device_change = {"record_identity": record.row_identity,
+                    "change_kind": {"ROW_ADDED": "ADDED", "ROW_DELETED": "DELETED", "ROW_MODIFIED": "UPDATED"}[record.kind],
+                    "before_item_key": keys[0], "current_item_key": keys[1],
+                    "before_dev_addr": device_addresses[0], "current_dev_addr": device_addresses[1],
+                    "risk_level": record.risk_level, "risk_complete": device.evidence.risk_attribution_complete}
+                self.charge(device_change)
+                self.device_changes.append(device_change)
         if composite is not None:
             claimed.add(composite.table_name)
             candidates[65532]["tabs"].append(self.tab(composite))
@@ -541,13 +574,13 @@ class _Builder:
             orphans: dict[str, int] = {}
             reuse_counts = (table.unchanged and table.before is not None and table.current is not None
                             and table.before.column_types.get(column) == table.current.column_types.get(column))
-            known_values = set(representatives) if column == "dev_addr" else {
-                value for side_gids in gids.values() for values in side_gids.values() for value in values}
             reused_histogram: Counter[Scalar] | None = None
             reused_total = 0
+            histograms: dict[str, Counter[Scalar]] = {}
             for side, source in (("BEFORE", table.before), ("CURRENT", table.current)):
                 if source is None:
                     counts[side] = {addr: 0 for addr in candidates}
+                    histograms[side] = Counter()
                     continue
                 if side in table.identity_excluded_sides and replacement_side is None:
                     failures[side] = "IDENTITY_EXCLUDED"
@@ -592,6 +625,9 @@ class _Builder:
                             side_counts[addr] += count
                     covered = sum(count for value, count in reused_histogram.items() if value in owners[side])
                     orphan = reused_total - covered
+                    for value in reused_histogram:
+                        self.charge([side, value])
+                    histograms[side] = reused_histogram.copy()
                 else:
                     histogram: Counter[Scalar] = Counter()
                     total = 0
@@ -603,14 +639,16 @@ class _Builder:
                             reason = scalar_reason(source.column_types[column], value)
                             if reason:
                                 failures[side] = reason
-                        if value in known_values:
-                            histogram[value] += 1
+                        if value not in histogram:
+                            self.charge([side, value])
+                        histogram[value] += 1
                         if value not in owners[side]:
                             orphan += 1
                     for value, addresses in owners[side].items():
                         count = histogram.get(value, 0)
                         for addr in addresses:
                             side_counts[addr] += count
+                    histograms[side] = histogram
                     if reuse_counts:
                         reused_histogram, reused_total = histogram, total
                 counts[side] = None if missing_column else side_counts
@@ -618,6 +656,15 @@ class _Builder:
             if reuse_counts and failures.get("BEFORE") == "INTEGER_OUT_OF_RANGE":
                 failures["CURRENT"] = "INTEGER_OUT_OF_RANGE"
             if failures:
+                if replacement_side is None:
+                    unresolved = table.evidence.unlocated_risk
+                    reasons = set(table.evidence.unlocated_reasons)
+                    for record in table.evidence.records:
+                        unresolved = maximum_risk(unresolved, record.risk_level)
+                        reasons.update(record.risk_reasons)
+                    scope = None if not table.table_change and table.evidence.table_risk is None else {
+                        "change": table.table_change, "risk_level": table.evidence.table_risk}
+                    self.notice(table, scope, unresolved, reasons)
                 key = f"table:{name}"
                 whole_items.append(self.item(key, "TABLE", table.display_name, [self.tab(table)]))
                 for side, reason in failures.items():
@@ -627,8 +674,29 @@ class _Builder:
             changed_values: dict[str, set[Scalar]] = {"BEFORE": set(), "CURRENT": set()}
             risk_values: dict[str, dict[Scalar, RiskLevel | None]] = {"BEFORE": {}, "CURRENT": {}}
             changed_orphans = {"BEFORE": 0, "CURRENT": 0}
+            record_counts: dict[int, dict[str, int]] = {}
+            orphan_risk = table.evidence.unlocated_risk
+            orphan_reasons = set(table.evidence.unlocated_reasons)
             for record in table.evidence.records:
                 self.check()
+                old_owners = set() if record.before is None else owners["BEFORE"].get(record.before.get(column), set())
+                new_owners = set() if record.current is None else owners["CURRENT"].get(record.current.get(column), set())
+                for address in old_owners | new_owners:
+                    if address not in record_counts:
+                        self.charge([address, "row_counts"])
+                        record_counts[address] = {"added": 0, "deleted": 0, "modified": 0, "moved_in": 0, "moved_out": 0}
+                    counts_ = record_counts[address]
+                    count_key = {"ROW_ADDED": "added", "ROW_DELETED": "deleted", "ROW_MODIFIED": "modified"}[record.kind]
+                    counts_[count_key] += 1
+                    if record.kind == "ROW_MODIFIED":
+                        counts_["moved_in"] += int(address in new_owners and address not in old_owners)
+                        counts_["moved_out"] += int(address in old_owners and address not in new_owners)
+                if record.risk_level is not None and not any(
+                    values is not None and bool(owners[side].get(values.get(column)))
+                    for side, values in (("BEFORE", record.before), ("CURRENT", record.current))
+                ):
+                    orphan_risk = maximum_risk(orphan_risk, record.risk_level)
+                    orphan_reasons.update(record.risk_reasons)
                 for side, context in (("BEFORE", record.before), ("CURRENT", record.current)):
                     if context is not None:
                         value = context.get(column)
@@ -639,6 +707,24 @@ class _Builder:
                                 self.charge([side, value])
                             changed_values[side].add(value)
                             risk_values[side][value] = maximum_risk(risk_values[side].get(value), record.risk_level)
+            membership_complete = table.may_reuse_unrecorded_identity and reason is None
+            for side, histogram in histograms.items():
+                for value in histogram:
+                    self.charge([side, value])
+            remaining = {side: histogram.copy() for side, histogram in histograms.items()}
+            if membership_complete:
+                for record in table.evidence.records:
+                    for side, record_values in (("BEFORE", record.before), ("CURRENT", record.current)):
+                        if record_values is not None:
+                            value = record_values.get(column)
+                            remaining[side][value] -= 1
+                membership_complete = (all(n >= 0 for counts_ in remaining.values() for n in counts_.values())
+                    and +remaining["BEFORE"] == +remaining["CURRENT"])
+            membership: set[int] = set()
+            if membership_complete:
+                for value, count in remaining["CURRENT"].items():
+                    if count > 0 and owners["BEFORE"].get(value, set()) != owners["CURRENT"].get(value, set()):
+                        membership.update(owners["BEFORE"].get(value, set()) ^ owners["CURRENT"].get(value, set()))
             published = False
             scope = None if not table.table_change and table.evidence.table_risk is None else {
                 "change": table.table_change, "risk_level": table.evidence.table_risk}
@@ -648,7 +734,8 @@ class _Builder:
                     continue
                 old = None if counts.get("BEFORE") is None else counts["BEFORE"][addr]  # type: ignore[index]
                 new = None if counts.get("CURRENT") is None else counts["CURRENT"][addr]  # type: ignore[index]
-                has_change = False
+                has_change = addr in membership
+                row_changes = record_counts.get(addr, {"added": 0, "deleted": 0, "modified": 0, "moved_in": 0, "moved_out": 0})
                 row_risk: RiskLevel | None = None
                 for label, predicate in row_filter.items():
                     if predicate is not None:
@@ -661,7 +748,9 @@ class _Builder:
                 facts = None if replacement_side is not None else {
                     "basis": "EXACT" if reason is None else "TABLE_FALLBACK",
                     "change_kind": change if reason is None else None,
-                    "risk_level": row_risk if reason is None else None,
+                    "risk_level": row_risk, "risk_complete": table.evidence.risk_attribution_complete,
+                    "membership_changed": addr in membership, "membership_complete": membership_complete,
+                    "row_changes": row_changes if reason is None else None,
                     "before_row_count": old, "current_row_count": new, "table_scope": scope}
                 tab = {"tab_key": name, "label": tab_label, "table_id": table.table_id,
                        "row_filter": row_filter, "facts": facts, "empty": self.empty(table, old, new)}
@@ -670,6 +759,12 @@ class _Builder:
                 published = True
             if not published:
                 whole_items.append(self.item(f"table:{name}", "TABLE", table.display_name, [self.tab(table)]))
+            if replacement_side is None:
+                self.notice(table, scope, orphan_risk, orphan_reasons)
+            if published and replacement_side is None and not table.evidence.risk_attribution_complete:
+                self.diagnostic("DEVICE_TAB_RISK_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason="RISK_ATTRIBUTION_UNAVAILABLE")
+            if published and replacement_side is None and not membership_complete:
+                self.diagnostic("DEVICE_MEMBERSHIP_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason="MEMBERSHIP_UNAVAILABLE")
             if published and reason:
                 self.diagnostic("DEVICE_TAB_FACTS_UNAVAILABLE", "SECONDARY_DEVICES", table=table, identity_column=column, reason=reason)
             for side, source in (("BEFORE", table.before), ("CURRENT", table.current)):

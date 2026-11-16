@@ -35,7 +35,7 @@ from gateway_backend.capabilities.table_rules.registry import (
     COMPOSITE_SIGNAL_POINT_TABLE_NAME,
     DEFAULT_BROWSE_ONLY_TABLE_NAMES,
     DEFAULT_SKIPPED_TABLE_NAMES,
-    DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES,
+    DEVICE_POINT_TABLE_NAMES,
     CHANNEL_TABLE_PATTERN,
     PROTOCOL_DEVICE_CFG_TABLE_PATTERN,
     PROTOCOL_OPTION_CFG_TABLE_PATTERN,
@@ -148,7 +148,7 @@ def _device_point_case(name: str) -> ParityCase:
     return _exact_standard(
         name,
         key_columns=("gid",),
-        scope=TableArtifactScope.UPDATE_ONLY,
+        scope=TableArtifactScope.ALL_CHANGES,
     )
 
 
@@ -211,7 +211,10 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
     _exact_standard("scdmod_para", key_columns=("ied_model",), ignored=frozenset({"no"})),
     _exact_standard("app_cfg", key_columns=("app_name",)),
     _exact_standard("rdb_cfg", key_columns=("no",)),
-    *(_device_point_case(name) for name in DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES),
+    *(_device_point_case(name) for name in (
+        "device_st", "device_mx", "device_co", "device_sg", "device_sp",
+        "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb",
+    )),
     ParityCase(
         label="device_cfg:with-pk",
         table_name="device_cfg",
@@ -425,9 +428,11 @@ def test_legacy_oracle_matches_parity_cases(case: ParityCase) -> None:
     if case.position_column is not None:
         expected_legacy_ignored.add(case.position_column)
     assert oracle.ignored_columns == frozenset(expected_legacy_ignored)
-    assert oracle.artifact_scope == (
-        None if case.artifact_scope is None else case.artifact_scope.value
-    )
+    # These ten tables deliberately retain additions and deletions in vnext.
+    if case.table_name not in DEVICE_POINT_TABLE_NAMES:
+        assert oracle.artifact_scope == (
+            None if case.artifact_scope is None else case.artifact_scope.value
+        )
     assert oracle.position_column == case.position_column
     assert oracle.stable_key_candidates == case.stable_key_candidates
 

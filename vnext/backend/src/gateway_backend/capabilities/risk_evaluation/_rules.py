@@ -37,7 +37,25 @@ def validate_risk_ruleset(snapshot: RiskRulesetSnapshot) -> dict[RiskRuleId, Ris
             raise InvalidRiskRuleset(f"unsupported rule version for {rule_id.value}")
         if actual.target_scope is not expected.target_scope or actual.reason_code is not expected.reason_code:
             raise InvalidRiskRuleset(f"frozen rule identity mismatch for {rule_id.value}")
+        if (tuple(key for key, _ in actual.params) != tuple(key for key, _ in expected.params)
+                or any(value is not True for _, value in actual.params)):
+            raise InvalidRiskRuleset(f"invalid frozen rule parameters for {rule_id.value}")
     return actual_by_id
+
+
+def standard_rule_applicability(
+    snapshot: RiskRulesetSnapshot, table_name: str,
+) -> tuple[bool, bool, bool]:
+    """Resolve standard-row rules for both evaluation and candidate identity."""
+    rules = {rule.rule_id: rule for rule in snapshot.rules}
+    def has(rule_id: RiskRuleId, prefix: str) -> bool:
+        return (f"{prefix}:{table_name}", True) in rules[rule_id].params
+
+    return (
+        not has(RiskRuleId.ROW_ADDED, "exclude_table"),
+        not has(RiskRuleId.ROW_DELETED, "exclude_table"),
+        True,
+    )
 
 
 def level_for(rule: RiskRuleSpec) -> RiskLevel:

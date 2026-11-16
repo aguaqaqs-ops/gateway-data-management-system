@@ -239,7 +239,13 @@ def test_idempotent_replay_returns_existing_acceptance(db_path: Path) -> None:
     assert result.operation_id == operation_id
 
 
-def test_ruleset_drift_replay_raises_idempotency_conflict(db_path: Path) -> None:
+@pytest.mark.parametrize("old_ruleset,old_job", [
+    ("sha256:old-ruleset", HISTORY_COMPARE_JOB_CONTRACT_VERSION),
+    (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v2"),
+])
+def test_semantic_drift_replay_raises_idempotency_conflict(
+    db_path: Path, old_ruleset: str, old_job: str,
+) -> None:
     _seed_scope(db_path)
     nodes = (
         HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE, HEAD_COMMIT),
@@ -264,11 +270,12 @@ def test_ruleset_drift_replay_raises_idempotency_conflict(db_path: Path) -> None
                     business_project_id="project-1",
                     repository_id="repo-1",
                     nodes=nodes,
-                    comparison_ruleset_digest="sha256:old-ruleset",
+                    comparison_ruleset_digest=old_ruleset,
                     comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
+                    history_job_contract_version=old_job,
                     view_kind="HISTORY",
                 ),
-                comparison_ruleset_digest="sha256:old-ruleset",
+                comparison_ruleset_digest=old_ruleset,
                 nodes=nodes,
                 operation_id=operation_id,
                 created_at=TS,
@@ -521,6 +528,65 @@ def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -
         comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=TS,
     )
     assert replay.replay and replay.response.operation_id == first.response.operation_id
+
+
+@pytest.mark.parametrize("fingerprint_matches_current", (False, True))
+def test_new_history_key_does_not_reuse_old_successful_job(
+    db_path: Path, fingerprint_matches_current: bool,
+) -> None:
+    _seed_scope(db_path)
+    registry = JobDefinitionRegistry.build(history_compare_job_definitions())
+    now = datetime.now(UTC)
+
+    def accept(key: str) -> HistoryCompareAcceptanceResult:
+        return accept_compare_operation(
+            command=_accept_command(idempotency_key=key),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+            job_registry=registry, admission_gate=OpenAdmissionGate(),
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=now,
+        )
+
+    old = accept("old-job-key")
+    old_id = old.response.operation_id
+    bindings = (
+        HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE, HEAD_COMMIT),
+        HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE, HEAD_COMMIT),
+    )
+    old_fingerprint = compute_accept_binding_fingerprint(
+        gateway_device_external_key="device-1", business_project_id="project-1",
+        repository_id="repo-1", nodes=bindings, comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+        history_job_contract_version="backend-vnext/history-compare/v2",
+    )
+    with ControlDbUnitOfWork(db_path) as uow:
+        uow.connection.execute(
+            "UPDATE operation_records SET status='SUCCEEDED', completed_at_us=created_at_us, "
+            "job_contract_version=? WHERE operation_id=?",
+            ("backend-vnext/history-compare/v2", old_id),
+        )
+        if not fingerprint_matches_current:
+            uow.connection.execute(
+                "UPDATE history_compare_acceptance_records SET request_fingerprint=? WHERE operation_id=?",
+                (old_fingerprint, old_id),
+            )
+        else:
+            # A matching fingerprint must still pass the operation's own version check.
+            candidates = uow.history_compare.find_candidates(
+                gateway_device_external_key="device-1", business_project_id="project-1",
+                request_fingerprint=compute_accept_binding_fingerprint(
+                    gateway_device_external_key="device-1", business_project_id="project-1",
+                    repository_id="repo-1", nodes=bindings, comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+                ), now=uow.transaction_now,
+            )
+            assert any(candidate.operation_id == old_id for candidate in candidates)
+
+    fresh = accept("new-job-key")
+    assert fresh.replay is False
+    assert fresh.response.operation_id != old_id
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        old_operation = uow.operations.get_operation(old_id)
+        assert old_operation.job_contract_version == "backend-vnext/history-compare/v2"
+        assert old_operation.status.value == "SUCCEEDED"
+        assert uow.history_compare.count_aliases(old_id) == 0
 
 
 def test_scope_limit_allows_existing_reuse_before_rejecting_new_input(db_path: Path) -> None:

@@ -8,13 +8,15 @@ Owner：Backend Business Navigation。业务分组规则来自[第一步 §4.3�
 
 ```text
 BusinessNavigation:
-  contract_version: backend-vnext/business-navigation/v3
+  contract_version: backend-vnext/business-navigation/v4
   groups: [Group]
   replacement_sides: null | {before: [Group], current: [Group]}
+  table_notices: [TableNotice]
+  device_definition_changes: [DeviceDefinitionChange]
 Group: {group_key, label, items: [Item], nonempty_item_count}
 Item: {item_key, item_kind, label, attributes, tabs: [Tab], summary}
 Tab: {tab_key, label, table_id, row_filter, facts, empty}
-summary: {change_kinds: [SurfaceChangeKind], risk_level: RiskLevel|null, nonempty_tab_count}
+summary: {change_kinds: [SurfaceChangeKind], risk_level: RiskLevel|null, nonempty_tab_count, change_complete: boolean, risk_complete: boolean}
 ```
 
 每个成功 surface 恰好一个 projection：`projection_id=business_navigation`、`projection_kind=BUSINESS_NAVIGATION`、`projection_digest=SHA256(JCS bytes)`、`risk_summary_ref=null`；诊断通过独立 `diagnostics_ref` 引用，无诊断时为 null。缺失或重复导航是 Contract 违例，消费者拒绝该 pair 并进入既有无法打开结果路径。退役 B9、`fallbackNavigation`、`preview-no-navigation` 和缺 `display_order` 时猜列序的分支；没有生产或 fixture 隐藏导航开关。
@@ -32,7 +34,7 @@ APP_TABLE_CFG_MISSING / APP_TABLE_CFG_DUPLICATE / APP_TABLE_NOT_FOUND 的 app_na
 
 `empty` 是每个 tab 必填的严格 boolean。普通比较中，至少一个逻辑侧存在，且每个存在侧的本 tab 行数已知并为 0 时为空；不存在侧不计，存在但计数未知的侧不能以 0 代替。整表用已绑定 descriptor 行数，筛选页用自己的筛选计数；表新增/删除、降级、行/表风险不影响判定。原始结构变化（原始 SCHEMA_CHANGED/SCHEMA_ONLY_CHANGED、schema change source 或双存在侧业务 schema 差异）与 DATASET_REPLACEMENT 始终不空。原始结构证据在 Comparison C 的只审计展示投影前读取；保留页签不恢复被 C 隐藏的变化或 schema 风险。
 
-项 `summary` 只汇总 `empty=false` 的 tab，`change_kinds` 是按字典序排列的去重 SurfaceChangeKind，`risk_level` 是既有风险顺序的最高值。整表/replacement/TABLE_FALLBACK 使用与 Surface 相同的展示 kind 与 RiskReport 表风险；EXACT 筛选使用本 tab 局部 kind/行风险，另合并 typed table_scope 的表级 kind（change=true 时）与风险。不得从局部精确零行变化推断整表无风险。全空项或无 tab 项摘要固定为 `[]/null/0`；保留项和所有 tab，可在展开空页签后浏览原始表/风险/诊断。`nonempty_item_count` 仅统计含非空 tab 的项；展开不改摘要或计数，含空总项数可由 items.length 获取，不另建权威计数。Preview、History 与提交绑定审核共用同一 producer/document；前端只读取 empty，不重新推导。
+项 `summary` 只汇总 `empty=false` 的 tab 的局部变化和已确认行风险，不合并 table_scope，也不在筛选 fallback 时回填整表变化或风险。`change_complete`、`risk_complete` 分别是非空筛选 tabs 对应完整性的 AND，空集合为 true；整表项继续使用整表摘要。`change_kinds` 去重排序，`risk_level` 取已确认行风险最高值，全空项或无 tab 项为 `[]/null/0`。`nonempty_item_count` 仅统计含非空 tab 的项；公共提示独立存在，不因隐藏空页签而消失。Preview、History 与提交绑定审核共用同一 producer/document。
 
 对发布筛选的每张共享表，各侧满足“已发布谓词覆盖行集合的并集大小 + 同侧孤儿行数 = 该侧总行数”。重复命中不累加为重复行。消费者只在有该侧快照且计数精确时核等式；缺快照侧由后端合同验证。诊断的查看整表是额外浏览入口，不另生成导航整表 tab。
 
@@ -75,22 +77,29 @@ gid 7→8 而 cfg gid=7 未改，或地址 49→50 而测点未改时，满足�
 普通筛选 tab 的 facts required；整表/replacement 为 null：
 
 ```text
-{basis: EXACT|TABLE_FALLBACK,
- change_kind: UNCHANGED|ADDED|DELETED|UPDATED|null,
- risk_level: RiskLevel|null,
+{basis: EXACT|TABLE_FALLBACK, change_kind: UNCHANGED|ADDED|DELETED|UPDATED|null,
+ risk_level: RiskLevel|null, risk_complete: boolean,
  before_row_count: integer|null, current_row_count: integer|null,
- table_scope: null|{change: bool, risk_level: RiskLevel|null}}
+ table_scope: null|{change: boolean, risk_level: RiskLevel|null},
+ membership_changed: boolean, membership_complete: boolean,
+ row_changes: null|{added, deleted, modified, moved_in, moved_out}}
 ```
 
-EXACT 下 change_kind 非 null，risk_level=null 表示无行级归属风险。TABLE_FALLBACK 下两者必须 null（未知），能确定的计数保留。变化/行风险按 records.row_identity 和两侧身份归属，同 tab 去重。表新增/删除/schema change 进入 table_scope.change；单纯行变化不进入。table_scope 风险只从实际 TABLE/COMPARISON typed 风险归约获取，含 cache replay/typed 降级，禁止由混合 RiskReport.tables[].risk_level 反推。同表筛选 tabs 的 table_scope 一致；comparison 全局目标应用所有表，带 table_id 的目标只应用该表。fallback 下保留已知表事实，null 不证明无风险。
+`basis` 只表达变化完整性。EXACT 要求非 null 的 change_kind 和非负 row_changes；TABLE_FALLBACK 要求二者为 null，保留已知计数。modified 包含迁移行，moved_in/out 是其子集。risk_level 是已确认且可定位的最高行风险；risk_complete=false 时可有已知风险，null 不证明无风险。membership_changed 表示已证明的注册归属改变，membership_complete=false 表示无法完整判断；它不生成比较修改或新风险。存在内容记录或 membership_changed 时按局部前后计数确定 ADDED/DELETED/UPDATED，否则 UNCHANGED。table_scope 只存真正表级/比较级事实，同表一致。
 
-records/annotations/归属不完整且现有有界事实不足以证明 EXACT 时，全表筛选 tabs 统一 TABLE_FALLBACK，每表恰一条 `DEVICE_TAB_FACTS_UNAVAILABLE`：`side=null`、target={group_key:SECONDARY_DEVICES,item_key:null,tab_key:null,table_id}、params={identity_column,reason:RECORDS_UNAVAILABLE|RISK_ATTRIBUTION_UNAVAILABLE|TABLE_DEGRADED}，多原因按所列顺序择首。存在筛选 tabs 时，此码存在 iff 全表 TABLE_FALLBACK。前端用整表 surface/RiskReport 参与汇总/筛选并提示按整表，不给全部行涂整表风险；fallback tabs 保留。
+变化不完整时每表一条 DEVICE_TAB_FACTS_UNAVAILABLE，reason 为 RECORDS_UNAVAILABLE 或 TABLE_DEGRADED。风险不完整和归属不完整分别发布 DEVICE_TAB_RISK_UNAVAILABLE 和 DEVICE_MEMBERSHIP_UNAVAILABLE，三者均 side=null、target 为共享表、params 为 identity_column 与固定 reason。资源和内部错误仍失败，不能伪装成未知。
+
+普通导航根的 table_notices 按 table_id UTF-8 排序且唯一，元素为 `{table_id, table_scope, unlocated_row_risk, risk_complete}`；unlocated_row_risk 为 null 或 `{risk_level: RiskLevel|null, count: integer|null, reason_codes: [string]}`，原因去重排序，不能可靠相加时 count=null。仅十一类共享标准表归约公共风险：可定位的 ROW/ROW_PAIR 属局部，未命中任何装置或缺身份者进入待定位入口；TABLE 的记录数量/抑制/缺失覆盖属于待定位风险，真正 structural/degraded TABLE 或 COMPARISON 风险属于 table_scope。未知 target 保留已知等级并标记 risk_complete=false。新生成与缓存 replay 共用归约，不由混合表风险反推个人风险。所有 identity 须在 locator 消费后核对未绑定集合。
+
+根的 device_definition_changes 按 record_identity 排序唯一，元素为 `{record_identity, change_kind: ADDED|DELETED|UPDATED, before_item_key: string|null, current_item_key: string|null, before_dev_addr: integer|null, current_dev_addr: integer|null, risk_level: RiskLevel|null, risk_complete: boolean}`。来源是 device 的实际 record 和逐侧 locator/snapshot；仅有效且已发布的本侧地址生成 item_key，不猜未改地址。定义变化独立于 tab summary。
+
+对可复用的未变化行，按实际有行的身份值比较两侧 owner 集合，集合不同才标记 membership_changed；部分变化表须先从各侧 histogram 减去已发布 records 的贡献，并证明剩余分布相同。不能精确复用则 membership_complete=false。风险不完整本身不阻止内容身份复用。
 
 孤儿按本侧实际发布谓词覆盖集合判定，逐侧 `DEVICE_ROWS_UNASSIGNED`。changed_row_count 无法精确证明时为 null，不填 0。计数未知仅按既有 `DEVICE_TAB_COUNT_UNKNOWN`，可与事实不可用同时存在；资源/I/O/取消/超时/内部 bug 按任务失败处理，不伪装计数未知。诊断排序、去重、target、十个原码及中文归属依第一步 §4.7；中文由前端维护，params 不含 host path/异常全文。
 
 ## Replacement
 
-`replacement_sides != null ⇔ comparison_mode=DATASET_REPLACEMENT ⇔ groups=[]`。存在侧各自保留五组，缺侧列表=[]；独立认领、列展示和 key namespace，不对齐两数据集。筛选仅填本侧谓词，facts=null，无普通 diff/行风险，也无 DEVICE_TAB_FACTS_UNAVAILABLE；孤儿 changed_row_count=null。所有诊断 side 必填实际 BEFORE/CURRENT；URL、浏览状态与查看整表 key 包含 side。同名 item/tab 跨侧不冲突。分侧表名/列取 replacement_summary 本侧，不借对侧注释。
+`replacement_sides != null ⇔ comparison_mode=DATASET_REPLACEMENT ⇔ groups=[]`。replacement 的 table_notices 和 device_definition_changes 均为 []。存在侧各自保留五组，缺侧列表=[]；独立认领、列展示和 key namespace，不对齐两数据集。筛选仅填本侧谓词，facts=null，无普通 diff/行风险，也无 DEVICE_TAB_FACTS_UNAVAILABLE；孤儿 changed_row_count=null。所有诊断 side 必填实际 BEFORE/CURRENT；URL、浏览状态与查看整表 key 包含 side。同名 item/tab 跨侧不冲突。分侧表名/列取 replacement_summary 本侧，不借对侧注释。
 
 ## 验证 owner 与生命周期
 
@@ -102,7 +111,7 @@ B2 的 business_navigation unit/contract 共享参数表权威验证认领、集
 
 `build_navigation` 接受 `NavigationTable` 双侧、`NavigationEvidence` 和同 operation 的 `check`/`reserve`/`resources`；有界状态与序列化缓冲先向既有 M 预留，成功后将 reservation 保留至原 operation.resources 结束；失败立即释放，不建立新资源 owner。代表行的完整 canonical_order_key、值及容器在保留前计账，替换时释放旧计账；返回的 JCS bytes 在 admission 内生成并复用。流式行只保留 registry/装置代表与实际谓词身份计数，孤儿身份只聚合总数。无变化共享表从 current 单次扫描为两侧谓词分别计数，不打开 before 行流。`canonical_order_key` 必须由现有规范标量整行编码提供，producer 不另造 row identity。
 
-`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed、locator 及风险完整性证明不足时统一 fallback。NavigationTable.local_fallback_reason 是局部 facts 与复用 guard 的共同判据，包含该表实际身份列的 record context 完整性；物理缺列单独禁止双侧复用。registry 身份值与目标本侧 declared type 类别/宽度不符时以 UNSUPPORTED_TYPE 整表呈现，不作数值/文本转换。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；共享 pair pipeline 的 RiskAttribution 从 evaluator attribution_observer 接实际 typed outcome（含 cache replay），在 annotation artifact 缺失/降级时保守标记完整性不足；不读混合 RiskReport 汇总反推 scope。
+`identity_excluded_sides(task,fact,column)` 核实际 selected、effective key、incompatible 与 compare_excluded，含 keyless COLUMNS_ADDED 的 selected 减 excluded 分支；物理不存在侧不报排除。`FilterRecord` 的两侧 context 来自 locator/原快照，不能从只含 changed columns 的 records 猜；`NavigationEvidence` 默认不足，实际 record-kind 数、suppressed 和 locator 证明不足时变化 fallback；风险和归属完整性独立表达。NavigationTable.local_fallback_reason 是局部 facts 与复用 guard 的共同判据，包含该表实际身份列的 record context 完整性；物理缺列单独禁止双侧复用。registry 身份值与目标本侧 declared type 类别/宽度不符时以 UNSUPPORTED_TYPE 整表呈现，不作数值/文本转换。`reduce_table_risks` 只接实际 typed TABLE/COMPARISON 事件，不读混合 summary；共享 pair pipeline 的 RiskAttribution 从 evaluator attribution_observer 接实际 typed outcome（含 cache replay），在 annotation artifact 缺失/降级时保守标记完整性不足；不读混合 RiskReport 汇总反推 scope。
 
 B3 共享 application/business_presentation 接上述输入，实际发布恰一个 projection，导航/诊断/locator 进入已有 closure/ref/保护路径。定位算法和预算由 [Row Location](row-location.md) 拥有；完整交付与退出仍须 B4/B5 证据，不能以 helper 单测替代。
 
@@ -120,7 +129,7 @@ v2 防止缺少 empty/summary 的旧文档被当作新规则结果，由后端 p
 验证 owner 为 business_navigation 参数表（标记/保留/非空汇总/未知/孤儿）、pair pipeline 贯通（原始结构与 C 隐藏共存、Preview/History）、提交绑定结果贯通（不可变完整闭包）和前端 decoder/展开交互。golden 与真实 producer fixture 必须一并重建，生成过程本身不算测试通过。
 
 
-当前 producer/consumer golden 位于 `vnext/fixtures/golden/presentation/be-b/v3/`，19 场景的五类文件由同一真实 producer 两次独立生成且逐字节相同；manifest 保存来源提交、输入摘要和逐文件摘要。v1、v2 保留历史向量，当前 owning consumer 不再读取它们。前端 fixture 替换由同一生成归档提供，前端接入前不把后端生成成功宣称前端已兼容。
+上一版 producer/consumer golden 位于 `vnext/fixtures/golden/presentation/be-b/v3/`，19 场景的五类文件由同一真实 producer 两次独立生成且逐字节相同；manifest 保存来源提交、输入摘要和逐文件摘要。v1、v2 保留历史向量，v3 当时的 owning consumer 不再读取它们。前端 fixture 替换由同一生成归档提供，前端接入前不把后端生成成功宣称前端已兼容。
 
 
 F 前端消费者（Owner 2026-11-13 直接授权）严格要求 v2 的 empty、summary 与组非空计数，缺失/错误类型/非中性全空摘要拒绝打开；不再按 Surface 行数或展示 change kind 推导空页签。默认隐藏及显式展开只影响可见项/页签，不改变服务端摘要或非空组计数；筛选未知计数显示“—”，不借整表行数。replacement 分侧解析后合并同名导航时仅按已发布标记做集合去重，仍保留每侧原文；后端绑定及审计不由前端重建。
@@ -139,3 +148,7 @@ table_cfg 为空或本侧目标表不存在均属正常配置，不发布 APP_TA
 绑定，旧 assemble checkpoint 的拒绝策略见 Risk Contract 本轮修订。
 
 正常导航提示与比较降级/失败的视觉分类归前端呈现；本次后端先修正无效告警，不将真正比较错误降为正常提示。
+
+## v4 身份与消费者
+
+v4 标识本合同的局部变化、风险和归属完整性分离及根级公共提示。后端文档边界以 pydantic strict/extra=forbid 解码，前端严格检查同一必填形状；旧文档不能冒充 v4。导航字节由现有 projection digest、surface 与 bundle 闭包核对。Preview job/capability、History job 和组装 checkpoint 的版本绑定见 [Bundle](comparison-bundle.md)；已冻结 Submission 审核保留原绑定身份，不以当前规则版本重判准入。v4 producer golden 和真实 fixture 须与消费者一同更新。

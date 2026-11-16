@@ -50,6 +50,9 @@ class RiskAttribution:
         self.global_level: RiskLevel | None = None
         self.rows: dict[str, dict[str, RiskLevel]] = {}
         self.complete: dict[str, bool] = {}
+        self.unlocated: dict[str, RiskLevel | None] = {}
+        self.unlocated_reasons: dict[str, set[str]] = {}
+        self.row_reasons: dict[str, dict[str, set[str]]] = {}
         self.any_risk: dict[str, bool] = {}
         self.charges = ExitStack()
         context = current_kernel_context()
@@ -62,6 +65,9 @@ class RiskAttribution:
         self.global_level = None
         self.rows.clear()
         self.complete.clear()
+        self.unlocated.clear()
+        self.unlocated_reasons.clear()
+        self.row_reasons.clear()
         self.any_risk.clear()
         self.charges.close()
 
@@ -75,10 +81,28 @@ class RiskAttribution:
         self.complete[name] = complete
         self.any_risk[name] = bool(annotations)
         levels: dict[str, RiskLevel] = {}
+        row_reasons: dict[str, set[str]] = {}
+        unlocated: RiskLevel | None = None
+        reasons: set[str] = set()
         for annotation in annotations:
             context.checkpoint()
             target = annotation.target
-            if target.target_type in {RiskTargetType.TABLE, RiskTargetType.COMPARISON}:
+            shared = name in FILTER_IDENTITY_COLUMNS
+            reason_codes = {reason.reason_code.value for reason in annotation.reasons}
+            row_coverage = {"ROW_COUNTS", "ROW_RECORDS_SUPPRESSED", "ROW_RECORDS_UNAVAILABLE"}
+            structural_reasons = {"TABLE_ADDED", "TABLE_DELETED", "SCHEMA_CHANGED", "KEY_DEGRADED",
+                                  "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED", "COMPARISON_FAILED"}
+            unknown_table = (target.target_type is RiskTargetType.TABLE
+                and (target.coverage not in row_coverage and
+                     (target.coverage is not None or not reason_codes <= structural_reasons)))
+            if shared and (target.target_type is RiskTargetType.TABLE and target.coverage in row_coverage
+                    or unknown_table or target.target_type not in {RiskTargetType.TABLE, RiskTargetType.COMPARISON,
+                                                                    RiskTargetType.ROW, RiskTargetType.ROW_PAIR}):
+                unlocated = maximum_risk(unlocated, annotation.risk_level)
+                reasons.update(reason_codes)
+                if target.coverage not in row_coverage:
+                    self.complete[name] = False
+            elif target.target_type in {RiskTargetType.TABLE, RiskTargetType.COMPARISON}:
                 # Reduce while the actual annotation owner is live. Retaining
                 # its full reasons/evidence would keep arbitrary payload bytes
                 # after Risk's admission closes; navigation needs only levels.
@@ -90,12 +114,22 @@ class RiskAttribution:
                     global_level = reduce_table_risks((name,), (annotation,))[name]
                     self.global_level = maximum_risk(self.global_level, global_level)
             else:
+                found = False
                 for identity in (target.row_identity, target.before_row_identity, target.current_row_identity):
                     if identity is not None:
+                        found = True
+                        row_reasons.setdefault(identity.value, set()).update(reason_codes)
                         level = maximum_risk(levels.get(identity.value), annotation.risk_level)
                         assert level is not None
                         levels[identity.value] = level
+                if shared and not found:
+                    unlocated = maximum_risk(unlocated, annotation.risk_level)
+                    reasons.update(reason_codes)
+                    self.complete[name] = False
         self.rows[name] = levels
+        self.row_reasons[name] = row_reasons
+        self.unlocated[name] = unlocated
+        self.unlocated_reasons[name] = reasons
 
 
 def navigation_row_demands(
@@ -174,6 +208,7 @@ def publish_business_presentation(
     table_risks = {t.table_name: maximum_risk(attribution.table_levels.get(t.table_name), attribution.global_level)
         for t in facts.tables}
     risk_levels = {table.table_name: table.risk_level for table in risk_report.tables}
+    risk_diagnostics = {table.table_name: table.diagnostics for table in risk_report.tables}
     tables = []
     locations: dict[str, RowLocationResult] = {}
     scanned_rows = locator_bytes = 0
@@ -194,13 +229,14 @@ def publish_business_presentation(
             raise ValueError("published ordinary row records have no native owner")
         locator_started = perf_counter()
         located = prepare_row_locations(task, entries.get(name), handles.get(name), artifacts[name].table_refs,
-            store, filter_column=FILTER_IDENTITY_COLUMNS.get(name) if not excluded else None)
+            store, filter_column=("dev_addr" if name == "device" else FILTER_IDENTITY_COLUMNS.get(name)) if not excluded else None)
         locator_seconds += perf_counter() - locator_started
         scanned_rows += located.scanned_rows
-        records = tuple(replace(r, risk_level=attribution.rows.get(name, {}).get(r.row_identity))
-            for r in located.records) if name in FILTER_IDENTITY_COLUMNS else ()
+        records = tuple(replace(r, risk_level=attribution.rows.get(name, {}).get(r.row_identity),
+            risk_reasons=tuple(sorted(attribution.row_reasons.get(name, {}).get(r.row_identity, set()))))
+            for r in located.records) if name in FILTER_IDENTITY_COLUMNS or name == "device" else ()
         locator_complete = located.batch is not None or not any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
-        if name in FILTER_IDENTITY_COLUMNS:
+        if name in FILTER_IDENTITY_COLUMNS or name == "device":
             locations[name] = located
         else:
             locator_started = perf_counter()
@@ -209,6 +245,18 @@ def publish_business_presentation(
             locator_bytes += 0 if locator_ref is None else locator_ref.size_bytes
             located.close()
             locator_seconds += perf_counter() - locator_started
+        unmatched = set(attribution.rows.get(name, {})) - {r.row_identity for r in records}
+        unlocated = attribution.unlocated.get(name)
+        unlocated_reasons = set(attribution.unlocated_reasons.get(name, set()))
+        if not attribution.complete.get(name, False):
+            known_diagnostics = {"RISK_ANNOTATION_LIMIT_EXCEEDED", "RISK_TABLE_BUDGET_EXCEEDED",
+                                 "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED", "RISK_DIAGNOSTICS_TRUNCATED"}
+            unlocated_reasons.update(known_diagnostics.intersection(risk_diagnostics.get(name, ())))
+            unlocated_reasons.update(known_diagnostics.intersection(risk_report.diagnostics))
+        if name in FILTER_IDENTITY_COLUMNS:
+            for identity in unmatched:
+                unlocated = maximum_risk(unlocated, attribution.rows[name][identity])
+                unlocated_reasons.update(attribution.row_reasons[name].get(identity, set()))
         evidence = NavigationEvidence(
             comparison_succeeded=fact.status is not ComparisonTableStatus.DEGRADED,
             schema_only=fact.status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
@@ -217,8 +265,10 @@ def publish_business_presentation(
             suppressed_added_count=fact.suppressed_added_count,
             suppressed_deleted_count=fact.suppressed_deleted_count,
             locator_complete=locator_complete,
-            risk_attribution_complete=attribution.complete.get(name, False),
+            risk_attribution_complete=(attribution.complete.get(name, False)
+                and not (name in FILTER_IDENTITY_COLUMNS and bool(unmatched))),
             records=records, table_risk=table_risks[name], any_table_risk=attribution.any_risk.get(name, False),
+            unlocated_risk=unlocated, unlocated_reasons=tuple(sorted(unlocated_reasons)),
         )
         tables.append(NavigationTable(name, name, _side(before_tables.get(name), before_labels.get(name)),
             _side(current_tables.get(name), current_labels.get(name)), evidence=evidence,

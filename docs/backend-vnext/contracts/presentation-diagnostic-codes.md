@@ -45,8 +45,10 @@ Surface summary 将上述 owner 稳定码去重排序；完整 summary 元素只
 | APP_TABLE_CFG_DUPLICATE | app_name, table_cfg |
 | APP_TABLE_NOT_FOUND | app_name, table_cfg |
 | DEVICE_TAB_FACTS_UNAVAILABLE | identity_column, reason |
+| DEVICE_TAB_RISK_UNAVAILABLE | identity_column, reason |
+| DEVICE_MEMBERSHIP_UNAVAILABLE | identity_column, reason |
 | DEVICE_FILTER_VALUE_UNSUPPORTED | identity_column, reason |
 
-`DEVICE_TAB_FACTS_UNAVAILABLE.reason`：RECORDS_UNAVAILABLE、RISK_ATTRIBUTION_UNAVAILABLE、TABLE_DEGRADED。`DEVICE_FILTER_VALUE_UNSUPPORTED.reason`：INTEGER_OUT_OF_RANGE、UNSUPPORTED_TYPE、IDENTITY_EXCLUDED。原 value、异常全文和 host path 不回传。普通事实不可用只按 table 发一条；不支持筛选按受影响存在侧各一条；replacement 全部诊断须有实际 side。
+`DEVICE_TAB_FACTS_UNAVAILABLE.reason`：RECORDS_UNAVAILABLE、TABLE_DEGRADED。`DEVICE_TAB_RISK_UNAVAILABLE.reason`：RISK_ATTRIBUTION_UNAVAILABLE。`DEVICE_MEMBERSHIP_UNAVAILABLE.reason`：MEMBERSHIP_UNAVAILABLE。`DEVICE_FILTER_VALUE_UNSUPPORTED.reason`：INTEGER_OUT_OF_RANGE、UNSUPPORTED_TYPE、IDENTITY_EXCLUDED。原 value、异常全文和 host path 不回传。普通事实不可用只按 table 发一条；不支持筛选按受影响存在侧各一条；replacement 全部诊断须有实际 side。
 
 终态范围按 S1a 与当前 owning engine 区分：`max_risk_tables_per_pair exceeded` 为 FAILED 的 `_PairFailure`；`max_risk_pair_wall_time_seconds exceeded` 为 CANCELLED 的 `_PairCancelled`，均不进入成功 Surface summary，没有对应新增 surface code。`risk evaluation JSON budget exceeded`、`risk report JSON budget exceeded` 和 `risk evaluation deadline exceeded` 同样是终态内部诊断。本表不将这些旧终态短句替换或混入 surface code 键。

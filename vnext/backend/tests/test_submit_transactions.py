@@ -53,6 +53,7 @@ from gateway_backend.application.submission.errors import (
     IdempotencyConflict,
     NoCanonicalChange,
     PreviewDerivedStale,
+    PreviewBindingConflict,
     ProjectIdentityConfirmationMismatch,
     ProjectIdentityConfirmationRequired,
     ReviewIntegrityFailure,
@@ -550,6 +551,29 @@ def seed_submit_ready_workspace(
             updated_workspace,
             expected_version=workspace.optimistic_version,
         )
+        from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND
+        from gateway_backend.application.workspace.preview import build_preview_job_payload
+        payload = build_preview_job_payload(
+            workspace_id=workspace.workspace_id, upload_revision=upload_revision,
+            repository_id=repository_id,
+            business_baseline_node_id=baseline_head.business_baseline_node_id,
+            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
+            baseline_head_version=baseline_head.baseline_head_version,
+            idempotency_key="preview-key", comparison_ruleset_digest="sha256:rules",
+        )
+        unit_of_work.connection.execute(
+            """INSERT INTO operation_records (
+                operation_id, contract_version, optimistic_version, job_kind, job_contract_version,
+                job_payload, job_payload_ref, business_refs, artifact_refs, repository_operation_id,
+                checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested,
+                created_at_us, updated_at_us, completed_at_us
+            ) VALUES (?, ?, 0, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'SUCCEEDED', NULL, 0, 1, 1, 1)""",
+            (preview.operation_id, OPERATION_RUNTIME_CONTRACT_VERSION, PREVIEW_JOB_KIND,
+             PREVIEW_JOB_CONTRACT_VERSION, payload, canonicalize_json_value([
+                 {"kind": "workspace", "value": workspace.workspace_id},
+                 {"kind": "upload_revision", "value": upload_revision.upload_revision_id},
+             ]), b"[]"),
+        )
         preview_operation_id = "op-preview-1"
         unit_of_work.set_artifact_protection(
             protected_refs,
@@ -1043,6 +1067,24 @@ def test_t1_replay_rechecks_current_permission_and_exact_scope(db_path: Path) ->
         )
 
 
+def test_new_submit_rejects_preview_with_old_job_semantics(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE operation_records SET job_contract_version = ? WHERE operation_id = ?",
+            ("backend-vnext/preview/v4", seed.preview_result.operation_id),
+        )
+    with pytest.raises(PreviewBindingConflict, match="new key"):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-new"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(db_path), job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(), preflight=_preflight(seed), now=TS1,
+        )
+
+
 def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     command = _accept_command(seed, idempotency_key="accept-key-1")
@@ -1058,6 +1100,11 @@ def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
         preflight=_preflight(seed),
         now=TS1,
     )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE operation_records SET job_contract_version = ? WHERE operation_id = ?",
+            ("backend-vnext/preview/v4", seed.preview_result.operation_id),
+        )
     replay = accept_submit_transaction(
         command=command,
         scope_resolution=FixedScopeResolutionPort(
@@ -1558,6 +1605,10 @@ def _seed_effect_pending_attempt(
 def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
+    monkeypatch.setattr(
+        "gateway_backend.application.preview_semantics.current_preview_capabilities",
+        lambda: {"risk_model": "future"},
+    )
     canonical_ref = _register_attempt_canonical_ref(db_path, attempt)
     assert attempt.canonicalization_manifest_ref == (
         seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id

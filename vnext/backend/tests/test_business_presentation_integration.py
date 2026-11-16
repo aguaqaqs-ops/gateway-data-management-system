@@ -88,12 +88,11 @@ def test_real_risk_degradation_replays_into_public_whole_table_facts_fallback(
     tabs = [tab for item in replay_document["groups"][1]["items"] for tab in item["tabs"] if tab["table_id"] == "device_cfg"]
     assert len(tabs) == 2
     for tab in tabs:
-        assert tab["facts"]["basis"] == "TABLE_FALLBACK"
-        assert tab["facts"]["change_kind"] is None and tab["facts"]["risk_level"] is None
+        assert tab["facts"]["basis"] == "EXACT"
+        assert tab["facts"]["change_kind"] == "UPDATED" and not tab["facts"]["risk_complete"]
         assert tab["facts"]["before_row_count"] == tab["facts"]["current_row_count"] == 1
-        expected_scope = None if limit == "artifact" else {"change": False, "risk_level": "UNKNOWN"}
-        assert tab["facts"]["table_scope"] == expected_scope
-    unavailable = [d for d in replay_diagnostics if d["code"] == "DEVICE_TAB_FACTS_UNAVAILABLE"]
+        assert tab["facts"]["table_scope"] is None
+    unavailable = [d for d in replay_diagnostics if d["code"] == "DEVICE_TAB_RISK_UNAVAILABLE"]
     assert len(unavailable) == 1 and unavailable[0]["params"]["reason"] == "RISK_ATTRIBUTION_UNAVAILABLE"
 
 

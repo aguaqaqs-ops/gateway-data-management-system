@@ -481,3 +481,9 @@ AcceptSubmit 的原事务保护完整 READY（含 closure 本身、bundle manife
 Operation.artifact_refs 继续只存有限 root refs（含接受时的 READY exact ref），不塞入完整输出清单。worker 在 finalize 前读取已接受 READY 的 root+outputs；finalize 请求必需携带这些 exact refs，事务内重新构造 READY canonical bytes，与接受时 root 的大小及 raw SHA 核对，并核完整 Attempt 保护后移交。由 READY 唯一确定的成员不成为第二权威来源；删、换、加成员或缺少保护均拒绝并回滚。Preview result/READY job contract 升为 v3 以拒绝缺少固定 pair 绑定的旧结果，assemble-state 为 v5；bundle 内容形状与 preimage 仍为 v4。
 
 `SubmitAttempt.preview_ready_closure_digest` 沿既有字段升级到 v2：`v2:` + raw SHA256(JCS(binding preimage))。preimage 的 `binding_contract_version` 为 `backend-vnext/preview-ready-binding/v2`；包括 Preview ID、workspace/upload/generation/repository、baseline node/commit/head version、ruleset/contract/provider versions、全部 Preview digests、canonical content/facts digest 与 canonical exact refs/digests、identity set 与完整 identity pairs、comparison_pairs（含各 snapshot/rules/comparison/risk/final surface 与审计 null/ID）、bundle/READY ID、producer operation ID。exact ref 表达为 `[artifact_id, media_type, size_bytes, raw_sha256]`；不纳入读取时派生 stale 或 workspace 指针。字段由 `application/preview_binding.py` 拥有。T1 writer、finalize/replay 和每次提交结果读取重算核对，防止同一 READY 下的 pair/规则/审计缺省绑定或 scope 被错换；这是原受理绑定摘要的目标 preimage，不增加另一权威结果或兼容路径。
+
+## 新语义与冻结结果
+
+普通展示的删除值先取真实 before snapshot，否则取已验证的 record.before_values；locator context 只供身份筛选与一致性核对，不是完整行。Navigation v4 的公共风险、归属与定义变化遵循其 owning Contract，均进入已有 projection、surface 与 bundle 闭包。
+
+Preview job v5 在服务器 job payload 的 capability_contract_versions 绑定 risk model、risk ruleset digest 和 business navigation；worker 及新 Submit 的 T1 准入核当前值，不加入 HTTP 请求幂等指纹。同键同请求继续返回原 operation，新键新建；旧结果不满足新受理时要求新键重新预览。已受理 Attempt、finalize 与 Submission 审核只核原冻结 Preview/READY/closure 和绑定完整性，不核当前 global 版本。History job v3 的受理指纹与跨键复用检查绑定 job contract。Preview assemble-state v11 与 History v8 的解码器拒绝旧状态，不改变 READY 闭包格式。

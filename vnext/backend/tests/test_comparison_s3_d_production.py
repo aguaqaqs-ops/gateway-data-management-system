@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import hashlib
 import json
 from collections.abc import Iterator
@@ -39,6 +40,7 @@ from gateway_backend.capabilities.comparison.production import (
 )
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
+from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput, RiskOptions, RiskRulesetSnapshot,
     V1_RISK_RULE_SPECS, evaluate_risk,
@@ -565,7 +567,7 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         new_risk = evaluate_risk(RiskEvaluationInput(
             comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
             ordered_record_views=product.handles,
-            ordered_position_maxima={"t": (4, 4)},
+            ordered_tail_bounds={"t": OrderedTailBounds(4, 4, 4, 3, True)},
         ), artifact_store=risk_store)
         annotations = json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))["annotations"]
         assert {(row["reasons"][0]["reason_code"], tuple(row["target"]["position_range"])) for row in annotations

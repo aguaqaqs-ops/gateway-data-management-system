@@ -49,7 +49,7 @@ def test_real_preview_review_pairs_match_final_bundle_and_ready(
         if ref.media_type != "application/json":
             continue
         raw = json.loads(harness.artifact_store.locate(ref))
-        if isinstance(raw, dict) and raw.get("contract_version") == "backend-vnext/business-navigation/v3":
+        if isinstance(raw, dict) and raw.get("contract_version") == "backend-vnext/business-navigation/v4":
             documents.append(raw)
     assert len(documents) >= len(expected)
     for document in documents:
@@ -57,7 +57,7 @@ def test_real_preview_review_pairs_match_final_bundle_and_ready(
                  if any(tab["table_id"] == "empty_review" for tab in item["tabs"])]
         assert len(items) == 1
         assert items[0]["tabs"][0]["empty"] is True
-        assert items[0]["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0}
+        assert items[0]["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0, "change_complete": True, "risk_complete": True}
     changed = preview.comparison_pairs[-1].model_copy(update={"comparison_digest": "sha256:" + "0" * 64})
     bad = replace(preview, comparison_pairs=(*preview.comparison_pairs[:-1], changed))
     with pytest.raises(BundleIntegrityError, match="binding"):

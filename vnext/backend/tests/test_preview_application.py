@@ -17,6 +17,7 @@ from gateway_backend.application.workspace.preview import (
     build_preview_read_state,
     read_preview_result,
     validate_start_preview_binding,
+    deterministic_preview_operation_id,
 )
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
@@ -198,7 +199,7 @@ def test_validate_start_preview_binding_rejects_stale_or_mismatched_binding(
         )
 
 
-def test_validate_start_preview_binding_replays_prior_preview_idempotency() -> None:
+def test_validate_start_preview_binding_replays_prior_preview_idempotency(monkeypatch: pytest.MonkeyPatch) -> None:
     repository = InMemoryWorkspaceRepository()
     workspace, _revision = _seed_uploaded_workspace(repository)
     scope_resolution = FixedScopeResolutionPort(
@@ -222,6 +223,10 @@ def test_validate_start_preview_binding_replays_prior_preview_idempotency() -> N
         expected_workspace_version=workspace.optimistic_version,
     )
 
+    monkeypatch.setattr(
+        "gateway_backend.application.preview_semantics.current_preview_capabilities",
+        lambda: {"risk_model": "future"},
+    )
     result = validate_start_preview_binding(
         command=command,
         scope_resolution=scope_resolution,
@@ -231,6 +236,15 @@ def test_validate_start_preview_binding_replays_prior_preview_idempotency() -> N
     assert result.replay is True
     assert result.prior_acceptance is not None
     assert result.prior_acceptance.operation_id == prior.operation_id
+
+    new_command = replace(command, idempotency_key="preview-key-2")
+    new_result = validate_start_preview_binding(
+        command=new_command, scope_resolution=scope_resolution, repository=repository,
+    )
+    assert new_result.replay is False
+    assert deterministic_preview_operation_id(
+        workspace_id=workspace.workspace_id, idempotency_key=new_command.idempotency_key,
+    ) != prior.operation_id
 
 
 def test_validate_start_preview_replays_after_workspace_generation_change() -> None:

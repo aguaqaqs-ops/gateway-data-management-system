@@ -61,7 +61,7 @@ FORWARDTBL_LIST_KEY_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("forwardtbl_lst_yt", ("tbname",)),
     ("forwardtbl_lst_yx", ("tbname",)),
 )
-DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES: tuple[str, ...] = (
+DEVICE_POINT_TABLE_NAMES: tuple[str, ...] = (
     "device_st",
     "device_mx",
     "device_co",
@@ -73,7 +73,7 @@ DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "device_other",
     "device_disturb",
 )
-DEVICE_CFG_UPDATE_ONLY_TABLE_NAME = "device_cfg"
+DEVICE_CFG_TABLE_NAME = "device_cfg"
 COMPOSITE_SIGNAL_POINT_TABLE_NAME = "composite_signal_point"
 COMPOSITE_SIGNAL_POINT_KEY_COLUMNS: tuple[str, ...] = ("source_table", "point_gid")
 COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS: tuple[str, ...] = (
@@ -259,9 +259,9 @@ def _device_point_records() -> tuple[TableRuleRecord, ...]:
         _explicit_standard_record(
             name,
             key_columns=(ORDERED_IDENTITY_COLUMN,),
-            artifact_scope=TableArtifactScope.UPDATE_ONLY,
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
         )
-        for name in DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES
+        for name in DEVICE_POINT_TABLE_NAMES
     )
 
 
@@ -294,7 +294,7 @@ def _device_cfg_record() -> TableRuleRecord:
     return TableRuleRecord(
         selector=TableRuleSelector(
             kind=TableRuleSelectorKind.EXACT,
-            value=DEVICE_CFG_UPDATE_ONLY_TABLE_NAME,
+            value=DEVICE_CFG_TABLE_NAME,
         ),
         precedence_class=SelectorPrecedenceClass.STANDARD_DEVICE_CFG,
         static_role=TableStaticRole.STANDARD_DIFF,

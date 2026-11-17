@@ -1,5 +1,4 @@
-import { scopedStorage } from "../features/api/scoped-storage";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -19,30 +18,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { components } from "../features/api/generated/openapi";
 import { useBoundGatewayApi } from "../features/api/application-api";
-import {
-  readHistoryCompareIntent,
-  requestWithTimeout,
-  resolveHistoryCompareIntent,
-  type IdempotentIntent,
-} from "../features/api/idempotency";
-import { ApiError, DEVICE_UNAVAILABLE_MESSAGE } from "../features/api/authenticated-fetch";
-import { bundleErrorTitle } from "../features/bundle/local-bundle";
-import { reportConnectionStatus } from "../features/api/connection-status";
-import { PollingConnectionLostError, pollHistoryCompare } from "../features/api/journeys";
-import {
-  currentGatewaySession,
-  SessionChangedError,
-  historyCompareRequestTimeoutMs,
-} from "../features/api/session";
-import { getUrlOperationJobKind, useUploadModeState } from "../features/workbench/use-upload-mode";
+import { DEVICE_UNAVAILABLE_MESSAGE } from "../features/api/authenticated-fetch";
+import { useUploadModeState } from "../features/workbench/use-upload-mode";
 import { ClosureReason, formatDispositionTime } from "../features/workbench/disposition-display";
-import {
-  ensureLocalBundle,
-  OpfsBundleStore,
-  type InstalledBundle,
-} from "../features/bundle/local-bundle";
 import { ConnectionStatusIndicator } from "../features/workbench/ConnectionStatusIndicator";
 import { ErrorState, LoadingSkeleton } from "../design-system/components";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
@@ -50,25 +29,14 @@ import { UploadStepCard } from "../features/workbench/UploadStepCard";
 import { ArchiveMainlineDialog } from "../features/workbench/ArchiveMainlineDialog";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
 import {
-  summarizeHistoryPair,
-  type HistoryPairSummary,
-} from "../features/workbench/history-summary";
-import {
-  describeHistoryReadError,
-  describeHistoryStartError,
-  type HistoryCompareFailure,
-} from "../features/workbench/history-compare-errors";
-import {
   HistoryCompareTasks,
   type HistoryCompareTask,
 } from "../features/workbench/HistoryCompareTasks";
 import { baselineDisplayLabelFor } from "../features/view-model/baseline-labels";
 import {
-  buildWorkspaceTree,
   compareToggle,
   deriveWorkbenchActions,
   hasOnlyInitialBaseline,
-  sortWorkspaceTreeRows,
   type WorkbenchAction,
   type WorkbenchActionId,
   type WorkspaceTreeRow,
@@ -83,78 +51,23 @@ import {
   isGatewaySessionBlocked,
   useGatewaySessionState,
 } from "../features/session/handoff-session";
-
-type Schemas = components["schemas"];
-type SortColumn = "label" | "time";
-
-function shortTime(iso: string | null): string {
-  return iso
-    ? new Date(iso).toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      })
-    : "—";
-}
-
-function timeTitle(row: WorkspaceTreeRow): string {
-  return row.kind === "workspace"
-    ? "工作区最近更新时间"
-    : row.kind === "submission"
-      ? "提交时间"
-      : "创建时间";
-}
-
-function refKey(ref: Schemas["HistoryCompareNodeRequest"]): string {
-  return `${ref.ref_kind}:${ref.ref_id}`;
-}
-
-function historyRef(row: WorkspaceTreeRow): Schemas["HistoryCompareNodeRequest"] | null {
-  return row.refId && row.refKind ? { ref_kind: row.refKind, ref_id: row.refId } : null;
-}
-
-function pageUrl(
-  page: "workspace" | "compare",
-  extra: Record<string, string | null | undefined> = {},
-  compareNodes: Schemas["HistoryCompareNodeRequest"][] = [],
-): string {
-  const params = new URLSearchParams({ page });
-  for (const [key, value] of Object.entries(extra)) if (value) params.set(key, value);
-  for (const node of compareNodes) params.append("compare", refKey(node));
-  return `/?${params.toString()}`;
-}
-
-function isTemporaryError(cause: unknown): boolean {
-  return (
-    cause instanceof TypeError ||
-    (cause instanceof DOMException && cause.name === "TimeoutError") ||
-    (cause instanceof ApiError && (cause.status === 429 || cause.status >= 500))
-  );
-}
-
-function messageFrom(cause: unknown): { code: string; message: string } {
-  if (cause instanceof ApiError)
-    return { code: cause.code ?? `HTTP_${cause.status}`, message: cause.message };
-  return {
-    code: cause instanceof Error ? cause.name : "REQUEST_FAILED",
-    message: cause instanceof Error ? cause.message : String(cause),
-  };
-}
-
-function statusClass(tone: WorkspaceTreeRow["statusTone"]): string {
-  return `tree-status tree-status--${tone}`;
-}
-
-function showOperationForCompare(
-  operationId: string | null,
-  state: Schemas["HistoryCompareResultResponse"] | null,
-): boolean {
-  return Boolean(
-    operationId && (!state || state.status === "QUEUED" || state.status === "RUNNING"),
-  );
-}
+import { useCompareTray } from "./workbench/use-compare-tray";
+import { useHistoryCompareRun } from "./workbench/use-history-compare-run";
+import { useHistoryTree } from "./workbench/use-history-tree";
+import { useSubmitResume } from "./workbench/use-submit-resume";
+import { useUploadGate } from "./workbench/use-upload-gate";
+import { useWorkbenchData } from "./workbench/use-workbench-data";
+import { useWorkbenchPanels } from "./workbench/use-workbench-panels";
+import {
+  fullTime,
+  historyRef,
+  pageUrl,
+  refKey,
+  shortTime,
+  statusClass,
+  timeTitle,
+  type SortColumn,
+} from "./workbench/workbench-helpers";
 
 export function WorkbenchPage({
   identityControl,
@@ -170,230 +83,98 @@ export function WorkbenchPage({
   // sequence for the workspace, review, attempt and operation.
   const uploadMode = useUploadModeState({ enabled: true });
   const workspace = uploadMode.workspace;
-  const [history, setHistory] = useState<Schemas["HistoryListResponse"] | null>(null);
-  const [loadError, setLoadError] = useState<{ code: string; message: string } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("");
-  const [currentBaselineOnly, setCurrentBaselineOnly] = useState(false);
-  const [selectedKey, setSelectedKey] = useState("");
-  // The panel carries the node actions, so it starts open on normal widths.
-  const [detailExpanded, setDetailExpanded] = useState(() => window.innerWidth > 1100);
-  const [compareRefs, setCompareRefs] = useState<Schemas["HistoryCompareNodeRequest"][]>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.getAll("compare").flatMap((raw) => {
-      const split = raw.indexOf(":");
-      if (split < 0) return [];
-      const kind = raw.slice(0, split);
-      return kind === "baseline_node" || kind === "submission"
-        ? [{ ref_kind: kind, ref_id: raw.slice(split + 1) }]
-        : [];
-    });
-  });
-  const [sort, setSort] = useState<{ column: SortColumn; direction: 1 | -1 } | null>(null);
-  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => new Set());
-  const [compareIntent, setCompareIntent] = useState<IdempotentIntent<
-    Schemas["HistoryCompareAcceptRequest"]
-  > | null>(() => {
-    try {
-      return readHistoryCompareIntent(
-        scopedStorage.getItem("gateway-history-compare-pending-intent"),
-      );
-    } catch {
-      return null;
-    }
-  });
-  const [compareStartError, setCompareStartError] = useState<HistoryCompareFailure | null>(() =>
-    compareIntent
-      ? {
-          code: "REQUEST_UNCONFIRMED",
-          message: "上次请求结果尚未确认，可使用同一请求重试。",
-          retry: "same",
-          operationIds: [],
-        }
-      : null,
-  );
-  const [comparePending, setComparePending] = useState(false);
-  const [compareState, setCompareState] = useState<Schemas["HistoryCompareResultResponse"] | null>(
-    null,
-  );
-  const [compareError, setCompareError] = useState<string | null>(null);
-  // Set when only a new request (new idempotency key) can produce a usable result.
-  const [compareNeedsRerun, setCompareNeedsRerun] = useState(false);
-  const [compareConnectionLost, setCompareConnectionLost] = useState(false);
-  const [refreshCompare, setRefreshCompare] = useState(0);
-  const [historyDrawerCollapsed, setHistoryDrawerCollapsed] = useState(false);
-  // Bumped after the URL changes in place, so the URL-derived operation ID is read again.
-  const [, setUrlRevision] = useState(0);
-  const [compareElapsed, setCompareElapsed] = useState(0);
-  const [bundleStatus, setBundleStatus] = useState<"idle" | "downloading" | "ready" | "failed">(
-    "idle",
-  );
-  const [downloadRevision, setDownloadRevision] = useState(0);
-  const [historyBundle, setHistoryBundle] = useState<InstalledBundle | null>(null);
-  const [pairSummaries, setPairSummaries] = useState<Record<string, HistoryPairSummary>>({});
-  const [pairSummaryError, setPairSummaryError] = useState<string | null>(null);
-  const [resumePreviewOperation] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get("operationId");
-    return Boolean(
-      id &&
-      params.get("operationKind") !== "history-compare" &&
-      scopedStorage.getItem("gateway-preview-operation") === id,
-    );
-  });
-  const [resumeSubmitOperationId, setResumeSubmitOperationId] = useState<string | null>(null);
   // F1: rendered from the hook snapshot; the page keeps no resume copy.
   const submitResumeNotice = uploadMode.resumeNotice;
-  const [notice, setNotice] = useState<string | null>(() =>
-    new URLSearchParams(window.location.search).get("notice"),
+
+  const { resumeSubmitOperationId, setResumeSubmitOperationId } = useSubmitResume(uploadMode);
+  const { history, loadError, loading, load, reloadHistory, reloadHead } = useWorkbenchData(
+    gatewayApi,
+    uploadMode,
+    setResumeSubmitOperationId,
   );
-  const resumePending = useRef(resumePreviewOperation);
-  const [uploadLocked, setUploadLocked] = useState(resumePreviewOperation);
-  const [archiveSubmissionId, setArchiveSubmissionId] = useState<string | null>(null);
-  const operationId = new URLSearchParams(window.location.search).get("operationId");
-  const operationKind = new URLSearchParams(window.location.search).get("operationKind");
-  const historyCompareOperationId = operationKind === "history-compare" ? operationId : null;
-  const compareReplayed =
-    Boolean(historyCompareOperationId) &&
-    new URLSearchParams(window.location.search).get("replayed") === "1";
-  const pendingIntentKey = "gateway-history-compare-pending-intent";
+  const {
+    selectedKey,
+    setSelectedKey,
+    detailExpanded,
+    setDetailExpanded,
+    notice,
+    setNotice,
+    archiveSubmissionId,
+    setArchiveSubmissionId,
+  } = useWorkbenchPanels();
+  const {
+    compareState,
+    compareError,
+    compareNeedsRerun,
+    compareConnectionLost,
+    historyDrawerCollapsed,
+    compareElapsed,
+    bundleStatus,
+    pairSummaries,
+    pairSummaryError,
+    operationId,
+    historyCompareOperationId,
+    compareReplayed,
+    showHistoryDrawer,
+    showOperationStatus,
+    closeHistoryDrawer,
+    toggleDrawerCollapsed,
+    retryQuery,
+    retryDownload,
+  } = useHistoryCompareRun(gatewayApi);
+  const {
+    compareRefs,
+    compareIntent,
+    compareStartError,
+    comparePending,
+    comparisonLocked,
+    setCompareSelection,
+    toggleCompare,
+    startOrRetryCompare,
+    openCompareOperation,
+    jumpToCompare,
+  } = useCompareTray(gatewayApi, {
+    selectedKey,
+    historyCompareOperationId,
+    compareState,
+    bundleStatus,
+  });
+  const {
+    filter,
+    setFilter,
+    currentBaselineOnly,
+    setCurrentBaselineOnly,
+    sort,
+    collapsedNodes,
+    rows,
+    nodeLabel,
+    selected,
+    comparedKeys,
+    visibleRows,
+    sortBy,
+    toggleCollapse,
+  } = useHistoryTree({
+    workspace,
+    history,
+    compareRefs,
+    selectedKey,
+    setSelectedKey,
+  });
+  const {
+    resumePreviewOperation,
+    uploadLocked,
+    resumePreviewFromOperation,
+    activePreviewOperationId,
+    resumeActivePreview,
+    handleUploadStateChange,
+    handlePreviewResumeFailed,
+  } = useUploadGate(gatewayApi, uploadMode, {
+    operationId,
+    compareRefs,
+    selectedKey,
+  });
+
   const searchRef = useRef<HTMLInputElement>(null);
-
-  const resumePreviewFromOperation = useCallback(
-    async (finishedOperationId: string) => {
-      if (scopedStorage.getItem("gateway-preview-operation") !== finishedOperationId) return;
-      const session = currentGatewaySession();
-      try {
-        const workspace = await gatewayApi.createWorkspace({
-          business_project_id: session.businessProjectId,
-          gateway_device_external_key: session.gatewayDeviceExternalKey,
-        });
-        const previewResultId = workspace.current_preview_result_id;
-        if (!previewResultId) {
-          setUploadLocked(false);
-          return;
-        }
-        const preview = await gatewayApi.getPreviewResult(workspace.workspace_id, previewResultId);
-        await ensureLocalBundle({
-          store: new OpfsBundleStore(),
-          expectedBundleDigest: preview.bundle_digest,
-          fetchBundle: () => gatewayApi.getPreviewBundle(workspace.workspace_id, previewResultId),
-        });
-        gatewayApi.assertSession?.();
-        resumePending.current = false;
-        scopedStorage.removeItem("gateway-preview-operation");
-        window.location.assign(
-          pageUrl(
-            "compare",
-            {
-              mode: "PREVIEW",
-              workspaceId: workspace.workspace_id,
-              previewResultId,
-              workbenchNode: selectedKey,
-            },
-            compareRefs,
-          ),
-        );
-      } catch (cause) {
-        if (cause instanceof SessionChangedError) return;
-        try {
-          gatewayApi.assertSession?.();
-        } catch {
-          return;
-        }
-        resumePending.current = false;
-        scopedStorage.removeItem("gateway-preview-operation");
-        setUploadLocked(false);
-      }
-    },
-    [compareRefs, selectedKey],
-  );
-
-  const reloadHistory = useCallback(async (): Promise<Schemas["HistoryListResponse"] | null> => {
-    try {
-      const loaded = await gatewayApi.listHistory();
-      setHistory(loaded);
-      return loaded;
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const load = useCallback(async () => {
-    const session = currentGatewaySession();
-    if (!session.businessProjectId || !session.gatewayDeviceExternalKey) {
-      setLoadError({ code: "SESSION_REQUIRED", message: "当前会话没有业务项目与网关设备身份" });
-      setHistory(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const snapshot = await uploadMode.refresh();
-      if (!snapshot.workspace || snapshot.workspaceError) {
-        // The shared refresh keeps stale state on failure; the page-level
-        // load still reports it as a load error (as before B4).
-        setLoadError(
-          snapshot.workspaceError ?? { code: "WORKSPACE_LOAD_FAILED", message: "工作区加载失败" },
-        );
-        setHistory(null);
-        return;
-      }
-      const loadedHistory = await gatewayApi.listHistory();
-      setHistory(loadedHistory);
-      const loadedAttempt = snapshot.attempt;
-      if (snapshot.workspace.active_submit_attempt_id && loadedAttempt?.operation_id) {
-        const url = new URL(window.location.href);
-        const urlOperationId = url.searchParams.get("operationId");
-        if (urlOperationId !== loadedAttempt.operation_id) {
-          // §6.2: only a submit operation in the URL loses to the pointer;
-          // a preview operation belongs to the preview flow (job_kind).
-          const jobKind = urlOperationId
-            ? await getUrlOperationJobKind(gatewayApi, urlOperationId)
-            : null;
-          if (!urlOperationId || jobKind === "backend-vnext/submit") {
-            url.searchParams.set("operationId", loadedAttempt.operation_id);
-            url.searchParams.set("operationKind", "operation");
-            window.history.replaceState(null, "", url);
-          }
-        }
-      } else {
-        setResumeSubmitOperationId(null);
-      }
-      setLoadError(null);
-    } catch (cause) {
-      const message = messageFrom(cause);
-      if (isTemporaryError(cause)) reportConnectionStatus("interrupted");
-      setLoadError(message);
-      setHistory(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [uploadMode.refresh]);
-
-  const reloadHead = useCallback(async (): Promise<
-    Schemas["HistoryListResponse"]["head"] | null
-  > => {
-    const session = currentGatewaySession();
-    if (!session.businessProjectId || !session.gatewayDeviceExternalKey) return null;
-    try {
-      const snapshot = await uploadMode.refresh();
-      if (!snapshot.workspace || snapshot.workspaceError) return null;
-      const loadedHistory = await gatewayApi.listHistory();
-      setHistory(loadedHistory);
-      return loadedHistory.head;
-    } catch {
-      return null;
-    }
-  }, [uploadMode.refresh]);
-
-  // The resume card mounts as soon as the attempt is known, without waiting
-  // for the (possibly long-polling) operation read inside the same refresh.
-  const resumeAttemptOperationId = uploadMode.attempt?.operation_id ?? null;
-  useEffect(() => {
-    if (resumeAttemptOperationId) setResumeSubmitOperationId(resumeAttemptOperationId);
-  }, [resumeAttemptOperationId]);
 
   const resumeSubmitFromOperation = useCallback(
     async (finishedOperationId: string) => {
@@ -436,124 +217,19 @@ export function WorkbenchPage({
     await reloadHistory();
   }, [compareRefs, selectedKey, reloadHistory, uploadMode.retryResume]);
 
-  useEffect(() => {
-    void load();
-    const onSessionChange = () => {
-      void load();
-    };
-    window.addEventListener("gateway-session-change", onSessionChange);
-    return () => window.removeEventListener("gateway-session-change", onSessionChange);
-  }, [load]);
-
-  const rows = useMemo(
-    () => (workspace && history ? buildWorkspaceTree(workspace, history, compareRefs) : []),
-    [workspace, history, compareRefs],
-  );
-  useEffect(() => {
-    if (!rows.length) return;
-    const queryNode = new URLSearchParams(window.location.search).get("workbenchNode");
-    const found =
-      queryNode && rows.some((row) => row.key === queryNode)
-        ? queryNode
-        : (rows.find((row) => row.kind === "workspace")?.key ?? rows[0]?.key);
-    setSelectedKey((current) =>
-      current && rows.some((row) => row.key === current) ? current : (found ?? ""),
-    );
-  }, [rows]);
-  useEffect(() => {
-    if (!selectedKey || !rows.some((row) => row.key === selectedKey)) return;
-    const url = new URL(window.location.href);
-    if (url.searchParams.get("workbenchNode") === selectedKey) return;
-    url.searchParams.set("workbenchNode", selectedKey);
-    window.history.replaceState(null, "", url);
-  }, [rows, selectedKey]);
-  const rowByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
-  const nodeLabel = (ref: Schemas["HistoryCompareNodeRequest"]) =>
-    rowByKey.get(refKey(ref))?.label ?? ref.ref_id;
-  const selected = rowByKey.get(selectedKey) ?? null;
-  const comparedKeys = useMemo(() => new Set(compareRefs.map(refKey)), [compareRefs]);
-  const comparisonLocked =
-    comparePending ||
-    showOperationForCompare(historyCompareOperationId, compareState) ||
-    Boolean(
-      historyCompareOperationId &&
-      compareState?.status === "SUCCEEDED" &&
-      bundleStatus === "downloading",
-    );
   const actions = useMemo(
     () => deriveWorkbenchActions(selected, comparisonLocked),
     [selected, comparisonLocked],
   );
 
-  const visibleRows = useMemo(() => {
-    const query = filter.trim().toLocaleLowerCase();
-    const rowMap = new Map(rows.map((row) => [row.key, row]));
-    // "Current baseline only" keeps the head baseline's whole branch (its
-    // workspace and submissions), not just the head row.
-    const underHead = (row: WorkspaceTreeRow): boolean => {
-      for (
-        let current: WorkspaceTreeRow | undefined = row;
-        current;
-        current = current.parentKey ? rowMap.get(current.parentKey) : undefined
-      ) {
-        if (current.isHead) return true;
-      }
-      return false;
-    };
-    const matches = new Set(
-      rows
-        .filter(
-          (row) =>
-            (!currentBaselineOnly || underHead(row) || row.kind === "workspace") &&
-            (!query ||
-              `${row.label} ${row.status} ${row.refId ?? ""}`.toLocaleLowerCase().includes(query)),
-        )
-        .map((row) => row.key),
-    );
-    if (query)
-      for (const key of [...matches]) {
-        let parent = rowMap.get(key)?.parentKey ?? null;
-        while (parent) {
-          matches.add(parent);
-          parent = rowMap.get(parent)?.parentKey ?? null;
-        }
-      }
-    const filtered = rows.filter((row) => matches.has(row.key));
-    return sortWorkspaceTreeRows(filtered, sort).filter((row) => {
-      let parent = row.parentKey;
-      while (parent) {
-        if (collapsedNodes.has(parent)) return false;
-        parent = rowMap.get(parent)?.parentKey ?? null;
-      }
-      return true;
-    });
-  }, [rows, filter, currentBaselineOnly, sort, collapsedNodes]);
-
-  const setCompareSelection = (next: Schemas["HistoryCompareNodeRequest"][]) => {
-    if (comparisonLocked) return;
-    setCompareRefs(next.slice(0, 3));
-    setCompareIntent(null);
-    setCompareStartError(null);
-    try {
-      scopedStorage.removeItem(pendingIntentKey);
-    } catch {
-      /* storage is optional */
-    }
-    const url = new URL(window.location.href);
-    url.searchParams.delete("compare");
-    for (const node of next.slice(0, 3)) url.searchParams.append("compare", refKey(node));
-    window.history.replaceState(null, "", url);
-  };
-
-  const toggleCompare = (row: WorkspaceTreeRow) => {
-    const ref = historyRef(row);
-    if (!ref) return;
-    const current = [...compareRefs];
-    const existingIndex = current.findIndex((item) => refKey(item) === refKey(ref));
-    if (existingIndex >= 0) current.splice(existingIndex, 1);
-    else if (current.length < 3) current.push(ref);
-    setCompareSelection(current);
-  };
+  const sortIcon = (column: SortColumn) =>
+    sort?.column === column ? (
+      sort.direction === 1 ? (
+        <ArrowUp size={12} />
+      ) : (
+        <ArrowDown size={12} />
+      )
+    ) : null;
 
   const openPreview = (pair?: string) => {
     if (!workspace?.current_preview_result_id) return;
@@ -596,189 +272,6 @@ export function WorkbenchPage({
     );
   };
 
-  const openCompareOperation = (
-    operationId: string,
-    nodes: Schemas["HistoryCompareNodeRequest"][],
-  ) => {
-    window.location.assign(
-      pageUrl(
-        "workspace",
-        { operationId, operationKind: "history-compare", workbenchNode: selectedKey },
-        nodes,
-      ),
-    );
-  };
-
-  // A limit error names existing compares by ID only; their nodes come from the server list.
-  const jumpToCompare = async (operationId: string) => {
-    let nodes: Schemas["HistoryCompareNodeRequest"][] = [];
-    try {
-      const page = await gatewayApi.listHistoryCompares({ limit: 100 });
-      nodes = page.items.find((item) => item.operation_id === operationId)?.nodes ?? [];
-    } catch {
-      /* open without node labels */
-    }
-    openCompareOperation(operationId, nodes);
-  };
-
-  const sendHistoryCompare = async (
-    intent: IdempotentIntent<Schemas["HistoryCompareAcceptRequest"]>,
-  ) => {
-    setComparePending(true);
-    setCompareStartError(null);
-    try {
-      const accepted = await requestWithTimeout(
-        gatewayApi.startHistoryCompare(intent.request, intent.key),
-        historyCompareRequestTimeoutMs(),
-      );
-      setCompareIntent(null);
-      try {
-        scopedStorage.removeItem(pendingIntentKey);
-      } catch {
-        /* storage is optional */
-      }
-      // 200/replayed: an existing operation (same request) is reattached by its original ID.
-      const compareParams: Record<string, string | null> = {
-        page: "workspace",
-        operationId: accepted.operation_id,
-        operationKind: "history-compare",
-        workbenchNode: selectedKey,
-        replayed: accepted.replayed ? "1" : null,
-      };
-      window.location.assign(pageUrl("workspace", compareParams, intent.request.nodes));
-    } catch (cause) {
-      if (isTemporaryError(cause)) reportConnectionStatus("interrupted");
-      const failure = describeHistoryStartError(cause);
-      if (failure.retry !== "same") {
-        // The key can no longer give a usable answer; the next attempt gets a new one.
-        setCompareIntent(null);
-        try {
-          scopedStorage.removeItem(pendingIntentKey);
-        } catch {
-          /* storage is optional */
-        }
-      }
-      setCompareStartError(failure);
-    } finally {
-      setComparePending(false);
-    }
-  };
-
-  /** `fresh` forces a new idempotency key (expired, failed or unreadable earlier result). */
-  const startOrRetryCompare = (
-    request: Schemas["HistoryCompareAcceptRequest"] = { nodes: compareRefs },
-    fresh = false,
-  ) => {
-    if (comparePending) return;
-    let intent = fresh ? null : compareIntent;
-    if (!intent && !fresh) {
-      try {
-        const saved = scopedStorage.getItem(pendingIntentKey);
-        if (saved) intent = readHistoryCompareIntent(saved);
-      } catch {
-        /* create a new intent when storage is unavailable or invalid */
-      }
-    }
-    intent = resolveHistoryCompareIntent(intent, request);
-    try {
-      scopedStorage.setItem(pendingIntentKey, JSON.stringify(intent));
-    } catch {
-      /* in-memory retry still reuses the key */
-    }
-    setCompareRefs(intent.request.nodes);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("compare");
-    for (const node of intent.request.nodes) url.searchParams.append("compare", refKey(node));
-    window.history.replaceState(null, "", url);
-    setCompareIntent(intent);
-    void sendHistoryCompare(intent);
-  };
-
-  useEffect(() => {
-    if (!historyCompareOperationId) return;
-    const controller = new AbortController();
-    const startedAt = Date.now();
-    // Unknown until the first read: returning from the diff view re-reads a
-    // finished compare, which must not show as queued again.
-    setCompareState(null);
-    setBundleStatus("idle");
-    setCompareError(null);
-    setCompareNeedsRerun(false);
-    setCompareConnectionLost(false);
-    setCompareElapsed(0);
-    const ticker = window.setInterval(
-      () => setCompareElapsed(Math.floor((Date.now() - startedAt) / 1_000)),
-      1_000,
-    );
-    void pollHistoryCompare(gatewayApi, historyCompareOperationId, {
-      signal: controller.signal,
-      onUpdate: (value) => {
-        setCompareState(value);
-        setCompareConnectionLost(false);
-      },
-      onConnectionStatus: (status) => setCompareConnectionLost(status === "interrupted"),
-    })
-      .then(async (result) => {
-        if (result.status !== "SUCCEEDED" || !result.result) {
-          setCompareError(result.diagnostic?.message ?? "历史比较未能完成");
-          // The same key keeps returning this terminal state; a retry needs a new request.
-          setCompareNeedsRerun(true);
-          setBundleStatus("idle");
-          return;
-        }
-        setBundleStatus("downloading");
-        try {
-          const installed = await ensureLocalBundle({
-            store: new OpfsBundleStore(),
-            expectedBundleDigest: result.result.bundle_digest,
-            fetchBundle: () =>
-              gatewayApi.getHistoryBundle(historyCompareOperationId, controller.signal),
-          });
-          gatewayApi.assertSession?.();
-          setHistoryBundle(installed);
-          setCompareError(null);
-          setBundleStatus("ready");
-        } catch (cause) {
-          if (controller.signal.aborted) return;
-          // B5: the server's bundle error code is carried into the message so
-          // it stays visible; the title copy comes from bundleErrorTitle.
-          setCompareError(historyBundleErrorMessage(cause));
-          setCompareNeedsRerun(describeHistoryReadError(cause).retry === "new");
-          setBundleStatus("failed");
-        }
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        if (cause instanceof PollingConnectionLostError) {
-          setCompareConnectionLost(true);
-          reportConnectionStatus("interrupted");
-        } else {
-          const failure = describeHistoryReadError(cause);
-          setCompareError(`${failure.message}（${failure.code}）`);
-          setCompareNeedsRerun(failure.retry === "new");
-        }
-      });
-    return () => {
-      controller.abort(new DOMException("比较状态查询已停止", "AbortError"));
-      window.clearInterval(ticker);
-    };
-  }, [historyCompareOperationId, refreshCompare, downloadRevision]);
-
-  const sortBy = (column: SortColumn) =>
-    setSort((state) =>
-      state?.column === column
-        ? { column, direction: state.direction === 1 ? -1 : 1 }
-        : { column, direction: 1 },
-    );
-  const sortIcon = (column: SortColumn) =>
-    sort?.column === column ? (
-      sort.direction === 1 ? (
-        <ArrowUp size={12} />
-      ) : (
-        <ArrowDown size={12} />
-      )
-    ) : null;
-
   const activeSubmissionRow = workspace?.active_submission_id
     ? (rows.find(
         (row) => row.kind === "submission" && row.refId === workspace.active_submission_id,
@@ -810,69 +303,11 @@ export function WorkbenchPage({
     }
   };
 
-  useEffect(() => {
-    if (!historyBundle || compareState?.status !== "SUCCEEDED" || !compareState.result) {
-      setPairSummaries({});
-      return;
-    }
-    let cancelled = false;
-    setPairSummaryError(null);
-    void Promise.all(
-      compareState.result.pairs.map(
-        async (pair) =>
-          [pair.pair_id, await summarizeHistoryPair(historyBundle, pair.pair_id)] as const,
-      ),
-    )
-      .then((entries) => {
-        if (!cancelled) setPairSummaries(Object.fromEntries(entries));
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setPairSummaryError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [historyBundle, compareState]);
-
   // B1/B4: the toolbar upload action and the UploadStepCard share the same
   // occupancy gate from the hook; the page no longer keeps its own rule.
   const occupancyReason = uploadMode.gates.upload.enabled
     ? null
     : (uploadMode.gates.upload.reason ?? null);
-
-  const showHistoryDrawer = Boolean(historyCompareOperationId);
-  // Closing only forgets the operation in this page; the backend has no cancel
-  // for History compare, so it is offered once the compare has finished.
-  const closeHistoryDrawer = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("operationId");
-    url.searchParams.delete("operationKind");
-    url.searchParams.delete("replayed");
-    window.history.replaceState(null, "", url);
-    setHistoryDrawerCollapsed(false);
-    setUrlRevision((value) => value + 1);
-  };
-  const showOperationStatus =
-    operationId !== null && (operationKind === null || operationKind === "operation");
-  // The server names the newest active Preview of the current upload revision
-  // (possibly started in another tab or terminal); it is a reattach hint, not
-  // proof that it is the only one.
-  const activePreviewOperationId =
-    !operationId && !uploadLocked ? (workspace?.active_preview_operation_id ?? null) : null;
-  const resumeActivePreview = (id: string) => {
-    try {
-      scopedStorage.setItem("gateway-preview-operation", id);
-    } catch {
-      /* the status panel still shows without auto-open */
-    }
-    window.location.assign(
-      pageUrl(
-        "workspace",
-        { operationId: id, operationKind: "operation", workbenchNode: selectedKey },
-        compareRefs,
-      ),
-    );
-  };
 
   if (isGatewaySessionBlocked(sessionState))
     return <SessionGate state={sessionState} identityControl={identityControl} />;
@@ -910,13 +345,7 @@ export function WorkbenchPage({
     <UploadStepCard
       head={history.head}
       onReloadHead={reloadHead}
-      onUploadStateChange={(active) => {
-        if (active) {
-          resumePending.current = false;
-          uploadMode.clearResumeNotice();
-        }
-        if (active || !resumePending.current) setUploadLocked(active);
-      }}
+      onUploadStateChange={handleUploadStateChange}
       onReadyChange={() => undefined}
       occupancyReason={occupancyReason}
       onComplete={(workspaceId, previewResultId) =>
@@ -1044,29 +473,27 @@ export function WorkbenchPage({
               只显示当前基线
             </label>
           </div>
-          {showOperationStatus && !(uploadLocked && !resumePreviewOperation) && (
-            <OperationStatusPanel
-              operationId={operationId}
-              onSucceeded={
-                resumePreviewOperation
-                  ? (id) => void resumePreviewFromOperation(id)
-                  : resumeSubmitOperationId === operationId
-                    ? (id) => void resumeSubmitFromOperation(id)
-                    : undefined
-              }
-              onFailed={
-                resumePreviewOperation
-                  ? () => {
-                      resumePending.current = false;
-                      scopedStorage.removeItem("gateway-preview-operation");
-                      setUploadLocked(false);
-                    }
-                  : resumeSubmitOperationId === operationId
-                    ? (id) => void resumeSubmitFromOperation(id)
-                    : undefined
-              }
-            />
-          )}
+          {showOperationStatus &&
+            operationId !== null &&
+            !(uploadLocked && !resumePreviewOperation) && (
+              <OperationStatusPanel
+                operationId={operationId}
+                onSucceeded={
+                  resumePreviewOperation
+                    ? (id) => void resumePreviewFromOperation(id)
+                    : resumeSubmitOperationId === operationId
+                      ? (id) => void resumeSubmitFromOperation(id)
+                      : undefined
+                }
+                onFailed={
+                  resumePreviewOperation
+                    ? handlePreviewResumeFailed
+                    : resumeSubmitOperationId === operationId
+                      ? (id) => void resumeSubmitFromOperation(id)
+                      : undefined
+                }
+              />
+            )}
           <div className="workspace-table-scroll">
             <table className="workspace-table" aria-label="History 组态树">
               <colgroup>
@@ -1134,12 +561,7 @@ export function WorkbenchPage({
                               aria-expanded={!collapsedNodes.has(row.key)}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                setCollapsedNodes((current) => {
-                                  const next = new Set(current);
-                                  if (next.has(row.key)) next.delete(row.key);
-                                  else next.add(row.key);
-                                  return next;
-                                });
+                                toggleCollapse(row.key);
                               }}
                             >
                               {collapsedNodes.has(row.key) ? (
@@ -1373,22 +795,13 @@ export function WorkbenchPage({
                 </div>
                 <div className="history-result-drawer__buttons">
                   {compareConnectionLost && (
-                    <button
-                      className="button button--secondary"
-                      onClick={() => setRefreshCompare((value) => value + 1)}
-                    >
+                    <button className="button button--secondary" onClick={retryQuery}>
                       <RefreshCw size={14} />
                       重试查询
                     </button>
                   )}
                   {bundleStatus === "failed" && !compareNeedsRerun && (
-                    <button
-                      className="button button--secondary"
-                      onClick={() => {
-                        setCompareError(null);
-                        setDownloadRevision((value) => value + 1);
-                      }}
-                    >
+                    <button className="button button--secondary" onClick={retryDownload}>
                       <RefreshCw size={14} />
                       重试下载
                     </button>
@@ -1430,7 +843,7 @@ export function WorkbenchPage({
                     aria-label={historyDrawerCollapsed ? "展开历史比较结果" : "收起历史比较结果"}
                     aria-expanded={!historyDrawerCollapsed}
                     title={historyDrawerCollapsed ? "展开" : "收起"}
-                    onClick={() => setHistoryDrawerCollapsed((value) => !value)}
+                    onClick={toggleDrawerCollapsed}
                   >
                     {historyDrawerCollapsed ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
                   </button>
@@ -1684,19 +1097,6 @@ export function WorkbenchPage({
       />
     </main>
   );
-}
-
-function historyBundleErrorMessage(cause: unknown): string {
-  if (cause instanceof ApiError) {
-    const title = cause.code ? bundleErrorTitle(cause.code) : undefined;
-    const head = cause.code ? `${cause.code}：` : "";
-    return `${title ? `${title}。` : ""}${head}${cause.message}`;
-  }
-  return cause instanceof Error ? cause.message : String(cause);
-}
-
-function fullTime(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "—";
 }
 
 function DispositionDetails({ selected }: { selected: WorkspaceTreeRow }) {

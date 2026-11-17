@@ -53,7 +53,7 @@ def canonical_bound(sql: str) -> BoundSnapshotInput:
 
 
 def ordered_canonical_bound(sql: str) -> BoundSnapshotInput:
-    from gateway_backend.application.preview_jobs import _comparison_storage_facts
+    from gateway_backend.application.preview_jobs.checkpoint import _comparison_storage_facts
     from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
     from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
     from gateway_backend.capabilities.table_access import NeverCancel, ParserInvocationContext

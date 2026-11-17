@@ -245,7 +245,7 @@ def test_cache_document_rejects_unknown_evidence_and_extra_fields() -> None:
 def test_hidden_pair_is_consistent_and_audit_is_only_in_backend_ready_closure() -> None:
     import json
     from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
-    from gateway_backend.application.history.compare_jobs import _required_ready_refs
+    from gateway_backend.application.history.compare_jobs.checkpoint import _required_ready_refs
     from gateway_backend.application.checkpoints import prepare_ready_closure, load_ready_closure
     from gateway_backend.artifacts.store import put_with_built_ref
     from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id

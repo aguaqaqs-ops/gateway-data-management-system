@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.history.compare_jobs import (
+from gateway_backend.application.history.compare_jobs.payload import (
     HISTORY_COMPARE_ASSEMBLE_DECODER,
-    HISTORY_COMPARE_JOB_KIND,
     HISTORY_COMPARE_MATERIALIZE_DECODER,
     HISTORY_COMPARE_PUBLISH_DECODER,
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
 )
+from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.operations.contracts import JobStepKey
 

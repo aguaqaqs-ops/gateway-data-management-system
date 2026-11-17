@@ -26,12 +26,14 @@ from gateway_backend.application.checkpoints import (
     put_checkpoint_envelope,
 )
 from gateway_backend.application.payloads import CheckpointDecodeError
-from gateway_backend.application.submit_jobs import (
+from gateway_backend.application.submit_jobs.definitions import (
+    bind_submit_control_transaction_factory,
+)
+from gateway_backend.application.submit_jobs.payload import (
     SubmitControlTransactionFactory,
     SubmitRuntimeDependencies,
-    bind_submit_control_transaction_factory,
-    build_prepare_import_handler,
 )
+from gateway_backend.application.submit_jobs.prepare import build_prepare_import_handler
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
 )
@@ -61,7 +63,7 @@ from gateway_backend.capabilities.table_rules import (
 )
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.application.submit_jobs import _submit_attempt_id_from_operation
+from gateway_backend.application.submit_jobs.payload import _submit_attempt_id_from_operation
 from gateway_backend.domain.submission.models import RepositoryArtifactRef, SubmitAttemptState
 from gateway_backend.bootstrap.worker_instance import worker_id_for
 from gateway_backend.infrastructure.control_db.database import (
@@ -392,7 +394,7 @@ def test_submit_prepare_recovers_from_frozen_t1_artifacts_after_ruleset_activati
     db_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import gateway_backend.application.submit_jobs as submit_jobs_module
+    import gateway_backend.application.submit_jobs.prepare as submit_jobs_module
     import gateway_backend.capabilities.table_rules.registry as ruleset_registry
     import gateway_backend.infrastructure.repository_write.import_publication as publication_module
 
@@ -527,7 +529,7 @@ def test_prepare_handler_reuses_checkpoint_on_replay(
         raise AssertionError("publish_prepare_import_package must not run during checkpoint reuse")
 
     monkeypatch.setattr(
-        "gateway_backend.application.submit_jobs.publish_prepare_import_package",
+        "gateway_backend.application.submit_jobs.prepare.publish_prepare_import_package",
         fail_publish,
     )
 

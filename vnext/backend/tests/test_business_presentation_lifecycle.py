@@ -10,7 +10,9 @@ from typing import Any
 
 import pytest
 
-import gateway_backend.application.preview_jobs as preview
+from gateway_backend.application.preview_jobs import assemble as preview_assemble
+from gateway_backend.application.preview_jobs import definitions as preview_definitions
+from gateway_backend.application.preview_jobs import payload as preview_payload
 from gateway_backend.application.bundle_download import prepare_bundle_download
 from gateway_backend.application.checkpoints import load_checkpoint_envelope, load_ready_closure
 from gateway_backend.application.recovery import RecoveryOutcomeDisposition
@@ -48,10 +50,10 @@ def test_actual_presentation_refs_recover_from_disk_transfer_or_release_protecti
     for ref, raw in harness.artifact_store._artifacts.values():
         store.put(raw, ref)
     deps = replace(harness.deps, artifact_store=store)
-    _, handlers, _ = preview.preview_composition_bundle(deps)
+    _, handlers, _ = preview_definitions.preview_composition_bundle(deps)
     harness.handlers = dict(handlers)
     operation_refs: set[ArtifactRef] = set()
-    original_pair = preview._run_pair_pipeline
+    original_pair = preview_assemble._run_pair_pipeline
 
     def capture(*args: Any, **kwargs: Any) -> Any:
         result = original_pair(*args, **kwargs)
@@ -63,10 +65,13 @@ def test_actual_presentation_refs_recover_from_disk_transfer_or_release_protecti
         )
         return result
 
-    monkeypatch.setattr(preview, "_run_pair_pipeline", capture)
+    monkeypatch.setattr(preview_assemble, "_run_pair_pipeline", capture)
     operation_id = "presentation-lifecycle"
     insert_preview_operation(harness, operation_id)
-    for handler in (preview.PREVIEW_MATERIALIZE_HANDLER, preview.PREVIEW_ASSEMBLE_HANDLER):
+    for handler in (
+        preview_payload.PREVIEW_MATERIALIZE_HANDLER,
+        preview_payload.PREVIEW_ASSEMBLE_HANDLER,
+    ):
         session, control, operation, step = claim_next_step(harness)
         run_claimed_handler(harness, handler, session, control, operation, step)
     assert len(operation_refs) >= 2

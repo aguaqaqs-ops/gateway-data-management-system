@@ -27,7 +27,9 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.application.history.errors import (
     HistoryCompareIdempotencyConflict,
 )
-from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+from gateway_backend.application.history.compare_jobs.definitions import (
+    history_compare_job_definitions,
+)
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.http.dependencies import OpenAdmissionGate
 from gateway_backend.http.errors import ApiError
@@ -496,7 +498,7 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
 
 
 def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -> None:
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_STEP_MATERIALIZE,
         history_compare_step_id,
     )

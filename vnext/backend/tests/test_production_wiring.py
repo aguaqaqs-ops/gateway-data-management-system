@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from gateway_backend.application.preview_job_identity import PREVIEW_JOB_CONTRACT_VERSION
 from tests.support.preview_fixtures import seed_completed_preview_operation
 
 from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config
@@ -22,8 +22,10 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 import pytest
 
-from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
-from gateway_backend.application.preview_jobs import preview_job_definitions
+from gateway_backend.application.history.compare_jobs.definitions import (
+    history_compare_job_definitions,
+)
+from gateway_backend.application.preview_jobs.definitions import preview_job_definitions
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.bootstrap.operation_worker import build_production_preview_dependencies
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -550,7 +552,7 @@ def test_http_arrow_repository_session_only_streams_requested_table() -> None:
 def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
     from dataclasses import replace
 
-    from gateway_backend.application.preview_jobs import surface_artifact_closure
+    from gateway_backend.application.preview_jobs.assemble import surface_artifact_closure
     from gateway_backend.capabilities.bundle_assembly._refs import collect_surface_refs
     from gateway_backend.capabilities.comparison.contracts import (
         ComparisonRecordsClosure,

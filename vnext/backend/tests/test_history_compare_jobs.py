@@ -13,7 +13,10 @@ from unittest.mock import patch
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
-import gateway_backend.application.history.compare_jobs as compare_jobs
+from gateway_backend.application.history.compare_jobs import assemble as compare_assemble
+from gateway_backend.application.history.compare_jobs import failures as compare_failures
+from gateway_backend.application.history.compare_jobs import materialize as compare_materialize
+from gateway_backend.application.history.compare_jobs import payload as compare_payload
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
@@ -21,15 +24,17 @@ from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.contracts import (
     HistoryCompareDiagnosticCode,
 )
-from gateway_backend.application.history.compare_jobs import (
+from gateway_backend.application.history.compare_jobs.checkpoint import (
+    _sides_from_materialize_checkpoint,
+    history_compare_assemble_state_from_checkpoint,
+)
+from gateway_backend.application.history.compare_jobs.payload import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,
     HISTORY_COMPARE_MATERIALIZE_HANDLER,
     HISTORY_COMPARE_PUBLISH_HANDLER,
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
-    _sides_from_materialize_checkpoint,
-    history_compare_assemble_state_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
@@ -918,7 +923,7 @@ def test_history_compare_rejects_runtime_ruleset_change_before_each_step(
         run_through_step(harness, prior_handler)
 
     with patch(
-        "gateway_backend.application.history.compare_jobs.comparison_rule_set",
+        "gateway_backend.application.history.compare_jobs.failures.comparison_rule_set",
         return_value=SimpleNamespace(ruleset_digest=DigestRef("sha256:" + "cd" * 32)),
     ):
         run_through_step(harness, handler_identity)
@@ -979,7 +984,7 @@ def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: 
     assert step_protected == frozenset()
     assert assemble_ref.artifact_id in protected
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
         history_compare_assemble_state_from_checkpoint,
     )
 
@@ -1191,7 +1196,9 @@ def test_accept_operation_sets_business_refs_and_protection_owner(tmp_path: Path
         HistoryNodeRefKind,
         PERMISSION_READ_PROJECT_HISTORY,
     )
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.job_definitions import JobDefinitionRegistry
     from gateway_backend.http.dependencies import OpenAdmissionGate
     from gateway_backend.http.orchestration.history_compare import accept_compare_operation
@@ -1347,7 +1354,7 @@ def test_cancel_during_history_assembly_loop_leaves_operation_cancelled(
     )
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
-    original = compare_jobs._run_pair_pipeline
+    original = compare_assemble._run_pair_pipeline
     calls = 0
 
     def run_pair_then_cancel(*args: Any, **kwargs: Any) -> Any:
@@ -1358,7 +1365,7 @@ def test_cancel_during_history_assembly_loop_leaves_operation_cancelled(
             kwargs["control"].request_cancel()
         return result
 
-    monkeypatch.setattr(compare_jobs, "_run_pair_pipeline", run_pair_then_cancel)
+    monkeypatch.setattr(compare_assemble, "_run_pair_pipeline", run_pair_then_cancel)
     session, control, operation, step = claim_next_step(harness)
     acknowledgment = run_claimed_handler(
         harness,
@@ -1394,7 +1401,9 @@ def test_new_history_operation_reuses_complete_table_work_and_exports(
     expected_calls: int,
 ) -> None:
     from dataclasses import replace
-    from gateway_backend.application.history.compare_jobs import history_compare_composition_bundle
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_composition_bundle,
+    )
     from gateway_backend.infrastructure.control_db.computation_cache import (
         ControlDbComputationCache,
     )
@@ -1553,14 +1562,14 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
 
     harness = build_history_compare_harness(tmp_path)
-    payload = compare_jobs.decode_history_compare_payload(json.loads(harness.job_payload))
-    sides = compare_jobs._materialize_distinct_commits(payload, harness.deps)
-    presentations = compare_jobs._history_presentations(payload, harness.deps)
+    payload = compare_payload.decode_history_compare_payload(json.loads(harness.job_payload))
+    sides = compare_materialize._materialize_distinct_commits(payload, harness.deps)
+    presentations = compare_assemble._history_presentations(payload, harness.deps)
     sides = {
         commit: replace(bound, presentation=presentations[commit])
         for commit, bound in sides.items()
     }
-    rules = compare_jobs._assert_runtime_ruleset(payload)
+    rules = compare_failures._assert_runtime_ruleset(payload)
     captured: list[SnapshotTableSet] = []
     original = ensure_committed_tables
 
@@ -1572,10 +1581,10 @@ def test_history_failed_export_closes_both_new_canonical_consumers(
     def denied_export(*args: Any, **kwargs: Any) -> Any:
         raise MemoryError("required export budget")
 
-    monkeypatch.setattr(compare_jobs, "ensure_committed_tables", ensure)
-    monkeypatch.setattr(compare_jobs, "export_snapshot_table_parquet", denied_export)
+    monkeypatch.setattr(compare_assemble, "ensure_committed_tables", ensure)
+    monkeypatch.setattr(compare_assemble, "export_snapshot_table_parquet", denied_export)
     with pytest.raises(MemoryError, match="required export budget"):
-        compare_jobs._ensure_history_demands_once(
+        compare_assemble._ensure_history_demands_once(
             payload,
             harness.deps,
             sides,
@@ -1607,7 +1616,9 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
     from dataclasses import replace
     from gateway_backend.application.pair_pipeline import run_history_pair_pipeline
     from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
-    from gateway_backend.application import preview_jobs
+    from gateway_backend.application.preview_jobs import checkpoint as preview_checkpoint
+    from gateway_backend.application.preview_jobs import definitions as preview_definitions
+    from gateway_backend.application.preview_jobs import payload as preview_payload
     from gateway_backend.application.canonical_metadata.ports import (
         CommitCanonicalMetadata,
         CommitCanonicalScope,
@@ -1689,16 +1700,16 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         idempotency_key="h1-preview-full",
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
-    _, handlers, _ = preview_jobs.preview_composition_bundle(
+    _, handlers, _ = preview_definitions.preview_composition_bundle(
         replace(preview.deps, computation_cache=cache, snapshot_export_cache=exports)
     )
     preview.handlers = dict(handlers)
     producer = "op-preview-history-producer"
     preview_support.insert_preview_operation(preview, producer)
     for handler in (
-        preview_jobs.PREVIEW_MATERIALIZE_HANDLER,
-        preview_jobs.PREVIEW_ASSEMBLE_HANDLER,
-        preview_jobs.PREVIEW_PUBLISH_HANDLER,
+        preview_payload.PREVIEW_MATERIALIZE_HANDLER,
+        preview_payload.PREVIEW_ASSEMBLE_HANDLER,
+        preview_payload.PREVIEW_PUBLISH_HANDLER,
     ):
         lease, control, operation, step = preview_support.claim_next_step(preview)
         preview_support.run_claimed_handler(preview, handler, lease, control, operation, step)
@@ -1706,7 +1717,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         step = uow.operations.get_step(preview_support.step_id_for(producer, "materialize_inputs"))
     assert step.checkpoint_ref is not None
     checkpoint = load_checkpoint_envelope(preview.artifact_store, step.checkpoint_ref)
-    inputs = preview_jobs._materialized_preview_inputs_from_checkpoint(
+    inputs = preview_checkpoint._materialized_preview_inputs_from_checkpoint(
         checkpoint.job_state,
         preview.artifact_store,
         repository_id=REPOSITORY_ID,
@@ -1749,7 +1760,7 @@ def test_full_preview_to_history_reuses_only_the_pairs_actually_computed(
         seen_presentations.append((kwargs["before_presentation"], kwargs["current_presentation"]))
         return run_history_pair_pipeline(**kwargs)
 
-    monkeypatch.setattr(compare_jobs, "run_history_pair_pipeline", capture_presentations)
+    monkeypatch.setattr(compare_assemble, "run_history_pair_pipeline", capture_presentations)
     seen_content: dict[str, tuple[str, ...]] = {}
     seen_producers: dict[str, str] = {}
     for name, before_label, current_label, expected_native in (
@@ -1923,10 +1934,10 @@ def test_history_pipeline_failure_keeps_its_original_runtime_boundary(
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
 
     def failed_pipeline(**kwargs: Any) -> Any:
-        raise compare_jobs.HistoryCompareJobError("risk evaluation failed")
+        raise compare_payload.HistoryCompareJobError("risk evaluation failed")
 
-    monkeypatch.setattr(compare_jobs, "_assemble_comparison", failed_pipeline)
-    with pytest.raises(compare_jobs.HistoryCompareJobError, match="risk evaluation failed"):
+    monkeypatch.setattr(compare_assemble, "_assemble_comparison", failed_pipeline)
+    with pytest.raises(compare_payload.HistoryCompareJobError, match="risk evaluation failed"):
         run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
         operation = uow.operations.get_operation(harness.operation_id)
@@ -1941,7 +1952,9 @@ def test_history_pipeline_failure_keeps_its_original_runtime_boundary(
 def test_history_assemble_checkpoint_rejects_unsupported_bare_refs(
     field_name: str, artifact_id: str
 ) -> None:
-    from gateway_backend.application.history.compare_jobs import history_compare_ready_ref
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
+        history_compare_ready_ref,
+    )
     from gateway_backend.application.payloads import CheckpointDecodeError
 
     ready_id = "a1:durable:" + "0" * 64
@@ -2076,7 +2089,9 @@ def test_single_side_history_uses_metadata_with_cold_and_warm_exports(
 ) -> None:
     from dataclasses import replace
     from gateway_backend.application import pair_pipeline
-    from gateway_backend.application.history.compare_jobs import history_compare_composition_bundle
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_composition_bundle,
+    )
     from gateway_backend.infrastructure.control_db.snapshot_export_cache import (
         ControlDbSnapshotTableExportCache,
     )
@@ -2233,7 +2248,9 @@ def test_history_reuse_rechecks_session_after_preflight(tmp_path: Path) -> None:
         HistoryNodeRef,
         PERMISSION_READ_PROJECT_HISTORY,
     )
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.job_definitions import JobDefinitionRegistry
     from gateway_backend.domain.workspace.errors import PermissionDenied
     from gateway_backend.operations.contracts import OperationRecord
@@ -2343,7 +2360,9 @@ def test_history_rechecks_same_key_bound_during_success_preflight(tmp_path: Path
     from datetime import UTC, datetime
 
     from gateway_backend.application.history.compare import accept_history_compare
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.history.contracts import (
         HistoryCompareAcceptCommand,
         HistoryCompareAcceptanceRecord,
@@ -2408,7 +2427,9 @@ def test_history_candidate_budget_returns_retryable_without_duplicate(tmp_path: 
     from datetime import UTC, datetime
 
     from gateway_backend.application.history.compare import accept_history_compare
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.history.contracts import (
         HistoryCompareAcceptCommand,
         HistoryCompareAcceptanceRecord,
@@ -2498,7 +2519,9 @@ def test_history_reuses_completion_before_writer_acquisition(
     from datetime import UTC, datetime
 
     from gateway_backend.application.history.compare import accept_history_compare
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.history.contracts import (
         HistoryCompareAcceptCommand,
         HistoryNodeRef,

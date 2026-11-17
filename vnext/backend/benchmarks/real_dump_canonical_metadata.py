@@ -20,7 +20,13 @@ from typing import Any, cast
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
-from gateway_backend.application import preview_jobs as p
+from gateway_backend.application.preview_job_identity import (
+    PREVIEW_JOB_CONTRACT_VERSION,
+    PREVIEW_JOB_KIND,
+    PREVIEW_STEP_MATERIALIZE,
+)
+from gateway_backend.application.preview_jobs import checkpoint as preview_checkpoint
+from gateway_backend.application.preview_jobs import payload as preview_payload
 from gateway_backend.application.canonical_metadata.binding import _storage_rule_view
 from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
@@ -198,43 +204,43 @@ def verify_repeat_canonical_metadata(
     _require(checkpoint_ref.media_type == "application/jcs", "checkpoint ref media type mismatch")
     envelope = load_checkpoint_envelope(store, checkpoint_ref)
     _require((envelope.operation_id, envelope.step_name, envelope.job_kind,
-              envelope.job_contract_version) == (operation_id, p.PREVIEW_STEP_MATERIALIZE,
-              p.PREVIEW_JOB_KIND, p.PREVIEW_JOB_CONTRACT_VERSION), "checkpoint scope mismatch")
+              envelope.job_contract_version) == (operation_id, PREVIEW_STEP_MATERIALIZE,
+              PREVIEW_JOB_KIND, PREVIEW_JOB_CONTRACT_VERSION), "checkpoint scope mismatch")
     state = envelope.job_state
-    _require(set(state) == {p._JOB_STATE_MATERIALIZED_SIDES_REF, p._JOB_STATE_CANONICAL},
+    _require(set(state) == {preview_checkpoint._JOB_STATE_MATERIALIZED_SIDES_REF, preview_checkpoint._JOB_STATE_CANONICAL},
              "materialize checkpoint fields mismatch")
-    canonical = p._canonical_preview_metadata_from_document(state[p._JOB_STATE_CANONICAL])  # type: ignore[arg-type]
-    p._assert_configuration_payload(canonical.configuration_facts, payload, operation_id)
+    canonical = preview_checkpoint._canonical_preview_metadata_from_document(state[preview_checkpoint._JOB_STATE_CANONICAL])  # type: ignore[arg-type]
+    preview_checkpoint._assert_configuration_payload(canonical.configuration_facts, payload, operation_id)
     _require(not canonical.baseline_is_initial and canonical.initial_canonicalization_manifest_ref is None
              and canonical.initial_canonicalization_manifest_digest is None,
              "fixed W2 must reuse noninitial baseline without INITIAL manifest")
-    sides_ref = artifact_ref_from_dict(state[p._JOB_STATE_MATERIALIZED_SIDES_REF])  # type: ignore[arg-type]
+    sides_ref = artifact_ref_from_dict(state[preview_checkpoint._JOB_STATE_MATERIALIZED_SIDES_REF])  # type: ignore[arg-type]
     _require(sides_ref.media_type == "application/jcs", "sides ref media type mismatch")
     document = load_checkpoint_state_artifact(
-        store, sides_ref, document_type=p.PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
-        contract_version=p.PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION)
-    _require(set(document) == {"document_type", "contract_version", p._JOB_STATE_SIDES},
+        store, sides_ref, document_type=preview_checkpoint.PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+        contract_version=preview_checkpoint.PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION)
+    _require(set(document) == {"document_type", "contract_version", preview_checkpoint._JOB_STATE_SIDES},
              "materialized sides document fields mismatch")
-    raw = document[p._JOB_STATE_SIDES]
-    _require(type(raw) is dict and set(raw) == {p._SIDE_BASELINE, p._SIDE_INITIAL,
-             p._SIDE_MODIFIED, "initial_reuses_baseline"}, "three-side metadata fields mismatch")
+    raw = document[preview_checkpoint._JOB_STATE_SIDES]
+    _require(type(raw) is dict and set(raw) == {preview_payload._SIDE_BASELINE, preview_payload._SIDE_INITIAL,
+             preview_payload._SIDE_MODIFIED, "initial_reuses_baseline"}, "three-side metadata fields mismatch")
     # Narrow fixed-scope proof; no general FULL restore and no fake row readers.
     raw_sides: Any = raw
     _require(raw_sides["initial_reuses_baseline"] is True
-             and raw_sides[p._SIDE_INITIAL] == raw_sides[p._SIDE_BASELINE],
+             and raw_sides[preview_payload._SIDE_INITIAL] == raw_sides[preview_payload._SIDE_BASELINE],
              "INITIAL must reuse exact BASELINE metadata")
-    baseline = _side(raw_sides[p._SIDE_BASELINE], store, repository_id)
-    current = _side(raw_sides[p._SIDE_MODIFIED], store, repository_id)
+    baseline = _side(raw_sides[preview_payload._SIDE_BASELINE], store, repository_id)
+    current = _side(raw_sides[preview_payload._SIDE_MODIFIED], store, repository_id)
     source = baseline.snapshot.source_context
     _require(source.source_kind is SourceKind.IMMUTABLE_REPOSITORY_REF
              and source.repository_id == repository_id and source.resolved_commit_hash == commit_id
-             and raw_sides[p._SIDE_BASELINE].get("repository_identity") == {
+             and raw_sides[preview_payload._SIDE_BASELINE].get("repository_identity") == {
                  "repository_id": repository_id, "repository_ref": source.repository_ref,
                  "resolved_commit_hash": commit_id}, "baseline exact Repository commit binding mismatch")
     modified_source = payload.source_artifacts[SourceArtifactRole.MODIFIED]
     _require(current.snapshot.source_kind is SourceKind.SQL_DUMP_SOURCE
-             and raw_sides[p._SIDE_MODIFIED].get("source_ref")
-             == artifact_ref_to_dict(p._artifact_ref_from_binding(modified_source))
+             and raw_sides[preview_payload._SIDE_MODIFIED].get("source_ref")
+             == artifact_ref_to_dict(preview_payload._artifact_ref_from_binding(modified_source))
              and current.snapshot.source_context.sql_source_digest is not None
              and current.snapshot.source_context.sql_source_digest.value
              == canonical.configuration_facts.modified.sql_source_digest,
@@ -245,7 +251,7 @@ def verify_repeat_canonical_metadata(
         _require(canonical_state_digest_of(side.summary.tables) == digest,
                  "three-side canonical state digest mismatch")
     closure = canonicalize_jcs(canonicalize_json_value({
-        "contract_version": p._CANONICAL_TABLE_CLOSURE_CONTRACT,
+        "contract_version": preview_checkpoint._CANONICAL_TABLE_CLOSURE_CONTRACT,
         "tables": [{"table_name": name, "manifest_ref": artifact_ref_to_dict(ref)}
                    for name, ref in sorted(current.table_refs, key=lambda item: item[0].encode("utf-8"))],
     }))
@@ -300,14 +306,14 @@ def main() -> None:
             connection.execute("PRAGMA query_only=ON")
             connection.execute("BEGIN")
             operations = SQLiteOperationStore(connection, transaction_now=datetime.now(UTC), read_only=True)
-            step = operations.get_step(p._successor_step_id(operation_id, p.PREVIEW_STEP_MATERIALIZE))
+            step = operations.get_step(preview_payload._successor_step_id(operation_id, PREVIEW_STEP_MATERIALIZE))
             operation = operations.get_operation(operation_id)
             _require((step.status, step.operation_id, step.step_name)
-                     == (StepStatus.SUCCEEDED, operation_id, p.PREVIEW_STEP_MATERIALIZE)
+                     == (StepStatus.SUCCEEDED, operation_id, PREVIEW_STEP_MATERIALIZE)
                      and step.checkpoint_ref is not None
                      and operation.status is OperationStatus.SUCCEEDED
                      and (operation.job_kind, operation.job_contract_version)
-                     == (p.PREVIEW_JOB_KIND, p.PREVIEW_JOB_CONTRACT_VERSION),
+                     == (PREVIEW_JOB_KIND, PREVIEW_JOB_CONTRACT_VERSION),
                      "exact SQL operation/step/status/job binding mismatch")
             if step.checkpoint_ref is None:
                 raise ValueError("materialize step checkpoint ref is missing")
@@ -323,7 +329,7 @@ def main() -> None:
             finally:
                 connection.close()
         # Retain the root borrow while hashing, without retaining the DB snapshot.
-        payload = p.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))
+        payload = preview_payload.decode_preview_payload(json.loads(load_job_payload_bytes(operation, store)))
         logical = verify_repeat_canonical_metadata(store, checkpoint_ref=step.checkpoint_ref,
             operation_id=operation_id, repository_id=repository_id, commit_id=commit_id,
             payload=payload, submission_manifest_ref=store.get_ref(rows[0][0]),

@@ -42,16 +42,18 @@ from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
 )
-from gateway_backend.application.preview_jobs import preview_job_definitions
-from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+from gateway_backend.application.preview_jobs.definitions import preview_job_definitions
+from gateway_backend.application.history.compare_jobs.definitions import (
+    history_compare_job_definitions,
+)
 from gateway_backend.application.history.compare_registry import assert_compare_registry_ready
 from gateway_backend.application.preview_registry import assert_preview_registry_ready
-from gateway_backend.application.submit_jobs import (
-    SubmitRuntimeDependencies,
+from gateway_backend.application.submit_jobs.definitions import (
     bind_submit_control_transaction_factory,
-    build_submit_operator_recovery_port,
     read_write_factory,
 )
+from gateway_backend.application.submit_jobs.payload import SubmitRuntimeDependencies
+from gateway_backend.application.submit_jobs.recovery import build_submit_operator_recovery_port
 from gateway_backend.application.submit_registry import (
     assert_submit_registry_decoders,
     build_submit_recovery_capability_lookup,

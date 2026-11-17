@@ -13,7 +13,7 @@ from gateway_backend.application.checkpoints import (
     put_checkpoint_envelope,
     put_checkpoint_state_artifact,
 )
-from gateway_backend.application.history.compare_jobs import (
+from gateway_backend.application.history.compare_jobs.checkpoint import (
     HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
     HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
 )

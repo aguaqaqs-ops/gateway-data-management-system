@@ -324,7 +324,7 @@ def _tamper_checkpoint_semantically_same_length(
         load_checkpoint_envelope,
         load_checkpoint_state_artifact,
     )
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
         HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
         HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
     )
@@ -398,7 +398,7 @@ def _register_history_compare_bundle(
     operation_id: str,
 ) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_STEP_ASSEMBLE,
         history_compare_step_id,
     )
@@ -668,7 +668,7 @@ def test_get_history_compare_result_succeeded_matches_assemble_checkpoint(
 ) -> None:
     del tmp_path
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -721,7 +721,7 @@ def test_get_history_compare_result_succeeded_matches_assemble_checkpoint(
         history_env.artifact_store._store,
         assemble_step.checkpoint_ref,
     )
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
         history_compare_assemble_state_from_checkpoint,
     )
 
@@ -751,7 +751,7 @@ def test_get_history_compare_result_succeeded_matches_assemble_checkpoint(
 
 def test_get_history_compare_bundle_streams_attachment(db_path: Path, tmp_path: Path) -> None:
     del tmp_path
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -850,7 +850,7 @@ def test_checkpoint_bytes_tamper_returns_artifact_unavailable(
     Route-side DTO decode validation is covered by
     ``test_compare_result_decode_malformed_digest_returns_artifact_unavailable``.
     """
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -946,7 +946,7 @@ def test_compare_result_decode_malformed_digest_returns_artifact_unavailable(
     invalid_value: str,
 ) -> None:
     del case_id
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -1128,7 +1128,7 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     db_path: Path,
     tmp_path: Path,
 ) -> None:
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -1429,12 +1429,14 @@ def test_unreadable_success_replays_error_and_new_key_rebuilds(
     db_path: Path, tmp_path: Path
 ) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
+        history_compare_assemble_state_from_checkpoint,
+    )
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
         HISTORY_COMPARE_STEP_ASSEMBLE,
-        history_compare_assemble_state_from_checkpoint,
         history_compare_step_id,
     )
     from tests.support.history_compare_job_harness import (
@@ -1513,12 +1515,14 @@ def test_history_rejects_result_pair_digest_disagreeing_with_bundle(
     field: str,
 ) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
+        history_compare_assemble_state_from_checkpoint,
+    )
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
         HISTORY_COMPARE_STEP_ASSEMBLE,
-        history_compare_assemble_state_from_checkpoint,
         history_compare_step_id,
     )
     from tests.support.history_compare_checkpoint_tamper import rebind_tampered_assemble_checkpoint
@@ -1630,7 +1634,7 @@ def test_history_bundle_missing_and_corrupt_are_distinct(
     code: str,
 ) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -1726,7 +1730,7 @@ def test_history_rejects_bundle_with_wrong_ordered_input_binding(
     import gateway_backend.application.bundle_download as bundle_download
     from gateway_shared_kernel import raw_blob_digest
     from gateway_shared_kernel.jcs import canonicalize_json_value
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,

@@ -12,7 +12,8 @@ from typing import Any, Iterator
 
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, _same_resolved_rules
+from gateway_backend.application.preview_job_identity import PREVIEW_JOB_CONTRACT_VERSION
+from gateway_backend.application.preview_jobs.checkpoint import _same_resolved_rules
 from gateway_backend.capabilities.table_rules import STORAGE_PROJECTION_VERSION, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.application.submission.accept_transaction import AcceptSubmitPreflight, accept_submit_transaction

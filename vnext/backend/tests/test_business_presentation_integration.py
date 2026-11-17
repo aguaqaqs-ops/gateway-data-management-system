@@ -194,7 +194,7 @@ def test_history_locator_follows_reordered_export_cache_file_through_shared_bund
     )
     from gateway_backend.capabilities.snapshot_materialization.artifact import row_layout_digest_of
     from gateway_backend.capabilities.snapshot_materialization import client_parquet
-    from gateway_backend.application.preview_jobs import surface_artifact_closure
+    from gateway_backend.application.preview_jobs.assemble import surface_artifact_closure
     from gateway_backend.capabilities.bundle_assembly import (
         BUNDLE_CONTRACT_VERSION,
         BundleAssemblyInput,
@@ -353,7 +353,7 @@ def test_actual_exception_becomes_stable_code_in_downloadable_records(
 ) -> None:
     from gateway_backend.capabilities.comparison import native
     from gateway_backend.capabilities.comparison.errors import StandardComparisonError
-    from gateway_backend.application.preview_jobs import surface_artifact_closure
+    from gateway_backend.application.preview_jobs.assemble import surface_artifact_closure
     from gateway_backend.capabilities.bundle_assembly import (
         BUNDLE_CONTRACT_VERSION,
         BundleAssemblyInput,

@@ -40,11 +40,13 @@ from gateway_backend.application.history.errors import (
     HistoryCompareNodeNotFound,
     HistoryRequestValidation,
 )
-from gateway_backend.application.history.compare_jobs import (
-    HISTORY_COMPARE_JOB_CONTRACT_VERSION,
-    HISTORY_COMPARE_JOB_KIND,
+from gateway_backend.application.history.compare_jobs.payload import (
     HISTORY_COMPARE_STEP_MATERIALIZE,
     history_compare_step_id,
+)
+from gateway_backend.application.history.contracts import (
+    HISTORY_COMPARE_JOB_CONTRACT_VERSION,
+    HISTORY_COMPARE_JOB_KIND,
 )
 from gateway_backend.application.history.compare_registry import assert_compare_registry_ready
 from gateway_backend.application.history.ports import (

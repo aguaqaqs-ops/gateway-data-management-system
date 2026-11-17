@@ -121,8 +121,10 @@ def test_snapshot_table_binding_requires_backend_location_identity(artifact_id: 
 
 @pytest.mark.parametrize("owner", ["preview", "history"])
 def test_checkpoint_bundle_binding_must_belong_to_its_ready_closure(owner: str) -> None:
-    from gateway_backend.application.history.compare_jobs import _assert_history_bundle_binding
-    from gateway_backend.application.preview_jobs import _assert_preview_bundle_binding
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
+        _assert_history_bundle_binding,
+    )
+    from gateway_backend.application.preview_jobs.checkpoint import _assert_preview_bundle_binding
     from gateway_backend.application.payloads import CheckpointDecodeError
 
     validators = {

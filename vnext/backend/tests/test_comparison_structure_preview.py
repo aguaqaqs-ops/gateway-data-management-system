@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import pytest
 
-from gateway_backend.application import preview_jobs
+from gateway_backend.application.preview_jobs import assemble as preview_assemble
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.application.checkpoints import load_ready_closure
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
@@ -82,7 +82,7 @@ def test_hidden_schema_preview_preserves_ready_audit_and_accepts_canonical_chang
         pairs.append(pair)
         return pair
 
-    monkeypatch.setattr(preview_jobs, "run_preview_pair_pipeline", capture)
+    monkeypatch.setattr(preview_assemble, "run_preview_pair_pipeline", capture)
     _run_through_publish(harness, "op-hidden-schema")
     assert len(pairs) == 1 and pairs[0].structure_audit_ref is not None
     surface = pairs[0].surface_result.surface

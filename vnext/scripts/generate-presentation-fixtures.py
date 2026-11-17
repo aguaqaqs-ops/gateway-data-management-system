@@ -32,7 +32,11 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application import pair_pipeline
 from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskExecutionPolicy
-from gateway_backend.application.preview_jobs import _comparison_storage_facts, _publish_canonical_table_set_closure, surface_artifact_closure
+from gateway_backend.application.preview_jobs.assemble import surface_artifact_closure
+from gateway_backend.application.preview_jobs.checkpoint import (
+    _comparison_storage_facts,
+    _publish_canonical_table_set_closure,
+)
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from presentation_fixture_submit import run_comment_only_submit

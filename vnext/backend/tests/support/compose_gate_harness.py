@@ -1067,7 +1067,7 @@ from contextlib import closing, contextmanager, ExitStack
 from dataclasses import replace
 from pathlib import Path
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.compare_jobs import _sides_from_materialize_checkpoint
+from gateway_backend.application.history.compare_jobs.checkpoint import _sides_from_materialize_checkpoint
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit, presentation_for_commit
 from gateway_backend.application.canonical_metadata.manifest_reader import ArtifactBackedCanonicalizationManifestReader
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalScope
@@ -1158,7 +1158,7 @@ def local_history_compare_digest_from_materialize_checkpoint(
     script = (
         _history_checkpoint_readers_script(operation_id, repository_id=repository_id)
         + f"""
-from gateway_backend.application.history.compare_jobs import _run_pair_pipeline
+from gateway_backend.application.history.compare_jobs.assemble import _run_pair_pipeline
 from gateway_backend.operations.worker import ExecutionControl
 
 with checkpoint_readers() as (store, sides, rule_set):

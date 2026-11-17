@@ -17,7 +17,7 @@ from gateway_backend.application.pair_pipeline import (
     run_history_pair_pipeline,
     run_preview_pair_pipeline,
 )
-from gateway_backend.application.preview_jobs import surface_artifact_closure
+from gateway_backend.application.preview_jobs.assemble import surface_artifact_closure
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
@@ -814,7 +814,7 @@ def test_keyless_added_identity_column_uses_one_whole_table_under_final_reorderi
 
 def _materialize_business_pair_input(sql: str, store: InMemoryArtifactStore) -> Any:
     """Exercise the upload's business/catalog and canonical gates before the pair."""
-    from gateway_backend.application.preview_jobs import _comparison_storage_facts
+    from gateway_backend.application.preview_jobs.checkpoint import _comparison_storage_facts
     from gateway_backend.capabilities.comparison import BoundSnapshotInput
     from gateway_backend.capabilities.snapshot_materialization import (
         MaterializationPolicy,

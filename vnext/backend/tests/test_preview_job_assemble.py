@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-import gateway_backend.application.preview_jobs as preview_jobs
+from gateway_backend.application.preview_jobs import assemble as preview_assemble
+from gateway_backend.application.preview_jobs import definitions as preview_definitions
 import gateway_backend.application.pair_pipeline as pair_pipeline
 
-from gateway_backend.application.preview_jobs import PreviewJobError
+from gateway_backend.application.preview_jobs.payload import PreviewJobError
 from gateway_backend.capabilities.bundle_assembly import (
     BundleAssemblyResult,
     BundleAssemblyStatus,
@@ -34,14 +35,16 @@ from gateway_backend.application.checkpoints import (
     load_checkpoint_state_artifact,
     put_checkpoint_state_artifact,
 )
-from gateway_backend.application.preview_jobs import (
-    PREVIEW_ASSEMBLE_HANDLER,
+from gateway_backend.application.preview_jobs.checkpoint import (
     PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION,
     PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE,
-    PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
     PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
     PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+)
+from gateway_backend.application.preview_jobs.payload import (
+    PREVIEW_ASSEMBLE_HANDLER,
+    PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_PUBLISH_HANDLER,
     PREVIEW_STEP_PUBLISH,
 )
@@ -105,7 +108,7 @@ def test_initial_baseline_is_bound_to_the_actual_before_side(
     pair_id: str,
     expected: bool,
 ) -> None:
-    assert preview_jobs._initial_baseline_pair(is_initial, completeness, pair_id) is expected
+    assert preview_assemble._initial_baseline_pair(is_initial, completeness, pair_id) is expected
 
 
 def _run_materialize(harness: PreviewJobHarness, operation_id: str) -> None:
@@ -225,7 +228,7 @@ def test_cancel_during_preview_assembly_loop_leaves_operation_cancelled(
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
     operation_id = "op-assemble-cancel-loop"
     _run_materialize(harness, operation_id)
-    original = preview_jobs._run_pair_pipeline
+    original = preview_assemble._run_pair_pipeline
     calls = 0
 
     def run_pair_then_cancel(*args: Any, **kwargs: Any) -> Any:
@@ -236,7 +239,7 @@ def test_cancel_during_preview_assembly_loop_leaves_operation_cancelled(
             kwargs["control"].request_cancel()
         return result
 
-    monkeypatch.setattr(preview_jobs, "_run_pair_pipeline", run_pair_then_cancel)
+    monkeypatch.setattr(preview_assemble, "_run_pair_pipeline", run_pair_then_cancel)
     session, control, operation, step = claim_next_step(harness)
     acknowledgment = run_claimed_handler(
         harness,
@@ -321,7 +324,7 @@ def test_assemble_failure_retains_bounded_bundle_diagnostic(
             diagnostics=("BUNDLE_CLOSURE_JSON_BUDGET_EXCEEDED",),
         )
 
-    monkeypatch.setattr(preview_jobs, "assemble_bundle", fail_bundle)
+    monkeypatch.setattr(preview_assemble, "assemble_bundle", fail_bundle)
     session, control, operation, step = claim_next_step(harness)
 
     with pytest.raises(
@@ -360,10 +363,10 @@ def test_full_preview_checkpoint_persists_canonical_state_bindings(tmp_path: Pat
 
 
 def test_assemble_resumes_from_checkpoint_when_repository_is_unavailable(tmp_path: Path) -> None:
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_jobs.assemble import build_assemble_preview_handler
+    from gateway_backend.application.preview_jobs.payload import (
         PREVIEW_ASSEMBLE_HANDLER,
         PreviewRuntimeDependencies,
-        build_assemble_preview_handler,
     )
 
     harness = build_preview_harness(tmp_path)
@@ -427,7 +430,7 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
 ) -> None:
     del case_id
     from gateway_backend.application.payloads import CheckpointDecodeError
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_jobs.checkpoint import (
         _materialized_preview_inputs_from_checkpoint,
     )
 
@@ -462,7 +465,7 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(
     tmp_path: Path,
 ) -> None:
     from gateway_backend.application.payloads import CheckpointDecodeError
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_jobs.checkpoint import (
         _materialized_preview_inputs_from_checkpoint,
     )
 
@@ -501,7 +504,7 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(
 
 def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
     from gateway_backend.application.payloads import CheckpointDecodeError
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_jobs.checkpoint import (
         _materialized_preview_inputs_from_checkpoint,
     )
 
@@ -565,7 +568,7 @@ def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
             workspace.current_preview_result_id
         )
     assert preview_result is not None
-    from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+    from gateway_backend.application.preview_job_identity import PREVIEW_JOB_CONTRACT_VERSION
 
     assert preview_result.contract_version == PREVIEW_JOB_CONTRACT_VERSION
     assert [
@@ -644,7 +647,7 @@ def test_full_different_project_declares_replacement_for_matching_pair(
         native_modes_and_calls.append((plan.mode, result.metrics.native_calls))
         return result
 
-    monkeypatch.setattr(preview_jobs, "declare_pair_comparison_session", capture_declaration)
+    monkeypatch.setattr(preview_assemble, "declare_pair_comparison_session", capture_declaration)
     monkeypatch.setattr(pair_pipeline, "compare_plan_native", capture_native)
     _run_through_publish(harness, "op-full-different-project-declaration")
     assert declared_modes == [
@@ -1021,7 +1024,7 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
 
     cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "derived-cache"))
     deps = replace(harness.deps, computation_cache=cache)
-    _, handlers, _ = preview_jobs.preview_composition_bundle(deps)
+    _, handlers, _ = preview_definitions.preview_composition_bundle(deps)
     harness.handlers = dict(handlers)
     _run_through_publish(harness, "op-persistent-full-cold")
     cold_metrics = list(pair_comparison_metrics)
@@ -1085,7 +1088,7 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
 def test_preview_assemble_checkpoint_rejects_unsupported_bare_refs(
     field_name: str, artifact_id: str
 ) -> None:
-    from gateway_backend.application.preview_jobs import _preview_ready_ref
+    from gateway_backend.application.preview_jobs.checkpoint import _preview_ready_ref
     from gateway_backend.application.payloads import CheckpointDecodeError
 
     ready_id = "a1:durable:" + "0" * 64
@@ -1153,7 +1156,7 @@ def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
         seen.append((kwargs["before_presentation"], kwargs["current_presentation"]))
         return original(**kwargs)
 
-    monkeypatch.setattr(preview_jobs, "run_preview_pair_pipeline", capture)
+    monkeypatch.setattr(preview_assemble, "run_preview_pair_pipeline", capture)
     _run_through_publish(harness, "op-comment-only")
     expected_before = "initial" if input_completeness is InputCompleteness.FULL else None
 

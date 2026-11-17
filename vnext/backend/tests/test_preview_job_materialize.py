@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import gateway_backend.application.preview_jobs as preview_jobs
+from gateway_backend.application.preview_jobs import assemble as preview_assemble
+from gateway_backend.application.preview_jobs import checkpoint as preview_checkpoint
+from gateway_backend.application.preview_jobs import definitions as preview_definitions
+from gateway_backend.application.preview_jobs import failures as preview_failures
+from gateway_backend.application.preview_jobs import materialize as preview_materialize
+from gateway_backend.application.preview_jobs import payload as preview_payload
 
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
@@ -19,11 +24,13 @@ from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
     load_checkpoint_state_artifact,
 )
-from gateway_backend.application.preview_jobs import (
-    PREVIEW_MATERIALIZE_HANDLER,
+from gateway_backend.application.preview_jobs.checkpoint import (
     PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
     PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
     PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+)
+from gateway_backend.application.preview_jobs.payload import (
+    PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_STEP_ASSEMBLE,
     PreviewJobError,
     decode_preview_payload,
@@ -309,7 +316,7 @@ def test_materialize_uses_frozen_baseline_exact_commit(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path)
     harness.seed_workspace()
     payload = decode_preview_payload(decode_payload_object(harness))
-    from gateway_backend.application.preview_jobs import _materialize_all_sides
+    from gateway_backend.application.preview_jobs.materialize import _materialize_all_sides
 
     _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
     assert harness.baseline_provider.last_session is not None
@@ -337,7 +344,7 @@ def test_initial_baseline_rejects_repository_user_tables(tmp_path: Path) -> None
         control_transaction_factory=control_uow_factory,
     )
     payload = decode_preview_payload(decode_payload_object(harness))
-    from gateway_backend.application.preview_jobs import _materialize_all_sides
+    from gateway_backend.application.preview_jobs.materialize import _materialize_all_sides
 
     with pytest.raises(PreviewJobError) as error:
         _materialize_all_sides(payload, deps, operation_id="op-direct-materialize")
@@ -453,7 +460,7 @@ def test_unchanged_preview_table_does_not_read_baseline_rows(tmp_path: Path) -> 
     )
     harness.seed_workspace()
     payload = decode_preview_payload(decode_payload_object(harness))
-    from gateway_backend.application.preview_jobs import _materialize_all_sides
+    from gateway_backend.application.preview_jobs.materialize import _materialize_all_sides
 
     _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
 
@@ -476,7 +483,7 @@ def test_preview_reads_changed_and_deleted_baseline_tables_only(tmp_path: Path) 
     )
     harness.seed_workspace()
     payload = decode_preview_payload(decode_payload_object(harness))
-    from gateway_backend.application.preview_jobs import _materialize_all_sides
+    from gateway_backend.application.preview_jobs.materialize import _materialize_all_sides
 
     _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
 
@@ -641,19 +648,21 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
         unit_of_work._test_metadata_port = metadata_port
         return unit_of_work
 
-    monkeypatch.setattr(preview_jobs, "migrated_table_ruleset_snapshot", lambda: ruleset_b)
+    monkeypatch.setattr(preview_materialize, "migrated_table_ruleset_snapshot", lambda: ruleset_b)
+    monkeypatch.setattr(preview_failures, "migrated_table_ruleset_snapshot", lambda: ruleset_b)
+    monkeypatch.setattr(preview_checkpoint, "migrated_table_ruleset_snapshot", lambda: ruleset_b)
     harness.deps = replace(
         harness.deps,
         control_transaction_factory=control_uow_factory,
     )
-    harness.publication_uow_factory = preview_jobs.bind_control_transaction_factory(
+    harness.publication_uow_factory = preview_definitions.bind_control_transaction_factory(
         control_uow_factory
     )
-    harness.handlers[preview_jobs.PREVIEW_MATERIALIZE_HANDLER] = (
-        preview_jobs.build_materialize_inputs_handler(harness.deps)
+    harness.handlers[preview_payload.PREVIEW_MATERIALIZE_HANDLER] = (
+        preview_materialize.build_materialize_inputs_handler(harness.deps)
     )
-    harness.handlers[preview_jobs.PREVIEW_ASSEMBLE_HANDLER] = (
-        preview_jobs.build_assemble_preview_handler(harness.deps)
+    harness.handlers[preview_payload.PREVIEW_ASSEMBLE_HANDLER] = (
+        preview_assemble.build_assemble_preview_handler(harness.deps)
     )
 
     modified_sql = (
@@ -718,18 +727,18 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     )
 
     observed_pairs: list[Any] = []
-    original_run_pair = preview_jobs._run_pair_pipeline
+    original_run_pair = preview_assemble._run_pair_pipeline
 
     def observe_pair(*args: Any, **kwargs: Any) -> Any:
         result = original_run_pair(*args, **kwargs)
         observed_pairs.append(result)
         return result
 
-    monkeypatch.setattr(preview_jobs, "_run_pair_pipeline", observe_pair)
+    monkeypatch.setattr(preview_assemble, "_run_pair_pipeline", observe_pair)
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(
         harness,
-        preview_jobs.PREVIEW_ASSEMBLE_HANDLER,
+        preview_payload.PREVIEW_ASSEMBLE_HANDLER,
         session,
         control,
         operation,
@@ -873,7 +882,7 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
     payload = decode_preview_payload(decode_payload_object(harness))
-    from gateway_backend.application.preview_jobs import _materialize_all_sides
+    from gateway_backend.application.preview_jobs.materialize import _materialize_all_sides
 
     with pytest.raises(PreviewJobError, match="uploaded"):
         _materialize_all_sides(payload, harness.deps, operation_id="op-direct-materialize")
@@ -918,8 +927,6 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from gateway_backend.application import preview_jobs
-
     harness = build_preview_harness(tmp_path, empty_baseline=True)
     sql = "CREATE TABLE version_manager (id INT PRIMARY KEY, project_guid TEXT, saved_time TEXT); "
     initial_sql = sql + "INSERT INTO version_manager VALUES (1,'p','2026-11-07T10:00:00Z');"
@@ -961,7 +968,7 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     def reject_reextract(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("checkpoint recovery must not reextract SQL facts")
 
-    monkeypatch.setattr(preview_jobs, "parse_arrow_sql", reject_reextract)
+    monkeypatch.setattr(preview_materialize, "parse_arrow_sql", reject_reextract)
     from gateway_backend.operations.lease_session import LeaseSession
     from gateway_backend.operations.worker import ExecutionControl, WriteUnitOfWorkFactory
     from typing import cast
@@ -980,7 +987,10 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     run_claimed_handler(
         harness, PREVIEW_MATERIALIZE_HANDLER, recovered_session, control, operation, step
     )
-    for handler in (preview_jobs.PREVIEW_ASSEMBLE_HANDLER, preview_jobs.PREVIEW_PUBLISH_HANDLER):
+    for handler in (
+        preview_payload.PREVIEW_ASSEMBLE_HANDLER,
+        preview_payload.PREVIEW_PUBLISH_HANDLER,
+    ):
         session, control, operation, step = claim_next_step(harness)
         run_claimed_handler(harness, handler, session, control, operation, step)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
@@ -991,7 +1001,7 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     damaged = dict(canonical)
     del damaged["configuration_facts"]
     with pytest.raises(CheckpointDecodeError, match="fields are invalid"):
-        preview_jobs._canonical_preview_metadata_from_document(damaged)
+        preview_checkpoint._canonical_preview_metadata_from_document(damaged)
 
 
 def test_baseline_time_facts_must_match_original_manifest_rules(
@@ -1024,7 +1034,7 @@ def test_baseline_time_facts_must_match_original_manifest_rules(
     monkeypatch.setattr(repository_type, "get_submission", read_altered)
     payload = decode_preview_payload(decode_payload_object(harness))
     with pytest.raises(PreviewJobError, match="identity does not match source manifest"):
-        preview_jobs._materialize_all_sides(
+        preview_materialize._materialize_all_sides(
             payload, harness.deps, operation_id="op-invalid-baseline-facts"
         )
 
@@ -1090,7 +1100,7 @@ def test_preview_freezes_rule_equivalence_for_comment_changes(
         harness, initial_sql=None, modified_sql=table_sql.format(comment=modified_comment)
     )
     payload = decode_preview_payload(decode_payload_object(harness))
-    materialized = preview_jobs._materialize_all_sides(
+    materialized = preview_materialize._materialize_all_sides(
         payload, harness.deps, operation_id="op-rule-equivalence"
     )
     assert (
@@ -1121,7 +1131,7 @@ def test_recovery_rejects_tampered_frozen_rule_equivalence(tmp_path: Path) -> No
     damaged["rules_semantically_equal"] = not damaged["rules_semantically_equal"]
     job_state = {**envelope.job_state, "canonical_preview": damaged}
     with pytest.raises(CheckpointDecodeError, match="resolved rules do not match"):
-        preview_jobs._materialized_preview_inputs_from_checkpoint(
+        preview_checkpoint._materialized_preview_inputs_from_checkpoint(
             job_state,
             harness.artifact_store,
             repository_id=REPOSITORY_ID,

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
-from gateway_backend.application.preview_jobs import (
-    PREVIEW_ASSEMBLE_DECODER,
+from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_KIND,
+    PREVIEW_STEP_MATERIALIZE,
+)
+from gateway_backend.application.preview_jobs.definitions import preview_job_definitions
+from gateway_backend.application.preview_jobs.payload import (
+    PREVIEW_ASSEMBLE_DECODER,
     PREVIEW_MATERIALIZE_DECODER,
     PREVIEW_PUBLISH_DECODER,
     PREVIEW_STEP_ASSEMBLE,
-    PREVIEW_STEP_MATERIALIZE,
     PREVIEW_STEP_PUBLISH,
-    preview_job_definitions,
 )
 from gateway_backend.operations.contracts import JobStepKey
 

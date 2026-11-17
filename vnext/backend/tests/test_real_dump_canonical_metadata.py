@@ -16,7 +16,13 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from benchmarks.real_dump_canonical_metadata import verify_repeat_canonical_metadata
-from gateway_backend.application import preview_jobs as p
+from gateway_backend.application.preview_job_identity import (
+    PREVIEW_JOB_CONTRACT_VERSION,
+    PREVIEW_JOB_KIND,
+    PREVIEW_STEP_MATERIALIZE,
+)
+from gateway_backend.application.preview_jobs import checkpoint as preview_checkpoint
+from gateway_backend.application.preview_jobs import payload as preview_payload
 from gateway_backend.application.canonical_metadata.binding import _storage_rule_view
 from gateway_backend.application.checkpoints import StepCheckpointEnvelope, put_checkpoint_envelope
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_with_built_ref
@@ -101,7 +107,7 @@ class MetadataStore(InMemoryArtifactStore):
 @dataclass
 class MetadataFixture:
     store: MetadataStore
-    payload: p.PreviewJobPayload
+    payload: preview_payload.PreviewJobPayload
     sides: dict[str, Any]
     state: dict[str, Any]
     submission_ref: ArtifactRef
@@ -126,18 +132,18 @@ class MetadataFixture:
         ref_changes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         document = {
-            "document_type": p.PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
-            "contract_version": p.PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
+            "document_type": preview_checkpoint.PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+            "contract_version": preview_checkpoint.PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
             "sides": self.sides,
         }
         self.state["materialized_sides_ref"] = artifact_ref_to_dict(
             self.put(canonicalize_json_value(document))
         )
         envelope = StepCheckpointEnvelope(
-            p.PREVIEW_JOB_KIND,
-            p.PREVIEW_STEP_MATERIALIZE,
+            PREVIEW_JOB_KIND,
+            PREVIEW_STEP_MATERIALIZE,
             OP,
-            p.PREVIEW_JOB_CONTRACT_VERSION,
+            PREVIEW_JOB_CONTRACT_VERSION,
             0,
             (),
             self.state,
@@ -174,7 +180,7 @@ def _fixture() -> MetadataFixture:
         1,
         dummy_digest().value,
     )
-    payload = p.PreviewJobPayload(
+    payload = preview_payload.PreviewJobPayload(
         "ws-1",
         "ur-1",
         1,
@@ -191,7 +197,7 @@ def _fixture() -> MetadataFixture:
         {},
         {},
         "v1",
-        p.PreviewIdempotencyIdentity("ws-1", "key-1"),
+        preview_payload.PreviewIdempotencyIdentity("ws-1", "key-1"),
         {},
     )
     descriptors = tuple(
@@ -282,7 +288,10 @@ def _fixture() -> MetadataFixture:
         )
         for t in canonical_tables
     )
-    for role, context in ((p._SIDE_BASELINE, base_context), (p._SIDE_MODIFIED, modified_context)):
+    for role, context in (
+        (preview_payload._SIDE_BASELINE, base_context),
+        (preview_payload._SIDE_MODIFIED, modified_context),
+    ):
         snapshot = Snapshot(
             f"snapshot-{role}",
             context.source_kind,
@@ -312,7 +321,7 @@ def _fixture() -> MetadataFixture:
             len(descriptors),
         )
         entries = []
-        for d in () if role == p._SIDE_BASELINE else descriptors:
+        for d in () if role == preview_payload._SIDE_BASELINE else descriptors:
             # Metadata references absent IPC, not a dummy row-reader implementation.
             row_ref = ArtifactRef(
                 build_artifact_id(
@@ -349,39 +358,41 @@ def _fixture() -> MetadataFixture:
                 }
             )
         f.sides[role] = {
-            "contract_version": p.PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
+            "contract_version": preview_checkpoint.PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
             "snapshot": snapshot_to_document(snapshot),
             "summary": snapshot_summary_to_document(summary),
             "snapshot_digest": snapshot.snapshot_digest.value,
             "raw_state_digest": snapshot.raw_state_digest.value,
             "unmaterialized_descriptors": [snapshot_descriptor_to_document(d) for d in descriptors]
-            if role == p._SIDE_BASELINE
+            if role == preview_payload._SIDE_BASELINE
             else [],
             "storage_facts": storage_facts_to_documents(storage_facts),
             "tables": entries,
             "source_ref": None
-            if role == p._SIDE_BASELINE
-            else artifact_ref_to_dict(p._artifact_ref_from_binding(source)),
+            if role == preview_payload._SIDE_BASELINE
+            else artifact_ref_to_dict(preview_payload._artifact_ref_from_binding(source)),
             "repository_identity": {
                 "repository_id": REPO,
                 "repository_ref": COMMIT,
                 "resolved_commit_hash": COMMIT,
             }
-            if role == p._SIDE_BASELINE
+            if role == preview_payload._SIDE_BASELINE
             else None,
         }
-    f.sides[p._SIDE_INITIAL] = copy.deepcopy(f.sides[p._SIDE_BASELINE])
+    f.sides[preview_payload._SIDE_INITIAL] = copy.deepcopy(
+        f.sides[preview_payload._SIDE_BASELINE]
+    )
     f.sides["initial_reuses_baseline"] = True
     closure = canonicalize_json_value(
         {
-            "contract_version": p._CANONICAL_TABLE_CLOSURE_CONTRACT,
+            "contract_version": preview_checkpoint._CANONICAL_TABLE_CLOSURE_CONTRACT,
             "tables": [
                 {"table_name": t["table_name"], "manifest_ref": t["manifest_ref"]}
-                for t in f.sides[p._SIDE_MODIFIED]["tables"]
+                for t in f.sides[preview_payload._SIDE_MODIFIED]["tables"]
             ],
         }
     )
-    canonical = p._CanonicalPreviewMetadata(
+    canonical = preview_checkpoint._CanonicalPreviewMetadata(
         tables_digest,
         facts,
         f.put(closure),
@@ -395,7 +406,9 @@ def _fixture() -> MetadataFixture:
         False,
         True,
     )
-    f.state["canonical_preview"] = p._canonical_preview_metadata_to_document(canonical)
+    f.state["canonical_preview"] = preview_checkpoint._canonical_preview_metadata_to_document(
+        canonical
+    )
     return f
 
 
@@ -437,7 +450,7 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(
     fault: str, message: str
 ) -> None:
     f = _fixture()
-    current = f.sides[p._SIDE_MODIFIED]
+    current = f.sides[preview_payload._SIDE_MODIFIED]
     canonical = f.state["canonical_preview"]
     envelope = None
     ref_changes: dict[str, Any] | None = None
@@ -478,7 +491,7 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(
         )
         closure = canonicalize_json_value(
             {
-                "contract_version": p._CANONICAL_TABLE_CLOSURE_CONTRACT,
+                "contract_version": preview_checkpoint._CANONICAL_TABLE_CLOSURE_CONTRACT,
                 "tables": [
                     {"table_name": t["table_name"], "manifest_ref": t["manifest_ref"]}
                     for t in current["tables"]

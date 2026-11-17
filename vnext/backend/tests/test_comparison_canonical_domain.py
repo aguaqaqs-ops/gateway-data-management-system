@@ -7,10 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from gateway_backend.application.preview_jobs import (
-    _materialize_all_sides,
-    decode_preview_payload,
-)
+from gateway_backend.application.preview_jobs.materialize import _materialize_all_sides
+from gateway_backend.application.preview_jobs.payload import decode_preview_payload
 from gateway_backend.capabilities.comparison import ComparisonTableStatus
 from tests.support.history_compare_reference import compare_bound_snapshots
 from tests.support.preview_job_harness import (

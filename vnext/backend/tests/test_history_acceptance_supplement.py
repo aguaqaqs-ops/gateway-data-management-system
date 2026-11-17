@@ -213,7 +213,8 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
     capsys: pytest.CaptureFixture[str],
     ordered: bool,
 ) -> None:
-    from gateway_backend.application.history import compare_jobs
+    from gateway_backend.application.history.compare_jobs import assemble as compare_assemble
+    from gateway_backend.application.history.compare_jobs import definitions as compare_definitions
     from gateway_backend.artifacts import InMemoryArtifactStore
     from gateway_shared_kernel import DigestRef
     from tests.test_history_compare_jobs import _history_snapshot_bundle_data
@@ -277,7 +278,7 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
             else supplement.observed_cache_type(targets)
         )
         deps = replace(current.deps, snapshot_export_cache=cache_type(factory))
-        _, handlers, _, bound = compare_jobs.history_compare_composition_bundle(deps)
+        _, handlers, _, bound = compare_definitions.history_compare_composition_bundle(deps)
         current.deps, current.handlers, current.publication_uow_factory = (
             bound,
             dict(handlers),
@@ -307,9 +308,9 @@ def test_observer_sees_real_history_cold_export_then_warm_lookup(
                 key = SnapshotTableArtifactCacheKey(DigestRef(layout), repository, version)
                 assert uow.snapshot_table_export_cache.discard_if_same(key, ref.to_ref())
             monkeypatch.setattr(
-                compare_jobs,
+                compare_assemble,
                 "_ensure_history_demands_once",
-                supplement.observe_history(compare_jobs._ensure_history_demands_once),
+                supplement.observe_history(compare_assemble._ensure_history_demands_once),
             )
             capsys.readouterr()
         else:

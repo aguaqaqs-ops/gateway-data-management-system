@@ -19,10 +19,8 @@ from gateway_backend.application.recovery import (
     DIAGNOSTIC_RECONCILE_TIMEOUT,
     RecoveryOutcomeDisposition,
 )
-from gateway_backend.application.submit_jobs import (
-    build_await_import_result_handler,
-    build_submit_recovery_port,
-)
+from gateway_backend.application.submit_jobs.await_result import build_await_import_result_handler
+from gateway_backend.application.submit_jobs.recovery import build_submit_recovery_port
 from gateway_backend.application.submission.errors import RepositoryWriteTimeoutError
 from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
@@ -534,7 +532,9 @@ def test_operator_abort_evidence_rejects_unknown_repository_operation(
 
 
 def test_submit_recovery_maps_value_error_to_manual_recovery() -> None:
-    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+    from gateway_backend.application.submit_jobs.recovery import (
+        _map_handler_failure_to_recovery_outcome,
+    )
 
     outcome = _map_handler_failure_to_recovery_outcome(ValueError("simulated crossing failure"))
     assert outcome is not None
@@ -543,7 +543,9 @@ def test_submit_recovery_maps_value_error_to_manual_recovery() -> None:
 
 
 def test_submit_recovery_maps_timeout_to_manual_recovery() -> None:
-    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+    from gateway_backend.application.submit_jobs.recovery import (
+        _map_handler_failure_to_recovery_outcome,
+    )
 
     outcome = _map_handler_failure_to_recovery_outcome(
         RepositoryWriteTimeoutError("reconcile deadline exhausted")
@@ -554,7 +556,9 @@ def test_submit_recovery_maps_timeout_to_manual_recovery() -> None:
 
 
 def test_submit_recovery_maps_abort_proof_not_satisfied_to_manual_recovery() -> None:
-    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+    from gateway_backend.application.submit_jobs.recovery import (
+        _map_handler_failure_to_recovery_outcome,
+    )
     from gateway_backend.application.submission.errors import AbortProofNotSatisfied
 
     outcome = _map_handler_failure_to_recovery_outcome(
@@ -566,7 +570,9 @@ def test_submit_recovery_maps_abort_proof_not_satisfied_to_manual_recovery() -> 
 
 
 def test_submit_recovery_leaves_unmapped_errors_unhandled() -> None:
-    from gateway_backend.application.submit_jobs import _map_handler_failure_to_recovery_outcome
+    from gateway_backend.application.submit_jobs.recovery import (
+        _map_handler_failure_to_recovery_outcome,
+    )
 
     assert _map_handler_failure_to_recovery_outcome(AttributeError("programming error")) is None
 
@@ -578,11 +584,11 @@ def test_operator_abort_import_rejected_via_recovery_port(
 ) -> None:
     import hashlib
 
-    from gateway_backend.application.submit_jobs import (
+    from gateway_backend.application.submit_jobs.definitions import (
         bind_submit_control_transaction_factory,
-        build_submit_operator_recovery_port,
         read_write_factory,
     )
+    from gateway_backend.application.submit_jobs.recovery import build_submit_operator_recovery_port
     from gateway_backend.application.submit_registry import submit_job_registry
     from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
     from gateway_backend.operations import TransitionDisposition

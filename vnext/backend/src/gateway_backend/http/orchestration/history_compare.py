@@ -28,13 +28,15 @@ from gateway_backend.application.history.compare import (
     HistoryCompareAcceptanceResult as ApplicationHistoryCompareAcceptanceResult,
     accept_history_compare,
 )
-from gateway_backend.application.history.compare_jobs import (
+from gateway_backend.application.history.compare_jobs.checkpoint import (
+    history_compare_assemble_state_from_checkpoint,
+    history_compare_ready_ref,
+    ready_closure_refs_from_assemble,
+)
+from gateway_backend.application.history.compare_jobs.payload import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HistoryCompareJobError,
     decode_history_compare_payload,
-    history_compare_ready_ref,
-    ready_closure_refs_from_assemble,
-    history_compare_assemble_state_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.application.history.contracts import (

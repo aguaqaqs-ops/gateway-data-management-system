@@ -229,10 +229,12 @@ def test_shared_export_retains_each_sides_derivation_provenance() -> None:
 
 
 def test_history_preserves_distinct_frozen_source_schemas_for_shared_rows(tmp_path: Path) -> None:
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.checkpoint import (
+        history_compare_assemble_state_from_checkpoint,
+    )
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_STEP_ASSEMBLE,
         history_compare_step_id,
-        history_compare_assemble_state_from_checkpoint,
     )
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
     from gateway_backend.operations import OperationStatus

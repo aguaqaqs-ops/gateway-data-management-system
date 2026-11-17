@@ -30,7 +30,7 @@ from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
 from gateway_backend.artifacts.store import ArtifactStreamingStorePort
-from gateway_backend.application.history.compare_jobs import (
+from gateway_backend.application.history.compare_jobs.failures import (
     publish_stopped_compute_cancelled as publish_history_stop_cancelled,
 )
 from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
@@ -48,31 +48,41 @@ from gateway_backend.application.job_definitions import (
 )
 from gateway_backend.application.recovery import RecoveryCapability, RecoveryPort
 from gateway_backend.application.payloads import PayloadDecodeError, PayloadDecoder
-from gateway_backend.application.history.compare_jobs import (
-    HistoryCompareControlTransactionFactory,
-    HistoryCompareRuntimeDependencies,
+from gateway_backend.application.history.compare_jobs.definitions import (
     history_compare_composition_bundle,
 )
-from gateway_backend.application.preview_jobs import (
-    PREVIEW_JOB_KIND,
-    PreviewRuntimeDependencies,
-    RepositoryProviderFactory,
+from gateway_backend.application.history.compare_jobs.payload import (
+    HistoryCompareControlTransactionFactory,
+    HistoryCompareRuntimeDependencies,
+)
+from gateway_backend.application.preview_job_identity import PREVIEW_JOB_KIND
+from gateway_backend.application.preview_jobs.definitions import (
     bind_control_transaction_factory,
     build_preview_recovery_port,
     preview_composition_bundle,
+)
+from gateway_backend.application.preview_jobs.failures import (
     publish_stopped_compute_cancelled as publish_preview_stop_cancelled,
+)
+from gateway_backend.application.preview_jobs.payload import (
+    PreviewRuntimeDependencies,
+    RepositoryProviderFactory,
 )
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
 )
-from gateway_backend.application.submit_jobs import (
-    SubmitRuntimeDependencies,
+from gateway_backend.application.submit_jobs.definitions import (
     bind_submit_control_transaction_factory,
-    build_submit_recovery_port,
     submit_composition_bundle,
+)
+from gateway_backend.application.submit_jobs.failures import (
     publish_stopped_compute_cancelled as publish_submit_stop_cancelled,
 )
-from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
+from gateway_backend.application.submit_jobs.payload import (
+    SubmitControlTransactionFactory,
+    SubmitRuntimeDependencies,
+)
+from gateway_backend.application.submit_jobs.recovery import build_submit_recovery_port
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,

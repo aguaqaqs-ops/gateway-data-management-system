@@ -31,17 +31,23 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 
 from gateway_backend.application.job_definitions import build_job_worker_composition
-from gateway_backend.application.preview_jobs import (
+from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_CONTRACT_VERSION,
     PREVIEW_JOB_KIND,
-    PREVIEW_STEP_ASSEMBLE,
     PREVIEW_STEP_MATERIALIZE,
-    PREVIEW_STEP_PUBLISH,
-    PreviewControlTransaction,
-    PreviewRuntimeDependencies,
-    RepositoryProviderFactory,
+)
+from gateway_backend.application.preview_jobs.definitions import (
     bind_control_transaction_factory,
     preview_composition_bundle,
+)
+from gateway_backend.application.preview_jobs.payload import (
+    PREVIEW_STEP_ASSEMBLE,
+    PREVIEW_STEP_PUBLISH,
+    PreviewRuntimeDependencies,
+    RepositoryProviderFactory,
+)
+from gateway_backend.application.workspace.ports import (
+    WorkspaceControlTransaction as PreviewControlTransaction,
 )
 from gateway_backend.application.workspace.preview import build_preview_job_payload
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref

@@ -855,7 +855,7 @@ REACHABILITY_MODULE_SHAPES: tuple[tuple[str, bool], ...] = (
     ("gateway_backend.capabilities.snapshot_materialization.compose", False),
     ("gateway_backend.capabilities.table_access._xml_parser", False),
     ("gateway_backend.bootstrap.operation_worker", False),
-    ("gateway_backend.application.submit_jobs", False),
+    ("gateway_backend.application.submit_jobs.definitions", False),
 )
 
 
@@ -1129,33 +1129,43 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
         RULE_LAYER,
     ),
     (
-        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.preview_jobs.definitions",
         "gateway_backend.capabilities.comparison",
         (),
         None,
     ),
     (
-        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.preview_jobs.definitions",
         "gateway_backend.capabilities.comparison.contracts",
         (),
         None,
     ),
     (
-        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.preview_jobs.definitions",
         "gateway_backend.capabilities.comparison.standard",
         (),
         RULE_CAPABILITY_SURFACE,
     ),
     (
-        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.preview_jobs.definitions",
         "gateway_backend.infrastructure.control_db.database",
         (),
         RULE_LAYER,
     ),
-    ("gateway_backend.application.preview_jobs", "gateway_repository_contracts", (), RULE_LAYER),
-    ("gateway_backend.application.preview_jobs", "gateway_backend.settings", (), RULE_LAYER),
     (
-        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.preview_jobs.definitions",
+        "gateway_repository_contracts",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.application.preview_jobs.definitions",
+        "gateway_backend.settings",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.application.preview_jobs.definitions",
         "gateway_backend.operations.contracts",
         ("_validate_opaque_id",),
         RULE_PRIVATE,

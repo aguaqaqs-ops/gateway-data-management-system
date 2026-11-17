@@ -175,10 +175,10 @@ def main() -> None:
         print(json.dumps(cache_action(targets, discard=args.discard), ensure_ascii=False))
         return
     _check(not args.discard, "worker cannot prepare cache state")
-    from gateway_backend.application.history import compare_jobs
+    from gateway_backend.application.history.compare_jobs import assemble as compare_assemble
     from gateway_backend.bootstrap import operation_worker
     setattr(operation_worker, "ControlDbSnapshotTableExportCache", observed_cache_type(targets))
-    compare_jobs._ensure_history_demands_once = observe_history(compare_jobs._ensure_history_demands_once)
+    compare_assemble._ensure_history_demands_once = observe_history(compare_assemble._ensure_history_demands_once)
     raise SystemExit(operation_worker.main())
 
 

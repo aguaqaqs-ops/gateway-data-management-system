@@ -178,7 +178,7 @@ def seed_completed_preview_operation(
     upload_revision: UploadRevision,
 ) -> None:
     """Persist the same scope and payload bindings required of a completed Preview job."""
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_job_identity import (
         PREVIEW_JOB_CONTRACT_VERSION,
         PREVIEW_JOB_KIND,
     )

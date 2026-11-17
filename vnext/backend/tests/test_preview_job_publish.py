@@ -11,7 +11,7 @@ from gateway_backend.application.checkpoints import load_checkpoint_envelope, lo
 from gateway_backend.artifacts import artifact_ref_from_dict
 from gateway_backend.artifacts.location import ArtifactLocation, parse_artifact_id
 from gateway_backend.capabilities.bundle_assembly import read_bundle_transport_metadata
-from gateway_backend.application.preview_jobs import (
+from gateway_backend.application.preview_jobs.payload import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_PUBLISH_HANDLER,

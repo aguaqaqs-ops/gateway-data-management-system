@@ -8,7 +8,7 @@ from threading import Event, Thread
 import pytest
 
 from gateway_backend.application.recovery import RecoveryOutcomeDisposition
-from gateway_backend.application.submit_jobs import build_submit_recovery_port
+from gateway_backend.application.submit_jobs.recovery import build_submit_recovery_port
 from gateway_backend.application.submit_registry import (
     PREPARE_IMPORT_HANDLER,
     SUBMIT_IMPORT_HANDLER,

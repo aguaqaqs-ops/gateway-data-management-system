@@ -466,7 +466,7 @@ def test_execution_identity_keeps_only_a_known_unique_current_input(
 
 def test_preview_persists_known_input_and_rules_identity_for_query(tmp_path: Path) -> None:
     import json
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_jobs.payload import (
         PREVIEW_MATERIALIZE_HANDLER,
         PREVIEW_ASSEMBLE_HANDLER,
         PREVIEW_PUBLISH_HANDLER,

@@ -12,7 +12,9 @@ pytestmark = pytest.mark.unit
     "module",
     (
         "gateway_backend.app",
-        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.preview_jobs.definitions",
+        "gateway_backend.application.submit_jobs.definitions",
+        "gateway_backend.application.history.compare_jobs.definitions",
         "gateway_backend.application.pair_pipeline",
     ),
 )

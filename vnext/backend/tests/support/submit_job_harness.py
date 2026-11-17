@@ -20,11 +20,9 @@ from pathlib import Path
 from typing import Any, cast
 import httpx
 
-from gateway_backend.application.submit_jobs import (
-    SubmitRuntimeDependencies,
-    build_submit_recovery_port,
-    submit_composition_bundle,
-)
+from gateway_backend.application.submit_jobs.definitions import submit_composition_bundle
+from gateway_backend.application.submit_jobs.payload import SubmitRuntimeDependencies
+from gateway_backend.application.submit_jobs.recovery import build_submit_recovery_port
 from gateway_backend.application.submission.contracts import (
     PREPARE_IMPORT_CHECKPOINT_SCHEMA,
     PrepareImportBuildInput,

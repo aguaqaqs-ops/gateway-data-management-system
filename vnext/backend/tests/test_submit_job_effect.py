@@ -27,15 +27,16 @@ from gateway_backend.application.recovery import (
     DIAGNOSTIC_RECONCILE_TIMEOUT,
     RecoveryOutcomeDisposition,
 )
-import gateway_backend.application.submit_jobs as submit_jobs
-from gateway_backend.application.submit_jobs import (
+from gateway_backend.application.submit_jobs import payload as submit_payload
+from gateway_backend.application.submit_jobs import recovery as submit_recovery
+from gateway_backend.application.submit_jobs.await_result import build_await_import_result_handler
+from gateway_backend.application.submit_jobs.checkpoint import _prepare_checkpoint_from_job_state
+from gateway_backend.application.submit_jobs.payload import (
     SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
     SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS,
-    _prepare_checkpoint_from_job_state,
-    build_await_import_result_handler,
-    build_submit_operator_recovery_port,
-    build_submit_import_handler,
 )
+from gateway_backend.application.submit_jobs.recovery import build_submit_operator_recovery_port
+from gateway_backend.application.submit_jobs.submit import build_submit_import_handler
 from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationStatus,
@@ -1441,9 +1442,9 @@ def test_submit_recovery_classifies_transport_and_identity_mismatch(
     else:
         error = CheckpointDecodeError(
             "submit checkpoint request_fingerprint does not match payload semantics",
-            code=submit_jobs._EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
+            code=submit_payload._EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
-    outcome = submit_jobs._map_handler_failure_to_recovery_outcome(error)
+    outcome = submit_recovery._map_handler_failure_to_recovery_outcome(error)
     assert outcome is not None
     assert outcome.disposition is expected_disposition
     assert outcome.diagnostic_code == expected_diagnostic
@@ -1831,7 +1832,7 @@ def test_await_import_pins_checkpoint_and_evidence_protection(
         raise RuntimeError("block finalize to inspect protection")
 
     monkeypatch.setattr(
-        "gateway_backend.application.submit_jobs.finalize_submit_transaction",
+        "gateway_backend.application.submit_jobs.await_result.finalize_submit_transaction",
         _block_finalize,
     )
     harness = build_submit_worker_harness(
@@ -2046,7 +2047,7 @@ def test_await_import_replays_t3_from_persisted_evidence_without_poll(
         return original_finalize(*args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(
-        "gateway_backend.application.submit_jobs.finalize_submit_transaction",
+        "gateway_backend.application.submit_jobs.await_result.finalize_submit_transaction",
         _finalize_once_then_pass,
     )
     harness = build_submit_worker_harness(

@@ -15,7 +15,7 @@ from typing import cast
 
 import pytest
 
-from gateway_backend.application.preview_jobs import (
+from gateway_backend.application.preview_jobs.payload import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_PUBLISH_HANDLER,
@@ -78,7 +78,7 @@ def _history_http_job(
     *,
     changed_rows: bool = False,
 ) -> tuple[WorkspaceHttpTestEnvironment, HistoryCompareJobHarness]:
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_ASSEMBLE_HANDLER,
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
@@ -139,7 +139,7 @@ def _history_http_job(
     ):
         run_through_step(harness, handler)
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_STEP_ASSEMBLE,
         history_compare_step_id,
     )
@@ -393,7 +393,7 @@ def bundle_route(
     if request.param == "history":
         env, harness = _history_http_job(tmp_path, store)
         from gateway_backend.application.checkpoints import load_checkpoint_envelope
-        from gateway_backend.application.history.compare_jobs import (
+        from gateway_backend.application.history.compare_jobs.payload import (
             HISTORY_COMPARE_STEP_ASSEMBLE,
             history_compare_step_id,
         )
@@ -522,7 +522,7 @@ def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
         load_checkpoint_envelope,
         put_checkpoint_envelope,
     )
-    from gateway_backend.application.history.compare_jobs import (
+    from gateway_backend.application.history.compare_jobs.payload import (
         HISTORY_COMPARE_STEP_ASSEMBLE,
         history_compare_step_id,
     )

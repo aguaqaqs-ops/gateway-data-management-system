@@ -25,15 +25,15 @@ from gateway_backend.application.submission.contracts import (
     RepositoryImportOperationError,
     RepositoryImportOperationStatus,
 )
-from gateway_backend.application.submit_jobs import (
+from gateway_backend.application.submit_jobs.checkpoint import (
     _await_checkpoint_from_job_state,
     _load_terminal_repository_evidence,
     _prepare_checkpoint_from_job_state,
     _serialize_terminal_repository_evidence,
     _submit_state_from_job_state,
-    decode_submit_payload,
-    submit_payload_decoders,
 )
+from gateway_backend.application.submit_jobs.definitions import submit_payload_decoders
+from gateway_backend.application.submit_jobs.payload import decode_submit_payload
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_shared_kernel import DigestRef
 from gateway_backend.application.payloads import CheckpointDecodeError

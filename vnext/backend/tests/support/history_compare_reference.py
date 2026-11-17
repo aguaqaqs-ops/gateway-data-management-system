@@ -34,7 +34,7 @@ from gateway_backend.application.canonical_metadata.binding import (
     canonical_binding_for_commit,
     presentation_for_commit,
 )
-from gateway_backend.application.history.compare_jobs import _bound_from_materialization
+from gateway_backend.application.history.compare_jobs.checkpoint import _bound_from_materialization
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     _bind_fixture_tables,

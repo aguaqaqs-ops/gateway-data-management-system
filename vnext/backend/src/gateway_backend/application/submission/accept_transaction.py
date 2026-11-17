@@ -179,11 +179,11 @@ def _assert_current_preview_semantics(
 ) -> None:
     """Check only new T1 accepts; replay and frozen readers retain original identity."""
     # Preview job initialization imports workspace, whose public API imports this module.
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_job_identity import (
         PREVIEW_JOB_CONTRACT_VERSION,
         PREVIEW_JOB_KIND,
-        decode_preview_payload,
     )
+    from gateway_backend.application.preview_jobs.payload import decode_preview_payload
 
     message = "preview semantics changed; use a new key to create a new preview"
     try:

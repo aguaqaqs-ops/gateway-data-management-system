@@ -113,12 +113,12 @@ def test_frozen_review_result_survives_current_rule_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "gateway_backend.application.preview_jobs.PREVIEW_JOB_CONTRACT_VERSION",
+        "gateway_backend.application.preview_job_identity.PREVIEW_JOB_CONTRACT_VERSION",
         accepted_version,
     )
     env, _seed = _environment(tmp_path)
     monkeypatch.setattr(
-        "gateway_backend.application.preview_jobs.PREVIEW_JOB_CONTRACT_VERSION",
+        "gateway_backend.application.preview_job_identity.PREVIEW_JOB_CONTRACT_VERSION",
         "backend-vnext/preview/future",
     )
     monkeypatch.setattr(

@@ -10,8 +10,11 @@ from typing import Any
 import pytest
 
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history import compare_jobs
-from gateway_backend.application.history.compare_jobs import history_compare_step_id
+from gateway_backend.application.history.compare_jobs import assemble as compare_assemble
+from gateway_backend.application.history.compare_jobs import checkpoint as compare_checkpoint
+from gateway_backend.application.history.compare_jobs import definitions as compare_definitions
+from gateway_backend.application.history.compare_jobs import payload as compare_payload
+from gateway_backend.application.history.compare_jobs.payload import history_compare_step_id
 from gateway_backend.application.pair_pipeline import (
     _same_complete_table_identity,
     run_history_pair_pipeline,
@@ -94,7 +97,7 @@ def test_history_loads_serial_registry_rows_for_navigation_on_metadata_and_cache
         captured.append(json.loads(store.locate(projection.projection_ref)))
         return result
 
-    monkeypatch.setattr(compare_jobs, "run_history_pair_pipeline", capture)
+    monkeypatch.setattr(compare_assemble, "run_history_pair_pipeline", capture)
     previous = None
     for run in ("cold", "warm"):
         providers = {
@@ -121,21 +124,21 @@ def test_history_loads_serial_registry_rows_for_navigation_on_metadata_and_cache
             computation_cache=ControlDbComputationCache(transaction, store),
             snapshot_export_cache=ControlDbSnapshotTableExportCache(transaction),
         )
-        _, handlers, _, bound_deps = compare_jobs.history_compare_composition_bundle(deps)
+        _, handlers, _, bound_deps = compare_definitions.history_compare_composition_bundle(deps)
         harness.deps = bound_deps
         harness.handlers = dict(handlers)
         harness.publication_uow_factory = bound_deps.control_transaction_factory
         insert_history_compare_operation(harness)
-        run_through_step(harness, compare_jobs.HISTORY_COMPARE_MATERIALIZE_HANDLER)
+        run_through_step(harness, compare_payload.HISTORY_COMPARE_MATERIALIZE_HANDLER)
         with ControlDbUnitOfWork(harness.db_path, read_only=True) as uow:
             step = uow.operations.get_step(
                 history_compare_step_id(
-                    harness.operation_id, compare_jobs.HISTORY_COMPARE_STEP_MATERIALIZE
+                    harness.operation_id, compare_payload.HISTORY_COMPARE_STEP_MATERIALIZE
                 )
             )
         assert step.checkpoint_ref is not None
         envelope = load_checkpoint_envelope(harness.artifact_store, step.checkpoint_ref)
-        sides = compare_jobs._sides_from_materialize_checkpoint(
+        sides = compare_checkpoint._sides_from_materialize_checkpoint(
             envelope.job_state, harness.artifact_store, repository_id=REPOSITORY_ID
         )
         for side in sides.values():
@@ -143,8 +146,8 @@ def test_history_loads_serial_registry_rows_for_navigation_on_metadata_and_cache
             assert all(table.reader is None for table in side.table_set.tables)
         assert _same_complete_table_identity(sides[before_commit], sides[current_commit], "com_cfg")
         pair_comparison_metrics.clear()
-        run_through_step(harness, compare_jobs.HISTORY_COMPARE_ASSEMBLE_HANDLER)
-        run_through_step(harness, compare_jobs.HISTORY_COMPARE_PUBLISH_HANDLER)
+        run_through_step(harness, compare_payload.HISTORY_COMPARE_ASSEMBLE_HANDLER)
+        run_through_step(harness, compare_payload.HISTORY_COMPARE_PUBLISH_HANDLER)
         navigation = captured[-1]
         protocol = next(
             group

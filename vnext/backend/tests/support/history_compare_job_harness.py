@@ -12,18 +12,24 @@ from typing import cast
 
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.application.history.compare import validate_history_compare_binding
-from gateway_backend.application.history.compare_jobs import (
+from gateway_backend.application.history.compare_jobs.definitions import (
+    history_compare_composition_bundle,
+)
+from gateway_backend.application.history.compare_jobs.payload import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,
-    HISTORY_COMPARE_JOB_CONTRACT_VERSION,
-    HISTORY_COMPARE_JOB_KIND,
     HISTORY_COMPARE_MATERIALIZE_HANDLER,
     HISTORY_COMPARE_PUBLISH_HANDLER,
     HISTORY_COMPARE_STEP_MATERIALIZE,
-    HistoryCompareControlTransaction,
     HistoryCompareControlTransactionFactory,
     HistoryCompareRuntimeDependencies,
-    history_compare_composition_bundle,
     history_compare_step_id,
+)
+from gateway_backend.application.history.contracts import (
+    HISTORY_COMPARE_JOB_CONTRACT_VERSION,
+    HISTORY_COMPARE_JOB_KIND,
+)
+from gateway_backend.application.history.ports import (
+    HistoryControlTransaction as HistoryCompareControlTransaction,
 )
 from gateway_backend.application.history.contracts import (
     HistoryCompareAcceptCommand,

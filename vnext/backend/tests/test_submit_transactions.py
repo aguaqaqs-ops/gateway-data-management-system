@@ -505,7 +505,7 @@ def seed_submit_ready_workspace(
     input_completeness: InputCompleteness = InputCompleteness.FULL,
 ) -> SubmitSeed:
     from tests.support.baseline_fixtures import read_authoritative_baseline_head
-    from gateway_backend.application.preview_jobs import (
+    from gateway_backend.application.preview_job_identity import (
         PREVIEW_JOB_CONTRACT_VERSION,
         PREVIEW_JOB_KIND,
     )
@@ -3313,7 +3313,9 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
 
 def test_submit_queue_limit_counts_active_history_before_writing(db_path: Path) -> None:
     from gateway_backend.application.history.compare import accept_history_compare
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.history.contracts import (
         HistoryCompareAcceptCommand,
         HistoryNodeRef,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from gateway_backend.application.preview_job_identity import PREVIEW_JOB_CONTRACT_VERSION
 from tests.support.preview_fixtures import seed_completed_preview_operation
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id

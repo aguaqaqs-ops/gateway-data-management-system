@@ -9,12 +9,12 @@ from unittest.mock import patch
 import pytest
 from gateway_shared_kernel import DigestRef
 
-from gateway_backend.application.preview_jobs import (
+from gateway_backend.application.preview_job_identity import PREVIEW_STEP_MATERIALIZE
+from gateway_backend.application.preview_jobs.payload import (
     PREVIEW_ASSEMBLE_HANDLER,
     PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_PUBLISH_HANDLER,
     PREVIEW_STEP_ASSEMBLE,
-    PREVIEW_STEP_MATERIALIZE,
     PREVIEW_STEP_PUBLISH,
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -98,7 +98,7 @@ def test_preview_rejects_ruleset_change_before_each_step(
     session, control, operation, step = claim_next_step(harness)
     assert step.step_name == step_name
     with patch(
-        "gateway_backend.application.preview_jobs.comparison_rule_set",
+        "gateway_backend.application.preview_jobs.failures.comparison_rule_set",
         return_value=SimpleNamespace(ruleset_digest=DigestRef("sha256:" + "cd" * 32)),
     ):
         run_claimed_handler(harness, handler_identity, session, control, operation, step)

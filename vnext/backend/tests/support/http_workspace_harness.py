@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+from gateway_backend.application.preview_job_identity import PREVIEW_JOB_CONTRACT_VERSION
 from tests.support.preview_fixtures import seed_completed_preview_operation
 
 from tests.support.review_result_fixtures import review_artifact_refs
@@ -28,8 +28,10 @@ from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
 )
-from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
-from gateway_backend.application.preview_jobs import preview_job_definitions
+from gateway_backend.application.history.compare_jobs.definitions import (
+    history_compare_job_definitions,
+)
+from gateway_backend.application.preview_jobs.definitions import preview_job_definitions
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION

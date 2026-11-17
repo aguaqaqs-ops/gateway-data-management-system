@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from gateway_backend.application.payloads import PayloadDecodeError
-from gateway_backend.application.preview_jobs import decode_preview_payload
+from gateway_backend.application.preview_jobs.payload import decode_preview_payload
 from gateway_backend.application.preview_semantics import current_preview_capabilities
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from tests.support.preview_job_harness import (

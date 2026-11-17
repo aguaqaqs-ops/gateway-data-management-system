@@ -127,7 +127,9 @@ def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
 
     from datetime import UTC, datetime
 
-    from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
+    from gateway_backend.application.history.compare_jobs.definitions import (
+        history_compare_job_definitions,
+    )
     from gateway_backend.application.history.contracts import (
         HistoryCompareAcceptCommand,
         HistoryNodeRef,

@@ -23,7 +23,7 @@ export async function contextForIdentity(browser: Browser, identity: JourneyIden
 export async function gotoWorkbench(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /组态树/ })).toBeVisible();
-  await expect(page.locator(".workspace-context-bar")).toBeVisible();
+  await expect(page.locator("aside.workspace-details")).toBeVisible();
 }
 
 export interface UploadDirs {
@@ -83,7 +83,13 @@ export async function selectTreeRow(page: Page, text: string | RegExp): Promise<
 }
 
 export function workshopAction(page: Page, label: string): Locator {
-  return page.locator(".workspace-actions .workspace-action").filter({ hasText: label }).getByRole("button").first();
+  return page.locator(".workspace-details__actions").getByRole("button", { name: label, exact: true });
+}
+
+export async function checkCompareRow(page: Page, text: string | RegExp): Promise<void> {
+  const checkbox = treeRow(page, text).getByRole("checkbox", { name: /^加入比较：/ });
+  await expect(checkbox).toBeVisible({ timeout: 120_000 });
+  await checkbox.check({ timeout: 120_000 });
 }
 
 /** B1: the UploadStepCard start button shares the toolbar occupancy reason. */
@@ -94,7 +100,7 @@ export function stepUploadAction(page: Page): Locator {
 export async function expandWorkspaceDetails(page: Page): Promise<void> {
   const expand = page.getByRole("button", { name: "展开详情面板" });
   if (await expand.count()) await expand.click();
-  await expect(page.locator(".upload-card")).toBeVisible();
+  await expect(page.locator(".workspace-details__content")).toBeVisible();
 }
 
 export function compareAction(page: Page, name: "撤回" | "提交"): Locator {
@@ -131,7 +137,7 @@ export async function expectDisabledWithReason(button: Locator, reason: string):
     expect(matched, `aria-describedby points to visible reason "${reason}"`).toBe(true);
     return;
   }
-  const siblingReason = button.locator('xpath=following-sibling::span[contains(@class, "disabled-reason")]');
+  const siblingReason = button.locator('xpath=following-sibling::*[contains(@class, "disabled-reason")]');
   await expect(siblingReason).toHaveText(reason);
   await expect(siblingReason).toBeVisible();
 }

@@ -2,6 +2,7 @@ import { captureResponse } from "./lib/response-snapshot";
 import { test, expect, type Browser, type BrowserContext, type Page, type Response as PlaywrightResponse } from "@playwright/test";
 import {
   appendCaseLog,
+  checkCompareRow,
   collectPageDiagnostics,
   compareAction,
   contextForIdentity,
@@ -284,7 +285,7 @@ async function expectPointersCleared(identity: JourneyIdentity): Promise<Workspa
 async function gotoWorkbenchFresh(page: Page): Promise<void> {
   await page.goto("/?page=workspace");
   await expect(page.getByRole("heading", { level: 1, name: /组态树/ })).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(".workspace-context-bar")).toBeVisible();
+  await expect(page.locator("aside.workspace-details")).toBeVisible();
 }
 
 /** Upload + preview + submit on a fresh workbench; returns preview and submission ids. */
@@ -323,7 +324,7 @@ test("r1-states", async ({ browser }, testInfo) => {
     expect(statuses[0], "first CreateOrGet").toBe(201);
 
     await session.page.reload();
-    await expect(session.page.locator(".workspace-context-bar")).toBeVisible({ timeout: 60_000 });
+    await expect(session.page.locator("aside.workspace-details")).toBeVisible({ timeout: 60_000 });
     await expect.poll(() => statuses.length, { timeout: 60_000 }).toBeGreaterThanOrEqual(2);
     expect(statuses.slice(1), "refreshed CreateOrGet").toContain(200);
 
@@ -353,7 +354,7 @@ test("r1-states", async ({ browser }, testInfo) => {
     await gotoWorkbenchFresh(session.page);
     await expect(treeRow(session.page, "提交 1")).toContainText("已退回");
     await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
-    await expectEnabled(workshopAction(session.page, "上传"));
+    await expectEnabled(stepUploadAction(session.page));
 
     // A second submission is withdrawn, exercising the other terminal state.
     const second = await createSubmission(session.page, submitter, scope, "modified_only");
@@ -575,12 +576,10 @@ test("r4-submit", async ({ browser }) => {
     await session.page.getByRole("button", { name: "关闭", exact: true }).click().catch(() => undefined);
     await gotoWorkbenchFresh(session.page);
     await expect(treeRow(session.page, "提交 1")).toContainText("待审核");
-    await expectDisabledWithReason(workshopAction(session.page, "上传"), "已有待审核的提交，撤回后才能重新上传");
-    // B1: the UploadStepCard start button is disabled with the same occupancy reason.
     await selectTreeRow(session.page, /工作区/);
     await expandWorkspaceDetails(session.page);
-    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
-    await expectDisabledWithReason(stepUploadAction(session.page), "已有待审核的提交，撤回后才能重新上传");
+    await expect(session.page.locator(".workspace-details .upload-card")).toHaveCount(0);
+    await expect(session.page.locator(".workspace-details").getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible();
 
     assertClean(session.diagnostics, "r4-submit");
     appendCaseLog(`r4-submit ok submission=${submission.submissionId}`);
@@ -691,7 +690,7 @@ test("r6-reject-approve", async ({ browser }, testInfo) => {
     await gotoWorkbenchFresh(submitterSession.page);
     await expect(treeRow(submitterSession.page, "提交 1")).toContainText("已退回");
     await selectUploadDirs(submitterSession.page, { modified: inputDir(scope, "modified_only") });
-    await expectEnabled(workshopAction(submitterSession.page, "上传"));
+    await expectEnabled(stepUploadAction(submitterSession.page));
     await expectPointersCleared(submitter);
 
     const second = await uploadAndPreview(submitterSession.page, submitter, scope, "modified_only");
@@ -729,13 +728,12 @@ test("r7-withdraw", async ({ browser }, testInfo) => {
     const first = await uploadAndPreview(session.page, submitter, scope, "modified_only");
     const firstSubmission = await submitViaUi(session.page, submitter, first.workspaceId);
 
-    // W8: a PENDING submission blocks re-upload, including the step card (B1).
+    // W8: a PENDING submission owns the preview and hides the upload card with the occupancy reason.
     await gotoWorkbenchFresh(session.page);
-    await expectDisabledWithReason(workshopAction(session.page, "上传"), "已有待审核的提交，撤回后才能重新上传");
     await selectTreeRow(session.page, /工作区/);
     await expandWorkspaceDetails(session.page);
-    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
-    await expectDisabledWithReason(stepUploadAction(session.page), "已有待审核的提交，撤回后才能重新上传");
+    await expect(session.page.locator(".workspace-details .upload-card")).toHaveCount(0);
+    await expect(session.page.locator(".workspace-details").getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible();
 
     // W1: withdraw from the PREVIEW header (bundle already installed).
     await session.page.goto(`/?page=compare&mode=PREVIEW&workspaceId=${first.workspaceId}&previewResultId=${first.previewId}`);
@@ -748,7 +746,6 @@ test("r7-withdraw", async ({ browser }, testInfo) => {
     // W2: all workspace pointers are empty and upload is enabled again.
     await expectPointersCleared(submitter);
     await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
-    await expectEnabled(workshopAction(session.page, "上传"));
     await expectEnabled(stepUploadAction(session.page));
     await expect(treeRow(session.page, "提交 1")).toContainText("已撤回");
     await saveEvidence(session.page, testInfo, "r7-withdraw-notice");
@@ -846,12 +843,10 @@ test("r7-approved", async ({ browser }, testInfo) => {
     const workspace = await currentWorkspace(submitter);
     expect(workspace.active_submission_id, "approved submission pointer is kept").toBe(submission.submissionId);
     await expect(treeRow(session.page, "提交 1")).toContainText("已通过");
-    await expectDisabledWithReason(workshopAction(session.page, "上传"), "该提交已通过审核，归档或关闭后才能重新上传");
-    // B1: the UploadStepCard start button is disabled with the same occupancy reason.
     await selectTreeRow(session.page, /工作区/);
     await expandWorkspaceDetails(session.page);
-    await selectUploadDirs(session.page, { modified: inputDir(scope, "modified_only") });
-    await expectDisabledWithReason(stepUploadAction(session.page), "该提交已通过审核，归档或关闭后才能重新上传");
+    await expect(session.page.locator(".workspace-details .upload-card")).toHaveCount(0);
+    await expect(session.page.locator(".workspace-details").getByText("该提交已通过审核，归档或关闭后才能重新上传", { exact: false })).toBeVisible();
 
     await session.page.goto(`/?page=compare&mode=PREVIEW&workspaceId=${run.workspaceId}&previewResultId=${run.previewId}`);
     await waitForDiffBrowsing(session.page);
@@ -953,7 +948,7 @@ test("r7-reviewer-withdraw", async ({ browser }, testInfo) => {
     await gotoWorkbenchFresh(submitterSession.page);
     await expect(treeRow(submitterSession.page, "提交 1")).toContainText("已撤回");
     await selectUploadDirs(submitterSession.page, { modified: inputDir(scope, "modified_only") });
-    await expectEnabled(workshopAction(submitterSession.page, "上传"));
+    await expectEnabled(stepUploadAction(submitterSession.page));
 
     assertClean(submitterSession.diagnostics, "r7-reviewer-withdraw-submitter");
     assertClean(reviewerSession.diagnostics, "r7-reviewer-withdraw-reviewer");
@@ -984,10 +979,8 @@ test("r9-history", async ({ browser }, testInfo) => {
     expect(history.body.nodes.filter((node) => node.ref_kind === "submission")).toHaveLength(1);
 
     await gotoWorkbenchFresh(session.page);
-    await selectTreeRow(session.page, "初始基线");
-    await workshopAction(session.page, "加入比较").click();
-    await selectTreeRow(session.page, "提交 1");
-    await workshopAction(session.page, "加入比较").click();
+    await checkCompareRow(session.page, "初始基线");
+    await checkCompareRow(session.page, "提交 1");
 
     const historyBodies = captureBundleDownloads(session.page, submitter);
     try {
@@ -1412,7 +1405,7 @@ async function acceptAllAnomalies(archiver: JourneyIdentity, submissionId: strin
 async function openArchiveDialogUi(page: Page, submissionLabel: string) {
   await gotoWorkbenchFresh(page);
   await page.getByRole("button", { name: submissionLabel, exact: true }).click({ timeout: 120_000 });
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
+  await workshopAction(page, "归档主线").click({ timeout: 120_000 });
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
   return dialog;
@@ -1691,12 +1684,9 @@ test("j1-archive-mainline", async ({ browser }, testInfo) => {
     // Step 14 (C7): the three-node history compare (INITIAL, baselines 1 and
     // 2) is driven by the reviewer, not the submitter.
     await gotoWorkbenchFresh(reviewerSession.page);
-    await selectTreeRow(reviewerSession.page, "初始基线");
-    await workshopAction(reviewerSession.page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(reviewerSession.page, "归档基线 1");
-    await workshopAction(reviewerSession.page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(reviewerSession.page, "归档基线 2");
-    await workshopAction(reviewerSession.page, "加入比较").click({ timeout: 120_000 });
+    await checkCompareRow(reviewerSession.page, "初始基线");
+    await checkCompareRow(reviewerSession.page, "归档基线 1");
+    await checkCompareRow(reviewerSession.page, "归档基线 2");
     const compareResponse = reviewerSession.page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 120_000 });
     await reviewerSession.page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
     expect((await compareResponse).status()).toBeLessThan(300);

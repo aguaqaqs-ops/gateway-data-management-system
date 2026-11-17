@@ -5,6 +5,7 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   appendCaseLog,
+  checkCompareRow,
   collectPageDiagnostics,
   compareAction,
   contextForIdentity,
@@ -616,7 +617,7 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     try {
       await gotoWorkbench(archiverPage);
       await archiverPage.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
-      await archiverPage.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click({ timeout: 120_000 });
+      await workshopAction(archiverPage, "归档主线").click({ timeout: 120_000 });
       const archiveDialog = archiverPage.getByRole("dialog", { name: "归档主基线" });
       await expect(archiveDialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
       await saveEvidenceBothWidths(archiverPage, testInfo, "fe4-t1-archive");
@@ -754,12 +755,9 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
 
     // Step 6: three-node history compare (INITIAL, archived v1, v2 submission).
     await gotoWorkbench(page);
-    await selectTreeRow(page, "初始基线");
-    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(page, "归档基线 1");
-    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
-    await selectTreeRow(page, "提交 2");
-    await workshopAction(page, "加入比较").click({ timeout: 120_000 });
+    await checkCompareRow(page, "初始基线");
+    await checkCompareRow(page, "归档基线 1");
+    await checkCompareRow(page, "提交 2");
     const compareResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 300_000 });
     await page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
     expect((await compareResponse).status()).toBeLessThan(300);

@@ -38,7 +38,17 @@ from gateway_backend.application.checkpoints import (
     prepare_step_checkpoint,
 )
 from gateway_backend.application.job_definitions import JobDefinition
-from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.application.job_steps import (
+    checkpoint_generation,
+    load_step,
+    make_cancelled_terminal_builder,
+    make_successor_builder,
+    pinned_checkpoint_builder,
+    publish_stopped_compute_cancelled as publish_stopped_compute_cancelled_step,
+    require_non_empty_str,
+    unique_artifact_refs,
+    with_resource_failure_terminal,
+)
 from gateway_backend.application.payloads import (
     CheckpointDecodeError,
     PayloadDecodeError,
@@ -150,7 +160,6 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
 )
 from gateway_backend.operations.contracts import (
-    OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationDiagnostic,
     OperationRecord,
     OperationStatus,
@@ -331,60 +340,56 @@ class _AwaitCheckpointState:
 
 def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload:
     _reject_unknown_top_level_keys(payload_object)
-    document_type = _require_non_empty_str(payload_object, "document_type")
+    document_type = require_non_empty_str(payload_object, "document_type")
     if document_type != "submit_job_payload":
         raise PayloadDecodeError(
             "document_type must be submit_job_payload", code="PAYLOAD_SHAPE_INVALID"
         )
-    contract_version = _require_non_empty_str(payload_object, "contract_version")
+    contract_version = require_non_empty_str(payload_object, "contract_version")
     if contract_version != SUBMIT_JOB_CONTRACT_VERSION:
         raise PayloadDecodeError(
             f"contract_version must be {SUBMIT_JOB_CONTRACT_VERSION}",
             code="PAYLOAD_SHAPE_INVALID",
         )
-    submit_attempt_id = _require_non_empty_str(payload_object, "submit_attempt_id")
-    workspace_id = _require_non_empty_str(payload_object, "workspace_id")
+    submit_attempt_id = require_non_empty_str(payload_object, "submit_attempt_id")
+    workspace_id = require_non_empty_str(payload_object, "workspace_id")
     generation = _require_non_negative_int(payload_object, "generation")
-    upload_revision_id = _require_non_empty_str(payload_object, "upload_revision_id")
-    preview_result_id = _require_non_empty_str(payload_object, "preview_result_id")
-    repository_id = _require_non_empty_str(payload_object, "repository_id")
-    business_baseline_node_id = _require_non_empty_str(payload_object, "business_baseline_node_id")
-    business_baseline_commit_id = _require_non_empty_str(
+    upload_revision_id = require_non_empty_str(payload_object, "upload_revision_id")
+    preview_result_id = require_non_empty_str(payload_object, "preview_result_id")
+    repository_id = require_non_empty_str(payload_object, "repository_id")
+    business_baseline_node_id = require_non_empty_str(payload_object, "business_baseline_node_id")
+    business_baseline_commit_id = require_non_empty_str(
         payload_object, "business_baseline_commit_id"
     )
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
-    repository_expected_commit_id = _require_non_empty_str(
+    repository_expected_commit_id = require_non_empty_str(
         payload_object, "repository_expected_commit_id"
     )
-    canonical_business_digest = _require_non_empty_str(payload_object, "canonical_business_digest")
-    configuration_facts_digest = _require_non_empty_str(
-        payload_object, "configuration_facts_digest"
-    )
+    canonical_business_digest = require_non_empty_str(payload_object, "canonical_business_digest")
+    configuration_facts_digest = require_non_empty_str(payload_object, "configuration_facts_digest")
     source_artifact_refs = _decode_string_tuple(
         payload_object.get("source_artifact_refs"), label="source_artifact_refs"
     )
-    preview_ready_closure_ref = _require_non_empty_str(payload_object, "preview_ready_closure_ref")
-    canonical_table_set_closure_ref = _require_non_empty_str(
+    preview_ready_closure_ref = require_non_empty_str(payload_object, "preview_ready_closure_ref")
+    canonical_table_set_closure_ref = require_non_empty_str(
         payload_object,
         "canonical_table_set_closure_ref",
     )
-    canonical_table_set_closure_digest = _require_non_empty_str(
+    canonical_table_set_closure_digest = require_non_empty_str(
         payload_object,
         "canonical_table_set_closure_digest",
     )
-    canonicalization_manifest_ref = _require_non_empty_str(
+    canonicalization_manifest_ref = require_non_empty_str(
         payload_object,
         "canonicalization_manifest_ref",
     )
-    canonicalization_manifest_digest = _require_non_empty_str(
+    canonicalization_manifest_digest = require_non_empty_str(
         payload_object,
         "canonicalization_manifest_digest",
     )
-    ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
-    storage_projection_version = _require_non_empty_str(
-        payload_object, "storage_projection_version"
-    )
-    canonicalization_manifest_contract_version = _require_non_empty_str(
+    ruleset_version = require_non_empty_str(payload_object, "ruleset_version")
+    storage_projection_version = require_non_empty_str(payload_object, "storage_projection_version")
+    canonicalization_manifest_contract_version = require_non_empty_str(
         payload_object,
         "canonicalization_manifest_contract_version",
     )
@@ -392,14 +397,12 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         payload_object,
         "repository_import_package_version",
     )
-    accept_request_fingerprint = _require_non_empty_str(
-        payload_object, "accept_request_fingerprint"
-    )
-    repository_upload_idempotency_key = _require_non_empty_str(
+    accept_request_fingerprint = require_non_empty_str(payload_object, "accept_request_fingerprint")
+    repository_upload_idempotency_key = require_non_empty_str(
         payload_object,
         "repository_upload_idempotency_key",
     )
-    repository_import_idempotency_key = _require_non_empty_str(
+    repository_import_idempotency_key = require_non_empty_str(
         payload_object,
         "repository_import_idempotency_key",
     )
@@ -626,7 +629,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.publish_successor(
-            _make_successor_builder(
+            make_successor_builder(
                 operation_id=operation.operation_id,
                 successor_step_name=SUBMIT_STEP_SUBMIT,
                 successor_step_id=_successor_step_id(operation.operation_id, SUBMIT_STEP_SUBMIT),
@@ -738,7 +741,7 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
                 key=submit_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state=_job_state_for_submit_sent(
                     prepare_checkpoint_ref=request_state.prepare_checkpoint_ref,
                     repository_artifact_ref=request_state.repository_artifact_ref,
@@ -779,7 +782,7 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.publish_successor(
-            _make_successor_builder(
+            make_successor_builder(
                 operation_id=operation.operation_id,
                 successor_step_name=SUBMIT_STEP_AWAIT,
                 successor_step_id=_successor_step_id(operation.operation_id, SUBMIT_STEP_AWAIT),
@@ -884,7 +887,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 key=await_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state=_job_state_for_await_reconcile(
                     submit_checkpoint_ref=submit_step.checkpoint_ref,
                     repository_operation_id=submit_state.repository_operation_id,
@@ -997,7 +1000,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 raise SubmitJobError(
                     "await_import_result checkpoint is missing for reconcile handoff"
                 )
-            checkpoint_generation = lease_session.publish_checkpoint(
+            published_generation = lease_session.publish_checkpoint(
                 pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(),
@@ -1011,7 +1014,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 )
             )
             return lease_session.acknowledge_safe_handoff(
-                checkpoint_generation,
+                published_generation,
                 healthy_external_operation_wait=True,
             )
 
@@ -1028,7 +1031,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 key=await_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state=_job_state_for_await_terminal(
                     submit_checkpoint_ref=submit_step.checkpoint_ref,
                     repository_operation_id=submit_state.repository_operation_id,
@@ -1263,7 +1266,7 @@ def _materialize_submit_checkpoint_state(
                 key=submit_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state=_job_state_for_submit_sent(
                     prepare_checkpoint_ref=prepare_checkpoint_ref,
                     repository_artifact_ref=repository_artifact_ref,
@@ -1280,7 +1283,7 @@ def _materialize_submit_checkpoint_state(
                 key=submit_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state=_job_state_for_submit_request(
                     prepare_checkpoint_ref=prepare_checkpoint_ref,
                     repository_artifact_ref=repository_artifact_ref,
@@ -1292,7 +1295,7 @@ def _materialize_submit_checkpoint_state(
             request_sent = False
             repository_operation_id = None
         checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
-        checkpoint_generation = lease_session.publish_checkpoint(
+        published_generation = lease_session.publish_checkpoint(
             pinned_checkpoint_builder(
                 checkpoint_ref=checkpoint_ref,
                 extra_refs=(prepare_checkpoint_ref, request_ref),
@@ -1315,7 +1318,7 @@ def _materialize_submit_checkpoint_state(
                 repository_operation_id=repository_operation_id,
                 checkpoint_ref=checkpoint_ref,
             ),
-            checkpoint_generation,
+            published_generation,
         )
 
     package_bytes = deps.publication.read_back_package(
@@ -1360,7 +1363,7 @@ def _materialize_submit_checkpoint_state(
         key=submit_definition.key,
         operation=operation,
         step=step,
-        checkpoint_generation=_checkpoint_generation(step),
+        checkpoint_generation=checkpoint_generation(step),
         job_state=_job_state_for_submit_request(
             prepare_checkpoint_ref=prepare_checkpoint_ref,
             repository_artifact_ref=repository_artifact_ref,
@@ -1370,7 +1373,7 @@ def _materialize_submit_checkpoint_state(
         ),
     )
     checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
-    checkpoint_generation = lease_session.publish_checkpoint(
+    published_generation = lease_session.publish_checkpoint(
         pinned_checkpoint_builder(
             checkpoint_ref=checkpoint_ref,
             extra_refs=(prepare_checkpoint_ref, request_ref),
@@ -1393,7 +1396,7 @@ def _materialize_submit_checkpoint_state(
             repository_operation_id=None,
             checkpoint_ref=checkpoint_ref,
         ),
-        checkpoint_generation,
+        published_generation,
     )
 
 
@@ -1765,7 +1768,7 @@ def _prepare_step_checkpoint(
         key=definition.key,
         operation=operation,
         step=step,
-        checkpoint_generation=_checkpoint_generation(step),
+        checkpoint_generation=checkpoint_generation(step),
         job_state=_job_state_for_prepare(checkpoint),
     )
     checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
@@ -2503,11 +2506,12 @@ def _load_step(
     operation_id: str,
     step_id: str,
 ) -> StepRecord:
-    with deps.control_transaction_factory() as unit_of_work:
-        step = unit_of_work.operations.get_step(step_id)
-    if step.operation_id != operation_id:
-        raise SubmitJobError("submit step belongs to a different operation")
-    return step
+    return load_step(
+        deps.control_transaction_factory,
+        operation_id=operation_id,
+        step_id=step_id,
+        mismatch_error=lambda: SubmitJobError("submit step belongs to a different operation"),
+    )
 
 
 def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAttempt) -> None:
@@ -2593,60 +2597,6 @@ def _definition_for_step(step_name: str) -> JobDefinition:
         if definition.key.step_name == step_name:
             return definition
     raise SubmitJobError(f"submit step definition is missing: {step_name}")
-
-
-def _make_successor_builder(
-    *,
-    operation_id: str,
-    successor_step_name: str,
-    successor_step_id: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]]:
-    def builder(
-        operation: OperationRecord,
-        current_step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, StepRecord]:
-        terminal_step = _terminal_step(current_step, transaction_now, status=StepStatus.SUCCEEDED)
-        successor = StepRecord(
-            contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
-            step_id=successor_step_id,
-            operation_id=operation_id,
-            step_name=successor_step_name,
-            status=StepStatus.PENDING,
-            attempt_count=0,
-            diagnostic=None,
-            cancel_requested=False,
-            retry_not_before=None,
-            worker_id=None,
-            lease_token=None,
-            lease_expires_at=None,
-            checkpoint_ref=None,
-            prior_output_refs=(),
-            created_at=transaction_now,
-            updated_at=transaction_now,
-            started_at=None,
-            completed_at=None,
-            optimistic_version=0,
-        )
-        return terminal_step, successor
-
-    return builder
-
-
-def _terminal_step(
-    step: StepRecord, transaction_now: datetime, *, status: StepStatus
-) -> StepRecord:
-    return dataclasses.replace(
-        step,
-        status=status,
-        diagnostic=None,
-        worker_id=None,
-        lease_token=None,
-        lease_expires_at=None,
-        completed_at=transaction_now,
-        updated_at=transaction_now,
-        optimistic_version=step.optimistic_version + 1,
-    )
 
 
 def _make_stable_abort_builder(
@@ -2845,76 +2795,45 @@ def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
     _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
 
 
-def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
-    def execute(
-        operation: OperationRecord,
-        step: StepRecord,
-        control: ExecutionControl,
-        lease_session: LeaseSession,
-    ) -> ExecutorAcknowledgment:
-        try:
-            return handler(operation, step, control, lease_session)
-        except MemoryError as error:
-            context = current_kernel_context()
-            if context is not None:
-                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
-            lease_session.refresh_control()
-            if control.cancel_requested:
-                lease_session.publish_operation(_make_cancelled_terminal_builder())
-            else:
-                _publish_prepare_terminal_abort(
-                    lease_session,
-                    OperationDiagnostic(
-                        code="RESOURCE_LIMIT_EXCEEDED",
-                        message=(str(error) or "operation memory budget exceeded")[:255],
-                    ),
-                )
-            return ExecutorAcknowledgment.PUBLISHED
+def _publish_submit_resource_failure(
+    operation: OperationRecord,
+    step: StepRecord,
+    control: ExecutionControl,
+    lease_session: LeaseSession,
+    error: MemoryError,
+) -> None:
+    del operation, step
+    lease_session.refresh_control()
+    if control.cancel_requested:
+        lease_session.publish_operation(_make_cancelled_terminal_builder())
+    else:
+        _publish_prepare_terminal_abort(
+            lease_session,
+            OperationDiagnostic(
+                code="RESOURCE_LIMIT_EXCEEDED",
+                message=(str(error) or "operation memory budget exceeded")[:255],
+            ),
+        )
 
-    return execute
+
+def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
+    return with_resource_failure_terminal(
+        handler,
+        on_memory_error=_publish_submit_resource_failure,
+    )
 
 
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
-    lease_session.publish_operation(_make_cancelled_terminal_builder())
-    return ExecutorAcknowledgment.PUBLISHED
+    return publish_stopped_compute_cancelled_step(lease_session, _make_cancelled_terminal_builder)
 
 
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
 ]:
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, OperationRecord]:
-        transaction = _active_submit_transaction.get()
-        if transaction is None:
-            raise SubmitJobError("submit cancellation transaction is not bound")
-        if operation.ready_closure_ref is not None:
-            raise CheckpointPublicationError(
-                "ready_closure_ref is already set",
-                code="CLOSURE_ALREADY_SET",
-            )
-        terminal_step = dataclasses.replace(
-            step,
-            status=StepStatus.CANCELLED,
-            worker_id=None,
-            lease_token=None,
-            lease_expires_at=None,
-            completed_at=transaction_now,
-            updated_at=transaction_now,
-            optimistic_version=step.optimistic_version + 1,
-        )
-        terminal_operation = dataclasses.replace(
-            operation,
-            status=OperationStatus.CANCELLED,
-            completed_at=transaction_now,
-            updated_at=transaction_now,
-            optimistic_version=operation.optimistic_version + 1,
-        )
-        return terminal_step, terminal_operation
-
-    return builder
+    return make_cancelled_terminal_builder(
+        active_transaction=_active_submit_transaction.get,
+        transaction_missing=lambda: SubmitJobError("submit cancellation transaction is not bound"),
+    )
 
 
 def _make_manual_recovery_terminal_builder(
@@ -3000,13 +2919,6 @@ def _repository_ref_from_dict(raw: dict[str, object]) -> RepositoryArtifactRef:
 def _expected_operation_identity_placeholder(request_bytes: bytes) -> str:
     del request_bytes
     return "pending"
-
-
-def _checkpoint_generation(step: StepRecord) -> int:
-    attempt_count = step.attempt_count
-    if type(attempt_count) is not int or isinstance(attempt_count, bool) or attempt_count < 1:
-        raise ValueError("attempt_count must be a positive int for checkpoint generation")
-    return attempt_count
 
 
 def _iso_utc_timestamp(value: datetime) -> str:
@@ -3103,13 +3015,6 @@ def _reject_unknown_top_level_keys(payload_object: dict[str, object]) -> None:
             f"unknown submit payload keys: {', '.join(unknown)}",
             code="PAYLOAD_SHAPE_INVALID",
         )
-
-
-def _require_non_empty_str(payload_object: dict[str, object], key: str) -> str:
-    value = payload_object.get(key)
-    if type(value) is not str or not value:
-        raise PayloadDecodeError(f"{key} must be a non-empty string", code="PAYLOAD_SHAPE_INVALID")
-    return value
 
 
 def _require_non_negative_int(payload_object: dict[str, object], key: str) -> int:

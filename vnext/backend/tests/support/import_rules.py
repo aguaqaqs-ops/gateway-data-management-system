@@ -32,9 +32,11 @@ COMPOSITION_MODULES = frozenset(
     }
 )
 
-# Exact shared owners: identity is a domain value; host documents are composition.
+# Exact shared owners: identity is a domain value; host documents are composition; document_fields
+# is a pure field-reader leaf shared by application and capability codecs.
 OWNED_ROOT_MODULES = {
     "gateway_backend.device_identity": "domain",
+    "gateway_backend.document_fields": "document_fields",
     "gateway_backend.processing_group_config": "composition",
 }
 
@@ -97,9 +99,12 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
         {"statistics", "operations", "ext:repository_wire", "ext:sqlite"}
     ),
     "capabilities": frozenset(),
-    "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
+    "capability": frozenset({ANY_CAPABILITY, "artifacts", "document_fields"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
-    "application": frozenset({"application", "domain", "operations", "artifacts", ANY_CAPABILITY}),
+    "document_fields": frozenset(),
+    "application": frozenset(
+        {"application", "domain", "operations", "artifacts", "document_fields", ANY_CAPABILITY}
+    ),
     "http": frozenset({"http", "application", "domain", "operations", "artifacts", "ext:web"}),
     "infrastructure:control_db": frozenset(
         {ANY_INFRASTRUCTURE, "domain", "operations", "artifacts", APPLICATION_PORTS, "ext:sqlite"}

@@ -35,7 +35,6 @@ from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalScope,
 )
 from gateway_backend.application.checkpoints import (
-    CheckpointPublicationError,
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
@@ -55,7 +54,20 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.application.history.ports import (
     HistoryControlTransaction as HistoryCompareControlTransaction,
 )
-from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.application.job_steps import (
+    checkpoint_generation,
+    load_step,
+    make_cancelled_terminal_builder,
+    make_successor_builder,
+    pinned_checkpoint_builder,
+    publish_stopped_compute_cancelled as publish_stopped_compute_cancelled_step,
+    require_non_empty_str,
+    successor_step_id,
+    terminal_step,
+    unique_artifact_refs,
+    with_resource_failure_terminal,
+)
+from gateway_backend.document_fields import document_string
 from gateway_backend.artifacts.computation_cache import CacheOperationOwner, ComputationCachePort
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.application.pair_pipeline import (
@@ -79,7 +91,6 @@ from gateway_backend.application.payloads import (
     load_job_payload_bytes,
 )
 from gateway_backend.application.preview_jobs import (
-    _document_string,
     _snapshot_descriptor_from_document,
     _snapshot_descriptor_to_document,
     _storage_facts_from_documents,
@@ -156,7 +167,6 @@ from gateway_backend.capabilities.table_rules.contracts import (
     TableRulesetSnapshot,
 )
 from gateway_backend.operations.contracts import (
-    OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
     OperationDiagnostic,
     OperationRecord,
@@ -305,19 +315,19 @@ def history_compare_publish_job_definition() -> JobDefinition:
 
 
 def decode_history_compare_payload(payload_object: dict[str, object]) -> HistoryCompareJobPayload:
-    gateway_device_external_key = _require_non_empty_str(
+    gateway_device_external_key = require_non_empty_str(
         payload_object, "gateway_device_external_key"
     )
-    business_project_id = _require_non_empty_str(payload_object, "business_project_id")
-    repository_id = _require_non_empty_str(payload_object, "repository_id")
-    acceptance_id = _require_non_empty_str(payload_object, "acceptance_id")
-    idempotency_key = _require_non_empty_str(payload_object, "idempotency_key")
-    request_fingerprint = _require_non_empty_str(payload_object, "request_fingerprint")
-    comparison_ruleset_digest = _require_non_empty_str(payload_object, "comparison_ruleset_digest")
-    comparison_contract_version = _require_non_empty_str(
+    business_project_id = require_non_empty_str(payload_object, "business_project_id")
+    repository_id = require_non_empty_str(payload_object, "repository_id")
+    acceptance_id = require_non_empty_str(payload_object, "acceptance_id")
+    idempotency_key = require_non_empty_str(payload_object, "idempotency_key")
+    request_fingerprint = require_non_empty_str(payload_object, "request_fingerprint")
+    comparison_ruleset_digest = require_non_empty_str(payload_object, "comparison_ruleset_digest")
+    comparison_contract_version = require_non_empty_str(
         payload_object, "comparison_contract_version"
     )
-    view_kind = _require_non_empty_str(payload_object, "view_kind")
+    view_kind = require_non_empty_str(payload_object, "view_kind")
     pair_count = _require_positive_int(payload_object, "pair_count")
     nodes = _decode_nodes(payload_object.get("nodes"))
     return HistoryCompareJobPayload(
@@ -498,7 +508,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 key=key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state={
                     _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(sides_ref),
                 },
@@ -523,7 +533,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.publish_successor(
-            _make_successor_builder(
+            make_successor_builder(
                 operation_id=operation.operation_id,
                 successor_step_name=HISTORY_COMPARE_STEP_ASSEMBLE,
                 successor_step_id=history_compare_step_id(
@@ -731,7 +741,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 key=assemble_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state={
                     _JOB_STATE_ASSEMBLE_REF: artifact_ref_to_dict(assemble_state_ref),
                     _JOB_STATE_READY_CLOSURE: closure_ref.artifact_id,
@@ -765,7 +775,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.publish_successor(
-            _make_successor_builder(
+            make_successor_builder(
                 operation_id=operation.operation_id,
                 successor_step_name=HISTORY_COMPARE_STEP_PUBLISH,
                 successor_step_id=history_compare_step_id(
@@ -857,7 +867,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
             if acceptance is None:
                 raise HistoryCompareJobError("history compare acceptance is missing")
             expires_at = transaction_now + timedelta(seconds=acceptance.result_retention_seconds)
-            terminal_step = _terminal_step(
+            completed_step = terminal_step(
                 current_step, transaction_now, status=StepStatus.SUCCEEDED
             )
             terminal_operation = dataclasses.replace(
@@ -885,7 +895,7 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
             _release_history_compare_checkpoint_protection(
                 transaction, operation_id=current_operation.operation_id
             )
-            return terminal_step, terminal_operation
+            return completed_step, terminal_operation
 
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -1517,7 +1527,7 @@ def _publish_ruleset_mismatch_failure(
             code=HistoryCompareDiagnosticCode.HISTORY_RULESET_VERSION_MISMATCH.value,
             message=message[:255],
         )
-        terminal_step = _terminal_step(
+        failed_step = terminal_step(
             current_step,
             transaction_now,
             status=StepStatus.FAILED,
@@ -1531,7 +1541,7 @@ def _publish_ruleset_mismatch_failure(
             completed_at=transaction_now,
             optimistic_version=current_operation.optimistic_version + 1,
         )
-        return terminal_step, terminal_operation
+        return failed_step, terminal_operation
 
     lease_session.refresh_control()
     if control.cancel_requested:
@@ -1542,7 +1552,7 @@ def _publish_ruleset_mismatch_failure(
 
 def _publish_commit_unavailable_failure(
     *,
-    lease_session: LeaseSession,
+    lease_session: LeaseSessionPort,
     operation: OperationRecord,
     step: StepRecord,
     message: str,
@@ -1564,7 +1574,7 @@ def _publish_commit_unavailable_failure(
             code=diagnostic_code or HistoryCompareDiagnosticCode.HISTORY_COMMIT_UNAVAILABLE.value,
             message=message[:255],
         )
-        terminal_step = _terminal_step(
+        failed_step = terminal_step(
             current_step,
             transaction_now,
             status=StepStatus.FAILED,
@@ -1578,7 +1588,7 @@ def _publish_commit_unavailable_failure(
             completed_at=transaction_now,
             optimistic_version=current_operation.optimistic_version + 1,
         )
-        return terminal_step, terminal_operation
+        return failed_step, terminal_operation
 
     lease_session.refresh_control()
     if control.cancel_requested:
@@ -1853,9 +1863,7 @@ def _bound_from_side_document(
         descriptors_by_name = {table.descriptor.table_name: table.descriptor for table in opened}
         raw_summary_tables = summary_raw["tables"]
         ordered_names = tuple(
-            _document_string(item, "table_name")
-            for item in raw_summary_tables
-            if type(item) is dict
+            document_string(item, "table_name") for item in raw_summary_tables if type(item) is dict
         )
         if len(ordered_names) != len(raw_summary_tables) or set(ordered_names) != set(
             descriptors_by_name
@@ -2013,11 +2021,14 @@ def _load_step(
     operation_id: str,
     step_id: str,
 ) -> StepRecord:
-    with deps.control_transaction_factory() as unit_of_work:
-        step = unit_of_work.operations.get_step(step_id)
-    if step.operation_id != operation_id:
-        raise HistoryCompareJobError("history compare step belongs to a different operation")
-    return step
+    return load_step(
+        deps.control_transaction_factory,
+        operation_id=operation_id,
+        step_id=step_id,
+        mismatch_error=lambda: HistoryCompareJobError(
+            "history compare step belongs to a different operation"
+        ),
+    )
 
 
 def _load_history_compare_payload(
@@ -2036,139 +2047,50 @@ def _load_history_compare_payload(
     return decode_history_compare_payload(cast(dict[str, object], payload_object))
 
 
-def _make_successor_builder(
-    *,
-    operation_id: str,
-    successor_step_name: str,
-    successor_step_id: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]]:
-    def builder(
-        operation: OperationRecord,
-        current_step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, StepRecord]:
-        terminal_step = _terminal_step(current_step, transaction_now, status=StepStatus.SUCCEEDED)
-        successor = StepRecord(
-            contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
-            step_id=successor_step_id,
-            operation_id=operation_id,
-            step_name=successor_step_name,
-            status=StepStatus.PENDING,
-            attempt_count=0,
-            diagnostic=None,
-            cancel_requested=False,
-            retry_not_before=None,
-            worker_id=None,
-            lease_token=None,
-            lease_expires_at=None,
-            checkpoint_ref=None,
-            prior_output_refs=(),
-            created_at=transaction_now,
-            updated_at=transaction_now,
-            started_at=None,
-            completed_at=None,
-            optimistic_version=0,
-        )
-        return terminal_step, successor
-
-    return builder
-
-
-def _terminal_step(
+def _publish_history_compare_resource_failure(
+    operation: OperationRecord,
     step: StepRecord,
-    transaction_now: datetime,
-    *,
-    status: StepStatus,
-    diagnostic: OperationDiagnostic | None = None,
-) -> StepRecord:
-    return dataclasses.replace(
-        step,
-        status=status,
-        diagnostic=diagnostic,
-        worker_id=None,
-        lease_token=None,
-        lease_expires_at=None,
-        completed_at=transaction_now,
-        updated_at=transaction_now,
-        optimistic_version=step.optimistic_version + 1,
+    control: ExecutionControl,
+    lease_session: LeaseSessionPort,
+    error: MemoryError,
+) -> None:
+    _publish_commit_unavailable_failure(
+        lease_session=lease_session,
+        operation=operation,
+        step=step,
+        diagnostic_code="RESOURCE_LIMIT_EXCEEDED",
+        message=str(error) or "operation memory budget exceeded",
+        control=control,
     )
 
 
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
-    def execute(
-        operation: OperationRecord,
-        step: StepRecord,
-        control: ExecutionControl,
-        lease_session: LeaseSession,
-    ) -> ExecutorAcknowledgment:
-        try:
-            return handler(operation, step, control, lease_session)
-        except MemoryError as error:
-            context = current_kernel_context()
-            if context is not None:
-                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
-            _publish_commit_unavailable_failure(
-                lease_session=lease_session,
-                operation=operation,
-                step=step,
-                diagnostic_code="RESOURCE_LIMIT_EXCEEDED",
-                message=str(error) or "operation memory budget exceeded",
-                control=control,
-            )
-            return ExecutorAcknowledgment.PUBLISHED
-
-    return cast(ClaimedExecutor, execute)
+    return with_resource_failure_terminal(
+        handler,
+        on_memory_error=_publish_history_compare_resource_failure,
+    )
 
 
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
-    lease_session.publish_operation(_make_cancelled_terminal_builder())
-    return ExecutorAcknowledgment.PUBLISHED
+    return publish_stopped_compute_cancelled_step(lease_session, _make_cancelled_terminal_builder)
+
+
+def _release_cancelled_history_compare_protection(
+    transaction: HistoryCompareControlTransaction, operation: OperationRecord
+) -> None:
+    _release_history_compare_step_protection(transaction, operation_id=operation.operation_id)
 
 
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
 ]:
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, OperationRecord]:
-        transaction = _active_history_compare_transaction.get()
-        if transaction is None:
-            raise HistoryCompareJobError("history compare cancellation transaction is not bound")
-        if operation.ready_closure_ref is not None:
-            raise CheckpointPublicationError(
-                "ready_closure_ref is already set",
-                code="CLOSURE_ALREADY_SET",
-            )
-        _release_history_compare_step_protection(transaction, operation_id=operation.operation_id)
-        terminal_step = dataclasses.replace(
-            step,
-            status=StepStatus.CANCELLED,
-            worker_id=None,
-            lease_token=None,
-            lease_expires_at=None,
-            completed_at=transaction_now,
-            updated_at=transaction_now,
-            optimistic_version=step.optimistic_version + 1,
-        )
-        terminal_operation = dataclasses.replace(
-            operation,
-            status=OperationStatus.CANCELLED,
-            completed_at=transaction_now,
-            updated_at=transaction_now,
-            optimistic_version=operation.optimistic_version + 1,
-        )
-        return terminal_step, terminal_operation
-
-    return builder
-
-
-def _checkpoint_generation(step: StepRecord) -> int:
-    attempt_count = step.attempt_count
-    if type(attempt_count) is not int or isinstance(attempt_count, bool) or attempt_count < 1:
-        raise ValueError("attempt_count must be a positive int for checkpoint generation")
-    return attempt_count
+    return make_cancelled_terminal_builder(
+        active_transaction=_active_history_compare_transaction.get,
+        transaction_missing=lambda: HistoryCompareJobError(
+            "history compare cancellation transaction is not bound"
+        ),
+        release_protection=_release_cancelled_history_compare_protection,
+    )
 
 
 _HISTORY_COMPARE_STEP_SUFFIX: dict[str, str] = {
@@ -2179,16 +2101,7 @@ _HISTORY_COMPARE_STEP_SUFFIX: dict[str, str] = {
 
 
 def history_compare_step_id(operation_id: str, step_name: str) -> str:
-    from gateway_backend.application.job_steps import successor_step_id
-
     return successor_step_id(operation_id, step_name, _HISTORY_COMPARE_STEP_SUFFIX)
-
-
-def _require_non_empty_str(payload_object: dict[str, object], key: str) -> str:
-    value = payload_object.get(key)
-    if type(value) is not str or not value:
-        raise PayloadDecodeError(f"{key} must be a non-empty string", code="PAYLOAD_SHAPE_INVALID")
-    return value
 
 
 def _require_positive_int(payload_object: dict[str, object], key: str) -> int:

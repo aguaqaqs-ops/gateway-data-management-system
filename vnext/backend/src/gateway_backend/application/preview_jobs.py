@@ -60,7 +60,6 @@ from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalScope,
 )
 from gateway_backend.application.checkpoints import (
-    CheckpointPublicationError,
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
@@ -70,7 +69,20 @@ from gateway_backend.application.checkpoints import (
     prepare_step_checkpoint,
     put_checkpoint_state_artifact,
 )
-from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.application.job_steps import (
+    checkpoint_generation,
+    load_step,
+    make_cancelled_terminal_builder,
+    make_successor_builder,
+    pinned_checkpoint_builder,
+    publish_stopped_compute_cancelled as publish_stopped_compute_cancelled_step,
+    require_non_empty_str,
+    successor_step_id,
+    terminal_step,
+    unique_artifact_refs,
+    with_resource_failure_terminal,
+)
+from gateway_backend.document_fields import document_string
 from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_CONTRACT_VERSION,
     PREVIEW_JOB_KIND,
@@ -249,7 +261,6 @@ from gateway_backend.domain.workspace.models import (
 )
 from gateway_backend.domain.workspace.ports import BaselineHeadReadPort
 from gateway_backend.operations.contracts import (
-    OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
     OperationDiagnostic,
     OperationDiagnosticDetail,
@@ -524,12 +535,12 @@ def preview_publish_job_definition() -> JobDefinition:
 
 def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPayload:
     _reject_unknown_top_level_keys(payload_object)
-    workspace_id = _require_non_empty_str(payload_object, "workspace_id")
-    upload_revision_id = _require_non_empty_str(payload_object, "upload_revision_id")
+    workspace_id = require_non_empty_str(payload_object, "workspace_id")
+    upload_revision_id = require_non_empty_str(payload_object, "upload_revision_id")
     generation = _require_non_negative_int(payload_object, "generation")
-    repository_id = _require_non_empty_str(payload_object, "repository_id")
-    business_baseline_node_id = _require_non_empty_str(payload_object, "business_baseline_node_id")
-    business_baseline_commit_id = _require_non_empty_str(
+    repository_id = require_non_empty_str(payload_object, "repository_id")
+    business_baseline_node_id = require_non_empty_str(payload_object, "business_baseline_node_id")
+    business_baseline_commit_id = require_non_empty_str(
         payload_object, "business_baseline_commit_id"
     )
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
@@ -538,9 +549,9 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
     source_digests = _decode_string_map(
         payload_object.get("source_digests"), label="source_digests"
     )
-    input_digest = _require_non_empty_str(payload_object, "input_digest")
-    ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
-    comparison_ruleset_digest = _require_non_empty_str(payload_object, "comparison_ruleset_digest")
+    input_digest = require_non_empty_str(payload_object, "input_digest")
+    ruleset_version = require_non_empty_str(payload_object, "ruleset_version")
+    comparison_ruleset_digest = require_non_empty_str(payload_object, "comparison_ruleset_digest")
     capability_contract_versions = _decode_object_map(
         payload_object.get("capability_contract_versions"),
         label="capability_contract_versions",
@@ -555,7 +566,7 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
     provider_versions = _decode_string_map(
         payload_object.get("provider_versions"), label="provider_versions"
     )
-    ready_closure_contract_version = _require_non_empty_str(
+    ready_closure_contract_version = require_non_empty_str(
         payload_object,
         "ready_closure_contract_version",
     )
@@ -790,7 +801,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 key=key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state={
                     _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(materialized_sides_ref),
                     _JOB_STATE_CANONICAL: _canonical_preview_metadata_to_document(inputs.canonical),
@@ -819,7 +830,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.publish_successor(
-            _make_successor_builder(
+            make_successor_builder(
                 operation_id=operation.operation_id,
                 successor_step_name=PREVIEW_STEP_ASSEMBLE,
                 successor_step_id=_successor_step_id(operation.operation_id, PREVIEW_STEP_ASSEMBLE),
@@ -982,7 +993,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 key=assemble_definition.key,
                 operation=operation,
                 step=step,
-                checkpoint_generation=_checkpoint_generation(step),
+                checkpoint_generation=checkpoint_generation(step),
                 job_state={
                     _JOB_STATE_ASSEMBLE_REF: artifact_ref_to_dict(assemble_state_ref),
                     _JOB_STATE_READY_CLOSURE: closure_ref.artifact_id,
@@ -1016,7 +1027,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.publish_successor(
-            _make_successor_builder(
+            make_successor_builder(
                 operation_id=operation.operation_id,
                 successor_step_name=PREVIEW_STEP_PUBLISH,
                 successor_step_id=_successor_step_id(operation.operation_id, PREVIEW_STEP_PUBLISH),
@@ -1151,7 +1162,7 @@ def _atomic_publish_preview(
                 operation_id=operation.operation_id,
                 clear_operation_owner=True,
             )
-            terminal_step = _terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
+            completed_step = terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
             terminal_operation = dataclasses.replace(
                 operation,
                 status=OperationStatus.SUPERSEDED,
@@ -1159,7 +1170,7 @@ def _atomic_publish_preview(
                 completed_at=transaction_now,
                 optimistic_version=operation.optimistic_version + 1,
             )
-            return terminal_step, terminal_operation
+            return completed_step, terminal_operation
 
         _persist_preview_business_state(
             transaction,
@@ -1170,7 +1181,7 @@ def _atomic_publish_preview(
             closure_output_refs=closure_output_refs,
             transaction_now=transaction_now,
         )
-        terminal_step = _terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
+        completed_step = terminal_step(step, transaction_now, status=StepStatus.SUCCEEDED)
         terminal_operation = dataclasses.replace(
             operation,
             status=OperationStatus.SUCCEEDED,
@@ -1179,7 +1190,7 @@ def _atomic_publish_preview(
             completed_at=transaction_now,
             optimistic_version=operation.optimistic_version + 1,
         )
-        return terminal_step, terminal_operation
+        return completed_step, terminal_operation
 
     lease_session.refresh_control()
     if control.cancel_requested:
@@ -2907,7 +2918,7 @@ def _publish_preview_ruleset_mismatch_failure(
             code="PREVIEW_RULESET_VERSION_MISMATCH",
             message="frozen comparison ruleset digest does not match runtime ruleset",
         )
-        terminal_step = _terminal_step(
+        failed_step = terminal_step(
             current_step,
             transaction_now,
             status=StepStatus.FAILED,
@@ -2921,7 +2932,7 @@ def _publish_preview_ruleset_mismatch_failure(
             completed_at=transaction_now,
             optimistic_version=current_operation.optimistic_version + 1,
         )
-        return terminal_step, terminal_operation
+        return failed_step, terminal_operation
 
     lease_session.refresh_control()
     if control.cancel_requested:
@@ -2934,7 +2945,7 @@ def _publish_preview_materialization_failure(
     *,
     operation: OperationRecord,
     step: StepRecord,
-    lease_session: LeaseSession,
+    lease_session: LeaseSessionPort,
     diagnostic_code: str,
     message: str,
     diagnostic_details: tuple[OperationDiagnosticDetail, ...] | None,
@@ -2960,7 +2971,7 @@ def _publish_preview_materialization_failure(
             details=diagnostic_details,
             omitted_count=(diagnostic_omitted_count if diagnostic_details is not None else None),
         )
-        terminal_step = _terminal_step(
+        failed_step = terminal_step(
             current_step,
             transaction_now,
             status=StepStatus.FAILED,
@@ -2974,7 +2985,7 @@ def _publish_preview_materialization_failure(
             completed_at=transaction_now,
             optimistic_version=current_operation.optimistic_version + 1,
         )
-        return terminal_step, terminal_operation
+        return failed_step, terminal_operation
 
     lease_session.refresh_control()
     if control.cancel_requested:
@@ -3026,11 +3037,12 @@ def _load_step(
     operation_id: str,
     step_id: str,
 ) -> StepRecord:
-    with deps.control_transaction_factory() as unit_of_work:
-        step = unit_of_work.operations.get_step(step_id)
-    if step.operation_id != operation_id:
-        raise PreviewJobError("preview step belongs to a different operation")
-    return step
+    return load_step(
+        deps.control_transaction_factory,
+        operation_id=operation_id,
+        step_id=step_id,
+        mismatch_error=lambda: PreviewJobError("preview step belongs to a different operation"),
+    )
 
 
 def _serialize_sides(
@@ -3438,9 +3450,7 @@ def _bound_from_side_document(
             descriptors_by_name[descriptor.table_name] = descriptor
         raw_summary_tables = summary_raw["tables"]
         ordered_names = tuple(
-            _document_string(item, "table_name")
-            for item in raw_summary_tables
-            if type(item) is dict
+            document_string(item, "table_name") for item in raw_summary_tables if type(item) is dict
         )
         if len(ordered_names) != len(raw_summary_tables) or set(ordered_names) != set(
             descriptors_by_name
@@ -3800,8 +3810,8 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
             raise ValueError("nullable must be bool")
         columns.append(
             SnapshotColumnDescriptor(
-                name=_document_string(item, "name"),
-                display_name=_document_string(item, "display_name"),
+                name=document_string(item, "name"),
+                display_name=document_string(item, "display_name"),
                 nullable=item["nullable"],
                 scalar_type=scalar_type,
             )
@@ -3824,9 +3834,9 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
             raise ValueError("snapshot diagnostic table and column must be strings or null")
         diagnostics.append(
             MaterializationDiagnostic(
-                code=MaterializationDiagnosticCode(_document_string(item, "code")),
-                severity=DiagnosticSeverity(_document_string(item, "severity")),
-                message=_document_string(item, "message"),
+                code=MaterializationDiagnosticCode(document_string(item, "code")),
+                severity=DiagnosticSeverity(document_string(item, "severity")),
+                message=document_string(item, "message"),
                 table=table,
                 column=column,
             )
@@ -3838,16 +3848,16 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
     if raw_degraded is not None and type(raw_degraded) is not str:
         raise ValueError("degraded_reason must be a string or null")
     return SnapshotTableDescriptor(
-        table_name=_document_string(raw, "table_name"),
-        display_table_name=_document_string(raw, "display_table_name"),
+        table_name=document_string(raw, "table_name"),
+        display_table_name=document_string(raw, "display_table_name"),
         columns=tuple(columns),
         primary_key_columns=_document_string_tuple(raw, "primary_key_columns"),
         compare_key_columns=_document_string_tuple(raw, "compare_key_columns"),
         row_count=_document_int(raw, "row_count"),
-        materialization_stage=MaterializationStage(_document_string(raw, "materialization_stage")),
-        compare_schema_digest=DigestRef(_document_string(raw, "compare_schema_digest")),
+        materialization_stage=MaterializationStage(document_string(raw, "materialization_stage")),
+        compare_schema_digest=DigestRef(document_string(raw, "compare_schema_digest")),
         table_ruleset_version=_document_int(raw, "table_ruleset_version"),
-        row_materialization_profile=_document_string(raw, "row_materialization_profile"),
+        row_materialization_profile=document_string(raw, "row_materialization_profile"),
         scalar_encoding_version=_document_int(raw, "scalar_encoding_version"),
         raw_content_digest=None if raw_content is None else DigestRef(raw_content),
         degraded_reason=None if raw_degraded is None else DegradedReason(raw_degraded),
@@ -3920,13 +3930,13 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
                 raise ValueError("dropped column fields are invalid")
             dropped.append(
                 DroppedColumn(
-                    name=_document_string(dropped_item, "name"),
-                    reason=_document_string(dropped_item, "reason"),
+                    name=document_string(dropped_item, "name"),
+                    reason=document_string(dropped_item, "reason"),
                 )
             )
-        canonical_table = _document_string(item, "canonical_table")
-        key_policy = CanonicalKeyPolicy(_document_string(item, "canonical_key_policy"))
-        ordered_policy = OrderedPolicy(_document_string(item, "ordered_policy"))
+        canonical_table = document_string(item, "canonical_table")
+        key_policy = CanonicalKeyPolicy(document_string(item, "canonical_key_policy"))
+        ordered_policy = OrderedPolicy(document_string(item, "ordered_policy"))
         storage_rule_digest_raw = item["storage_rule_digest"]
         if storage_rule_digest_raw is not None and type(storage_rule_digest_raw) is not str:
             raise ValueError("storage_rule_digest must be a string or null")
@@ -3954,7 +3964,7 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
         facts.append(
             ComparisonStorageFacts(
                 storage_rule_view=view,
-                source_schema_digest=DigestRef(_document_string(item, "source_schema_digest")),
+                source_schema_digest=DigestRef(document_string(item, "source_schema_digest")),
                 canonical_schema_digest=(
                     None if canonical_schema_raw is None else DigestRef(canonical_schema_raw)
                 ),
@@ -3965,13 +3975,6 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
             )
         )
     return tuple(facts)
-
-
-def _document_string(raw: dict[str, object], key: str) -> str:
-    value = raw[key]
-    if type(value) is not str or not value:
-        raise ValueError(f"{key} must be a non-empty string")
-    return value
 
 
 def _document_string_tuple(raw: dict[str, object], key: str) -> tuple[str, ...]:
@@ -4061,145 +4064,56 @@ def _sql_materialization_request(
     )
 
 
-def _make_successor_builder(
-    *,
-    operation_id: str,
-    successor_step_name: str,
-    successor_step_id: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]]:
-    def builder(
-        operation: OperationRecord,
-        current_step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, StepRecord]:
-        terminal_step = _terminal_step(current_step, transaction_now, status=StepStatus.SUCCEEDED)
-        successor = StepRecord(
-            contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
-            step_id=successor_step_id,
-            operation_id=operation_id,
-            step_name=successor_step_name,
-            status=StepStatus.PENDING,
-            attempt_count=0,
-            diagnostic=None,
-            cancel_requested=False,
-            retry_not_before=None,
-            worker_id=None,
-            lease_token=None,
-            lease_expires_at=None,
-            checkpoint_ref=None,
-            prior_output_refs=(),
-            created_at=transaction_now,
-            updated_at=transaction_now,
-            started_at=None,
-            completed_at=None,
-            optimistic_version=0,
-        )
-        return terminal_step, successor
-
-    return builder
-
-
-def _terminal_step(
+def _publish_preview_resource_failure(
+    operation: OperationRecord,
     step: StepRecord,
-    transaction_now: datetime,
-    *,
-    status: StepStatus,
-    diagnostic: OperationDiagnostic | None = None,
-) -> StepRecord:
-    return dataclasses.replace(
-        step,
-        status=status,
-        diagnostic=diagnostic,
-        worker_id=None,
-        lease_token=None,
-        lease_expires_at=None,
-        completed_at=transaction_now,
-        updated_at=transaction_now,
-        optimistic_version=step.optimistic_version + 1,
+    control: ExecutionControl,
+    lease_session: LeaseSessionPort,
+    error: MemoryError,
+) -> None:
+    _publish_preview_materialization_failure(
+        operation=operation,
+        step=step,
+        lease_session=lease_session,
+        diagnostic_code="RESOURCE_LIMIT_EXCEEDED",
+        message=str(error) or "operation memory budget exceeded",
+        diagnostic_details=None,
+        diagnostic_omitted_count=0,
+        control=control,
     )
 
 
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
-    def execute(
-        operation: OperationRecord,
-        step: StepRecord,
-        control: ExecutionControl,
-        lease_session: LeaseSession,
-    ) -> ExecutorAcknowledgment:
-        try:
-            return handler(operation, step, control, lease_session)
-        except MemoryError as error:
-            context = current_kernel_context()
-            if context is not None:
-                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
-            _publish_preview_materialization_failure(
-                operation=operation,
-                step=step,
-                lease_session=lease_session,
-                diagnostic_code="RESOURCE_LIMIT_EXCEEDED",
-                message=str(error) or "operation memory budget exceeded",
-                diagnostic_details=None,
-                diagnostic_omitted_count=0,
-                control=control,
-            )
-            return ExecutorAcknowledgment.PUBLISHED
-
-    return cast(ClaimedExecutor, execute)
+    return with_resource_failure_terminal(
+        handler,
+        on_memory_error=_publish_preview_resource_failure,
+    )
 
 
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
-    lease_session.publish_operation(_make_cancelled_terminal_builder())
-    return ExecutorAcknowledgment.PUBLISHED
+    return publish_stopped_compute_cancelled_step(lease_session, _make_cancelled_terminal_builder)
+
+
+def _release_cancelled_preview_protection(
+    transaction: PreviewControlTransaction, operation: OperationRecord
+) -> None:
+    _release_preview_step_protection(
+        transaction,
+        operation_id=operation.operation_id,
+        clear_operation_owner=True,
+    )
 
 
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
 ]:
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, OperationRecord]:
-        transaction = _active_preview_transaction.get()
-        if transaction is None:
-            raise PreviewJobError("preview cancellation transaction is not bound")
-        if operation.ready_closure_ref is not None:
-            raise CheckpointPublicationError(
-                "ready_closure_ref is already set",
-                code="CLOSURE_ALREADY_SET",
-            )
-        _release_preview_step_protection(
-            transaction,
-            operation_id=operation.operation_id,
-            clear_operation_owner=True,
-        )
-        terminal_step = dataclasses.replace(
-            step,
-            status=StepStatus.CANCELLED,
-            worker_id=None,
-            lease_token=None,
-            lease_expires_at=None,
-            completed_at=transaction_now,
-            updated_at=transaction_now,
-            optimistic_version=step.optimistic_version + 1,
-        )
-        terminal_operation = dataclasses.replace(
-            operation,
-            status=OperationStatus.CANCELLED,
-            completed_at=transaction_now,
-            updated_at=transaction_now,
-            optimistic_version=operation.optimistic_version + 1,
-        )
-        return terminal_step, terminal_operation
-
-    return builder
-
-
-def _checkpoint_generation(step: StepRecord) -> int:
-    attempt_count = step.attempt_count
-    if type(attempt_count) is not int or isinstance(attempt_count, bool) or attempt_count < 1:
-        raise ValueError("attempt_count must be a positive int for checkpoint generation")
-    return attempt_count
+    return make_cancelled_terminal_builder(
+        active_transaction=_active_preview_transaction.get,
+        transaction_missing=lambda: PreviewJobError(
+            "preview cancellation transaction is not bound"
+        ),
+        release_protection=_release_cancelled_preview_protection,
+    )
 
 
 _PREVIEW_STEP_SUFFIX: dict[str, str] = {
@@ -4210,8 +4124,6 @@ _PREVIEW_STEP_SUFFIX: dict[str, str] = {
 
 
 def _successor_step_id(operation_id: str, step_name: str) -> str:
-    from gateway_backend.application.job_steps import successor_step_id
-
     return successor_step_id(operation_id, step_name, _PREVIEW_STEP_SUFFIX)
 
 
@@ -4246,13 +4158,6 @@ def _reject_unknown_top_level_keys(payload_object: dict[str, object]) -> None:
             f"unknown preview payload keys: {', '.join(unknown)}",
             code="PAYLOAD_SHAPE_INVALID",
         )
-
-
-def _require_non_empty_str(payload_object: dict[str, object], key: str) -> str:
-    value = payload_object.get(key)
-    if type(value) is not str or not value:
-        raise PayloadDecodeError(f"{key} must be a non-empty string", code="PAYLOAD_SHAPE_INVALID")
-    return value
 
 
 def _require_non_negative_int(payload_object: dict[str, object], key: str) -> int:
@@ -4320,8 +4225,8 @@ def _decode_idempotency_identity(value: object) -> PreviewIdempotencyIdentity:
             "idempotency_identity must be an object", code="PAYLOAD_SHAPE_INVALID"
         )
     return PreviewIdempotencyIdentity(
-        workspace_id=_require_non_empty_str(value, "workspace_id"),
-        idempotency_key=_require_non_empty_str(value, "idempotency_key"),
+        workspace_id=require_non_empty_str(value, "workspace_id"),
+        idempotency_key=require_non_empty_str(value, "idempotency_key"),
     )
 
 

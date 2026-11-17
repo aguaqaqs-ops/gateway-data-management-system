@@ -740,6 +740,8 @@ def _assert_capability_import_allowed(
         return
     if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
         return
+    if imported == "gateway_backend.document_fields":
+        return
     if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
         return
     assert not imported.startswith("gateway_backend."), (

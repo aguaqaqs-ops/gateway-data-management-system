@@ -26,12 +26,20 @@ def _gate(request: Request) -> ClosableAdmissionGate:
     return gate
 
 
-@router.get("/internal/v1/maintenance/drain", response_model=DrainSnapshot)
+@router.get(
+    "/internal/v1/maintenance/drain",
+    response_model=DrainSnapshot,
+    include_in_schema=False,
+)
 def drain_status(request: Request) -> dict[str, bool | int]:
     return _gate(request).snapshot()
 
 
-@router.post("/internal/v1/maintenance/drain", response_model=DrainSnapshot)
+@router.post(
+    "/internal/v1/maintenance/drain",
+    response_model=DrainSnapshot,
+    include_in_schema=False,
+)
 def drain(request: Request) -> dict[str, bool | int]:
     gate = _gate(request)
     gate.close()

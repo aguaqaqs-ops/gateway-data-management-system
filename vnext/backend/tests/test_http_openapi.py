@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
+from fastapi import FastAPI
+from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
 
-from gateway_backend.http.wiring import PRODUCTION_OPENAPI_PATHS
+from gateway_backend.http.schemas.operator_recovery import OperatorRecoveryRequestBody
+from gateway_backend.http.wiring import (
+    PRODUCTION_INTERNAL_PATHS,
+    PRODUCTION_OPENAPI_PATHS,
+    PRODUCTION_RUNTIME_PATHS,
+)
 from gateway_backend.device_identity import device_route_key
 from tests.support.http_workspace_harness import create_workspace_http_environment
 from tests.support.runtime_settings import TEST_DEVICE_KEY
@@ -26,6 +34,136 @@ FROZEN_ARCHIVE_OPENAPI_PATHS = frozenset(
     }
 )
 
+INTERNAL_ONLY_COMPONENT_SCHEMAS = frozenset(
+    {
+        "DeviceRegistrationResponse",
+        "DrainSnapshot",
+        "OperatorRecoveryRequestBody",
+        "OperatorRecoveryResponse",
+        "RegisterDeviceRequest",
+    }
+)
+
+SHARED_STATISTICS_COMPONENT_SCHEMAS = frozenset(
+    {
+        "BucketValue",
+        "CollectionHealth",
+        "CurrentProcess",
+        "GroupStatistics",
+        "GroupStorageItem",
+        "ResourceBucket",
+        "ResourceSeries",
+        "StatisticsPage_ResourceSeries_",
+    }
+)
+
+FROZEN_PUBLIC_COMPONENT_SCHEMAS = frozenset(
+    {
+        "AcceptSubmitOptions",
+        "AcceptSubmitRequest",
+        "AppendArchiveAnomalyResolutionRequest",
+        "AppendArchiveConfirmationRequest",
+        "ApplyReviewRequest",
+        "ArchiveAffectedCandidateResponse",
+        "ArchiveAuditAppendResponse",
+        "ArchiveAuditEventResponse",
+        "ArchiveAuditEventsResponse",
+        "ArchiveAuditReferenceRequest",
+        "ArchiveAuditReferenceResponse",
+        "ArchiveBaselineTimeDetailsResponse",
+        "ArchiveBusinessIssueResponse",
+        "ArchiveBusinessSubjectResponse",
+        "ArchiveBusinessValidationResponse",
+        "ArchiveCandidateResponse",
+        "ArchiveCandidatesResponse",
+        "ArchiveContentIdentityResponse",
+        "ArchiveEmptyIssueDetailsResponse",
+        "ArchiveGeneratedTimeResponse",
+        "ArchiveIdentitySubjectResponse",
+        "ArchivePreviewAnomalyResponse",
+        "ArchivePreviewDispositionResponse",
+        "ArchivePreviewWorkspaceReleaseResponse",
+        "ArchiveResultResponse",
+        "ArchiveSelectedRefRequest",
+        "ArchiveSiblingSubjectResponse",
+        "ArchiveSourceDiagnosticResponse",
+        "ArchiveSourceEdgeResponse",
+        "ArchiveSourceIssueDetailsResponse",
+        "ArchiveSourceReferenceResponse",
+        "ArchiveStartedResponse",
+        "ArchiveTimeComparisonResponse",
+        "ArchiveTimeQualityDetailsResponse",
+        "ArchiveTimeRegressionDetailsResponse",
+        "BaselineHeadResponse",
+        "BucketValue",
+        "CacheCounts",
+        "CloseSubmissionRequest",
+        "CloseSubmissionResponse",
+        "CollectionHealth",
+        "CreateWorkspaceRequest",
+        "CurrentProcess",
+        "DeviceContextResponse",
+        "ErrorResponse",
+        "ExecutionMetrics",
+        "ExecutionSummary",
+        "GroupStatistics",
+        "GroupStorageItem",
+        "HTTPValidationError",
+        "HistoryCompareAcceptRequest",
+        "HistoryCompareAcceptResponse",
+        "HistoryCompareDiagnosticResponse",
+        "HistoryCompareListItemResponse",
+        "HistoryCompareListResponse",
+        "HistoryCompareNodeRequest",
+        "HistoryComparePairResultResponse",
+        "HistoryCompareResultInputResponse",
+        "HistoryCompareResultResponse",
+        "HistoryHeadResponse",
+        "HistoryListResponse",
+        "HistoryNodeRefResponse",
+        "HistoryNodeResponse",
+        "InputShape",
+        "OperationAcceptedResponse",
+        "OperationDiagnosticDetailResponse",
+        "OperationDiagnosticResponse",
+        "OperationResponse",
+        "PreviewArchivePlanRequest",
+        "PreviewArchivePlanResponse",
+        "PreviewArtifactRefResponse",
+        "PreviewIdentityPairResponse",
+        "PreviewResultResponse",
+        "ResourceBucket",
+        "ResourceSeries",
+        "ReviewAppliedResponse",
+        "ReviewEventResponse",
+        "ReviewFactsResponse",
+        "ReviewIdentityConfirmationResponse",
+        "SourceArtifactResponse",
+        "StageDurations",
+        "StartArchiveRequest",
+        "StartPreviewOptions",
+        "StartPreviewRequest",
+        "StatisticsPage_ExecutionSummary_",
+        "StatisticsPage_ResourceSeries_",
+        "StatisticsPage_StorageRecord_",
+        "StatisticsPage_WriteRecord_",
+        "StorageRecord",
+        "SubmissionClosureSummaryResponse",
+        "SubmissionDispositionResponse",
+        "SubmissionResponse",
+        "SubmissionResultPairResponse",
+        "SubmissionResultResponse",
+        "SubmitAcceptedResponse",
+        "SubmitAttemptResponse",
+        "SubmitIdentityConfirmationRequest",
+        "TableMetric",
+        "UploadRevisionResponse",
+        "ValidationError",
+        "WorkspaceResponse",
+        "WriteRecord",
+    }
+)
+
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
@@ -35,7 +173,35 @@ def client(tmp_path: Path) -> TestClient:
 def test_openapi_paths_match_frozen_routes(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     paths = set(schema["paths"])
+    assert len(PRODUCTION_OPENAPI_PATHS) == 35
     assert PRODUCTION_OPENAPI_PATHS == paths
+    assert not any(path.startswith("/internal/") for path in paths)
+
+
+def test_runtime_routes_match_frozen_routes(client: TestClient) -> None:
+    app = cast(FastAPI, client.app)
+    runtime_routes = [
+        context.original_route
+        for context in iter_route_contexts(app.routes)
+        if isinstance(context.original_route, APIRoute)
+    ]
+    runtime_paths = {route.path for route in runtime_routes}
+    assert len(PRODUCTION_INTERNAL_PATHS) == 6
+    assert len(PRODUCTION_RUNTIME_PATHS) == 41
+    assert runtime_paths == PRODUCTION_RUNTIME_PATHS
+    for route in runtime_routes:
+        if route.path in PRODUCTION_INTERNAL_PATHS:
+            assert route.include_in_schema is False
+        else:
+            assert route.include_in_schema is True
+
+
+def test_openapi_component_schemas_match_frozen_public_set(client: TestClient) -> None:
+    schemas = set(client.get("/openapi.json").json()["components"]["schemas"])
+    assert len(FROZEN_PUBLIC_COMPONENT_SCHEMAS) == 102
+    assert schemas == FROZEN_PUBLIC_COMPONENT_SCHEMAS
+    assert schemas.isdisjoint(INTERNAL_ONLY_COMPONENT_SCHEMAS)
+    assert SHARED_STATISTICS_COMPONENT_SCHEMAS <= schemas
 
 
 def test_openapi_archive_paths_match_literal_baseline(client: TestClient) -> None:
@@ -193,8 +359,8 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     )
     submit_response = schema["components"]["schemas"]["SubmitAcceptedResponse"]
     assert "submit_attempt_id" in submit_response["properties"]
-    recovery_request = schema["components"]["schemas"]["OperatorRecoveryRequestBody"]
-    assert recovery_request.get("additionalProperties") is False
+    assert "OperatorRecoveryRequestBody" not in schema["components"]["schemas"]
+    assert OperatorRecoveryRequestBody.model_json_schema().get("additionalProperties") is False
     apply_review_request = schema["components"]["schemas"]["ApplyReviewRequest"]
     assert apply_review_request.get("additionalProperties") is False
     review_facts_response = schema["components"]["schemas"]["ReviewFactsResponse"]

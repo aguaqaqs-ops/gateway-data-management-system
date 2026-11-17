@@ -37,6 +37,7 @@ def _application(request: Request) -> DeviceRegistration:
 @router.post(
     "/internal/v1/devices/register",
     response_model=DeviceRegistrationResponse,
+    include_in_schema=False,
     responses={
         401: {"description": "AUTHENTICATION_REQUIRED"},
         409: {"description": "DEVICE_REGISTRATION_CONFLICT"},
@@ -75,6 +76,7 @@ async def register_device(
 @router.get(
     "/internal/v1/devices/registration",
     response_model=DeviceRegistrationResponse,
+    include_in_schema=False,
     responses={
         401: {"description": "AUTHENTICATION_REQUIRED"},
         404: {"description": "RESOURCE_NOT_FOUND"},

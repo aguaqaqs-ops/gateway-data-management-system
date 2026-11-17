@@ -23,6 +23,7 @@ router = APIRouter(tags=["operator-recovery"])
 @router.post(
     "/internal/v1/operations/{operation_id}/steps/{step_id}/recovery",
     response_model=OperatorRecoveryResponse,
+    include_in_schema=False,
     responses={
         401: {"description": "AUTHENTICATION_REQUIRED"},
         404: {"description": "RECOVERY_TARGET_NOT_FOUND"},

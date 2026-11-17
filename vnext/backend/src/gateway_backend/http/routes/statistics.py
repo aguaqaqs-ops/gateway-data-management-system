@@ -363,7 +363,12 @@ def _internal_group_identity(request: Request) -> IdentityContext:
     return context
 
 
-@router.get("/internal/v1/statistics/group", response_model=GroupStatistics, responses=RESPONSES)
+@router.get(
+    "/internal/v1/statistics/group",
+    response_model=GroupStatistics,
+    responses=RESPONSES,
+    include_in_schema=False,
+)
 def internal_group_statistics(
     request: Request, context: Annotated[IdentityContext, Depends(_internal_group_identity)]
 ) -> GroupStatistics:
@@ -371,7 +376,10 @@ def internal_group_statistics(
 
 
 @router.get(
-    "/internal/v1/statistics/group/resources", response_model=ResourcePage, responses=RESPONSES
+    "/internal/v1/statistics/group/resources",
+    response_model=ResourcePage,
+    responses=RESPONSES,
+    include_in_schema=False,
 )
 def internal_group_resources(
     request: Request,

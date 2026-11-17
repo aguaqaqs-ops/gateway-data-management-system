@@ -24,11 +24,7 @@ from gateway_backend.http.routes.device_context import router as device_context_
 
 PRODUCTION_OPENAPI_PATHS = frozenset(
     {
-        "/internal/v1/devices/register",
-        "/internal/v1/devices/registration",
         "/v1/device-context",
-        "/internal/v1/statistics/group",
-        "/internal/v1/statistics/group/resources",
         "/healthz",
         "/readyz",
         "/v1/repositories/{repository_id}/statistics/storage",
@@ -63,10 +59,21 @@ PRODUCTION_OPENAPI_PATHS = frozenset(
         "/v1/archive-audit-events",
         "/v1/archives",
         "/v1/archives/{archive_result_id}",
+    }
+)
+
+PRODUCTION_INTERNAL_PATHS = frozenset(
+    {
+        "/internal/v1/devices/register",
+        "/internal/v1/devices/registration",
+        "/internal/v1/statistics/group",
+        "/internal/v1/statistics/group/resources",
         "/internal/v1/operations/{operation_id}/steps/{step_id}/recovery",
         "/internal/v1/maintenance/drain",
     }
 )
+
+PRODUCTION_RUNTIME_PATHS = PRODUCTION_OPENAPI_PATHS | PRODUCTION_INTERNAL_PATHS
 
 
 def register_workspace_http(

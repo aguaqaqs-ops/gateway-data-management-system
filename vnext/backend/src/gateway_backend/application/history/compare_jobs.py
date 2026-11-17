@@ -91,11 +91,15 @@ from gateway_backend.application.payloads import (
     load_job_payload_bytes,
 )
 from gateway_backend.application.preview_jobs import (
-    _snapshot_descriptor_from_document,
-    _snapshot_descriptor_to_document,
-    _storage_facts_from_documents,
-    _storage_facts_to_documents,
     surface_artifact_closure,
+)
+from gateway_backend.capabilities.comparison.documents import (
+    storage_facts_from_documents,
+    storage_facts_to_documents,
+)
+from gateway_backend.capabilities.snapshot_materialization.documents import (
+    snapshot_descriptor_from_document,
+    snapshot_descriptor_to_document,
 )
 from gateway_backend.application.kernel_execution import (
     assemble_operation_bundle as assemble_bundle,
@@ -1648,10 +1652,10 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
         "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
-        "storage_facts": _storage_facts_to_documents(bound.storage_facts),
+        "storage_facts": storage_facts_to_documents(bound.storage_facts),
         "tables": [
             {
-                "descriptor": _snapshot_descriptor_to_document(table.descriptor),
+                "descriptor": snapshot_descriptor_to_document(table.descriptor),
                 "ordered_provenance": None
                 if table.ordered_metadata is None
                 else table.ordered_metadata.blank_provenance.value,
@@ -1828,7 +1832,7 @@ def _bound_from_side_document(
         for item in tables_raw:
             if type(item) is not dict or set(item) != {"descriptor", "ordered_provenance"}:
                 raise ValueError("invalid metadata table")
-            descriptor = _snapshot_descriptor_from_document(item["descriptor"])
+            descriptor = snapshot_descriptor_from_document(item["descriptor"])
             provenance = item["ordered_provenance"]
             ordered = (
                 None
@@ -1880,7 +1884,7 @@ def _bound_from_side_document(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
     try:
-        storage_facts = _storage_facts_from_documents(entry.get("storage_facts"))
+        storage_facts = storage_facts_from_documents(entry.get("storage_facts"))
     except (TypeError, ValueError, KeyError) as exc:
         raise CheckpointDecodeError(
             "materialize checkpoint storage facts are invalid",

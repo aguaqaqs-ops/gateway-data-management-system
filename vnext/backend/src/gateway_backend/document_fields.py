@@ -10,4 +10,11 @@ def document_string(raw: dict[str, object], key: str) -> str:
     return value
 
 
-__all__ = ["document_string"]
+def document_string_tuple(raw: dict[str, object], key: str) -> tuple[str, ...]:
+    value = raw[key]
+    if type(value) is not list or any(type(item) is not str for item in value):
+        raise ValueError(f"{key} must be a string list")
+    return tuple(value)
+
+
+__all__ = ["document_string", "document_string_tuple"]

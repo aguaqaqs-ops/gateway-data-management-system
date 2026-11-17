@@ -158,6 +158,10 @@ from gateway_backend.capabilities.comparison import (
     ComparisonRecordsClosure,
     ComparisonStorageFacts,
 )
+from gateway_backend.capabilities.comparison.documents import (
+    storage_facts_from_documents,
+    storage_facts_to_documents,
+)
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     materialize_business_snapshot,
@@ -168,9 +172,6 @@ from gateway_backend.capabilities.snapshot_materialization import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BusinessSnapshotMaterializationRequest,
     MaterializationDiagnosticCode,
-    DiagnosticSeverity,
-    DegradedReason,
-    MaterializationDiagnostic,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
@@ -182,13 +183,15 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
     SnapshotTableSet,
-    SnapshotTableDescriptor,
-    SnapshotColumnDescriptor,
     canonical_state_digest_of,
     snapshot_from_document,
     snapshot_summary_from_document,
     snapshot_summary_to_document,
     snapshot_to_document,
+)
+from gateway_backend.capabilities.snapshot_materialization.documents import (
+    snapshot_descriptor_from_document,
+    snapshot_descriptor_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
@@ -232,8 +235,6 @@ from gateway_backend.capabilities.storage_projection import (
 )
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
-    DroppedColumn,
-    OrderedPolicy,
     StorageRuleView,
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
@@ -3084,7 +3085,7 @@ def _side_binding_document(
         )
         materialized_names.add(table.descriptor.table_name)
     unmaterialized_descriptors = [
-        _snapshot_descriptor_to_document(table)
+        snapshot_descriptor_to_document(table)
         for table in bound.summary.tables
         if table.table_name not in materialized_names
     ]
@@ -3114,7 +3115,7 @@ def _side_binding_document(
         "raw_state_digest": bound.snapshot.raw_state_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
         "unmaterialized_descriptors": unmaterialized_descriptors,
-        "storage_facts": _storage_facts_to_documents(bound.storage_facts),
+        "storage_facts": storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
 
@@ -3444,7 +3445,7 @@ def _bound_from_side_document(
         if type(raw_unmaterialized) is not list:
             raise ValueError("unmaterialized_descriptors must be a list")
         for raw_descriptor in raw_unmaterialized:
-            descriptor = _snapshot_descriptor_from_document(raw_descriptor)
+            descriptor = snapshot_descriptor_from_document(raw_descriptor)
             if descriptor.table_name in descriptors_by_name:
                 raise ValueError("unmaterialized descriptor repeats a materialized table")
             descriptors_by_name[descriptor.table_name] = descriptor
@@ -3473,7 +3474,7 @@ def _bound_from_side_document(
         tables=tuple(opened),
     )
     try:
-        storage_facts = _storage_facts_from_documents(entry.get("storage_facts"))
+        storage_facts = storage_facts_from_documents(entry.get("storage_facts"))
     except (KeyError, TypeError, ValueError) as exc:
         raise CheckpointDecodeError(
             "materialize checkpoint storage facts are invalid",
@@ -3727,268 +3728,6 @@ def _canonical_preview_metadata_from_document(
             "canonical preview checkpoint bindings are invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
-
-
-def _snapshot_descriptor_to_document(descriptor: SnapshotTableDescriptor) -> dict[str, object]:
-    return {
-        "table_name": descriptor.table_name,
-        "display_table_name": descriptor.display_table_name,
-        "columns": [
-            {
-                "name": column.name,
-                "display_name": column.display_name,
-                "nullable": column.nullable,
-                "scalar_type": column.scalar_type,
-            }
-            for column in descriptor.columns
-        ],
-        "primary_key_columns": list(descriptor.primary_key_columns),
-        "compare_key_columns": list(descriptor.compare_key_columns),
-        "row_count": descriptor.row_count,
-        "materialization_stage": descriptor.materialization_stage.value,
-        "compare_schema_digest": descriptor.compare_schema_digest.value,
-        "table_ruleset_version": descriptor.table_ruleset_version,
-        "row_materialization_profile": descriptor.row_materialization_profile,
-        "scalar_encoding_version": descriptor.scalar_encoding_version,
-        "raw_content_digest": None
-        if descriptor.raw_content_digest is None
-        else descriptor.raw_content_digest.value,
-        "degraded_reason": None
-        if descriptor.degraded_reason is None
-        else descriptor.degraded_reason.value,
-        "diagnostics": [
-            {
-                "code": diagnostic.code.value,
-                "severity": diagnostic.severity.value,
-                "message": diagnostic.message,
-                "table": diagnostic.table,
-                "column": diagnostic.column,
-            }
-            for diagnostic in descriptor.diagnostics
-        ],
-    }
-
-
-def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
-    if type(raw) is not dict:
-        raise ValueError("snapshot descriptor must be an object")
-    expected = {
-        "table_name",
-        "display_table_name",
-        "columns",
-        "primary_key_columns",
-        "compare_key_columns",
-        "row_count",
-        "materialization_stage",
-        "compare_schema_digest",
-        "table_ruleset_version",
-        "row_materialization_profile",
-        "scalar_encoding_version",
-        "raw_content_digest",
-        "degraded_reason",
-        "diagnostics",
-    }
-    if set(raw) != expected:
-        raise ValueError("snapshot descriptor fields are invalid")
-    columns_raw = raw["columns"]
-    diagnostics_raw = raw["diagnostics"]
-    if type(columns_raw) is not list or type(diagnostics_raw) is not list:
-        raise ValueError("snapshot descriptor columns and diagnostics must be lists")
-    columns: list[SnapshotColumnDescriptor] = []
-    for item in columns_raw:
-        if type(item) is not dict or set(item) != {
-            "name",
-            "display_name",
-            "nullable",
-            "scalar_type",
-        }:
-            raise ValueError("snapshot column fields are invalid")
-        scalar_type = item["scalar_type"]
-        if scalar_type is not None and type(scalar_type) is not str:
-            raise ValueError("scalar_type must be a string or null")
-        if type(item["nullable"]) is not bool:
-            raise ValueError("nullable must be bool")
-        columns.append(
-            SnapshotColumnDescriptor(
-                name=document_string(item, "name"),
-                display_name=document_string(item, "display_name"),
-                nullable=item["nullable"],
-                scalar_type=scalar_type,
-            )
-        )
-    diagnostics: list[MaterializationDiagnostic] = []
-    for item in diagnostics_raw:
-        if type(item) is not dict or set(item) != {
-            "code",
-            "severity",
-            "message",
-            "table",
-            "column",
-        }:
-            raise ValueError("snapshot diagnostic fields are invalid")
-        table = item["table"]
-        column = item["column"]
-        if (table is not None and type(table) is not str) or (
-            column is not None and type(column) is not str
-        ):
-            raise ValueError("snapshot diagnostic table and column must be strings or null")
-        diagnostics.append(
-            MaterializationDiagnostic(
-                code=MaterializationDiagnosticCode(document_string(item, "code")),
-                severity=DiagnosticSeverity(document_string(item, "severity")),
-                message=document_string(item, "message"),
-                table=table,
-                column=column,
-            )
-        )
-    raw_content = raw["raw_content_digest"]
-    raw_degraded = raw["degraded_reason"]
-    if raw_content is not None and type(raw_content) is not str:
-        raise ValueError("raw_content_digest must be a string or null")
-    if raw_degraded is not None and type(raw_degraded) is not str:
-        raise ValueError("degraded_reason must be a string or null")
-    return SnapshotTableDescriptor(
-        table_name=document_string(raw, "table_name"),
-        display_table_name=document_string(raw, "display_table_name"),
-        columns=tuple(columns),
-        primary_key_columns=_document_string_tuple(raw, "primary_key_columns"),
-        compare_key_columns=_document_string_tuple(raw, "compare_key_columns"),
-        row_count=_document_int(raw, "row_count"),
-        materialization_stage=MaterializationStage(document_string(raw, "materialization_stage")),
-        compare_schema_digest=DigestRef(document_string(raw, "compare_schema_digest")),
-        table_ruleset_version=_document_int(raw, "table_ruleset_version"),
-        row_materialization_profile=document_string(raw, "row_materialization_profile"),
-        scalar_encoding_version=_document_int(raw, "scalar_encoding_version"),
-        raw_content_digest=None if raw_content is None else DigestRef(raw_content),
-        degraded_reason=None if raw_degraded is None else DegradedReason(raw_degraded),
-        diagnostics=tuple(diagnostics),
-    )
-
-
-def _storage_facts_to_documents(
-    facts: tuple[ComparisonStorageFacts, ...],
-) -> list[dict[str, object]]:
-    documents: list[dict[str, object]] = []
-    for fact in facts:
-        view = fact.storage_rule_view
-        documents.append(
-            {
-                "canonical_table": view.canonical_table,
-                "source_schema_digest": fact.source_schema_digest.value,
-                "canonical_schema_digest": (
-                    None
-                    if fact.canonical_schema_digest is None
-                    else fact.canonical_schema_digest.value
-                ),
-                "raw_content_digest": (
-                    None if fact.raw_content_digest is None else fact.raw_content_digest.value
-                ),
-                "storage_projection_version": fact.storage_projection_version,
-                "canonical_key_policy": view.canonical_key_policy.value,
-                "ordered_policy": view.ordered_policy.value,
-                "dropped_columns": [
-                    {"name": item.name, "reason": item.reason} for item in view.dropped_columns
-                ],
-                "structural_columns": list(view.structural_columns),
-                "retained_columns": list(view.retained_columns),
-                "canonical_key_columns": list(view.canonical_key_columns),
-                "storage_rule_digest": (
-                    None if view.storage_rule_digest is None else view.storage_rule_digest.value
-                ),
-            }
-        )
-    return documents
-
-
-def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, ...]:
-    if type(raw) is not list:
-        raise ValueError("storage_facts must be a list")
-    facts: list[ComparisonStorageFacts] = []
-    expected_keys = {
-        "canonical_table",
-        "source_schema_digest",
-        "canonical_schema_digest",
-        "raw_content_digest",
-        "storage_projection_version",
-        "canonical_key_policy",
-        "ordered_policy",
-        "dropped_columns",
-        "structural_columns",
-        "retained_columns",
-        "canonical_key_columns",
-        "storage_rule_digest",
-    }
-    for item in raw:
-        if type(item) is not dict or set(item) != expected_keys:
-            raise ValueError("storage fact document fields are invalid")
-        dropped_raw = item["dropped_columns"]
-        if type(dropped_raw) is not list:
-            raise ValueError("dropped_columns must be a list")
-        dropped: list[DroppedColumn] = []
-        for dropped_item in dropped_raw:
-            if type(dropped_item) is not dict or set(dropped_item) != {"name", "reason"}:
-                raise ValueError("dropped column fields are invalid")
-            dropped.append(
-                DroppedColumn(
-                    name=document_string(dropped_item, "name"),
-                    reason=document_string(dropped_item, "reason"),
-                )
-            )
-        canonical_table = document_string(item, "canonical_table")
-        key_policy = CanonicalKeyPolicy(document_string(item, "canonical_key_policy"))
-        ordered_policy = OrderedPolicy(document_string(item, "ordered_policy"))
-        storage_rule_digest_raw = item["storage_rule_digest"]
-        if storage_rule_digest_raw is not None and type(storage_rule_digest_raw) is not str:
-            raise ValueError("storage_rule_digest must be a string or null")
-        view = StorageRuleView(
-            canonical_table=canonical_table,
-            canonical_key_policy=key_policy,
-            ordered_policy=ordered_policy,
-            dropped_columns=tuple(dropped),
-            structural_columns=_document_string_tuple(item, "structural_columns"),
-            retained_columns=_document_string_tuple(item, "retained_columns"),
-            canonical_key_columns=_document_string_tuple(item, "canonical_key_columns"),
-            storage_rule_digest=(
-                None if storage_rule_digest_raw is None else DigestRef(storage_rule_digest_raw)
-            ),
-        )
-        canonical_schema_raw = item["canonical_schema_digest"]
-        if canonical_schema_raw is not None and type(canonical_schema_raw) is not str:
-            raise ValueError("canonical_schema_digest must be a string or null")
-        raw_content_digest = item["raw_content_digest"]
-        if raw_content_digest is not None and type(raw_content_digest) is not str:
-            raise ValueError("raw_content_digest must be a string or null")
-        storage_projection_raw = item["storage_projection_version"]
-        if storage_projection_raw is not None and type(storage_projection_raw) is not str:
-            raise ValueError("storage_projection_version must be a string or null")
-        facts.append(
-            ComparisonStorageFacts(
-                storage_rule_view=view,
-                source_schema_digest=DigestRef(document_string(item, "source_schema_digest")),
-                canonical_schema_digest=(
-                    None if canonical_schema_raw is None else DigestRef(canonical_schema_raw)
-                ),
-                raw_content_digest=(
-                    None if raw_content_digest is None else DigestRef(raw_content_digest)
-                ),
-                storage_projection_version=storage_projection_raw,
-            )
-        )
-    return tuple(facts)
-
-
-def _document_string_tuple(raw: dict[str, object], key: str) -> tuple[str, ...]:
-    value = raw[key]
-    if type(value) is not list or any(type(item) is not str for item in value):
-        raise ValueError(f"{key} must be a string list")
-    return tuple(value)
-
-
-def _document_int(raw: dict[str, object], key: str) -> int:
-    value = raw[key]
-    if type(value) is not int or isinstance(value, bool) or value < 0:
-        raise ValueError(f"{key} must be a non-negative integer")
-    return value
 
 
 def _checkpoint_string(raw: dict[str, object], key: str) -> str:

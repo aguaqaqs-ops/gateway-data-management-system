@@ -31,7 +31,11 @@ from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, artifact_r
 from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE
 from gateway_backend.artifacts.serialize import artifact_ref_to_dict
 from gateway_backend.capabilities.comparison.contracts import ComparisonStorageFacts
+from gateway_backend.capabilities.comparison.documents import storage_facts_from_documents
 from gateway_backend.capabilities.snapshot_materialization import canonical_state_digest_of
+from gateway_backend.capabilities.snapshot_materialization.documents import (
+    snapshot_descriptor_from_document,
+)
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     artifact_content_digest_of,
     manifest_from_bytes,
@@ -115,7 +119,7 @@ def _side(raw: Any, store: ArtifactStorePort, repository_id: str) -> _MetadataSi
         descriptors[manifest.table_name] = manifest.descriptor
         refs.append((manifest.table_name, ref))
     for item in raw["unmaterialized_descriptors"]:
-        descriptor = p._snapshot_descriptor_from_document(item)
+        descriptor = snapshot_descriptor_from_document(item)
         _require(descriptor.table_name not in descriptors, "duplicate unmaterialized table")
         descriptors[descriptor.table_name] = descriptor
     summary_raw = raw.get("summary")
@@ -129,7 +133,7 @@ def _side(raw: Any, store: ArtifactStorePort, repository_id: str) -> _MetadataSi
     ordered_names = cast(list[str], names)
     summary = snapshot_summary_from_document(
         summary_raw, snapshot=snapshot, tables=tuple(descriptors[name] for name in ordered_names))
-    facts = p._storage_facts_from_documents(raw.get("storage_facts"))
+    facts = storage_facts_from_documents(raw.get("storage_facts"))
     fact_names = [f.storage_rule_view.canonical_table for f in facts]
     _require(len(fact_names) == len(set(fact_names)) and set(fact_names) == set(descriptors),
              "storage fact set/uniqueness mismatch")

@@ -473,7 +473,11 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
 
     if target_zone is not None and target_zone.startswith("capability:"):
         owner_package = ".".join(edge.target.split(".")[:3])
-        public_modules = {owner_package, f"{owner_package}.contracts"}
+        public_modules = {
+            owner_package,
+            f"{owner_package}.contracts",
+            f"{owner_package}.documents",
+        }
         if (
             not _within(edge.source, owner_package)
             and not source_zone.startswith("capability:")

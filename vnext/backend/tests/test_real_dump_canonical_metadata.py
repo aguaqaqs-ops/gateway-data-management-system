@@ -23,6 +23,10 @@ from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_wi
 from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.capabilities.comparison.contracts import ComparisonStorageFacts
+from gateway_backend.capabilities.comparison.documents import storage_facts_to_documents
+from gateway_backend.capabilities.snapshot_materialization.documents import (
+    snapshot_descriptor_to_document,
+)
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     raw_state_digest_of,
     snapshot_digest_of,
@@ -350,12 +354,10 @@ def _fixture() -> MetadataFixture:
             "summary": snapshot_summary_to_document(summary),
             "snapshot_digest": snapshot.snapshot_digest.value,
             "raw_state_digest": snapshot.raw_state_digest.value,
-            "unmaterialized_descriptors": [
-                p._snapshot_descriptor_to_document(d) for d in descriptors
-            ]
+            "unmaterialized_descriptors": [snapshot_descriptor_to_document(d) for d in descriptors]
             if role == p._SIDE_BASELINE
             else [],
-            "storage_facts": p._storage_facts_to_documents(storage_facts),
+            "storage_facts": storage_facts_to_documents(storage_facts),
             "tables": entries,
             "source_ref": None
             if role == p._SIDE_BASELINE
@@ -472,7 +474,7 @@ def test_repeat_metadata_rejects_incomplete_or_contradictory_bindings(
             f.store.locate(artifact_ref_from_dict(entry["manifest_ref"]))
         )
         current["unmaterialized_descriptors"].append(
-            p._snapshot_descriptor_to_document(table_manifest.descriptor)
+            snapshot_descriptor_to_document(table_manifest.descriptor)
         )
         closure = canonicalize_json_value(
             {

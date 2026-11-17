@@ -19,17 +19,8 @@ from gateway_backend.device_identity import (
 )
 from gateway_backend.domain.workspace.errors import ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext
-from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.internal_bearer import FailClosedInternalBearerPort
-
-
-PERMISSION_STATISTICS_READ_GROUP = "statistics_read_group"
-
-
-def assert_statistics_group_permission(context: IdentityContext) -> None:
-    """Authorize group telemetry only; grants no device or recovery access."""
-    assert_permission(context, PERMISSION_STATISTICS_READ_GROUP)
 
 
 @runtime_checkable
@@ -277,8 +268,6 @@ def require_internal_bearer(request: Request) -> None:
 
 
 __all__ = [
-    "PERMISSION_STATISTICS_READ_GROUP",
-    "assert_statistics_group_permission",
     "BearerSessionPort",
     "FailClosedInternalBearerPort",
     "InternalBearerPort",

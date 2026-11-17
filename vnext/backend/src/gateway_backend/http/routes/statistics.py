@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated, Any
 from pathlib import Path
 import socket
@@ -9,10 +10,18 @@ import struct
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
-from gateway_backend.application.operation_reads import assert_workspace_read_permission
+from gateway_backend.application.statistics_queries import (
+    assert_statistics_group_permission,
+    authorize_operation_statistics,
+    authorize_repository_statistics,
+    read_group_resources,
+    read_group_statistics,
+    read_operation_executions,
+    read_operation_resources,
+    read_repository_statistics,
+)
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import (
-    assert_statistics_group_permission,
     require_identity,
     require_session_identity,
 )
@@ -23,7 +32,6 @@ from gateway_backend.http.dependencies import (
     get_workspace_http,
 )
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.routes.operations import get_operation_route
 from gateway_backend.http.schemas.statistics import (
     CurrentProcess,
     ExecutionPage,
@@ -38,14 +46,23 @@ from gateway_backend.http.schemas.statistics import (
     WritePage,
 )
 from gateway_backend.http.statistics import (
+    StatisticsHttpDependencies,
     get_statistics_http,
     page_metadata,
+    query_error,
     resource_page,
     respond,
     time_range,
 )
 from gateway_backend.statistics.models import StorageRecord
-from gateway_backend.statistics.queries import CollectionKind, ReadRequest, ResourceRequest
+from gateway_backend.statistics.queries import (
+    CollectionKind,
+    GroupRead,
+    ReadPage,
+    ReadRequest,
+    ResourceRequest,
+    StatisticsReadError,
+)
 
 router = APIRouter(tags=["statistics"])
 
@@ -89,32 +106,18 @@ HistoryDeps = Annotated[HistoryHttpDependencies, Depends(get_history_http)]
 Identity = Annotated[IdentityContext, Depends(require_identity)]
 
 
-def _repository(
-    repository_id: str, context: IdentityContext, deps: WorkspaceHttpDependencies
-) -> None:
-    assert_workspace_read_permission(context)
-    if deps.scope_resolution.resolve(context).repository_id != repository_id:
-        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
-
-
 def _collection(
-    kind: CollectionKind, owner: str, request: Request, query: StatisticsQuery
+    kind: CollectionKind,
+    request: Request,
+    query: StatisticsQuery,
+    read_page: Callable[[StatisticsHttpDependencies, int, int], ReadPage],
 ) -> Response:
     deps = get_statistics_http(request)
     now = deps.now()
     start, end = time_range(query, now)
 
     def prepare() -> StatisticsPage[Any]:
-        data = deps.reader.read(
-            ReadRequest(
-                kind=kind,
-                owner_id=owner,
-                start_us=start,
-                end_us=end,
-                limit=query.effective_limit,
-                cursor=query.cursor,
-            )
-        )
+        data = read_page(deps, start, end)
         timestamps = [
             item.window_end_us if isinstance(item, StorageRecord) else item.recorded_at_us
             for item in data.items
@@ -137,6 +140,40 @@ def _collection(
     return respond(deps, query, prepare)
 
 
+def _repository_collection(
+    kind: CollectionKind,
+    repository_id: str,
+    request: Request,
+    query: StatisticsQuery,
+    deps: WorkspaceHttpDependencies,
+    context: IdentityContext,
+) -> Response:
+    authorize_repository_statistics(
+        context=context,
+        repository_id=repository_id,
+        scope_resolution=deps.scope_resolution,
+    )
+    return _collection(
+        kind,
+        request,
+        query,
+        lambda stats, start, end: read_repository_statistics(
+            context=context,
+            repository_id=repository_id,
+            scope_resolution=deps.scope_resolution,
+            reader=stats.reader,
+            request=ReadRequest(
+                kind=kind,
+                owner_id=repository_id,
+                start_us=start,
+                end_us=end,
+                limit=query.effective_limit,
+                cursor=query.cursor,
+            ),
+        ),
+    )
+
+
 @router.get(
     "/v1/repositories/{repository_id}/statistics/storage",
     response_model=StoragePage,
@@ -149,8 +186,7 @@ def repository_storage(
     deps: WorkspaceDeps,
     context: Identity,
 ) -> Response:
-    _repository(repository_id, context, deps)
-    return _collection("storage", repository_id, request, query)
+    return _repository_collection("storage", repository_id, request, query, deps, context)
 
 
 @router.get(
@@ -165,8 +201,7 @@ def repository_storage_history(
     deps: WorkspaceDeps,
     context: Identity,
 ) -> Response:
-    _repository(repository_id, context, deps)
-    return _collection("storage_history", repository_id, request, query)
+    return _repository_collection("storage_history", repository_id, request, query, deps, context)
 
 
 @router.get(
@@ -181,8 +216,7 @@ def repository_writes(
     deps: WorkspaceDeps,
     context: Identity,
 ) -> Response:
-    _repository(repository_id, context, deps)
-    return _collection("writes", repository_id, request, query)
+    return _repository_collection("writes", repository_id, request, query, deps, context)
 
 
 @router.get(
@@ -198,8 +232,38 @@ def operation_executions(
     history_deps: HistoryDeps,
     context: Identity,
 ) -> Response:
-    get_operation_route(operation_id, deps, history_deps, context)
-    return _collection("executions", operation_id, request, query)
+    authorize_operation_statistics(
+        context=context,
+        operation_id=operation_id,
+        operation_reader=deps.operation_reader,
+        workspace_repository=deps.workspace_repository,
+        submission_reader=deps.submission_reader,
+        scope_resolution=deps.scope_resolution,
+        history_unit_of_work_factory=history_deps.unit_of_work_factory,
+    )
+    return _collection(
+        "executions",
+        request,
+        query,
+        lambda stats, start, end: read_operation_executions(
+            context=context,
+            operation_id=operation_id,
+            operation_reader=deps.operation_reader,
+            workspace_repository=deps.workspace_repository,
+            submission_reader=deps.submission_reader,
+            scope_resolution=deps.scope_resolution,
+            history_unit_of_work_factory=history_deps.unit_of_work_factory,
+            reader=stats.reader,
+            request=ReadRequest(
+                kind="executions",
+                owner_id=operation_id,
+                start_us=start,
+                end_us=end,
+                limit=query.effective_limit,
+                cursor=query.cursor,
+            ),
+        ),
+    )
 
 
 @router.get(
@@ -215,7 +279,15 @@ def operation_resources(
     history_deps: HistoryDeps,
     context: Identity,
 ) -> Response:
-    get_operation_route(operation_id, deps, history_deps, context)
+    authorize_operation_statistics(
+        context=context,
+        operation_id=operation_id,
+        operation_reader=deps.operation_reader,
+        workspace_repository=deps.workspace_repository,
+        submission_reader=deps.submission_reader,
+        scope_resolution=deps.scope_resolution,
+        history_unit_of_work_factory=history_deps.unit_of_work_factory,
+    )
     stats = get_statistics_http(request)
     now = stats.now()
     start, end = time_range(query, now, resources=True)
@@ -223,15 +295,23 @@ def operation_resources(
         stats,
         query,
         lambda: resource_page(
-            stats.reader.resources(
-                ResourceRequest(
+            read_operation_resources(
+                context=context,
+                operation_id=operation_id,
+                operation_reader=deps.operation_reader,
+                workspace_repository=deps.workspace_repository,
+                submission_reader=deps.submission_reader,
+                scope_resolution=deps.scope_resolution,
+                history_unit_of_work_factory=history_deps.unit_of_work_factory,
+                reader=stats.reader,
+                request=ResourceRequest(
                     start_us=start,
                     end_us=end,
                     operation_id=operation_id,
                     step_id=query.step_id,
                     attempt_count=query.attempt_count,
                     claim_version=query.claim_version,
-                )
+                ),
             ),
             query,
             start,
@@ -243,32 +323,23 @@ def operation_resources(
     )
 
 
-@router.get(
-    "/v1/statistics/group",
-    response_model=GroupStatistics,
-    responses={
-        **RESPONSES,
-        200: {
-            "description": "Bounded current group capacity, public overhead, recent process identities and collection health."
-        },
-    },
-)
-def group_statistics(request: Request, context: Identity) -> GroupStatistics:
+def _group_statistics_response(request: Request, context: IdentityContext) -> GroupStatistics:
     assert_statistics_group_permission(context)
     stats = get_statistics_http(request)
     now = stats.now()
     start, end = time_range(StatisticsQuery(), now)
-    from gateway_backend.http.statistics import query_error
-    from gateway_backend.statistics.queries import StatisticsReadError
 
     health = stats.health()
     try:
-        data = stats.reader.group(start, end)
+        data = read_group_statistics(
+            context=context,
+            reader=stats.reader,
+            start_us=start,
+            end_us=end,
+        )
     except StatisticsReadError as exc:
         if exc.reason != "unavailable":
             raise query_error(exc) from None
-        from gateway_backend.statistics.queries import GroupRead
-
         data = GroupRead((), (), False)
         health = health.model_copy(
             update={"quality": "unavailable", "reason": health.reason or "collection_failed"}
@@ -298,9 +369,8 @@ def group_statistics(request: Request, context: Identity) -> GroupStatistics:
     )
 
 
-@router.get("/v1/statistics/group/resources", response_model=ResourcePage, responses=RESPONSES)
-def group_resources(
-    request: Request, query: Annotated[GroupResourceQuery, Query()], context: Identity
+def _group_resources_response(
+    request: Request, query: GroupResourceQuery, context: IdentityContext
 ) -> Response:
     assert_statistics_group_permission(context)
     stats = get_statistics_http(request)
@@ -310,13 +380,15 @@ def group_resources(
         stats,
         query,
         lambda: resource_page(
-            stats.reader.resources(
-                ResourceRequest(
+            read_group_resources(
+                context=context,
+                reader=stats.reader,
+                request=ResourceRequest(
                     start_us=start,
                     end_us=end,
                     role=query.role,
                     process_instance_id=query.process_instance_id,
-                )
+                ),
             ),
             query,
             start,
@@ -326,6 +398,27 @@ def group_resources(
             sample_interval_seconds=stats.sample_interval_seconds,
         ),
     )
+
+
+@router.get(
+    "/v1/statistics/group",
+    response_model=GroupStatistics,
+    responses={
+        **RESPONSES,
+        200: {
+            "description": "Bounded current group capacity, public overhead, recent process identities and collection health."
+        },
+    },
+)
+def group_statistics(request: Request, context: Identity) -> GroupStatistics:
+    return _group_statistics_response(request, context)
+
+
+@router.get("/v1/statistics/group/resources", response_model=ResourcePage, responses=RESPONSES)
+def group_resources(
+    request: Request, query: Annotated[GroupResourceQuery, Query()], context: Identity
+) -> Response:
+    return _group_resources_response(request, query, context)
 
 
 def _default_gateway_peer() -> str | None:
@@ -372,7 +465,7 @@ def _internal_group_identity(request: Request) -> IdentityContext:
 def internal_group_statistics(
     request: Request, context: Annotated[IdentityContext, Depends(_internal_group_identity)]
 ) -> GroupStatistics:
-    return group_statistics(request, context)
+    return _group_statistics_response(request, context)
 
 
 @router.get(
@@ -386,4 +479,4 @@ def internal_group_resources(
     query: Annotated[GroupResourceQuery, Query()],
     context: Annotated[IdentityContext, Depends(_internal_group_identity)],
 ) -> Response:
-    return group_resources(request, query, context)
+    return _group_resources_response(request, query, context)

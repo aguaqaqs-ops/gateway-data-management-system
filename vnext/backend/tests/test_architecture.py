@@ -16,6 +16,7 @@ from tests.architecture_baseline import (
 from tests.support.import_rules import (
     RULE_CAPABILITY_SURFACE,
     RULE_CONTRACTS_LEAF,
+    RULE_HTTP_POLICY,
     RULE_LAYER,
     RULE_PRIVATE,
     ImportEdge,
@@ -1263,6 +1264,36 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
         None,
     ),
     ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
+    (
+        "gateway_backend.http.auth",
+        "gateway_backend.domain.workspace.policies",
+        ("assert_permission",),
+        RULE_HTTP_POLICY,
+    ),
+    (
+        "gateway_backend.http.routes.history",
+        "gateway_backend.domain.workspace.policies",
+        ("assert_permission",),
+        RULE_HTTP_POLICY,
+    ),
+    (
+        "gateway_backend.http.orchestration.operation_scope",
+        "gateway_backend.domain.workspace",
+        ("policies",),
+        RULE_HTTP_POLICY,
+    ),
+    (
+        "gateway_backend.http.routes.statistics",
+        "gateway_backend.domain.workspace.models",
+        ("IdentityContext",),
+        None,
+    ),
+    (
+        "gateway_backend.application.statistics_queries",
+        "gateway_backend.domain.workspace.policies",
+        ("assert_permission",),
+        None,
+    ),
 )
 
 
@@ -1354,3 +1385,66 @@ def test_private_import_rule_enforces_defining_package_directory_boundary(tmp_pa
         "bootstrap/cross_dir_bad.py:1" in text and "[private]" in text and "_root_secret" in text
         for text in described
     )
+
+
+def test_http_must_not_import_domain_policies(tmp_path: Path) -> None:
+    root = tmp_path / "gateway_backend"
+    domain_ws = root / "domain" / "workspace"
+    app = root / "application"
+    http = root / "http"
+    http_routes = http / "routes"
+    http_orch = http / "orchestration"
+    for directory in (root, root / "domain", domain_ws, app, http, http_routes, http_orch):
+        directory.mkdir(parents=True)
+
+    files = {
+        "gateway_backend": root / "__init__.py",
+        "gateway_backend.domain": root / "domain" / "__init__.py",
+        "gateway_backend.domain.workspace": domain_ws / "__init__.py",
+        "gateway_backend.domain.workspace.models": domain_ws / "models.py",
+        "gateway_backend.domain.workspace.policies": domain_ws / "policies.py",
+        "gateway_backend.application": app / "__init__.py",
+        "gateway_backend.application.allowed": app / "allowed.py",
+        "gateway_backend.http": http / "__init__.py",
+        "gateway_backend.http.allowed_http": http / "allowed_http.py",
+        "gateway_backend.http.auth": http / "auth.py",
+        "gateway_backend.http.routes": http_routes / "__init__.py",
+        "gateway_backend.http.routes.bad_route": http_routes / "bad_route.py",
+        "gateway_backend.http.orchestration": http_orch / "__init__.py",
+        "gateway_backend.http.orchestration.bad_orch": http_orch / "bad_orch.py",
+    }
+    for path in files.values():
+        path.write_text("", encoding="utf-8")
+
+    (app / "allowed.py").write_text(
+        "from gateway_backend.domain.workspace.policies import assert_permission\n",
+        encoding="utf-8",
+    )
+    (http / "allowed_http.py").write_text(
+        "from gateway_backend.domain.workspace.models import IdentityContext\n",
+        encoding="utf-8",
+    )
+    (http / "auth.py").write_text(
+        "from gateway_backend.domain.workspace.policies import assert_permission\n",
+        encoding="utf-8",
+    )
+    (http_routes / "bad_route.py").write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from gateway_backend.domain.workspace import policies\n",
+        encoding="utf-8",
+    )
+    (http_orch / "bad_orch.py").write_text(
+        "import gateway_backend.domain.workspace.policies as ws_policies\n",
+        encoding="utf-8",
+    )
+
+    edges = collect_edges(files)
+    violations = [v for v in find_violations(edges, files) if v.rule == RULE_HTTP_POLICY]
+    described = [v.describe() for v in violations]
+
+    assert not any("allowed" in text for text in described)
+    assert len(violations) == 3
+    assert any("http/auth.py:1" in text and "[http-policy]" in text for text in described)
+    assert any("bad_route.py:3" in text and "[http-policy]" in text for text in described)
+    assert any("bad_orch.py:1" in text and "[http-policy]" in text for text in described)

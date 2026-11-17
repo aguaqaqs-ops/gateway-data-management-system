@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from gateway_backend.domain.workspace.errors import PermissionDenied
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
-from gateway_backend.http.auth import assert_statistics_group_permission
+from gateway_backend.application.statistics_queries import assert_statistics_group_permission
 from gateway_backend.http.schemas.statistics import GroupStorageItem, ResourceQuery, StatisticsQuery
 from gateway_backend.infrastructure.statistics.schema import SCHEMA_SQL, SCHEMA_VERSION
 from gateway_backend.statistics.config import StatisticsConfig, statistics_database_path

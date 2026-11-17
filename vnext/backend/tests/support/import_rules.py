@@ -41,6 +41,7 @@ OWNED_ROOT_MODULES = {
 }
 
 RULE_LAYER = "layer"
+RULE_HTTP_POLICY = "http-policy"
 RULE_CAPABILITY_SURFACE = "capability-surface"
 RULE_PRIVATE = "private"
 RULE_UNOWNED_ROOT = "unowned-root-module"
@@ -445,6 +446,15 @@ def _resolve_symbol_origin(
     return current_module, current_name
 
 
+def _is_domain_policies_target(target: str, names: tuple[str, ...]) -> bool:
+    parts = target.split(".")
+    if len(parts) >= 4 and parts[0] == BACKEND_PACKAGE and parts[1] == "domain":
+        return parts[3] == "policies"
+    if len(parts) == 3 and parts[0] == BACKEND_PACKAGE and parts[1] == "domain":
+        return "policies" in names
+    return False
+
+
 def classify_edge(
     edge: ImportEdge,
     packages: frozenset[str],
@@ -501,7 +511,7 @@ def classify_edge(
         approved_telemetry_port = (
             source_zone == "operations" and edge.target == "gateway_backend.statistics.ports"
         )
-        approved_statistics_model = source_zone == "http" and edge.target in {
+        approved_statistics_model = source_zone in {"http", "application"} and edge.target in {
             "gateway_backend.statistics.models",
             "gateway_backend.statistics.queries",
         }
@@ -536,6 +546,9 @@ def classify_edge(
             and not approved_statistics_storage
         ):
             return (RULE_LAYER, edge.target)
+
+    if source_zone == "http" and _is_domain_policies_target(edge.target, edge.names):
+        return (RULE_HTTP_POLICY, edge.target)
 
     if _within(edge.target, BACKEND_PACKAGE):
         source_dir = _package_dir(edge.source, packages)

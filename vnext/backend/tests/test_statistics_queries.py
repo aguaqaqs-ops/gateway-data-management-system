@@ -621,3 +621,149 @@ def test_group_keeps_worker_generations_and_bounds_recent_instances(
     assert len(data.instances) == 100 and data.instances_truncated
     assert data.instances[0] == ("worker", "p000")
     assert data.instances[-1] == ("worker", "p099")
+
+
+def test_statistics_application_queries_authorize_before_reading_and_preserve_http_order(
+    tmp_path: Path, store: SQLiteStatisticsStore
+) -> None:
+    from gateway_backend.application.statistics_queries import (
+        read_group_resources,
+        read_group_statistics,
+        read_operation_executions,
+        read_operation_resources,
+        read_repository_statistics,
+    )
+    from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden
+    from gateway_backend.http.dependencies import HistoryHttpDependencies, WorkspaceHttpDependencies
+
+    class _ExplodingReader:
+        identity = IDENTITY
+
+        def read(self, request: ReadRequest) -> Any:
+            raise AssertionError(f"reader.read should not be called before auth: {request}")
+
+        def resources(self, request: ResourceRequest) -> Any:
+            raise AssertionError(f"reader.resources should not be called before auth: {request}")
+
+        def group(self, start_us: int, end_us: int) -> Any:
+            raise AssertionError(
+                f"reader.group should not be called before auth: {start_us}..{end_us}"
+            )
+
+    env = _env(tmp_path, store)
+    app = cast(FastAPI, env.client.app)
+    workspace_deps = cast(WorkspaceHttpDependencies, app.state.workspace_http)
+    history_deps = cast(HistoryHttpDependencies, app.state.history_http)
+    _, operation = _seed_preview_operation(env.client, env.auth_headers())
+    op_id = operation["operation_id"]
+    no_workspace_read = make_identity(permissions=frozenset({"statistics_read_group"}))
+    no_group_read = make_identity(permissions=frozenset({"workspace_read"}))
+    wrong_device = make_identity(device_key="other-device")
+
+    with pytest.raises(PermissionDenied):
+        read_repository_statistics(
+            context=no_workspace_read,
+            repository_id="repo-1",
+            scope_resolution=env.scope_resolution,
+            reader=_ExplodingReader(),
+            request=ReadRequest("storage", "repo-1", BASE, BASE + 100, 10),
+        )
+    with pytest.raises(ScopeForbidden):
+        read_repository_statistics(
+            context=no_group_read,
+            repository_id="other-repo",
+            scope_resolution=env.scope_resolution,
+            reader=_ExplodingReader(),
+            request=ReadRequest("storage", "other-repo", BASE, BASE + 100, 10),
+        )
+    with pytest.raises(PermissionDenied):
+        read_operation_executions(
+            context=no_workspace_read,
+            operation_id=op_id,
+            operation_reader=workspace_deps.operation_reader,
+            workspace_repository=workspace_deps.workspace_repository,
+            submission_reader=workspace_deps.submission_reader,
+            scope_resolution=workspace_deps.scope_resolution,
+            history_unit_of_work_factory=history_deps.unit_of_work_factory,
+            reader=_ExplodingReader(),
+            request=ReadRequest("executions", op_id, BASE, BASE + 100, 10),
+        )
+    with pytest.raises(ScopeForbidden):
+        read_operation_resources(
+            context=wrong_device,
+            operation_id=op_id,
+            operation_reader=workspace_deps.operation_reader,
+            workspace_repository=workspace_deps.workspace_repository,
+            submission_reader=workspace_deps.submission_reader,
+            scope_resolution=workspace_deps.scope_resolution,
+            history_unit_of_work_factory=history_deps.unit_of_work_factory,
+            reader=_ExplodingReader(),
+            request=ResourceRequest(BASE, BASE + 100, operation_id=op_id),
+        )
+    with pytest.raises(PermissionDenied):
+        read_group_statistics(
+            context=no_group_read,
+            reader=_ExplodingReader(),
+            start_us=BASE,
+            end_us=BASE + 100,
+        )
+    with pytest.raises(PermissionDenied):
+        read_group_resources(
+            context=no_group_read,
+            reader=_ExplodingReader(),
+            request=ResourceRequest(BASE, BASE + 100),
+        )
+
+    # Authorization (403/404) must still run before missing statistics_http (503).
+    delattr(cast(FastAPI, env.client.app).state, "statistics_http")
+    assert (
+        env.client.get(
+            "/v1/repositories/repo-1/statistics/storage",
+            headers={**env.auth_headers(), "Authorization": "Bearer group"},
+        ).status_code
+        == 403
+    )
+    assert (
+        env.client.get(
+            "/v1/repositories/other/statistics/storage",
+            headers=env.auth_headers(),
+        ).status_code
+        == 404
+    )
+    assert (
+        env.client.get(
+            "/v1/operations/missing-op/statistics/executions",
+            headers={**env.auth_headers(), "Authorization": "Bearer group"},
+        ).status_code
+        == 403
+    )
+    assert (
+        env.client.get(
+            "/v1/operations/missing-op/statistics/executions",
+            headers=env.auth_headers(),
+        ).status_code
+        == 404
+    )
+    assert (
+        env.client.get(
+            "/v1/operations/missing-op/statistics/resources",
+            headers={**env.auth_headers(), "Authorization": "Bearer group"},
+            params={"step_id": "s", "attempt_count": 1},
+        ).status_code
+        == 403
+    )
+    assert (
+        env.client.get(
+            "/v1/statistics/group",
+            headers=env.auth_headers(),
+        ).status_code
+        == 403
+    )
+    assert (
+        env.client.get(
+            "/v1/statistics/group/resources",
+            headers=env.auth_headers(),
+            params={"role": "backend", "process_instance_id": "http"},
+        ).status_code
+        == 403
+    )

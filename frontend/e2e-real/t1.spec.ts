@@ -12,7 +12,6 @@ import {
   expectNoPageErrors,
   gotoWorkbench,
   saveEvidence,
-  selectTreeRow,
   selectUploadDirs,
   startUpload,
   waitForDiffBrowsing,

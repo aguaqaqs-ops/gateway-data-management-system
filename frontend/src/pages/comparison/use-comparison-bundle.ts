@@ -154,16 +154,26 @@ export function useComparisonBundle(
         bundleDigest: loaded.manifest.bundle_digest,
         bundle: loaded,
       };
-      const pairSummaries = loaded.manifest.pairs.filter((value): value is PairSummary =>
-        Boolean(
-          value && typeof value === "object" && typeof (value as PairSummary).pair_id === "string",
-        ),
+      const pairSummaries: PairSummary[] = loaded.manifest.pairs.filter(
+        (value) => typeof value?.pair_id === "string",
       );
+      const inputRoles = new Map<number, string>();
+      for (const input of loaded.manifest.inputs) {
+        if (typeof input.role === "string" && Number.isInteger(input.input_index)) {
+          inputRoles.set(input.input_index, input.role);
+        }
+      }
+      const roleAt = (index: number | null | undefined): string | null =>
+        typeof index === "number" ? (inputRoles.get(index) ?? null) : null;
       if (submissionResult && current.submissionId)
         assertSubmissionReviewBundle(current.submissionId, submissionResult, loaded);
       const loadedPairs = await Promise.all(
         pairSummaries.map(async (pair) => ({
           pair,
+          roles: {
+            before: roleAt(pair.before_input_index),
+            current: roleAt(pair.current_input_index),
+          },
           presentation: await loadComparisonPresentation(loaded, pair.pair_id),
         })),
       );

@@ -11,8 +11,18 @@ import type {
 } from "../../features/view-model/model";
 import type { BrowseRow } from "../../features/view-model/table-rows";
 
-export type PairSummary = { pair_id: string; summary?: Record<string, string> };
-export type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
+export type PairSummary = {
+  pair_id: string;
+  before_input_index?: number | null;
+  current_input_index?: number | null;
+  summary?: Record<string, string | number>;
+};
+export type PairRoles = { before: string | null; current: string | null };
+export type PairPresentation = {
+  pair: PairSummary;
+  roles: PairRoles;
+  presentation: LocalComparisonPresentation;
+};
 export type SizedGridColumn = GridColumn & { width: number };
 export type NavItem = DerivedNavigationGroup["items"][number];
 export type NavTab = NavItem["tabs"][number];

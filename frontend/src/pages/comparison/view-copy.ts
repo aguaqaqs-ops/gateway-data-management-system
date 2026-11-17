@@ -25,31 +25,30 @@ export function reviewStatusLabel(status: string): string {
 export function viewLabel(
   pair: PairPresentation,
   index: number,
-  total: number,
   mode: BrowseState["mode"],
 ): string {
-  if (mode === "REVIEW" && total === 1) return "基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
-  if (total === 1) return "当前基线 → 本次归档组态";
-  const id = pair.pair.pair_id.toLowerCase();
-  if (id.includes("baseline_to_initial")) return "原始组态视图";
-  if (id.includes("initial_to_modified")) return "本次组态视图";
+  const { before, current } = pair.roles;
+  if (before === "baseline" && current === "initial") return "原始组态视图";
+  if (before === "initial" && current === "modified") return "本次组态视图";
+  if (before === "baseline" && current === "modified") {
+    return mode === "REVIEW" ? "基线 → 修改" : "当前基线 → 本次归档组态";
+  }
   return "比较视图 " + (index + 1);
 }
 
 export function viewTitle(
   pair: PairPresentation,
   index: number,
-  total: number,
   mode: BrowseState["mode"],
 ): string {
-  if (mode === "REVIEW" && total === 1) return "提交绑定比较：基线 → 修改";
   if (mode === "HISTORY") return "节点 " + (index + 1) + " → 节点 " + (index + 2);
-  if (total === 1) return "当前基线 → 本次归档组态";
-  if (pair.pair.pair_id.toLowerCase().includes("baseline_to_initial"))
-    return "已归档数据 → 原始组态备份";
-  if (pair.pair.pair_id.toLowerCase().includes("initial_to_modified"))
-    return "原始组态备份 → 本次归档组态";
+  const { before, current } = pair.roles;
+  if (before === "baseline" && current === "initial") return "已归档数据 → 原始组态备份";
+  if (before === "initial" && current === "modified") return "原始组态备份 → 本次归档组态";
+  if (before === "baseline" && current === "modified") {
+    return mode === "REVIEW" ? "提交绑定比较：基线 → 修改" : "当前基线 → 本次归档组态";
+  }
   return "比较对 " + pair.pair.pair_id;
 }
 

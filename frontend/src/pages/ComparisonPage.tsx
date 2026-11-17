@@ -242,7 +242,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const deviceDisplay = sessionState.kind === "handoff" ? sessionState.session.display : null;
   const breadcrumbItems = [
     activePair && viewPairs.length <= 1
-      ? viewLabel(activePair, activePairIndex, pairs.length, browse.mode)
+      ? viewLabel(activePair, activePairIndex, browse.mode)
       : null,
     selectedEntry?.group.label ?? null,
     selectedEntry?.item.label ?? null,
@@ -355,7 +355,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                     key={pair.pair.pair_id}
                     onClick={() => choosePair(pair)}
                     title={[
-                      viewTitle(pair, index, pairs.length, browse.mode),
+                      viewTitle(pair, index, browse.mode),
                       status.text,
                       risk ? riskLevelText(risk) : null,
                       ...status.tooltipItems,
@@ -363,7 +363,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                       .filter(Boolean)
                       .join(" · ")}
                   >
-                    <span>{viewLabel(pair, index, pairs.length, browse.mode)}</span>
+                    <span>{viewLabel(pair, index, browse.mode)}</span>
                     {risk && <RiskBadge level={risk} />}
                   </button>
                 );
@@ -495,7 +495,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
                     className="compare-more__bundle"
                     data-pair-summary={pair.pair.pair_id}
                   >
-                    <strong>{viewLabel(pair, index, pairs.length, browse.mode)}</strong>
+                    <strong>{viewLabel(pair, index, browse.mode)}</strong>
                     <span>
                       变化表 {pair.pair.summary?.changed_table_count ?? "—"}/
                       {pair.pair.summary?.table_count ?? "—"}

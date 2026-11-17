@@ -50,12 +50,31 @@ export interface BundleArtifactEntry {
   table_name?: string;
 }
 
+export type BundleInput = {
+  display_metadata: Record<string, unknown>;
+  display_name: string;
+  input_index: number;
+  role: string | null;
+  snapshot_digest: string | null;
+};
+
+export type BundlePair = {
+  before_input_index: number | null;
+  comparison_digest: string;
+  current_input_index: number | null;
+  pair_id: string;
+  risk_evaluation_digest?: string;
+  status: string;
+  summary: Record<string, string | number>;
+  surface_digest: string;
+};
+
 export interface BundleManifest {
   bundle_contract_version: string;
   bundle_profile: string;
   status: string;
-  inputs: unknown[];
-  pairs: unknown[];
+  inputs: BundleInput[];
+  pairs: BundlePair[];
   failed_pairs: unknown[];
   diagnostics: string[];
   closure: BundleSemanticClosure;

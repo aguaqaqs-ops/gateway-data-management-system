@@ -287,19 +287,11 @@ class AdminCliControlDbEnvironment:
         try:
             connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
             connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_manual_barrier_idx")
             connection.execute("DROP TABLE IF EXISTS repository_import_operations")
             connection.commit()
         finally:
             connection.close()
-        self.control_store = ControlStore.open(
-            self.settings.control_db_path,
-            expected_version=CONTROL_DB_USER_VERSION,
-            busy_timeout_ms=1000,
-        )
-        self.store = ImportOperationStore(
-            self.control_store.connection,
-            transaction_lock=self.control_store.transaction_lock,
-        )
 
     def set_journal_mode(self, mode: str) -> None:
         self.control_store.close()
@@ -906,19 +898,11 @@ class AdminCliEnvironment:
         try:
             connection.execute("DROP INDEX IF EXISTS repository_import_operations_claim_idx")
             connection.execute("DROP INDEX IF EXISTS repository_import_operations_artifact_idx")
+            connection.execute("DROP INDEX IF EXISTS repository_import_operations_manual_barrier_idx")
             connection.execute("DROP TABLE IF EXISTS repository_import_operations")
             connection.commit()
         finally:
             connection.close()
-        self.control_store = ControlStore.open(
-            self.settings.control_db_path,
-            expected_version=CONTROL_DB_USER_VERSION,
-            busy_timeout_ms=1000,
-        )
-        self.store = ImportOperationStore(
-            self.control_store.connection,
-            transaction_lock=self.control_store.transaction_lock,
-        )
 
     def set_journal_mode(self, mode: str) -> None:
         self.control_store.close()

@@ -135,14 +135,6 @@ class ArtifactLifecycleRecord:
     consumed_at: str | None = None
     bytes_deleted_at: str | None = None
     created_at: str | None = None
-    bytes_delete_intent_at: str | None = None
-    bytes_delete_dev: int | None = None
-    bytes_delete_ino: int | None = None
-    bytes_delete_phase: str | None = None
-    bytes_delete_generation: str | None = None
-    bytes_deleted_receipt_dev: int | None = None
-    bytes_deleted_receipt_ino: int | None = None
-    bytes_deleted_receipt_generation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -523,15 +515,7 @@ class MutationStore:
                     consumed_by_operation_id,
                     consumed_at,
                     bytes_deleted_at,
-                    created_at,
-                    bytes_delete_intent_at,
-                    bytes_delete_dev,
-                    bytes_delete_ino,
-                    bytes_delete_phase,
-                    bytes_delete_generation,
-                    bytes_deleted_receipt_dev,
-                    bytes_deleted_receipt_ino,
-                    bytes_deleted_receipt_generation
+                    created_at
                 FROM artifact_lifecycle
                 ORDER BY artifact_id
                 """
@@ -557,15 +541,7 @@ class MutationStore:
                     consumed_by_operation_id,
                     consumed_at,
                     bytes_deleted_at,
-                    created_at,
-                    bytes_delete_intent_at,
-                    bytes_delete_dev,
-                    bytes_delete_ino,
-                    bytes_delete_phase,
-                    bytes_delete_generation,
-                    bytes_deleted_receipt_dev,
-                    bytes_deleted_receipt_ino,
-                    bytes_deleted_receipt_generation
+                    created_at
                 FROM artifact_lifecycle
                 WHERE artifact_id = ?
                 """,
@@ -607,14 +583,6 @@ class MutationStore:
                     consumed_at,
                     bytes_deleted_at,
                     created_at,
-                    bytes_delete_intent_at,
-                    bytes_delete_dev,
-                    bytes_delete_ino,
-                    bytes_delete_phase,
-                    bytes_delete_generation,
-                    bytes_deleted_receipt_dev,
-                    bytes_deleted_receipt_ino,
-                    bytes_deleted_receipt_generation,
                     cleanup_seq
                 FROM artifact_lifecycle
                 WHERE bytes_deleted_at IS NULL
@@ -659,96 +627,10 @@ class MutationStore:
 
     @staticmethod
     def _artifact_lifecycle_from_row(row: sqlite3.Row) -> ArtifactLifecycleRecord:
-        from gateway_repository_service.artifact_retention import parse_durable_timestamp
-
-        keys = row.keys()
         consumed_by_operation_id = row["consumed_by_operation_id"]
-        intent_at_raw = row["bytes_delete_intent_at"] if "bytes_delete_intent_at" in keys else None
-        intent_dev_raw = row["bytes_delete_dev"] if "bytes_delete_dev" in keys else None
-        intent_ino_raw = row["bytes_delete_ino"] if "bytes_delete_ino" in keys else None
-        phase_raw = row["bytes_delete_phase"] if "bytes_delete_phase" in keys else None
-        generation_raw = (
-            row["bytes_delete_generation"] if "bytes_delete_generation" in keys else None
-        )
-        intent_present = (
-            intent_at_raw is not None,
-            intent_dev_raw is not None,
-            intent_ino_raw is not None,
-            phase_raw is not None,
-            generation_raw is not None,
-        )
-        if any(intent_present) and not all(intent_present):
-            raise ValueError("partial delete intent fields")
-        phase_text: str | None
-        intent_at: str | None
-        intent_dev: int | None
-        intent_ino: int | None
-        intent_generation: str | None
-        if all(intent_present):
-            phase_text = str(phase_raw)
-            if phase_text not in {"quarantined", "detached"}:
-                raise ValueError("invalid bytes_delete_phase")
-            intent_at = str(intent_at_raw)
-            if parse_durable_timestamp(intent_at) is None:
-                raise ValueError("invalid bytes_delete_intent_at")
-            assert intent_dev_raw is not None and intent_ino_raw is not None
-            assert generation_raw is not None
-            intent_dev = int(intent_dev_raw)
-            intent_ino = int(intent_ino_raw)
-            intent_generation = str(generation_raw)
-            if not intent_generation:
-                raise ValueError("invalid bytes_delete_generation")
-        else:
-            phase_text = None
-            intent_at = None
-            intent_dev = None
-            intent_ino = None
-            intent_generation = None
-
         bytes_deleted_at = (
             str(row["bytes_deleted_at"]) if row["bytes_deleted_at"] is not None else None
         )
-        receipt_dev_raw = (
-            row["bytes_deleted_receipt_dev"] if "bytes_deleted_receipt_dev" in keys else None
-        )
-        receipt_ino_raw = (
-            row["bytes_deleted_receipt_ino"] if "bytes_deleted_receipt_ino" in keys else None
-        )
-        receipt_generation_raw = (
-            row["bytes_deleted_receipt_generation"]
-            if "bytes_deleted_receipt_generation" in keys
-            else None
-        )
-        receipt_present = (
-            receipt_dev_raw is not None,
-            receipt_ino_raw is not None,
-            receipt_generation_raw is not None,
-        )
-        if any(receipt_present) and not all(receipt_present):
-            raise ValueError("partial delete receipt fields")
-        receipt_dev: int | None
-        receipt_ino: int | None
-        receipt_generation: str | None
-        if all(receipt_present):
-            if bytes_deleted_at is None:
-                raise ValueError("delete receipt requires bytes_deleted_at")
-            assert receipt_dev_raw is not None and receipt_ino_raw is not None
-            assert receipt_generation_raw is not None
-            receipt_dev = int(receipt_dev_raw)
-            receipt_ino = int(receipt_ino_raw)
-            receipt_generation = str(receipt_generation_raw)
-            if not receipt_generation:
-                raise ValueError("invalid bytes_deleted_receipt_generation")
-        else:
-            receipt_dev = None
-            receipt_ino = None
-            receipt_generation = None
-
-        if bytes_deleted_at is not None and any(intent_present):
-            raise MutationStoreInvariantError(
-                "bytes_deleted_at cannot coexist with delete intent fields"
-            )
-
         return ArtifactLifecycleRecord(
             artifact_id=UUID(str(row["artifact_id"])),
             repository_id=UUID(str(row["repository_scope"])),
@@ -763,14 +645,6 @@ class MutationStore:
             consumed_at=(str(row["consumed_at"]) if row["consumed_at"] is not None else None),
             bytes_deleted_at=bytes_deleted_at,
             created_at=str(row["created_at"]) if row["created_at"] is not None else None,
-            bytes_delete_intent_at=intent_at,
-            bytes_delete_dev=intent_dev,
-            bytes_delete_ino=intent_ino,
-            bytes_delete_phase=phase_text,
-            bytes_delete_generation=intent_generation,
-            bytes_deleted_receipt_dev=receipt_dev,
-            bytes_deleted_receipt_ino=receipt_ino,
-            bytes_deleted_receipt_generation=receipt_generation,
         )
 
     def record_artifact_consumed(
@@ -807,21 +681,12 @@ class MutationStore:
         *,
         deleted_at: str,
         repository_id: UUID,
-        expected_dev: int | None = None,
-        expected_ino: int | None = None,
-        expected_generation: str | None = None,
     ) -> None:
-        del expected_dev, expected_ino, expected_generation
         cursor = self._connection.execute(
             """
             UPDATE artifact_lifecycle
             SET bytes_deleted_at = ?,
-                updated_at = ?,
-                bytes_delete_intent_at = NULL,
-                bytes_delete_dev = NULL,
-                bytes_delete_ino = NULL,
-                bytes_delete_phase = NULL,
-                bytes_delete_generation = NULL
+                updated_at = ?
             WHERE artifact_id = ?
               AND repository_scope = ?
               AND bytes_deleted_at IS NULL
@@ -837,9 +702,7 @@ class MutationStore:
             raise MutationStoreError("artifact bytes_deleted_at CAS failed")
         row = self._connection.execute(
             """
-            SELECT bytes_deleted_at, repository_scope,
-                   bytes_delete_intent_at, bytes_delete_dev, bytes_delete_ino,
-                   bytes_delete_phase, bytes_delete_generation
+            SELECT bytes_deleted_at, repository_scope
             FROM artifact_lifecycle
             WHERE artifact_id = ?
             """,
@@ -849,11 +712,6 @@ class MutationStore:
             row is None
             or str(row["repository_scope"]) != repository_id.hex
             or row["bytes_deleted_at"] is None
-            or row["bytes_delete_intent_at"] is not None
-            or row["bytes_delete_dev"] is not None
-            or row["bytes_delete_ino"] is not None
-            or row["bytes_delete_phase"] is not None
-            or row["bytes_delete_generation"] is not None
         ):
             raise MutationStoreError("artifact bytes_deleted_at readback failed")
 

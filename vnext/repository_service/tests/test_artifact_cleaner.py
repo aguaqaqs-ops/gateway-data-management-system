@@ -792,6 +792,15 @@ def test_production_src_has_no_deleted_cleanup_writers() -> None:
         "parse_any_recoverable_sidecar",
         "parse_unlink_stage_dir_name",
         "destroy_owned_bytes_and_reclaim_names",
+        "artifact_residual",
+        "bytes_delete_intent_at",
+        "bytes_delete_dev",
+        "bytes_delete_ino",
+        "bytes_delete_phase",
+        "bytes_delete_generation",
+        "bytes_deleted_receipt_dev",
+        "bytes_deleted_receipt_ino",
+        "bytes_deleted_receipt_generation",
     )
     hits: list[str] = []
     for path in src.rglob("*.py"):

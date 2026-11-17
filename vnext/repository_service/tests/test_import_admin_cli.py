@@ -819,12 +819,12 @@ def test_control_db_case_sensitive_trigger_literal_exit_4(tmp_path: Path) -> Non
         env.close()
 
 
-def test_admin_cli_ddl_signature_preserves_string_literals() -> None:
-    from gateway_repository_service.control_db import _admin_cli_ddl_signature
+def test_ddl_signature_preserves_string_literals() -> None:
+    from gateway_repository_service.control_db import _ddl_signature
 
     main_check = "CHECK (target_ref = 'main')"
     main_upper_check = "CHECK (target_ref = 'MAIN')"
-    assert _admin_cli_ddl_signature(main_check) != _admin_cli_ddl_signature(main_upper_check)
+    assert _ddl_signature(main_check) != _ddl_signature(main_upper_check)
 
 
 def test_control_db_malformed_operation_row_exit_4(tmp_path: Path) -> None:

@@ -16,13 +16,11 @@ from gateway_repository_contracts import OperationStatus
 from gateway_repository_service import artifact_cleanup
 from gateway_repository_service.artifact_cleaner import ArtifactCleaner
 from gateway_repository_service.layout import DurableLayout
-from gateway_repository_service.mutation_store import IdempotencyKeyHash, MutationStore
+from gateway_repository_service.mutation_store import MutationStore
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
-from gateway_repository_service.versioned_import import versioned_import_fingerprint_v1
 from gateway_repository_service.versioned_import.command import ImportOperationExecutor
-from gateway_repository_service.versioned_import.models import ImportArtifactBindingRejected
 from gateway_repository_service.versioned_import.recovery import (
     cleanup_after_succeeded_correction,
 )
@@ -36,13 +34,11 @@ from support.artifact_cleanup_contract import (
     REPOSITORY_ID,
     SHA256,
     FakePrivateRefProvider,
-    binding,
     cleaner,
     enqueue,
     mark_succeeded_consumed,
     open_contract_stores,
     seed_artifact,
-    seed_bytes_delete_intent,
     seed_create_succeeded,
     settings,
     write_ready,
@@ -239,79 +235,6 @@ def test_eligibility_is_reread_under_cleanup_pin(
     lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
     assert lifecycle is not None
     assert lifecycle.bytes_deleted_at is None
-
-
-def test_leftover_intent_on_eligible_artifact_is_projected_and_stamped(
-    stores: tuple[ImportOperationStore, MutationStore],
-    layout: DurableLayout,
-) -> None:
-    store, mutation_store = stores
-    seed_create_succeeded(mutation_store)
-    seed_artifact(mutation_store)
-    ready = write_ready(layout)
-    mark_succeeded_consumed(store, key="ok")
-    st = ready.stat()
-    seed_bytes_delete_intent(
-        mutation_store,
-        artifact_id=ARTIFACT_ID,
-        repository_id=REPOSITORY_ID,
-        dev=int(st.st_dev),
-        ino=int(st.st_ino),
-        phase="quarantined",
-    )
-    before = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
-    assert before is not None
-    assert before.bytes_delete_intent_at is not None
-
-    cleaner(layout, store, mutation_store).sweep_once()
-
-    assert not ready.exists()
-    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
-    assert lifecycle is not None
-    assert lifecycle.bytes_deleted_at is not None
-    assert lifecycle.bytes_delete_intent_at is None
-    assert lifecycle.bytes_delete_dev is None
-    assert lifecycle.bytes_delete_ino is None
-    assert lifecycle.bytes_delete_phase is None
-    assert lifecycle.bytes_delete_generation is None
-    assert lifecycle.bytes_deleted_receipt_dev is None
-
-
-def test_leftover_intent_on_protected_artifact_still_blocks_admission(
-    stores: tuple[ImportOperationStore, MutationStore],
-    layout: DurableLayout,
-) -> None:
-    store, mutation_store = stores
-    seed_create_succeeded(mutation_store)
-    seed_artifact(mutation_store)
-    ready = write_ready(layout)
-    enqueue(store, key="protected-pending", operation_id=OPERATION_ID)
-    st = ready.stat()
-    seed_bytes_delete_intent(
-        mutation_store,
-        artifact_id=ARTIFACT_ID,
-        repository_id=REPOSITORY_ID,
-        dev=int(st.st_dev),
-        ino=int(st.st_ino),
-        phase="quarantined",
-    )
-
-    cleaner(layout, store, mutation_store).sweep_once()
-
-    assert ready.is_file()
-    lifecycle = mutation_store.get_artifact_lifecycle(ARTIFACT_ID)
-    assert lifecycle is not None
-    assert lifecycle.bytes_deleted_at is None
-    assert lifecycle.bytes_delete_intent_at is not None
-    request = binding()
-    key_hash = IdempotencyKeyHash.from_raw_key("second-admit")
-    with pytest.raises(ImportArtifactBindingRejected, match="delete intent"):
-        store.admit_new_import(
-            request,
-            key_hash=key_hash,
-            fingerprint=versioned_import_fingerprint_v1(binding=request, key_hash=key_hash),
-            max_queued_imports=8,
-        )
 
 
 @pytest.mark.integration

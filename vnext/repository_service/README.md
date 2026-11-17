@@ -11,7 +11,7 @@ commit-pinned read 已激活；container/Compose/W1/W2/formal retest 延期至 P
 - FastAPI composition root 与 production lifespan；
 - production bearer auth（secret file 优先，fail closed）；
 - `/healthz` 与 `/readyz`；
-- control DB migration/open/close 与 durable-root lock；
+- control DB 单一基线创建/精确结构校验/open/close（无版本间迁移；结构或 `user_version` 不符即拒启）与 durable-root lock；
 - selected provider（Candidate A offline CLI）capability check 与 subprocess shutdown/reap。
 
 ## 已激活 public V1 routes

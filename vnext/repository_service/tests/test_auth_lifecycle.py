@@ -15,7 +15,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from typing import cast
 
-from gateway_repository_contracts import SimpleError
 from support.lifecycle_harness import prepare_test_roots
 from gateway_repository_service.storage_roots import RepositoryRoots
 from gateway_repository_service.app import create_app
@@ -122,6 +121,32 @@ class TestStartupFailure:
         connection.commit()
         connection.close()
         with pytest.raises(ServiceStartupError, match="newer than supported"):
+            ServiceRuntime.start(settings)
+
+    def test_older_control_db_aborts_startup(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        DurableLayout.create_service(settings.storage_roots)
+        settings.control_db_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(settings.control_db_path)
+        connection.execute("PRAGMA user_version = 1")
+        connection.commit()
+        connection.close()
+        with pytest.raises(ServiceStartupError, match="older than supported"):
+            ServiceRuntime.start(settings)
+
+    def test_schema_drift_control_db_aborts_startup(self, tmp_path: Path) -> None:
+        settings = _lifecycle_settings(tmp_path)
+        DurableLayout.create_service(settings.storage_roots)
+        ControlStore.open(
+            settings.control_db_path,
+            expected_version=CONTROL_DB_USER_VERSION,
+            busy_timeout_ms=1000,
+        ).close()
+        connection = sqlite3.connect(settings.control_db_path)
+        connection.execute("ALTER TABLE artifact_lifecycle ADD COLUMN bytes_delete_intent_at TEXT NULL")
+        connection.commit()
+        connection.close()
+        with pytest.raises(ServiceStartupError, match="does not match baseline"):
             ServiceRuntime.start(settings)
 
 
@@ -315,6 +340,104 @@ class TestLayoutValidation:
         assert not (layout.service_state / "repository-service.sqlite3").exists()
 
 
+_CONTROL_DB_VERSION_MISMATCH_CASES: tuple[tuple[int, bool, type[ControlDbError], str], ...] = (
+    (0, True, ControlDbError, "older than supported"),
+    (1, False, ControlDbError, "older than supported"),
+    (15, False, ControlDbError, "older than supported"),
+    (17, False, ControlDbNewerVersionError, "user_version 17 is newer than supported 16"),
+    (99, False, ControlDbNewerVersionError, "newer than supported"),
+)
+
+_CONTROL_DB_SCHEMA_DRIFT_CASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "extra_table_artifact_residual",
+        ("CREATE TABLE artifact_residual (residual_id INTEGER PRIMARY KEY)",),
+    ),
+    (
+        "missing_table_audit",
+        ("DROP TABLE repository_import_recovery_audit",),
+    ),
+    (
+        "extra_column_delete_intent",
+        ("ALTER TABLE artifact_lifecycle ADD COLUMN bytes_delete_intent_at TEXT NULL",),
+    ),
+    (
+        "extra_column_delete_receipt",
+        ("ALTER TABLE artifact_lifecycle ADD COLUMN bytes_deleted_receipt_dev INTEGER NULL",),
+    ),
+    (
+        "altered_column_type",
+        (
+            "DROP TABLE repository_import_recovery_audit",
+            """
+            CREATE TABLE repository_import_recovery_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id BLOB NOT NULL
+            )
+            """,
+        ),
+    ),
+    (
+        "missing_constraint",
+        (
+            "DROP TABLE repository_import_recovery_audit",
+            """
+            CREATE TABLE repository_import_recovery_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                prior_status TEXT NOT NULL,
+                prior_code TEXT NULL,
+                final_status TEXT NOT NULL,
+                final_code TEXT NULL,
+                evidence_summary_json TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )
+            """,
+        ),
+    ),
+    (
+        "missing_index",
+        ("DROP INDEX repository_import_operations_manual_barrier_idx",),
+    ),
+    (
+        "modified_index",
+        (
+            "DROP INDEX repository_import_operations_manual_barrier_idx",
+            """
+            CREATE INDEX repository_import_operations_manual_barrier_idx
+            ON repository_import_operations (repository_scope)
+            """,
+        ),
+    ),
+    (
+        "extra_index",
+        ("CREATE INDEX extra_artifact_media_idx ON artifact_lifecycle (media_type)",),
+    ),
+    (
+        "missing_trigger",
+        ("DROP TRIGGER prevent_insert_succeeded_when_terminal",),
+    ),
+    (
+        "modified_trigger",
+        (
+            "DROP TRIGGER artifact_lifecycle_forbid_cleanup_seq_update",
+            """
+            CREATE TRIGGER artifact_lifecycle_forbid_cleanup_seq_update
+            BEFORE UPDATE OF cleanup_seq ON artifact_lifecycle
+            BEGIN
+                SELECT RAISE(ABORT, 'modified trigger body');
+            END
+            """,
+        ),
+    ),
+    (
+        "extra_view",
+        ("CREATE VIEW extra_view AS SELECT 1 AS ok",),
+    ),
+)
+
+
 class TestControlDatabase:
     def _seed_terminal_succeeded_contradiction(self, connection: sqlite3.Connection) -> None:
         connection.execute(
@@ -346,7 +469,7 @@ class TestControlDatabase:
         )
         connection.commit()
 
-    def test_migration_initializes_current_user_version(self, tmp_path: Path) -> None:
+    def test_baseline_initializes_current_user_version_and_schema(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         try:
@@ -354,10 +477,13 @@ class TestControlDatabase:
             assert version is not None
             assert int(version[0]) == CONTROL_DB_USER_VERSION
             journal_mode = store.connection.execute("PRAGMA journal_mode").fetchone()
+            assert journal_mode is not None
             assert str(journal_mode[0]).upper() == "WAL"
             foreign_keys = store.connection.execute("PRAGMA foreign_keys").fetchone()
+            assert foreign_keys is not None
             assert int(foreign_keys[0]) == 1
             synchronous = store.connection.execute("PRAGMA synchronous").fetchone()
+            assert synchronous is not None
             assert int(synchronous[0]) == 2
             tables = {
                 row[0]
@@ -368,26 +494,29 @@ class TestControlDatabase:
             }
             assert tables == {
                 "artifact_lifecycle",
-                "artifact_residual",
                 "mutation_idempotency",
                 "repository_import_operations",
                 "repository_import_recovery_audit",
                 "synchronous_mutation_effects",
             }
+            assert "artifact_residual" not in tables
             artifact_columns = {
                 row[1]
                 for row in store.connection.execute("PRAGMA table_info(artifact_lifecycle)").fetchall()
             }
-            assert {
+            assert artifact_columns == {
+                "artifact_id",
+                "repository_scope",
+                "media_type",
+                "size_bytes",
+                "raw_sha256",
+                "created_at",
+                "updated_at",
                 "consumed_by_operation_id",
                 "consumed_at",
                 "bytes_deleted_at",
-                "bytes_delete_intent_at",
-                "bytes_delete_dev",
-                "bytes_delete_ino",
-                "bytes_delete_phase",
                 "cleanup_seq",
-            }.issubset(artifact_columns)
+            }
             operation_columns = {
                 row[1]
                 for row in store.connection.execute(
@@ -407,13 +536,14 @@ class TestControlDatabase:
             assert "manual_recovery_required = 1" in str(barrier_index[0])
             idempotency_sql = store.connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'mutation_idempotency'"
-            ).fetchone()[0]
+            ).fetchone()
             effects_sql = store.connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'synchronous_mutation_effects'"
-            ).fetchone()[0]
-            assert "create_repository" in str(idempotency_sql)
-            assert "upload_artifact" in str(idempotency_sql)
-            assert "response_status = 201" in str(effects_sql)
+            ).fetchone()
+            assert idempotency_sql is not None and effects_sql is not None
+            assert "create_repository" in str(idempotency_sql[0])
+            assert "upload_artifact" in str(idempotency_sql[0])
+            assert "response_status = 201" in str(effects_sql[0])
             triggers = {
                 row[0]
                 for row in store.connection.execute(
@@ -430,145 +560,83 @@ class TestControlDatabase:
         finally:
             store.close()
 
-    def test_migration_upgrades_version_one_to_current(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        db_path.parent.mkdir(parents=True)
-        connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 1")
-        connection.commit()
-        connection.close()
-
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == CONTROL_DB_USER_VERSION
-        finally:
-            store.close()
-
-    def test_migration_upgrades_version_two_to_three(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == 3
-        finally:
-            store.close()
-
-    def test_migration_upgrades_version_three_to_four(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == 4
-        finally:
-            store.close()
-
-    def test_migration_upgrades_version_four_to_five(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == CONTROL_DB_USER_VERSION
-            triggers = {
-                row[0]
-                for row in store.connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'trigger'"
-                ).fetchall()
-            }
-            assert "prevent_insert_succeeded_when_terminal" in triggers
-        finally:
-            store.close()
-
-    def test_migration_upgrades_version_three_to_four_legacy(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == CONTROL_DB_USER_VERSION
-            triggers = {
-                row[0]
-                for row in store.connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'trigger'"
-                ).fetchall()
-            }
-            assert "prevent_succeeded_when_terminal" in triggers
-        finally:
-            store.close()
-
-    def test_migration_reopen_is_idempotent(self, tmp_path: Path) -> None:
+    def test_baseline_reopen_is_idempotent_and_preserves_data(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         first = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        first.close()
+        try:
+            first.connection.execute(
+                """
+                INSERT INTO mutation_idempotency (
+                    mutation_kind,
+                    repository_scope,
+                    key_hash,
+                    request_fingerprint,
+                    terminal_not_published,
+                    created_at
+                ) VALUES ('create_repository', '', ?, ?, 0, '2026-08-05T00:00:00+00:00')
+                """,
+                (b"\x02" * 32, b"fp-reopen"),
+            )
+            first.connection.commit()
+        finally:
+            first.close()
+
         second = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        second.close()
+        try:
+            row = second.connection.execute(
+                "SELECT COUNT(*) FROM mutation_idempotency WHERE request_fingerprint = ?",
+                (b"fp-reopen",),
+            ).fetchone()
+            assert row is not None and int(row[0]) == 1
+        finally:
+            second.close()
 
-    def test_migration_rolls_back_on_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        original = ControlStore._apply_migration_step
+        ControlStore.preflight_exact_version(db_path, expected_version=CONTROL_DB_USER_VERSION)
+        readonly = ControlStore.open_readonly(db_path, expected_version=CONTROL_DB_USER_VERSION)
+        try:
+            row = readonly.connection.execute(
+                "SELECT COUNT(*) FROM mutation_idempotency WHERE request_fingerprint = ?",
+                (b"fp-reopen",),
+            ).fetchone()
+            assert row is not None and int(row[0]) == 1
+        finally:
+            readonly.close()
 
-        def failing_step(connection: sqlite3.Connection, target_version: int) -> None:
-            if target_version == 2:
-                raise RuntimeError("migration failure")
-            original(connection, target_version)
-
-        monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
-        with pytest.raises(RuntimeError, match="migration failure"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        tables = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        ).fetchall()
-        connection.close()
-        assert int(version[0]) == 0
-        assert tables == []
-
-        monkeypatch.undo()
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        store.close()
-
-    def test_migration_v2_rolls_back_when_second_statement_fails(
+    def test_baseline_init_rolls_back_on_statement_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
         original_execute_statements = ControlStore._execute_statements
 
-        def failing_v2_execute(
+        def failing_baseline_execute(
             connection: sqlite3.Connection, statements: tuple[str, ...]
         ) -> None:
             if statements and "mutation_idempotency" in statements[0]:
                 original_execute_statements(connection, (statements[0],))
-                raise RuntimeError("second ddl failure")
+                raise RuntimeError("baseline ddl failure")
             original_execute_statements(connection, statements)
 
         monkeypatch.setattr(
             ControlStore,
             "_execute_statements",
-            staticmethod(failing_v2_execute),
+            staticmethod(failing_baseline_execute),
         )
-        with pytest.raises(RuntimeError, match="second ddl failure"):
+        with pytest.raises(RuntimeError, match="baseline ddl failure"):
             ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
 
         connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
-        in_transaction = connection.in_transaction
-        connection.close()
-        assert int(version[0]) == 0
+        try:
+            version = connection.execute("PRAGMA user_version").fetchone()
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            in_transaction = connection.in_transaction
+        finally:
+            connection.close()
+        assert version is not None and int(version[0]) == 0
         assert tables == set()
         assert in_transaction is False
 
@@ -576,500 +644,153 @@ class TestControlDatabase:
         store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         store.close()
 
-    def test_migration_v3_rolls_back_when_mid_script_fails(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_rejects_mismatched_expected_version(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000).close()
-        original_execute_statements = ControlStore._execute_statements
-
-        def failing_v3_execute(
-            connection: sqlite3.Connection, statements: tuple[str, ...]
-        ) -> None:
-            if statements and "mutation_idempotency_v3" in statements[0]:
-                original_execute_statements(connection, statements[:2])
-                raise RuntimeError("v3 migration failure")
-            original_execute_statements(connection, statements)
-
-        monkeypatch.setattr(
-            ControlStore,
-            "_execute_statements",
-            staticmethod(failing_v3_execute),
-        )
-        with pytest.raises(RuntimeError, match="v3 migration failure"):
-            ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-            if row[0] != "sqlite_sequence"
-        }
-        connection.close()
-        assert int(version[0]) == 2
-        assert tables == {"mutation_idempotency", "synchronous_mutation_effects"}
-
-        monkeypatch.undo()
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
-        store.close()
-
-    def test_newer_user_version_fails_closed(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        db_path.parent.mkdir(parents=True)
-        connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 99")
-        connection.commit()
-        connection.close()
-        with pytest.raises(ControlDbNewerVersionError):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-    def test_intermediate_user_version_sixteen_fails_closed(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        db_path.parent.mkdir(parents=True)
-        connection = sqlite3.connect(db_path)
-        connection.execute("PRAGMA user_version = 17")
-        connection.commit()
-        connection.close()
-        with pytest.raises(ControlDbNewerVersionError, match="user_version 17 is newer than supported 16"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-    def test_migration_v5_fails_on_contradictory_v3_data(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
-        try:
-            self._seed_terminal_succeeded_contradiction(store.connection)
-        finally:
-            store.close()
-
-        with pytest.raises(ControlDbError, match="terminal-not-published succeeded contradictions"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        triggers = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
-            ).fetchall()
-        }
-        connection.close()
-        assert int(version[0]) == 3
-        assert "prevent_insert_succeeded_when_terminal" not in triggers
-
-    def test_migration_v5_fails_on_contradictory_v4_data(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        store = ControlStore.open(db_path, expected_version=3, busy_timeout_ms=1000)
-        try:
-            self._seed_terminal_succeeded_contradiction(store.connection)
-        finally:
-            store.close()
-        ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000).close()
-
-        with pytest.raises(ControlDbError, match="terminal-not-published succeeded contradictions"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        triggers = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
-            ).fetchall()
-        }
-        connection.close()
-        assert int(version[0]) == 4
-        assert "prevent_insert_succeeded_when_terminal" not in triggers
-
-    def test_migration_v5_rollback_when_insert_trigger_fails(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=4, busy_timeout_ms=1000).close()
-        original_execute_statements = ControlStore._execute_statements
-
-        def failing_v5_execute(
-            connection: sqlite3.Connection, statements: tuple[str, ...]
-        ) -> None:
-            if statements and "prevent_insert_succeeded_when_terminal" in statements[0]:
-                original_execute_statements(connection, (statements[0],))
-                raise RuntimeError("v5 trigger failure")
-            original_execute_statements(connection, statements)
-
-        monkeypatch.setattr(
-            ControlStore,
-            "_execute_statements",
-            staticmethod(failing_v5_execute),
-        )
-        with pytest.raises(RuntimeError, match="v5 trigger failure"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        triggers = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
-            ).fetchall()
-        }
-        connection.close()
-        assert int(version[0]) == 4
-        assert triggers == {
-            "prevent_succeeded_when_terminal",
-            "prevent_terminal_when_succeeded",
-        }
-
-        monkeypatch.undo()
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        store.close()
-
-    def test_migration_upgrades_version_six_to_seven(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=6, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == CONTROL_DB_USER_VERSION
-            tables = {
-                row[0]
-                for row in store.connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-                if row[0] != "sqlite_sequence"
-            }
-            assert "repository_import_operations" in tables
-            assert "repository_import_recovery_audit" in tables
-            artifact_columns = {
-                row[1]
-                for row in store.connection.execute("PRAGMA table_info(artifact_lifecycle)").fetchall()
-            }
-            assert "consumed_by_operation_id" in artifact_columns
-            operation_columns = {
-                row[1]
-                for row in store.connection.execute(
-                    "PRAGMA table_info(repository_import_operations)"
-                ).fetchall()
-            }
-            assert "enqueue_sequence" in operation_columns
-            assert "manual_recovery_required" in operation_columns
-        finally:
-            store.close()
-
-    def test_migration_v7_rolls_back_on_failure(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=6, busy_timeout_ms=1000).close()
-        original = ControlStore._apply_migration_step
-
-        def failing_step(connection: sqlite3.Connection, target_version: int) -> None:
-            if target_version == 7:
-                raise RuntimeError("v7 migration failure")
-            original(connection, target_version)
-
-        monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
-        with pytest.raises(RuntimeError, match="v7 migration failure"):
-            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        version = connection.execute("PRAGMA user_version").fetchone()
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
-        connection.close()
-        assert int(version[0]) == 6
-        assert "repository_import_operations" not in tables
-
-    def _insert_v15_import_operation(
-        self,
-        connection: sqlite3.Connection,
-        *,
-        operation_id: str,
-        repository_scope: str,
-        status: str,
-        key_hash: bytes,
-        error_json: str | None,
-        enqueue_sequence: int = 1,
-    ) -> None:
-        now = "2026-08-14T00:00:00+00:00"
-        connection.execute(
-            """
-            INSERT INTO repository_import_operations (
-                operation_id,
-                repository_scope,
-                key_hash,
-                request_fingerprint,
-                artifact_id,
-                artifact_media_type,
-                artifact_size_bytes,
-                artifact_raw_sha256,
-                target_ref,
-                expected_commit_id,
-                requested_verification_policy,
-                unknown_type_policy,
-                status,
-                private_ref_name,
-                operation_marker,
-                canonicalization_manifest_digest,
-                automatic_replay_count,
-                enqueue_sequence,
-                result_json,
-                error_json,
-                created_at,
-                started_at,
-                updated_at,
-                completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'main', 'commit-0', 'NONE', 'REJECT',
-                      ?, ?, ?, NULL, 0, ?, NULL, ?, ?, NULL, ?, ?)
-            """,
-            (
-                operation_id,
-                repository_scope,
-                key_hash,
-                b"fingerprint",
-                "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
-                "application/vnd.gateway.repository-import.v1+tar+zstd",
-                1,
-                "a" * 64,
-                status,
-                f"private-{operation_id}",
-                f"marker-{operation_id}",
-                enqueue_sequence,
-                error_json,
-                now,
-                now,
-                now if status in {"FAILED", "SUCCEEDED"} else None,
-            ),
-        )
-
-    def test_migration_upgrades_version_fifteen_to_sixteen(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000).close()
-
-        store = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
-        try:
-            version = store.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == 16
-            columns = {
-                row[1]
-                for row in store.connection.execute(
-                    "PRAGMA table_info(repository_import_operations)"
-                ).fetchall()
-            }
-            assert "manual_recovery_required" in columns
-        finally:
-            store.close()
-
-    def test_migration_v16_backfills_manual_and_ordinary_failed_rows(
-        self, tmp_path: Path
-    ) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        v15 = ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000)
-        try:
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-manual",
-                repository_scope="a" * 32,
-                status="FAILED",
-                key_hash=b"\x01" * 32,
-                error_json=json.dumps(
-                    SimpleError(code="MANUAL_RECOVERY_REQUIRED", message="manual").model_dump(
-                        mode="json"
-                    ),
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ),
-            )
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-rejected",
-                repository_scope="a" * 32,
-                status="FAILED",
-                key_hash=b"\x02" * 32,
-                error_json=json.dumps(
-                    SimpleError(code="IMPORT_REJECTED", message="rejected").model_dump(mode="json"),
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ),
-                enqueue_sequence=2,
-            )
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-mismatch",
-                repository_scope="b" * 32,
-                status="FAILED",
-                key_hash=b"\x03" * 32,
-                error_json=json.dumps(
-                    SimpleError(code="EXPECTED_COMMIT_MISMATCH", message="mismatch").model_dump(
-                        mode="json"
-                    ),
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ),
-            )
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-not-published",
-                repository_scope="c" * 32,
-                status="FAILED",
-                key_hash=b"\x04" * 32,
-                error_json=json.dumps(
-                    SimpleError(
-                        code="VERIFICATION_FAILED_NOT_PUBLISHED",
-                        message="not published",
-                    ).model_dump(mode="json"),
-                    separators=(",", ":"),
-                    sort_keys=True,
-                ),
-            )
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-queued",
-                repository_scope="d" * 32,
-                status="QUEUED",
-                key_hash=b"\x05" * 32,
-                error_json=None,
-            )
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-succeeded",
-                repository_scope="e" * 32,
-                status="SUCCEEDED",
-                key_hash=b"\x06" * 32,
-                error_json=None,
-            )
-            v15.connection.commit()
-        finally:
-            v15.close()
-
-        store = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
-        try:
-            flags = {
-                str(row["operation_id"]): int(row["manual_recovery_required"])
-                for row in store.connection.execute(
-                    """
-                    SELECT operation_id, manual_recovery_required
-                    FROM repository_import_operations
-                    """
-                )
-            }
-            assert flags == {
-                "op-manual": 1,
-                "op-rejected": 0,
-                "op-mismatch": 0,
-                "op-not-published": 0,
-                "op-queued": 0,
-                "op-succeeded": 0,
-            }
-        finally:
-            store.close()
+        with pytest.raises(ControlDbError, match="does not match baseline"):
+            ControlStore.open(db_path, expected_version=2, busy_timeout_ms=1000)
+        assert not db_path.exists()
 
     @pytest.mark.parametrize(
-        ("label", "error_json"),
-        [
-            ("missing", None),
-            ("not_json", "not-json"),
-            ("empty_object", "{}"),
-            ("json_null", "null"),
-            ("unknown_code", '{"code":"NOT_A_STABLE_CODE","message":"x"}'),
-            ("truncated", '{"code":"IMPORT_REJECTED","message":'),
-            ("whitespace_code", '{"code":" IMPORT_REJECTED","message":"x"}'),
-        ],
-        ids=[
-            "missing",
-            "not_json",
-            "empty_object",
-            "json_null",
-            "unknown_code",
-            "truncated",
-            "whitespace_code",
-        ],
+        ("user_version", "seed_table", "exc_type", "pattern"),
+        _CONTROL_DB_VERSION_MISMATCH_CASES,
+        ids=[f"v{case[0]}-table{case[1]}" for case in _CONTROL_DB_VERSION_MISMATCH_CASES],
     )
-    def test_migration_v16_fails_closed_on_malformed_failed_evidence(
+    def test_non_baseline_user_version_fails_closed_without_modification(
+        self,
+        tmp_path: Path,
+        user_version: int,
+        seed_table: bool,
+        exc_type: type[ControlDbError],
+        pattern: str,
+    ) -> None:
+        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
+        db_path.parent.mkdir(parents=True)
+        connection = sqlite3.connect(db_path)
+        try:
+            if seed_table:
+                connection.execute("CREATE TABLE leftover (id INTEGER PRIMARY KEY)")
+            connection.execute(f"PRAGMA user_version = {user_version}")
+            connection.commit()
+        finally:
+            connection.close()
+
+        before = db_path.read_bytes()
+        with pytest.raises(exc_type, match=pattern):
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        assert db_path.read_bytes() == before
+
+        with pytest.raises(ControlDbError, match=f"{pattern}|WAL mode is unavailable"):
+            ControlStore.open(
+                db_path,
+                expected_version=CONTROL_DB_USER_VERSION,
+                busy_timeout_ms=1000,
+                allow_migration=False,
+            )
+        with pytest.raises(exc_type, match=pattern):
+            ControlStore.preflight_exact_version(db_path, expected_version=CONTROL_DB_USER_VERSION)
+        assert db_path.read_bytes() == before
+
+    @pytest.mark.parametrize(
+        ("label", "statements"),
+        _CONTROL_DB_SCHEMA_DRIFT_CASES,
+        ids=[case[0] for case in _CONTROL_DB_SCHEMA_DRIFT_CASES],
+    )
+    def test_exact_schema_mismatch_with_matching_user_version_fails_closed(
         self,
         tmp_path: Path,
         label: str,
-        error_json: str | None,
+        statements: tuple[str, ...],
     ) -> None:
         del label
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        v15 = ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        store.checkpoint_wal_truncate()
+        store.close()
+
+        connection = sqlite3.connect(db_path)
         try:
-            self._insert_v15_import_operation(
-                v15.connection,
-                operation_id="op-malformed",
-                repository_scope="a" * 32,
-                status="FAILED",
-                key_hash=b"\x01" * 32,
-                error_json=error_json,
+            connection.execute("PRAGMA journal_mode = DELETE")
+            for statement in statements:
+                connection.execute(statement)
+            connection.commit()
+        finally:
+            connection.close()
+
+        before = db_path.read_bytes()
+        with pytest.raises(ControlDbError, match="does not match baseline"):
+            ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
+        assert db_path.read_bytes() == before
+
+        with pytest.raises(ControlDbError, match="does not match baseline|WAL mode is unavailable"):
+            ControlStore.open(
+                db_path,
+                expected_version=CONTROL_DB_USER_VERSION,
+                busy_timeout_ms=1000,
+                allow_migration=False,
             )
-            v15.connection.commit()
-        finally:
-            v15.close()
+        with pytest.raises(ControlDbError, match="does not match baseline|WAL mode is unavailable"):
+            ControlStore.preflight_exact_version(db_path, expected_version=CONTROL_DB_USER_VERSION)
+        assert db_path.read_bytes() == before
 
-        with pytest.raises(ControlDbError, match="malformed FAILED import evidence"):
-            ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        try:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            columns = {
-                str(row[1])
-                for row in connection.execute("PRAGMA table_info(repository_import_operations)")
-            }
-        finally:
-            connection.close()
-        assert version == 15
-        assert "manual_recovery_required" not in columns
-
-    def test_migration_v16_reopen_is_idempotent(self, tmp_path: Path) -> None:
+    def test_in_use_constraints_and_triggers_enforced(self, tmp_path: Path) -> None:
         db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        first = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
-        first.close()
-        second = ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
+        store = ControlStore.open(db_path, expected_version=CONTROL_DB_USER_VERSION, busy_timeout_ms=1000)
         try:
-            version = second.connection.execute("PRAGMA user_version").fetchone()
-            assert int(version[0]) == 16
+            with pytest.raises(sqlite3.IntegrityError):
+                self._seed_terminal_succeeded_contradiction(store.connection)
+            store.connection.rollback()
+
+            with pytest.raises(sqlite3.IntegrityError):
+                store.connection.execute(
+                    """
+                    INSERT INTO mutation_idempotency (
+                        mutation_kind,
+                        repository_scope,
+                        key_hash,
+                        request_fingerprint,
+                        terminal_not_published,
+                        created_at
+                    ) VALUES ('create_repository', 'non-empty', ?, ?, 0, '2026-08-05T00:00:00+00:00')
+                    """,
+                    (b"\x03" * 32, b"fp-bad-scope"),
+                )
+            store.connection.rollback()
+
+            store.connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id,
+                    repository_scope,
+                    media_type,
+                    size_bytes,
+                    raw_sha256,
+                    created_at,
+                    updated_at,
+                    cleanup_seq
+                ) VALUES (
+                    '018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c12',
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'application/vnd.gateway.repository-import.v1+tar+zstd',
+                    1,
+                    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    '2026-08-05T00:00:00+00:00',
+                    '2026-08-05T00:00:00+00:00',
+                    1
+                )
+                """
+            )
+            store.connection.commit()
+            with pytest.raises(sqlite3.IntegrityError, match="cleanup_seq is immutable"):
+                store.connection.execute(
+                    """
+                    UPDATE artifact_lifecycle
+                    SET cleanup_seq = 2
+                    WHERE artifact_id = '018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c12'
+                    """
+                )
+            store.connection.rollback()
         finally:
-            second.close()
-
-    def test_migration_v16_rolls_back_on_failure(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        db_path = tmp_path / "service-state" / "repository-service.sqlite3"
-        ControlStore.open(db_path, expected_version=15, busy_timeout_ms=1000).close()
-        original = ControlStore._apply_migration_step
-
-        def failing_step(connection: sqlite3.Connection, target_version: int) -> None:
-            if target_version == 16:
-                raise RuntimeError("v16 migration failure")
-            original(connection, target_version)
-
-        monkeypatch.setattr(ControlStore, "_apply_migration_step", staticmethod(failing_step))
-        with pytest.raises(RuntimeError, match="v16 migration failure"):
-            ControlStore.open(db_path, expected_version=16, busy_timeout_ms=1000)
-
-        connection = sqlite3.connect(db_path)
-        try:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            columns = {
-                str(row[1])
-                for row in connection.execute("PRAGMA table_info(repository_import_operations)")
-            }
-        finally:
-            connection.close()
-        assert version == 15
-        assert "manual_recovery_required" not in columns
+            store.close()
 
 
 class TestProviderLifecycle:

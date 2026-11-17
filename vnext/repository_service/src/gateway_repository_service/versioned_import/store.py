@@ -1039,9 +1039,6 @@ class ImportOperationStore:
         *,
         deleted_at: str | None = None,
         repository_id: UUID | None = None,
-        expected_dev: int | None = None,
-        expected_ino: int | None = None,
-        expected_generation: str | None = None,
     ) -> None:
         with self._transaction():
             scope = repository_id
@@ -1064,9 +1061,6 @@ class ImportOperationStore:
                 artifact_id,
                 deleted_at=deleted_at or utc_now_iso(),
                 repository_id=scope,
-                expected_dev=expected_dev,
-                expected_ino=expected_ino,
-                expected_generation=expected_generation,
             )
 
     def has_succeeded_create_repository(self, repository_id: UUID) -> bool:
@@ -1104,12 +1098,7 @@ class ImportOperationStore:
                 raw_sha256,
                 consumed_by_operation_id,
                 consumed_at,
-                bytes_deleted_at,
-                bytes_delete_intent_at,
-                bytes_delete_dev,
-                bytes_delete_ino,
-                bytes_delete_phase,
-                bytes_delete_generation
+                bytes_deleted_at
             FROM artifact_lifecycle
             WHERE artifact_id = ?
             """,
@@ -1130,19 +1119,6 @@ class ImportOperationStore:
             raise ImportArtifactBindingRejected("artifact is already consumed")
         if row["bytes_deleted_at"] is not None:
             raise ImportArtifactBindingRejected("artifact bytes are deleted")
-        intent_fields = (
-            row["bytes_delete_intent_at"],
-            row["bytes_delete_dev"],
-            row["bytes_delete_ino"],
-            row["bytes_delete_phase"],
-            row["bytes_delete_generation"],
-        )
-        if any(field is not None for field in intent_fields):
-            if not all(field is not None for field in intent_fields):
-                raise ImportArtifactBindingRejected("artifact has malformed delete intent")
-            if str(row["bytes_delete_phase"]) not in {"quarantined", "detached"}:
-                raise ImportArtifactBindingRejected("artifact has malformed delete intent")
-            raise ImportArtifactBindingRejected("artifact has active delete intent")
 
     def _allocate_enqueue_sequence(self, repository_id: UUID) -> int:
         row = self._connection.execute(

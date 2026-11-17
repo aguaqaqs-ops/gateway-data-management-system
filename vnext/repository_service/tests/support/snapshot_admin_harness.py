@@ -309,13 +309,16 @@ class SnapshotHoldEnvironment:
         self.control_store.connection.execute("PRAGMA wal_autocheckpoint = 0")
         self.control_store.connection.execute(
             """
-            INSERT INTO artifact_residual (
-                artifact_id, repository_scope, kind, name, parent_name, dev, ino, created_at
-            ) VALUES (?, ?, 'stage', 'hold-probe', '', 1, 1, ?)
+            INSERT INTO repository_import_recovery_audit (
+                operation_id, action, prior_status, prior_code,
+                final_status, final_code, evidence_summary_json, applied_at
+            ) VALUES (
+                ?, 'INSPECT_APPLY_NOT_PUBLISHED', 'FAILED', 'MANUAL_RECOVERY_REQUIRED',
+                'FAILED', 'IMPORT_REJECTED', '{}', ?
+            )
             """,
             (
                 "00000000-0000-0000-0000-000000000001",
-                "a" * 32,
                 "2026-01-01T00:00:00+00:00",
             ),
         )

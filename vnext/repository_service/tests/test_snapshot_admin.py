@@ -510,7 +510,7 @@ def _apply_non_dolt_check_fault(env: SnapshotHoldEnvironment, tmp_path: Path, fa
         env.close()
         connection = sqlite3.connect(db_path)
         try:
-            connection.execute("DROP TABLE artifact_residual")
+            connection.execute("DROP TABLE repository_import_recovery_audit")
             connection.commit()
         finally:
             connection.close()

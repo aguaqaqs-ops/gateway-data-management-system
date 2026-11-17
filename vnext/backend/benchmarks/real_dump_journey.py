@@ -1340,6 +1340,9 @@ def _emit_progress(stage: str, event: str, **details: Any) -> None:
     )
 
 
+_STANDARD_WORKER_ENVELOPE_BYTES = 32 * 1024**3
+_STANDARD_OPERATION_BUDGET_BYTES = 24 * 1024**3
+_STANDARD_WORKER_RESERVE_BYTES = 8 * 1024**3
 _S3_LARGE_WORKER_ENVELOPE_BYTES = 48 * 1024**3
 _S3_LARGE_OPERATION_BUDGET_BYTES = 40 * 1024**3
 _S3_READY_MEM_AVAILABLE_BYTES = 56 * 1024**3
@@ -1352,6 +1355,35 @@ def _s3_large_resource_guard_required(*, s3_census: Path | None, scope: str) -> 
         and context is not None
         and context.memory.limit_bytes == _S3_LARGE_OPERATION_BUDGET_BYTES
     )
+
+
+def _ready_resource_guard_required(
+    *,
+    s3_census: Path | None,
+    scope: str,
+    kernel_threads: int | None = None,
+    kernel_memory_budget_bytes: int | None = None,
+) -> bool:
+    if scope == "full" and (kernel_threads is not None or kernel_memory_budget_bytes is not None):
+        return True
+    return _s3_large_resource_guard_required(s3_census=s3_census, scope=scope)
+
+
+def _validate_journey_kernel_threads(kernel_threads: int | None) -> int | None:
+    if kernel_threads is not None and (type(kernel_threads) is not int or kernel_threads < 1):
+        raise JourneyFailure("kernel_threads must be a positive integer")
+    return kernel_threads
+
+
+def _resolved_guard_budget_bytes(
+    kernel_threads: int | None,
+    kernel_memory_budget_bytes: int | None,
+) -> int | None:
+    if kernel_memory_budget_bytes is not None:
+        return kernel_memory_budget_bytes
+    if kernel_threads is not None:
+        return _STANDARD_OPERATION_BUDGET_BYTES
+    return None
 
 
 def _s3_ready_resource_snapshot(env: Mapping[str, str]) -> dict[str, Any]:
@@ -1432,21 +1464,46 @@ def _s3_ready_resource_snapshot(env: Mapping[str, str]) -> dict[str, Any]:
     return {"mem_available_bytes": int(available[0]) * 1024, "services": services}
 
 
-def _check_s3_ready_resource_guard(env: Mapping[str, str]) -> None:
+def _check_s3_ready_resource_guard(
+    env: Mapping[str, str],
+    *,
+    expected_kernel_threads: int | None = None,
+    expected_kernel_memory_bytes: int | None = None,
+) -> None:
+    resolved_threads = 1 if expected_kernel_threads is None else expected_kernel_threads
+    if type(resolved_threads) is not int or resolved_threads < 1:
+        raise JourneyFailure("expected_kernel_threads must be a positive integer")
+    resolved_budget = (
+        _S3_LARGE_OPERATION_BUDGET_BYTES
+        if expected_kernel_memory_bytes is None
+        else expected_kernel_memory_bytes
+    )
+    if resolved_budget == _S3_LARGE_OPERATION_BUDGET_BYTES:
+        expected_envelope_bytes = _S3_LARGE_WORKER_ENVELOPE_BYTES
+        min_mem_available_bytes: int | None = _S3_READY_MEM_AVAILABLE_BYTES
+    elif resolved_budget == _STANDARD_OPERATION_BUDGET_BYTES:
+        expected_envelope_bytes = _STANDARD_WORKER_ENVELOPE_BYTES
+        min_mem_available_bytes = None
+    else:
+        raise JourneyFailure(f"unsupported container resource guard budget: {resolved_budget}")
     snapshot = _s3_ready_resource_snapshot(env)
     services = cast(dict[str, dict[str, Any]], snapshot["services"])
     worker = services["worker"]
     expected_profile = {
-        "kernel_threads": 1,
-        "kernel_memory_bytes": _S3_LARGE_OPERATION_BUDGET_BYTES,
-        "memory_envelope_bytes": _S3_LARGE_WORKER_ENVELOPE_BYTES,
-        "memory_reserve_bytes": 8 * 1024**3,
+        "kernel_threads": resolved_threads,
+        "kernel_memory_bytes": resolved_budget,
+        "memory_envelope_bytes": expected_envelope_bytes,
+        "memory_reserve_bytes": _STANDARD_WORKER_RESERVE_BYTES,
     }
     admitted = (
-        snapshot["mem_available_bytes"] >= _S3_READY_MEM_AVAILABLE_BYTES
-        and worker["memory_max"] == str(_S3_LARGE_WORKER_ENVELOPE_BYTES)
-        and worker["host_config_memory_bytes"] == _S3_LARGE_WORKER_ENVELOPE_BYTES
-        and {key: worker["resource_profile"].get(key) for key in expected_profile} == expected_profile
+        (
+            min_mem_available_bytes is None
+            or snapshot["mem_available_bytes"] >= min_mem_available_bytes
+        )
+        and worker["memory_max"] == str(expected_envelope_bytes)
+        and worker["host_config_memory_bytes"] == expected_envelope_bytes
+        and {key: worker["resource_profile"].get(key) for key in expected_profile}
+        == expected_profile
         and all(
             item["restart_count"] == 0
             and all(
@@ -1458,7 +1515,9 @@ def _check_s3_ready_resource_guard(env: Mapping[str, str]) -> None:
     )
     _emit_progress(
         "S3 worker resource guard", "s3_resource_start_guard",
-        status="PASS" if admitted else "FAILED", **snapshot,
+        status="PASS" if admitted else "FAILED",
+        expected_profile=expected_profile,
+        **snapshot,
     )
     if not admitted:
         raise JourneyFailure("S3 worker resource guard failed before first business observation")
@@ -4252,8 +4311,10 @@ def _save_compose_logs_before_teardown(env: dict[str, str], *, tier: str) -> Pat
 def _validate_w1_w2_scope(
     *, scope: str, tier_filter: str | None, cross_project: bool,
     from_step: str | None, v2_input_completeness: str, s3_census: Path | None,
-    skip_repeat_v1: bool,
+    skip_repeat_v1: bool, kernel_threads: int | None = None,
 ) -> None:
+    if scope == "t4-w1-w2" and kernel_threads not in (None, 1):
+        raise JourneyFailure("t4-w1-w2 requires N1 and explicit M24 (25769803776 bytes)")
     if scope == "t4-w1-w2" and (
         tier_filter != "t4" or cross_project or from_step is not None
         or v2_input_completeness != "MODIFIED_ONLY" or s3_census is not None
@@ -4280,11 +4341,15 @@ def run_journey(  # noqa: C901
     s3_census: Path | None = None,
     submit_measurements: Path | None = None,
     skip_repeat_v1: bool = False,
+    kernel_threads: int | None = None,
+    kernel_memory_budget_bytes: int | None = None,
 ) -> dict[str, Any]:
+    resolved_kernel_threads = _validate_journey_kernel_threads(kernel_threads)
     _validate_w1_w2_scope(
         scope=scope, tier_filter=tier_filter, cross_project=cross_project,
         from_step=from_step, v2_input_completeness=v2_input_completeness,
         s3_census=s3_census, skip_repeat_v1=skip_repeat_v1,
+        kernel_threads=resolved_kernel_threads,
     )
     root = _real_dump_root()
     datasets, census = _read_metadata(root, census_path=s3_census)
@@ -4445,7 +4510,10 @@ def run_journey(  # noqa: C901
                     timeout=30.0,
                 ).returncode != 0:
                     raise JourneyFailure("the gate Repository Service image is missing")
-                build_compose_stack_images(first_env)
+                if resolved_kernel_threads is None:
+                    build_compose_stack_images(first_env)
+                else:
+                    build_compose_stack_images(first_env, kernel_threads=resolved_kernel_threads)
                 os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
 
             for tier, (v1_id, v2_id) in selected_tiers:
@@ -4490,10 +4558,17 @@ def run_journey(  # noqa: C901
                     try:
                         stack_started = time.monotonic()
                         if from_step is None:
-                            repository_id, initial_commit_id = start_three_container_stack(
-                                env,
-                                secret_root,
-                            )
+                            if resolved_kernel_threads is None:
+                                repository_id, initial_commit_id = start_three_container_stack(
+                                    env,
+                                    secret_root,
+                                )
+                            else:
+                                repository_id, initial_commit_id = start_three_container_stack(
+                                    env,
+                                    secret_root,
+                                    kernel_threads=resolved_kernel_threads,
+                                )
                             step_state["_stack"] = {
                                 "repository_id": repository_id,
                                 "initial_commit_id": initial_commit_id,
@@ -4506,10 +4581,20 @@ def run_journey(  # noqa: C901
                         else:
                             repository_id, initial_commit_id = _resume_stack(env, step_state)
                         stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
-                        if from_step is None and _s3_large_resource_guard_required(
-                            s3_census=s3_census, scope=scope,
+                        if from_step is None and _ready_resource_guard_required(
+                            s3_census=s3_census,
+                            scope=scope,
+                            kernel_threads=resolved_kernel_threads,
+                            kernel_memory_budget_bytes=kernel_memory_budget_bytes,
                         ):
-                            _check_s3_ready_resource_guard(env)
+                            _check_s3_ready_resource_guard(
+                                env,
+                                expected_kernel_threads=resolved_kernel_threads,
+                                expected_kernel_memory_bytes=_resolved_guard_budget_bytes(
+                                    resolved_kernel_threads,
+                                    kernel_memory_budget_bytes,
+                                ),
+                            )
                         if scope == "t4-w1-w2":
                             _check_w1_w2_ready_resource_guard(env)
                         with WorkerHeartbeatMonitor(
@@ -4715,6 +4800,8 @@ def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
                 s3_census=arguments.s3_census,
                 submit_measurements=arguments.submit_measurements,
                 skip_repeat_v1=arguments.s4_skip_repeat_v1,
+                kernel_threads=arguments.kernel_threads,
+                kernel_memory_budget_bytes=arguments.kernel_memory_budget_bytes,
             )
 
 
@@ -4775,6 +4862,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cross_project=arguments.cross_project, from_step=arguments.from_step,
             v2_input_completeness=arguments.v2_input_completeness,
             s3_census=arguments.s3_census, skip_repeat_v1=arguments.s4_skip_repeat_v1,
+            kernel_threads=arguments.kernel_threads,
         )
         if arguments.validate_inputs and any(
             (

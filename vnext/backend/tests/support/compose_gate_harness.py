@@ -306,8 +306,13 @@ def _repository_service_image_matches(
     )
 
 
-def build_compose_stack_images(env: dict[str, str]) -> None:
-    prepare_runtime_config(env)
+def build_compose_stack_images(
+    env: dict[str, str],
+    *,
+    workers: int = 1,
+    kernel_threads: int | None = None,
+) -> None:
+    prepare_runtime_config(env, workers=workers, kernel_threads=kernel_threads)
     ensure_repository_service_image()
     if compose_gate_prebuilt():
         return
@@ -1366,11 +1371,12 @@ def start_three_container_stack(
     tmp_path: Path,
     *,
     workers: int = 1,
+    kernel_threads: int | None = None,
 ) -> tuple[str, str]:
     acquire_compose_gate_lock()
-    prepare_runtime_config(env, workers=workers)
+    prepare_runtime_config(env, workers=workers, kernel_threads=kernel_threads)
     _assert_port_8000_available_for_gate(env["COMPOSE_PROJECT_NAME"])
-    build_compose_stack_images(env)
+    build_compose_stack_images(env, workers=workers, kernel_threads=kernel_threads)
     _teardown_compose_project_resources(env)
     up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
     if up_repo.returncode != 0:
@@ -2011,22 +2017,44 @@ def identity_confirmation_requests(
 _runtime_fixtures: dict[str, tuple[Path, str]] = {}
 
 
-def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
+def prepare_runtime_config(
+    env: dict[str, str],
+    *,
+    workers: int = 1,
+    kernel_threads: int | None = None,
+) -> None:
+    if kernel_threads is not None and (type(kernel_threads) is not int or kernel_threads < 1):
+        raise ValueError("kernel_threads must be a positive integer")
     if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env:
+        if kernel_threads is not None:
+            profile_path = (
+                Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).parent / "resource-profile.json"
+            )
+            if profile_path.is_file():
+                profile = json.loads(profile_path.read_bytes())
+                actual_threads = profile.get("worker", {}).get("kernel_threads")
+                if actual_threads != kernel_threads:
+                    raise ValueError(
+                        "existing runtime fixture has "
+                        f"kernel_threads={actual_threads}, expected {kernel_threads}"
+                    )
         return
     directory = Path(tempfile.mkdtemp(prefix="gateway-bind-", dir=os.environ.get("TMPDIR")))
     owner = env["COMPOSE_PROJECT_NAME"] + "-" + uuid4().hex
     _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]] = (directory, owner)
+    command = [
+        sys.executable,
+        str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+        str(directory),
+        "--owner",
+        owner,
+        "--workers",
+        str(workers),
+    ]
+    if kernel_threads is not None:
+        command.extend(["--kernel-threads", str(kernel_threads)])
     completed = subprocess.run(
-        [
-            sys.executable,
-            str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
-            str(directory),
-            "--owner",
-            owner,
-            "--workers",
-            str(workers),
-        ],
+        command,
         capture_output=True,
         text=True,
         check=False,

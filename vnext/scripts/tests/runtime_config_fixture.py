@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import stat
 import shutil
@@ -60,7 +61,9 @@ def cleanup(directory: Path, owner: str, *, retain: bool) -> None:
 
 
 def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | None = None, owner: str | None = None, workers: int = 1, *, group_id: str | None = None,
-            processing_groups_small_input: bool = False) -> Path:
+            processing_groups_small_input: bool = False, kernel_threads: int | None = None) -> Path:
+    if kernel_threads is not None and (type(kernel_threads) is not int or kernel_threads < 1):
+        raise ValueError("kernel_threads must be a positive integer")
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
     if owner is not None:
         claim_owner(directory, owner)
@@ -83,6 +86,10 @@ def prepare(directory: Path, rs_source: Path | None = None, split_root: Path | N
         profile["host_budget"].update(memory_bytes=46 * 1024**3, cpu_count=9)
     elif workers != 1:
         raise ValueError("isolated correctness fixture supports W1 or the approved W2 profile")
+    if kernel_threads is not None:
+        if kernel_threads > 256 or kernel_threads > math.floor(profile["worker"]["cpu_limit"]):
+            raise ValueError("worker kernel_threads exceeds worker cpu_limit")
+        profile["worker"]["kernel_threads"] = kernel_threads
     storage["filesystems"] = {}
     observed = mounts()
     existing_rs = rs_source is not None and next(rs_source.iterdir(), None) is not None
@@ -126,6 +133,7 @@ def main() -> None:
     parser.add_argument("--split-root", type=Path)
     parser.add_argument("--owner")
     parser.add_argument("--workers", type=int, choices=(1, 2), default=1)
+    parser.add_argument("--kernel-threads", type=int)
     parser.add_argument("--group-id")
     parser.add_argument("--processing-groups-small-input", action="store_true")
     parser.add_argument("--cleanup", action="store_true")
@@ -137,7 +145,8 @@ def main() -> None:
         cleanup(args.directory, args.owner, retain=args.retain)
     else:
         print(prepare(args.directory, args.rs_source, args.split_root, args.owner, args.workers,
-            group_id=args.group_id, processing_groups_small_input=args.processing_groups_small_input))
+            group_id=args.group_id, processing_groups_small_input=args.processing_groups_small_input,
+            kernel_threads=args.kernel_threads))
 
 
 if __name__ == "__main__":

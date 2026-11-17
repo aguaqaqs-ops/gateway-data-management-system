@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from email import policy
 from email.parser import BytesParser
@@ -1708,6 +1709,231 @@ def test_s3_larger_resource_guard_requires_host_margin_and_healthy_services(
 
 
 @pytest.mark.parametrize(
+    ("scope", "budget", "threads", "expected"),
+    (
+        ("full", 24 * 1024**3, 1, True),
+        ("full", 24 * 1024**3, 2, True),
+        ("full", 40 * 1024**3, 1, True),
+        ("full", 40 * 1024**3, 2, True),
+        ("t4-w1-w2", 24 * 1024**3, 1, False),
+        ("t4-identity", 24 * 1024**3, 1, False),
+    ),
+)
+def test_ready_resource_guard_required_covers_full_scope_for_m24_and_m40(
+    scope: str,
+    budget: int,
+    threads: int,
+    expected: bool,
+) -> None:
+    assert (
+        real_dump_journey._ready_resource_guard_required(
+            s3_census=None,
+            scope=scope,
+            kernel_threads=threads,
+            kernel_memory_budget_bytes=budget,
+        )
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("threads", "budget", "fault", "expected"),
+    (
+        (1, 24 * 1024**3, None, "PASS"),
+        (2, 24 * 1024**3, None, "PASS"),
+        (1, 40 * 1024**3, None, "PASS"),
+        (2, 40 * 1024**3, None, "PASS"),
+        (2, 24 * 1024**3, "threads_mismatch", "FAILED"),
+        (1, 24 * 1024**3, "threads_mismatch", "FAILED"),
+        (2, 24 * 1024**3, "budget_mismatch", "FAILED"),
+        (2, 24 * 1024**3, "envelope_mismatch", "FAILED"),
+        (2, 24 * 1024**3, "reserve_mismatch", "FAILED"),
+        (2, 24 * 1024**3, "hard_limit_mismatch", "FAILED"),
+        (2, 24 * 1024**3, "restart", "FAILED"),
+        (2, 24 * 1024**3, "oom", "FAILED"),
+        (2, 40 * 1024**3, "mem_available", "FAILED"),
+    ),
+)
+def test_full_scope_resource_guard_enforces_requested_threads_and_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    threads: int,
+    budget: int,
+    fault: str | None,
+    expected: str,
+) -> None:
+    envelope = 48 * 1024**3 if budget == 40 * 1024**3 else 32 * 1024**3
+    services: dict[str, dict[str, Any]] = {}
+    for service in ("backend", "worker", "repository-service"):
+        services[service] = {
+            "container_id": service,
+            "restart_count": 1 if (service == "worker" and fault == "restart") else 0,
+            "memory_max": (
+                str(48 * 1024**3 if envelope == 32 * 1024**3 else 32 * 1024**3)
+                if (service == "worker" and fault == "hard_limit_mismatch")
+                else (str(envelope) if service == "worker" else "max")
+            ),
+            "memory_events": {
+                "oom": 1 if (service == "worker" and fault == "oom") else 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0,
+            },
+            "host_config_memory_bytes": envelope if service == "worker" else 0,
+            "resource_profile": {
+                "kernel_threads": (
+                    (2 if threads == 1 else 1) if fault == "threads_mismatch" else threads
+                ),
+                "kernel_memory_bytes": (40 * 1024**3 if budget == 24 * 1024**3 else 24 * 1024**3)
+                if fault == "budget_mismatch"
+                else budget,
+                "memory_envelope_bytes": (
+                    48 * 1024**3 if envelope == 32 * 1024**3 else 32 * 1024**3
+                )
+                if fault == "envelope_mismatch"
+                else envelope,
+                "memory_reserve_bytes": 4 * 1024**3 if fault == "reserve_mismatch" else 8 * 1024**3,
+            }
+            if service == "worker"
+            else {},
+        }
+    available = 56 * 1024**3 - 1 if fault == "mem_available" else 56 * 1024**3
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_s3_ready_resource_snapshot",
+        lambda _env: {"mem_available_bytes": available, "services": services},
+    )
+    if expected == "FAILED":
+        with pytest.raises(JourneyFailure, match="before first business observation"):
+            real_dump_journey._check_s3_ready_resource_guard(
+                {},
+                expected_kernel_threads=threads,
+                expected_kernel_memory_bytes=budget,
+            )
+    else:
+        real_dump_journey._check_s3_ready_resource_guard(
+            {},
+            expected_kernel_threads=threads,
+            expected_kernel_memory_bytes=budget,
+        )
+    event = json.loads(capsys.readouterr().out)
+    assert event["event"] == "s3_resource_start_guard"
+    assert event["status"] == expected
+    assert event["expected_profile"]["kernel_threads"] == threads
+    assert event["expected_profile"]["kernel_memory_bytes"] == budget
+
+
+def test_full_scope_resource_guard_rejects_unsupported_budget() -> None:
+    with pytest.raises(JourneyFailure, match="unsupported container resource guard budget"):
+        real_dump_journey._check_s3_ready_resource_guard(
+            {},
+            expected_kernel_threads=1,
+            expected_kernel_memory_bytes=8 * 1024**3,
+        )
+
+
+def test_run_journey_forwards_kernel_threads_to_compose_stack_and_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    recorded: dict[str, Any] = {}
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_read_metadata",
+        lambda _root, *, census_path=None: ({}, {}),
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="deadbeef\n" if command[:2] == ["git", "rev-parse"] else "",
+            stderr="",
+        ),
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "build_compose_stack_images",
+        lambda _env, *, kernel_threads=None: recorded.setdefault("build", kernel_threads),
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_compose_environment",
+        lambda *_args, **_kwargs: {"COMPOSE_PROJECT_NAME": "unit-d24-n2"},
+    )
+    monkeypatch.setattr(
+        real_dump_journey, "_repository_service_url", lambda _env: "http://repository"
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_offline_composite_comparison",
+        lambda **_kwargs: {"counts": {}, "elapsed_seconds": 0.0},
+    )
+    monkeypatch.setattr(real_dump_journey, "acquire_compose_gate_lock", lambda: None)
+    monkeypatch.setattr(real_dump_journey, "cleanup_compose_project_artifacts", lambda _env: None)
+
+    def fake_start(
+        _env: dict[str, str], _secret_root: Path, *, kernel_threads: int | None = None
+    ) -> tuple[str, str]:
+        recorded["start"] = kernel_threads
+        return "repo-1", "commit-1"
+
+    monkeypatch.setattr(real_dump_journey, "start_three_container_stack", fake_start)
+
+    def fake_guard(
+        _env: Mapping[str, str],
+        *,
+        expected_kernel_threads: int | None = None,
+        expected_kernel_memory_bytes: int | None = None,
+    ) -> None:
+        recorded["guard"] = (expected_kernel_threads, expected_kernel_memory_bytes)
+
+    monkeypatch.setattr(real_dump_journey, "_check_s3_ready_resource_guard", fake_guard)
+
+    class FakeHeartbeatMonitor:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> FakeHeartbeatMonitor:
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            return None
+
+    monkeypatch.setattr(real_dump_journey, "WorkerHeartbeatMonitor", FakeHeartbeatMonitor)
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_run_tier",
+        lambda **_kwargs: {"tier": "t4", "status": "PASS"},
+    )
+
+    result = real_dump_journey.run_journey(
+        tier_filter="t4",
+        scope="full",
+        kernel_threads=2,
+        kernel_memory_budget_bytes=24 * 1024**3,
+    )
+
+    assert result["conclusion"] == "PASS"
+    assert recorded == {
+        "build": 2,
+        "start": 2,
+        "guard": (2, 24 * 1024**3),
+    }
+
+
+def test_w1_w2_direct_run_journey_still_rejects_n2(monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        pytest.fail("invalid N2 reached inputs or stack")
+
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", forbidden)
+    monkeypatch.setattr(real_dump_journey, "start_three_container_stack", forbidden)
+    with pytest.raises(JourneyFailure, match="t4-w1-w2 requires N1"):
+        real_dump_journey.run_journey(tier_filter="t4", scope="t4-w1-w2", kernel_threads=2)
+
+
+@pytest.mark.parametrize(
     ("complete_keyscan", "expected_failure", "expected_git_calls"),
     [
         (False, "effective-key scan", 0),
@@ -2036,6 +2262,8 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "s3_census": None,
         "submit_measurements": None,
         "skip_repeat_v1": False,
+        "kernel_threads": 1,
+        "kernel_memory_budget_bytes": 8589934592,
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
@@ -2148,7 +2376,7 @@ def test_cli_passes_fresh_t4_w1_w2_scope(monkeypatch: pytest.MonkeyPatch) -> Non
     assert calls["skip_repeat_v1"] is False
 
 
-W1_W2_RESOURCE_FAULTS = (None, "budget", "hard_limit", "restart", "oom")
+W1_W2_RESOURCE_FAULTS = (None, "threads", "budget", "hard_limit", "restart", "oom")
 
 
 @pytest.mark.parametrize("fault", W1_W2_RESOURCE_FAULTS)
@@ -2168,7 +2396,9 @@ def test_w1_w2_checks_the_running_worker_resource_boundary(
             "memory_reserve_bytes": 8 * 1024**3,
         },
     }
-    if fault == "budget":
+    if fault == "threads":
+        cast(dict[str, int], worker["resource_profile"])["kernel_threads"] = 2
+    elif fault == "budget":
         cast(dict[str, int], worker["resource_profile"])["kernel_memory_bytes"] = 40 * 1024**3
     elif fault == "hard_limit":
         worker["memory_max"] = "max"

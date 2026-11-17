@@ -3077,6 +3077,7 @@ pre {
 }
 .operation-status-card__heading strong {
   font-size: var(--font-size-sm);
+  line-height: 20px;
 }
 .operation-status-card__heading span,
 .operation-status-card p {

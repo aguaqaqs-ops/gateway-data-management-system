@@ -294,34 +294,19 @@ Owner 已确认 `remediation-input-backend.md` 与 `project-review-2026-11.md` �
 
 从本决定起，新建的后端角色默认采用持续协调 `gpt-6.1-terra` / high、每包实施 `gpt-6.1-terra` / high、独立审核 `gpt-6.1-sol` / xhigh（复杂判断可 max）。独审仍使用新上下文和与实施者不同的模型家族；同一 finding 由原审复审。取消专职测试者、风险分级、门禁和验收范围不变。此前阶段的角色与审核记录按原时点保留；前端不适用后端固定角色安排。
 
-## 21. 后端整顿恢复计划增补（codex-20261117，2026-11-17）
+## 21. 后端整顿恢复计划增补（2026-11-17）
 
-依据 Owner 转交的 `/home/dev/gdds-stage-exchange/whole-project-review/remediation-reassessment-2026-11-16.md`（§1、§2、§4、§5、§7、§8），以及本次允许文件名增加标识以避免多会话覆盖的指令，形成[独立标识的执行计划候选](p7-backend-remediation-execution-plan-codex-20261117.md)。它保留原四批正文，仅更新入口和门禁说明并增加 §8；原计划及本文件历史记录不改写。状态为**待整体复盘会话核对、待 B′ 核收，不启动产品实施**，不沿用旧计划的复审通过状态。
+依据 Owner 转交的 `/home/dev/gdds-stage-exchange/whole-project-review/remediation-reassessment-2026-11-16.md`（§1、§2、§4、§5、§7、§8）及 `remediation-plan-revision-check-backend.md` 核对意见，将恢复计划增补写回[后端整顿执行计划](p7-backend-remediation-execution-plan.md)（更新入口和门禁说明并增加 [§8](p7-backend-remediation-execution-plan.md#8-中期后恢复增补2026-11-17)）；本文件历史章节不改写。状态为：恢复计划已定稿，整体复盘会话已核对（2026-11-17），待 B′ 核收，未实施、未测试。
 
 下表补充 §19 对应决定的恢复条件，不产生新的产品范围或授权：
 
 | 对应决定 | 本次恢复安排 |
 | --- | --- |
-| P7-D28 | 两端以附注 tag `gw08-midterm-exit` 指向的 B′ 为冻结基准；门禁整改合入后，B′ 必须有后端门禁和前端 mock 全量/截图，前端另跑一次真实 backend journeys 完整集对照。门禁/mock 失败先修复并重核候选；对照 journeys 逐项记失败，不要求全通过才开工。整顿后进入 S3 的顺序、R1/R2 例外保持。前后端经 Owner 转交，两份规则文档仍只由规则会话修改 |
+| P7-D28 | 两端以附注 tag `gw08-midterm-exit` 指向的 B′ 为冻结基准；04 上六包 `stage` 通过的只有 `cf7bea421c`，后续提交改了 runner、门禁脚本和测试，因此 B′ 必须有绑定到它的六包 `--purpose stage` 实跑结果，同时完成前端 mock 全量/截图，前端另跑一次真实 backend journeys 完整集对照。门禁/mock 失败先修复并重核候选；对照 journeys 逐项记失败，不要求全通过才开工。整顿后进入 S3 的顺序、R1/R2 例外保持。前后端经 Owner 转交，两份规则文档仍只由规则会话修改 |
 | P7-D29 / WT | 第 1 批回收范围包含复评 §7 的分支和工作区；未合入分支先归档再删，展示候选数/排除项后执行前复核。保护活动、dirty、未知用途、finding/证据/carried、固定门禁及归属、`fe-vnext`/`gdds-fe`；门禁整改在途树也排除。已授权 `gdds-gw08-dual-env` 回收不豁免现场核查，无 force。本次不清理 |
-| P7-D31 | K1 增加 History 列表游标/分页/授权；History 成功结果的完整读取和绑定检查整体纳入原结果读取块。两条 Submission result 路由核既有 application 授权入口。J1 storage facts codec 与 `fact_document.py` 分开；J3 四个中期同级模块留原位；K2 覆盖五个 policies 导入文件及 statistics 间接授权，HTTP 错误映射/拒绝顺序保持 |
-| P7-D32 | J6/J5 接新 runner 最早检查批次，失败传播；工作包使用 package（容器 deferred），批末及最终 stage 由脚本按 `vnext` 树相等、闭包与证据/镜像等条件判沿用，不扫描区间历史。旧私有导入、OpenAPI 和复杂度计数在 B′ 重核；现行角色采用 §20 |
-| P7-D33 | P1/P2 扫描包含中期新增摘要和版本常量，核“防什么、谁核对”，未知照实记录；L2 原对象、四判据及 P1 删除次序不变。结构改动避开 table_rules/business_navigation/risk_evaluation；J6 全量覆盖，J5 只加超阈值豁免注释；这些目录的 P1 删除待规则变更合入，L2 比较保持同规则版本 |
-| P7-D34 | B′ 上重填真实运行卡、追踪 driver 到实际 worker/cgroup 的 N1/N2 接线，DC33 核收后执行；D24 N1/N2 同规则版本、同节点/输入/配置，生产 N1 与资源预算不变 |
+| P7-D31 | K1 增加 History 列表游标/分页/授权（归 `application/history/queries.py`）；History 成功结果的完整读取和绑定检查整体纳入原结果读取块（归 `application/history/results.py`）。两条 Submission result 路由核既有 application 授权入口（回归增列 `test_submission_result_http.py`）。J1 storage facts codec 与 `fact_document.py` 分开；J3 四个中期同级模块留原位；K2 覆盖五个 policies 导入文件及 statistics 间接授权，HTTP 错误映射/拒绝顺序保持 |
+| P7-D32 | J6/J5 接新 runner 最早检查批次（Rust 之前），非零置 `test_exit=1` 和 `PACKAGE_STATUS[backend]=failed` 并由 `skip_serial` 跳过串行批次传播失败；工作包使用 package（容器 deferred），批末及最终 stage 由脚本按 `vnext` 树相等、闭包与证据/镜像等条件判沿用，不扫描区间历史。生产私有导入、J3 测试/benchmark/harness 四种形式私有名字使用点、OpenAPI 和复杂度计数在 B′ 重核；现行角色采用 §20 |
+| P7-D33 | P1/P2 扫描包含中期新增摘要和版本常量，核“防什么、谁核对”，未知照实记录；L2 原对象、四判据及 P1 删除次序不变（`fact_document.py`、`comparison_audit.py`、`preview_documents.py` 仅作写法参照）。结构改动避开 table_rules/business_navigation/risk_evaluation；J6 全量覆盖，J5 只加超阈值豁免注释；这些目录的 P1 删除待规则变更合入，L2 比较保持同规则版本 |
+| P7-D34 | B′ 上重填真实运行卡。现容器侧无 N 传参（`runtime_config_fixture.py` 读固定 `resource-profile.json`，`kernel_threads` 为 1），且 `--scope full` 走 `_check_s3_ready_resource_guard` 要求 worker profile `kernel_threads == 1`；N2 运行确定须改 harness：加显式 N 传递，把 full 的该处检查改成“等于本次请求的 N”，内存与 envelope 检查不放宽，`t4-w1-w2` 的 N1 守卫和生产默认 N1 保留，按计划 §4.1 先交独审、在专用节点验证后进最终 V。D24 N1/N2 同规则版本、同节点/输入/配置，DC33 核收后执行 |
 
-只读核对点为 main `320cf32ec09846918adf59c1c15960cc599f7c1d`：门禁整改已合入，本地未找到 `gw08-midterm-exit`，未收到 B′ 证据交接；这不是正式 B′，不据此宣布开工。暂停前核收点/数字只保留历史意义，复评 §5 的 11 项已落实到候选 §8。源码接点与暂定计数在阶段区 `reference/reassessment-codex-20261117.md`，提交与检查结果追加 `log.md`；本次只做文档差异、链接和源码依据核对，不运行测试、lint、构建，不打 tag、不推送。
-
-## 22. 后端整顿恢复计划增补（argon-20261117，2026-11-17）
-
-依据 `/home/dev/gdds-stage-exchange/whole-project-review/remediation-reassessment-2026-11-16.md`（§1、§2、§4、§5、§7、§8）及多 agent 计划文档加标识的约定，产出独立标识候选 [P7 后端专项整顿执行计划（argon-20261117）](p7-backend-remediation-execution-plan-argon-20261117.md)（在原计划正文基础上补充 §8），并同步更新本节对应 §19（P7-D28–D34）的中期后恢复记录。当前仅完成计划增补，待整体复盘会话核对一致性及 B′（附注 tag `gw08-midterm-exit`）就绪后启动实施。
-
-| 对应决议 | 中期合入后的恢复与重核补充（2026-11-17） |
-| --- | --- |
-| P7-D28 | 整顿起点与“不改行为”冻结基准由暂停前核收点改为门禁整改合入 `main` 并完成 04 门禁、前端 B′ mock 全量与真实 backend `journeys` 完整集对照后的 **B′**（附注 tag `gw08-midterm-exit`）。R1（P1 删除只写不读 digest）、R2（G2 移除公开 OpenAPI 内部路径及专用组件）和输入 §2 已批准删除三项例外不变；整顿完成后进入 S3 的顺序、前后端经 Owner 转交、两份规则文档仅由规则会话修改不变。来源文件维护目录统一为 `/home/dev/gdds-stage-exchange/whole-project-review/` |
-| P7-D29 / WT | C1 删除范围不变。第 1 批 WT 扩大为工作区与本地分支一并盘点回收（`320cf32ec0` 实测工作区 674 个、本地分支 110 个，其中 65 个已合入、45 个未合入）；未合入分支先归档到 `refs/archive/<用途>/` 再删。排除主 checkout、在途树、`fe-vnext` 与 `/home/dev/gdds-fe`、04 固定门禁树及归属记录、dirty/未知用途及被未关闭 finding 或有效证据/carried 引用的工作区；`/home/dev/gdds-gw08-dual-env` 已获批可清理。执行前向 Owner 展示候选数、归档与排除清单，执行前复核，不 force |
-| P7-D31 | K1 纳入中期新增 `http/orchestration/history_compare_list.py`（85 行，迁入 `application/history/`）；确认 `http/orchestration/history_compare.py`（572 行）中 `_load_success_result`（约 167 行）及关联预检/结果/bundle 读取与绑定校验函数整体属原“History 结果读取”块并重列搬移清单（`_HistoryAssembleState.pairs` 脱离 `http.schemas` DTO）；核实新增 `/v1/submissions/{submission_id}/result` 及 `/bundle` 已在 `application/submission/review_result.py:read_submission_preview` 入口首行鉴权；`reference/k1-http-errors.md` 在 B′ 上覆盖新增与改动路由。J1 `capabilities/comparison/documents.py`（storage facts checkpoint 编解码）与中期新增 `fact_document.py`（比较缓存/结构审计表事实文档）独立分文件，不合并。J3 将中期新增的四个同级模块（`preview_binding.py`、`preview_semantics.py`、`preview_job_identity.py`、`comparison_audit.py`）留原位，仅更新导入。G2 在 `320cf32ec0` 上为 41 条路径（公开 `/v1` 35 条、内部 `/internal/v1` 6 条）与 107 个 schema 组件 |
-| P7-D32 | J6（`ruff format --check src tests`）与 J5（`ruff check src tests`）按重排后的 `vnext/scripts/run-tests.sh` 接入 `run_parallel_batch backend` 之前的首轮预检步，非零置失败并触发 `skip_serial=1` 早停。工作包门禁使用 `--purpose package`（跳过 `container` 用例与容器门禁，记 `deferred`）；批末与最终候选 V 使用 `--purpose stage`，容器沿用按 `V:vnext == HEAD:vnext` 树相等、祖先关系、RS labels 及入口镜像身份判定，不再扫描区间历史。J4 生产 `src/` 跨目录私有导入仍为 7 个名字；测试从三作业模块导入私有名字在 `320cf32ec0` 上为 15 个文件、30 处（16 个名字，另 `compose_gate_harness.py` 内嵌脚本 2 处）。K2 处理 `http` 下 5 个导入 `domain.workspace.policies` 的文件（3 个随 K1 迁走，2 个连同 `statistics.py` 在 K2 处理），保持空基线 |
-| P7-D33 | L2 试点对象与四条判据不变；`fact_document.py`、`comparison_audit.py`、`preview_documents.py` 仅作写法参照，不替代试点前后字节/digest 不变与样板净减 ≥40% 的证据。P1/P2 在 B′ 上重扫（含复评 §3.3 的 15 组升版常量与新摘要字段；`320cf32ec0` 上数据类 `*_digest` 字段名 116 个/346 处声明，未直接出现在 `==`/`!=` 比较表达式的 19 个，摘要计算函数 52 个名字/62 处定义、哈希调用函数 124 处，归纳约 55–60 种），并顺带核实中期新增身份在设计中写明的“防什么、由谁核对”与代码核对者是否一致，查不到核对者的列为“未知”。通道规则保留区（`capabilities/table_rules/`、`business_navigation/`、`risk_evaluation/`）不进 J1–J4/K1/K2/L2 结构改动，仅覆盖 J6 格式化与 J5 `# noqa: C901` 注释；涉及这三处的 P1 字段删除排到并行规则修改合入之后，L2 的 t1 比较保持同一规则版本 |
-| P7-D34 | `reference/real-data-run-card.md` 在 B′ 上重填。静态重核确认 `benchmarks/real_dump_journey.py` 的 `--kernel-threads` 仅作用于宿主机进程内上下文，容器栈经 `compose_gate_harness.py` → `runtime_config_fixture.py` 仍固定渲染 `worker.kernel_threads = 1`；D24 执行前须补齐 `--scope full` 到容器 `resource-profile.json`/cgroup 的显式 N1/N2 传递与核验（保留 `t4-w1-w2` N1 守卫与生产默认 N1），经 Sol 独审与专用节点验证后入最终 V。D24 的 t4 N1/N2 比较必须在同一规则版本上进行 |
-
-只读核对基于 `main` 代码提交 `320cf32ec09846918adf59c1c15960cc599f7c1d`：本地尚未打 `gw08-midterm-exit` 附注 tag，B 期 `35fa9d3f35` 之后的六包 stage 门禁、前端 B′ mock 全量与真实 backend `journeys` 完整集对照尚未交接，故不将当前 HEAD 冒作已就绪的 B′。源码核对明细存阶段区 `reference/reassessment-argon-20261117.md`，记录追加 `log.md`。
+Owner 已确认当前 main 头就是事实上的起点 B′（只读接点核对基于代码头 `320cf32ec09846918adf59c1c15960cc599f7c1d`）；计划定稿提交之后再在其上跑门禁、前端全量和 journeys 对照并打 tag `gw08-midterm-exit`，tag 打出之前不启动实施。暂停前核收点/数字只保留历史意义，复评 §5 的 11 项已落实到计划 §8。源码接点与打 tag 前的临时数字在阶段区 `reference/reassessment-codex-20261117.md`，提交与检查结果追加 `log.md`；本次只做文档修订、本地链接和源码依据核对，不运行测试、lint、构建，不打 tag、不推送。

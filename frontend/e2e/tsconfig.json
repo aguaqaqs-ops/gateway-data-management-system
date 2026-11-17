@@ -9,5 +9,6 @@
     "strict": false,
     "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"]
   },
-  "include": ["./**/*.ts", "../src/**/*.ts", "../e2e-real/lib/**/*.ts"]
+  "include": ["./**/*.ts", "../src/**/*.ts", "../e2e-real/lib/**/*.ts"],
+  "exclude": ["../src/**/*.test.ts", "../src/**/*.test.tsx", "../src/test", "../src/pages"]
 }

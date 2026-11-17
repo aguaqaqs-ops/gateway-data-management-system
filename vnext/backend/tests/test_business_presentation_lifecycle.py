@@ -120,8 +120,10 @@ def test_actual_presentation_refs_recover_from_disk_transfer_or_release_protecti
     def forbid_recompute(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("publish recovery must consume the closed presentation artifacts")
 
-    monkeypatch.setattr(preview, "_run_pair_pipeline", forbid_recompute)
-    recovery = preview.build_preview_recovery_port(replace(deps, artifact_store=reopened))
+    monkeypatch.setattr(preview_assemble, "_run_pair_pipeline", forbid_recompute)
+    recovery = preview_definitions.build_preview_recovery_port(
+        replace(deps, artifact_store=reopened)
+    )
     session, control, operation, step = claim_next_step(harness)
     if cancel:
         control.request_cancel()

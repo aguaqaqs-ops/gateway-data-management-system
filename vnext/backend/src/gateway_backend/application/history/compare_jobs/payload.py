@@ -60,6 +60,7 @@ HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handl
 
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
+
 class HistoryCompareJobError(ValueError):
     """Bounded history compare job failure surfaced to the operation runtime."""
 
@@ -67,11 +68,14 @@ class HistoryCompareJobError(ValueError):
         super().__init__(message)
         self.diagnostic_code = diagnostic_code
 
+
 class HistoryCompareInputError(HistoryCompareJobError):
     """Known exact-commit authority failure before comparison publication."""
 
+
 class HistoryCompareRulesetVersionMismatch(HistoryCompareJobError):
     """Raised when frozen compare ruleset version does not match runtime."""
+
 
 @dataclass(frozen=True, slots=True)
 class HistoryCompareJobPayload:
@@ -87,11 +91,13 @@ class HistoryCompareJobPayload:
     pair_count: int
     nodes: tuple[HistoryCompareNodeBinding, ...]
 
+
 HistoryCompareControlTransactionFactory = Callable[
     [], ContextManager[HistoryCompareControlTransaction]
 ]
 
 RepositoryProviderFactory = Callable[[str, str], RepositoryTableAccessProvider]
+
 
 @dataclass(frozen=True, slots=True)
 class HistoryCompareRuntimeDependencies:
@@ -100,6 +106,7 @@ class HistoryCompareRuntimeDependencies:
     control_transaction_factory: HistoryCompareControlTransactionFactory
     snapshot_export_cache: SnapshotTableExportCachePort | None = None
     computation_cache: ComputationCachePort | None = None
+
 
 def history_compare_materialize_job_definition() -> JobDefinition:
     return JobDefinition(
@@ -113,6 +120,7 @@ def history_compare_materialize_job_definition() -> JobDefinition:
         recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
+
 def history_compare_assemble_job_definition() -> JobDefinition:
     return JobDefinition(
         key=JobStepKey(job_kind=HISTORY_COMPARE_JOB_KIND, step_name=HISTORY_COMPARE_STEP_ASSEMBLE),
@@ -123,6 +131,7 @@ def history_compare_assemble_job_definition() -> JobDefinition:
         recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
+
 def history_compare_publish_job_definition() -> JobDefinition:
     return JobDefinition(
         key=JobStepKey(job_kind=HISTORY_COMPARE_JOB_KIND, step_name=HISTORY_COMPARE_STEP_PUBLISH),
@@ -132,6 +141,7 @@ def history_compare_publish_job_definition() -> JobDefinition:
         publication_capability=NormalPublicationCapability.TERMINAL,
         recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
+
 
 def decode_history_compare_payload(payload_object: dict[str, object]) -> HistoryCompareJobPayload:
     gateway_device_external_key = require_non_empty_str(
@@ -163,6 +173,7 @@ def decode_history_compare_payload(payload_object: dict[str, object]) -> History
         nodes=nodes,
     )
 
+
 def _load_history_compare_payload(
     operation: OperationRecord, store: ArtifactStorePort
 ) -> HistoryCompareJobPayload:
@@ -178,20 +189,24 @@ def _load_history_compare_payload(
         raise PayloadDecodeError("job_payload must be a JSON object", code="PAYLOAD_SHAPE_INVALID")
     return decode_history_compare_payload(cast(dict[str, object], payload_object))
 
+
 _HISTORY_COMPARE_STEP_SUFFIX: dict[str, str] = {
     HISTORY_COMPARE_STEP_MATERIALIZE: "1",
     HISTORY_COMPARE_STEP_ASSEMBLE: "2",
     HISTORY_COMPARE_STEP_PUBLISH: "3",
 }
 
+
 def history_compare_step_id(operation_id: str, step_name: str) -> str:
     return successor_step_id(operation_id, step_name, _HISTORY_COMPARE_STEP_SUFFIX)
+
 
 def _require_positive_int(payload_object: dict[str, object], key: str) -> int:
     value = payload_object.get(key)
     if type(value) is not int or isinstance(value, bool) or value < 1:
         raise PayloadDecodeError(f"{key} must be a positive int", code="PAYLOAD_SHAPE_INVALID")
     return value
+
 
 def _decode_nodes(value: object) -> tuple[HistoryCompareNodeBinding, ...]:
     from gateway_backend.application.history.contracts import HistoryNodeRefKind

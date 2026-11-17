@@ -69,6 +69,7 @@ from gateway_backend.application.preview_jobs.payload import (
     preview_assemble_job_definition,
 )
 
+
 def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedExecutor:
     assemble_definition = preview_assemble_job_definition()
 
@@ -163,6 +164,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
 
     return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
+
 def _atomic_publish_preview(
     *,
     lease_session: LeaseSession,
@@ -229,6 +231,7 @@ def _atomic_publish_preview(
     closure_output_refs = load_ready_closure(deps.artifact_store, ready_closure_ref).artifact_refs()
     lease_session.publish_operation(builder)
 
+
 def _persist_preview_business_state(
     unit_of_work: PreviewControlTransaction,
     *,
@@ -260,6 +263,7 @@ def _persist_preview_business_state(
         operation_id=preview_result.operation_id,
         clear_operation_owner=False,
     )
+
 
 def _publication_drift(
     payload: PreviewJobPayload,

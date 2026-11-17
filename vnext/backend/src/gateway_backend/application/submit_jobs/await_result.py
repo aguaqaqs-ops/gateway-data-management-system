@@ -117,6 +117,7 @@ from gateway_backend.application.submit_jobs.payload import (
     _verification_policy_from_repository,
 )
 
+
 def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecutor:
     submit_definition = _definition_for_step(SUBMIT_STEP_SUBMIT)
     await_definition = _definition_for_step(SUBMIT_STEP_AWAIT)
@@ -461,6 +462,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
 
     return execute
 
+
 def _matching_finalize_facts(
     *,
     payload: SubmitJobPayload,
@@ -505,6 +507,7 @@ def _matching_finalize_facts(
         completed_unknown_type_policy=completed_unknown_type_policy,
         target_ref=target_ref,
     )
+
 
 def _make_stable_abort_builder(
     *,
@@ -562,6 +565,7 @@ def _make_stable_abort_builder(
 
     return builder
 
+
 def _make_finalize_success_builder(
     *,
     submit_attempt_id: str,
@@ -617,6 +621,7 @@ def _make_finalize_success_builder(
         return terminal_step, terminal_operation
 
     return builder
+
 
 @dataclass(frozen=True, slots=True)
 class _StaticAbortEvidence:

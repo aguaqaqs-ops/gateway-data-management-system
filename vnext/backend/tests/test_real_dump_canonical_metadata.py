@@ -379,9 +379,7 @@ def _fixture() -> MetadataFixture:
             if role == preview_payload._SIDE_BASELINE
             else None,
         }
-    f.sides[preview_payload._SIDE_INITIAL] = copy.deepcopy(
-        f.sides[preview_payload._SIDE_BASELINE]
-    )
+    f.sides[preview_payload._SIDE_INITIAL] = copy.deepcopy(f.sides[preview_payload._SIDE_BASELINE])
     f.sides["initial_reuses_baseline"] = True
     closure = canonicalize_json_value(
         {

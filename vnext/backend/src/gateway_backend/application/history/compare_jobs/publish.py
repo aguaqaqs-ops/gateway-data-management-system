@@ -58,6 +58,7 @@ from gateway_backend.application.history.compare_jobs.payload import (
     history_compare_step_id,
 )
 
+
 def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> ClaimedExecutor:
     assemble_definition = history_compare_assemble_job_definition()
 

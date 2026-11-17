@@ -57,12 +57,14 @@ from gateway_backend.application.preview_jobs.payload import (
 )
 from gateway_backend.application.preview_jobs.publish import build_publish_preview_handler
 
+
 def preview_job_definitions() -> tuple[JobDefinition, ...]:
     return (
         preview_materialize_job_definition(),
         preview_assemble_job_definition(),
         preview_publish_job_definition(),
     )
+
 
 def preview_payload_decoders() -> Mapping[str, PayloadDecoder]:
     decoder: PayloadDecoder = decode_preview_payload
@@ -71,6 +73,7 @@ def preview_payload_decoders() -> Mapping[str, PayloadDecoder]:
         PREVIEW_ASSEMBLE_DECODER: decoder,
         PREVIEW_PUBLISH_DECODER: decoder,
     }
+
 
 def bind_control_transaction_factory(
     inner: PreviewControlTransactionFactory,
@@ -100,6 +103,7 @@ def bind_control_transaction_factory(
 
     return factory
 
+
 def preview_composition_bundle(
     deps: PreviewRuntimeDependencies,
 ) -> tuple[tuple[JobDefinition, ...], Mapping[str, ClaimedExecutor], Mapping[str, PayloadDecoder]]:
@@ -122,6 +126,7 @@ def preview_composition_bundle(
         },
         dict(preview_payload_decoders()),
     )
+
 
 def build_preview_recovery_port(deps: PreviewRuntimeDependencies) -> RecoveryPort:
     class _PreviewRecoveryPort:

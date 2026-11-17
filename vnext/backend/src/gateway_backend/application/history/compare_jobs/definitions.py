@@ -37,12 +37,14 @@ from gateway_backend.application.history.compare_jobs.payload import (
 )
 from gateway_backend.application.history.compare_jobs.publish import build_publish_result_handler
 
+
 def history_compare_job_definitions() -> tuple[JobDefinition, ...]:
     return (
         history_compare_materialize_job_definition(),
         history_compare_assemble_job_definition(),
         history_compare_publish_job_definition(),
     )
+
 
 def history_compare_payload_decoders() -> Mapping[str, PayloadDecoder]:
     decoder: PayloadDecoder = decode_history_compare_payload
@@ -51,6 +53,7 @@ def history_compare_payload_decoders() -> Mapping[str, PayloadDecoder]:
         HISTORY_COMPARE_ASSEMBLE_DECODER: decoder,
         HISTORY_COMPARE_PUBLISH_DECODER: decoder,
     }
+
 
 def bind_history_compare_transaction_factory(
     inner: HistoryCompareControlTransactionFactory,
@@ -77,6 +80,7 @@ def bind_history_compare_transaction_factory(
         return _BoundUnitOfWork(inner())
 
     return factory
+
 
 def history_compare_composition_bundle(
     deps: HistoryCompareRuntimeDependencies,

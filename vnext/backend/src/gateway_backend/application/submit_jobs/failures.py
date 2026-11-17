@@ -47,6 +47,7 @@ from gateway_backend.application.submit_jobs.payload import (
     _submit_attempt_id_from_operation,
 )
 
+
 def _publish_counted_reconcile_pending(
     *,
     step: StepRecord,
@@ -75,6 +76,7 @@ def _publish_counted_reconcile_pending(
         )
     return lease_session.publish_recovery_release(intent, diagnostic=diagnostic)
 
+
 def _publish_wait_upper_bound_exceeded(
     *,
     step: StepRecord,
@@ -88,6 +90,7 @@ def _publish_wait_upper_bound_exceeded(
         diagnostic_code=DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
         reason="Repository import wait exceeded its upper bound (超出等待上界)",
     )
+
 
 def _publish_manual_recovery(
     *,
@@ -109,6 +112,7 @@ def _publish_manual_recovery(
     diagnostic = OperationDiagnostic(code=diagnostic_code.upper(), message=reason)
     return lease_session.publish_recovery_release(intent, diagnostic=diagnostic)
 
+
 def _prepare_projection_failure_diagnostic(
     exc: SubmitImportPublicationError,
 ) -> OperationDiagnostic:
@@ -118,6 +122,7 @@ def _prepare_projection_failure_diagnostic(
         message = encoded[:_MAX_PREPARE_PROJECTION_MESSAGE_BYTES].decode("utf-8", errors="ignore")
     code = "UNSUPPORTED_TABLE" if "UNSUPPORTED_TABLE" in message else "STORAGE_PROJECTION_FAILED"
     return OperationDiagnostic(code=code, message=message)
+
 
 def _make_prepare_projection_failure_builder(
     diagnostic: OperationDiagnostic,
@@ -162,11 +167,13 @@ def _make_prepare_projection_failure_builder(
 
     return builder
 
+
 def _publish_prepare_terminal_abort(
     lease_session: LeaseSession,
     diagnostic: OperationDiagnostic,
 ) -> None:
     lease_session.publish_operation(_make_prepare_projection_failure_builder(diagnostic))
+
 
 def _publish_prepare_projection_failure(
     lease_session: LeaseSession,
@@ -177,13 +184,16 @@ def _publish_prepare_projection_failure(
         _prepare_projection_failure_diagnostic(exc),
     )
 
+
 _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC = OperationDiagnostic(
     code="CHECKPOINT_ATTEMPT_BINDING_MISMATCH",
     message="prepare checkpoint attempt_id does not match submit payload",
 )
 
+
 def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
     _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
+
 
 def _publish_submit_resource_failure(
     operation: OperationRecord,
@@ -205,14 +215,17 @@ def _publish_submit_resource_failure(
             ),
         )
 
+
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
     return with_resource_failure_terminal(
         handler,
         on_memory_error=_publish_submit_resource_failure,
     )
 
+
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
     return publish_stopped_compute_cancelled_step(lease_session, _make_cancelled_terminal_builder)
+
 
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
@@ -221,6 +234,7 @@ def _make_cancelled_terminal_builder() -> Callable[
         active_transaction=_active_submit_transaction.get,
         transaction_missing=lambda: SubmitJobError("submit cancellation transaction is not bound"),
     )
+
 
 def _make_manual_recovery_terminal_builder(
     repository_operation_id: str | None,

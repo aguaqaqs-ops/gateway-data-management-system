@@ -99,6 +99,7 @@ from gateway_backend.application.history.compare_jobs.payload import (
 
 _LOG = logging.getLogger(__name__)
 
+
 def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) -> ClaimedExecutor:
     definition = history_compare_materialize_job_definition()
 
@@ -234,6 +235,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
 
     return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
+
 def _materialize_distinct_commits(
     payload: HistoryCompareJobPayload,
     deps: HistoryCompareRuntimeDependencies,
@@ -291,6 +293,7 @@ def _materialize_distinct_commits(
     )
     return sides
 
+
 def _materialize_commit(
     *,
     repository_id: str,
@@ -333,6 +336,7 @@ def _materialize_commit(
             diagnostic_code=code,
         )
     return _bound_from_materialization(result, canonical_binding=canonical_binding)
+
 
 def _validate_described_sides(
     payload: HistoryCompareJobPayload,

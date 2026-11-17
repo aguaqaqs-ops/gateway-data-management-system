@@ -82,6 +82,7 @@ _PAIR_BASELINE_TO_INITIAL = "baseline_to_initial"
 
 _PAIR_INITIAL_TO_MODIFIED = "initial_to_modified"
 
+
 class PreviewJobError(ValueError):
     """Bounded preview job failure surfaced to the operation runtime."""
 
@@ -110,6 +111,7 @@ class PreviewJobError(ValueError):
             len(ordered_details) - 100,
         )
 
+
 def _operation_diagnostic_detail_sort_key(
     detail: OperationDiagnosticDetail,
 ) -> tuple[str, str, str, str]:
@@ -120,10 +122,12 @@ def _operation_diagnostic_detail_sort_key(
         detail.code,
     )
 
+
 @dataclass(frozen=True, slots=True)
 class PreviewIdempotencyIdentity:
     workspace_id: str
     idempotency_key: str
+
 
 @dataclass(frozen=True, slots=True)
 class PreviewJobPayload:
@@ -146,9 +150,11 @@ class PreviewJobPayload:
     idempotency_identity: PreviewIdempotencyIdentity
     options: Mapping[str, object]
 
+
 PreviewControlTransactionFactory = Callable[[], ContextManager[PreviewControlTransaction]]
 
 RepositoryProviderFactory = Callable[[str, str], RepositoryTableAccessProvider]
+
 
 @dataclass(frozen=True, slots=True)
 class PreviewRuntimeDependencies:
@@ -158,6 +164,7 @@ class PreviewRuntimeDependencies:
     control_transaction_factory: PreviewControlTransactionFactory
     snapshot_export_cache: SnapshotTableExportCachePort | None = None
     computation_cache: ComputationCachePort | None = None
+
 
 def preview_materialize_job_definition() -> JobDefinition:
     return JobDefinition(
@@ -169,6 +176,7 @@ def preview_materialize_job_definition() -> JobDefinition:
         recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
+
 def preview_assemble_job_definition() -> JobDefinition:
     return JobDefinition(
         key=JobStepKey(job_kind=PREVIEW_JOB_KIND, step_name=PREVIEW_STEP_ASSEMBLE),
@@ -179,6 +187,7 @@ def preview_assemble_job_definition() -> JobDefinition:
         recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
 
+
 def preview_publish_job_definition() -> JobDefinition:
     return JobDefinition(
         key=JobStepKey(job_kind=PREVIEW_JOB_KIND, step_name=PREVIEW_STEP_PUBLISH),
@@ -188,6 +197,7 @@ def preview_publish_job_definition() -> JobDefinition:
         publication_capability=NormalPublicationCapability.TERMINAL,
         recovery_capability=RecoveryCapability.PURE_RECOMPUTE,
     )
+
 
 def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPayload:
     _reject_unknown_top_level_keys(payload_object)
@@ -250,6 +260,7 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
         options=options,
     )
 
+
 def _load_preview_payload(
     operation: OperationRecord, store: ArtifactStorePort
 ) -> PreviewJobPayload:
@@ -265,6 +276,7 @@ def _load_preview_payload(
         raise PayloadDecodeError("job_payload must be a JSON object", code="PAYLOAD_SHAPE_INVALID")
     return decode_preview_payload(cast(dict[str, object], payload_object))
 
+
 def _artifact_ref_from_binding(binding: SourceArtifactBinding) -> ArtifactRef:
     return ArtifactRef(
         artifact_id=binding.artifact_id,
@@ -273,14 +285,17 @@ def _artifact_ref_from_binding(binding: SourceArtifactBinding) -> ArtifactRef:
         raw_sha256=DigestRef(binding.raw_sha256),
     )
 
+
 _PREVIEW_STEP_SUFFIX: dict[str, str] = {
     PREVIEW_STEP_MATERIALIZE: "1",
     PREVIEW_STEP_ASSEMBLE: "2",
     PREVIEW_STEP_PUBLISH: "3",
 }
 
+
 def _successor_step_id(operation_id: str, step_name: str) -> str:
     return successor_step_id(operation_id, step_name, _PREVIEW_STEP_SUFFIX)
+
 
 _ALLOWED_PAYLOAD_KEYS = frozenset(
     {
@@ -305,6 +320,7 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
     }
 )
 
+
 def _reject_unknown_top_level_keys(payload_object: dict[str, object]) -> None:
     unknown = sorted(set(payload_object) - _ALLOWED_PAYLOAD_KEYS)
     if unknown:
@@ -313,11 +329,13 @@ def _reject_unknown_top_level_keys(payload_object: dict[str, object]) -> None:
             code="PAYLOAD_SHAPE_INVALID",
         )
 
+
 def _require_non_negative_int(payload_object: dict[str, object], key: str) -> int:
     value = payload_object.get(key)
     if type(value) is not int or isinstance(value, bool) or value < 0:
         raise PayloadDecodeError(f"{key} must be a non-negative int", code="PAYLOAD_SHAPE_INVALID")
     return value
+
 
 def _decode_input_completeness(value: object) -> InputCompleteness:
     if type(value) is not str:
@@ -330,6 +348,7 @@ def _decode_input_completeness(value: object) -> InputCompleteness:
         raise PayloadDecodeError(
             "input_completeness is invalid", code="PAYLOAD_SHAPE_INVALID"
         ) from exc
+
 
 def _decode_source_artifacts(value: object) -> dict[SourceArtifactRole, SourceArtifactBinding]:
     if type(value) is not dict:
@@ -352,6 +371,7 @@ def _decode_source_artifacts(value: object) -> dict[SourceArtifactRole, SourceAr
         )
     return decoded
 
+
 def _decode_string_map(value: object, *, label: str) -> dict[str, str]:
     if type(value) is not dict:
         raise PayloadDecodeError(f"{label} must be an object", code="PAYLOAD_SHAPE_INVALID")
@@ -362,10 +382,12 @@ def _decode_string_map(value: object, *, label: str) -> dict[str, str]:
         decoded[key] = item
     return decoded
 
+
 def _decode_object_map(value: object, *, label: str) -> dict[str, object]:
     if type(value) is not dict:
         raise PayloadDecodeError(f"{label} must be an object", code="PAYLOAD_SHAPE_INVALID")
     return dict(value)
+
 
 def _decode_idempotency_identity(value: object) -> PreviewIdempotencyIdentity:
     if type(value) is not dict:
@@ -376,6 +398,7 @@ def _decode_idempotency_identity(value: object) -> PreviewIdempotencyIdentity:
         workspace_id=require_non_empty_str(value, "workspace_id"),
         idempotency_key=require_non_empty_str(value, "idempotency_key"),
     )
+
 
 def _validate_role_closure(
     input_completeness: InputCompleteness,

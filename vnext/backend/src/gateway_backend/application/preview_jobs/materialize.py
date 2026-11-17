@@ -189,6 +189,7 @@ from gateway_backend.application.preview_jobs.payload import (
 
 _LOG = logging.getLogger(__name__)
 
+
 def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> ClaimedExecutor:
     definition = preview_materialize_job_definition()
 
@@ -327,6 +328,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
         return ExecutorAcknowledgment.PUBLISHED
 
     return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
+
 
 def _materialize_all_sides(
     payload: PreviewJobPayload,
@@ -600,6 +602,7 @@ def _materialize_all_sides(
         ),
     )
 
+
 def _materialize_baseline_commit(
     *,
     repository_id: str,
@@ -638,6 +641,7 @@ def _materialize_baseline_commit(
         canonical_binding=canonical_binding,
     )
 
+
 def _materialize_baseline(
     payload: PreviewJobPayload,
     provider: RepositoryTableAccessProvider,
@@ -660,6 +664,7 @@ def _materialize_baseline(
         requested_tables=requested_tables,
         committed_tables=committed_tables,
     )
+
 
 def _preview_baseline_binding(
     payload: PreviewJobPayload,
@@ -685,6 +690,7 @@ def _preview_baseline_binding(
                 diagnostic_code=exc.code.value,
             ) from exc
     return canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
+
 
 def _changed_canonical_tables(
     before_binding: CanonicalBinding,
@@ -717,6 +723,7 @@ def _changed_canonical_tables(
         if not unchanged:
             changed.append(name)
     return tuple(changed)
+
 
 def _materialize_uploaded_side(
     binding: SourceArtifactBinding,
@@ -926,6 +933,7 @@ def _materialize_uploaded_side(
             raise PreviewJobError("canonicalization manifest digest is missing")
         return bound, manifest_ref, manifest_digest, generated_time, dump.sql_source_digest.value
 
+
 def _sql_request_from_bytes(sql_bytes: bytes) -> SqlParseRequest:
     digest = raw_blob_digest(sql_bytes)
     source = SqlSourceInput(
@@ -940,6 +948,7 @@ def _sql_request_from_bytes(sql_bytes: bytes) -> SqlParseRequest:
         sql_utf8=sql_bytes,
         context=ParserInvocationContext(NeverCancel()),
     )
+
 
 def _sql_materialization_request(
     parsed: ParseResult,

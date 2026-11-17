@@ -79,6 +79,7 @@ from gateway_backend.application.submit_jobs.payload import (
     _load_submit_payload,
 )
 
+
 def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecutor:
     prepare_definition = _definition_for_step(SUBMIT_STEP_PREPARE)
     submit_definition = _definition_for_step(SUBMIT_STEP_SUBMIT)
@@ -232,6 +233,7 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
         return ExecutorAcknowledgment.PUBLISHED
 
     return execute
+
 
 def _materialize_submit_checkpoint_state(
     *,
@@ -400,6 +402,7 @@ def _materialize_submit_checkpoint_state(
         published_generation,
     )
 
+
 def _submit_may_invoke_handler_without_checkpoint(
     deps: SubmitRuntimeDependencies,
     operation: OperationRecord,
@@ -429,6 +432,7 @@ def _submit_may_invoke_handler_without_checkpoint(
             return False
         return prepare_step.checkpoint_ref is not None
     return False
+
 
 def _import_request_artifact_id(request_bytes: bytes) -> str:
     return build_artifact_id(

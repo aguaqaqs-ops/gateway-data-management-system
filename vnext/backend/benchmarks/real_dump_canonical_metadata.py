@@ -86,7 +86,7 @@ def _side(raw: Any, store: ArtifactStorePort, repository_id: str) -> _MetadataSi
     _require(set(raw) == {"contract_version", "snapshot", "source_ref", "repository_identity",
              "snapshot_digest", "raw_state_digest", "summary", "unmaterialized_descriptors",
              "storage_facts", "tables"}, "side metadata fields mismatch")
-    _require(raw.get("contract_version") == p.PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
+    _require(raw.get("contract_version") == preview_checkpoint.PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
              "side contract version mismatch")
     snapshot = snapshot_from_document(raw.get("snapshot"))
     _require(snapshot.snapshot_digest.value == raw.get("snapshot_digest")
@@ -189,7 +189,7 @@ def _identities(manifest: CanonicalizationManifest, side: _MetadataSide) -> dict
 def verify_repeat_canonical_metadata(
     store: ArtifactStorePort, *, checkpoint_ref: ArtifactRef,
     operation_id: str, repository_id: str, commit_id: str,
-    payload: p.PreviewJobPayload, submission_manifest_ref: ArtifactRef,
+    payload: preview_payload.PreviewJobPayload, submission_manifest_ref: ArtifactRef,
     submission_manifest_digest: DigestRef,
 ) -> dict[str, Any]:
     """Prove U312/XAD-empty from exact checkpoint and Submission metadata only.

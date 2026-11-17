@@ -146,6 +146,7 @@ _active_submit_transaction: ContextVar[SubmitFinalizeControlTransaction | None] 
     default=None,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class _SubmitCheckpointState:
     prepare_checkpoint_ref: ArtifactRef
@@ -156,12 +157,14 @@ class _SubmitCheckpointState:
     repository_operation_id: str | None
     checkpoint_ref: ArtifactRef
 
+
 @dataclass(frozen=True, slots=True)
 class _AwaitCheckpointState:
     submit_checkpoint_ref: ArtifactRef
     repository_operation_id: str
     last_observed_repository_status: str | None
     terminal_result_evidence_ref: ArtifactRef | None
+
 
 def _prepare_step_checkpoint(
     *,
@@ -203,11 +206,13 @@ def _prepare_step_checkpoint(
     )
     return checkpoint_ref
 
+
 def _prepare_checkpoint_extra_refs(checkpoint: PrepareImportCheckpoint) -> tuple[ArtifactRef, ...]:
     return (
         store_ref_from_backend_artifact_ref(checkpoint.canonicalization_manifest_ref),
         store_ref_from_backend_artifact_ref(checkpoint.backend_import_artifact_ref),
     )
+
 
 def _pin_prepare_refs(
     *,
@@ -225,6 +230,7 @@ def _pin_prepare_refs(
             existing_snapshot_refs=operation.artifact_refs,
         )
 
+
 def _pin_submit_checkpoint_refs(
     transaction: SubmitControlTransaction,
     *,
@@ -240,6 +246,7 @@ def _pin_submit_checkpoint_refs(
         intent=intent,
     )
 
+
 def _load_step(
     deps: SubmitRuntimeDependencies,
     *,
@@ -252,6 +259,7 @@ def _load_step(
         step_id=step_id,
         mismatch_error=lambda: SubmitJobError("submit step belongs to a different operation"),
     )
+
 
 def _job_state_for_prepare(checkpoint: PrepareImportCheckpoint) -> dict[str, object]:
     return {
@@ -272,6 +280,7 @@ def _job_state_for_prepare(checkpoint: PrepareImportCheckpoint) -> dict[str, obj
         _JOB_STATE_REMOVED_TABLES: list(checkpoint.removed_tables),
         _JOB_STATE_BUILDER_POLICY: checkpoint.builder_mutation_policy.value,
     }
+
 
 _ALLOWED_PREPARE_CHECKPOINT_KEYS = frozenset(
     {
@@ -328,6 +337,7 @@ _ALLOWED_AWAIT_TERMINAL_CHECKPOINT_KEYS = _ALLOWED_AWAIT_RECONCILE_CHECKPOINT_KE
     }
 )
 
+
 def _require_exact_job_state_keys(
     job_state: Mapping[str, object],
     *,
@@ -347,6 +357,7 @@ def _require_exact_job_state_keys(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
 
+
 _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS = frozenset(
     {
         "document_type",
@@ -364,6 +375,7 @@ _TERMINAL_REPOSITORY_EVIDENCE_FAILED_KEYS = _TERMINAL_REPOSITORY_EVIDENCE_BASE_K
     {"error"}
 )
 
+
 def _require_terminal_repository_status_value(value: object, *, label: str) -> str:
     status = _require_non_empty_str_value(value, label=label)
     if status not in {
@@ -376,6 +388,7 @@ def _require_terminal_repository_status_value(value: object, *, label: str) -> s
         )
     return status
 
+
 def _job_state_for_await_reconcile(
     *,
     submit_checkpoint_ref: ArtifactRef,
@@ -386,6 +399,7 @@ def _job_state_for_await_reconcile(
         _JOB_STATE_SUBMIT_CHECKPOINT_REF: artifact_ref_to_dict(submit_checkpoint_ref),
         JOB_STATE_OPERATION_IDENTITY: repository_operation_id,
     }
+
 
 def _job_state_for_await_terminal(
     *,
@@ -401,6 +415,7 @@ def _job_state_for_await_terminal(
         _JOB_STATE_LAST_OBSERVED_REPOSITORY_STATUS: last_observed_repository_status,
         _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF: artifact_ref_to_dict(terminal_result_evidence_ref),
     }
+
 
 def _await_checkpoint_from_job_state(
     job_state: Mapping[str, object],
@@ -461,6 +476,7 @@ def _await_checkpoint_from_job_state(
         terminal_result_evidence_ref=terminal_result_evidence_ref,
     )
 
+
 def _serialize_terminal_repository_evidence(
     operation: RepositoryImportOperation,
 ) -> dict[str, object]:
@@ -489,6 +505,7 @@ def _serialize_terminal_repository_evidence(
         }
     return payload
 
+
 def _persist_terminal_repository_evidence(
     store: ArtifactStorePort,
     operation: RepositoryImportOperation,
@@ -504,6 +521,7 @@ def _persist_terminal_repository_evidence(
         ),
         media_type=_JCS_MEDIA_TYPE,
     )
+
 
 def _load_terminal_repository_evidence(
     store: ArtifactStorePort,
@@ -559,6 +577,7 @@ def _load_terminal_repository_evidence(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     return operation
+
 
 def _prepare_checkpoint_from_job_state(
     job_state: Mapping[str, object],
@@ -644,6 +663,7 @@ def _prepare_checkpoint_from_job_state(
         ),
     )
 
+
 def _job_state_for_submit_request(
     *,
     prepare_checkpoint_ref: ArtifactRef,
@@ -664,6 +684,7 @@ def _job_state_for_submit_request(
         JOB_STATE_IDEMPOTENCY_KEY: payload.repository_import_idempotency_key,
         JOB_STATE_REQUEST_SENT: False,
     }
+
 
 def _job_state_for_submit_sent(
     *,
@@ -687,6 +708,7 @@ def _job_state_for_submit_sent(
         JOB_STATE_REQUEST_SENT: True,
         JOB_STATE_OPERATION_IDENTITY: repository_operation_id,
     }
+
 
 def _submit_state_from_job_state(
     store: ArtifactStorePort,
@@ -816,9 +838,11 @@ def _submit_state_from_job_state(
         checkpoint_ref=checkpoint_ref,
     )
 
+
 def _expected_operation_identity_placeholder(request_bytes: bytes) -> str:
     del request_bytes
     return "pending"
+
 
 def _backend_ref_to_dict(ref: BackendArtifactRef) -> dict[str, object]:
     return {
@@ -828,6 +852,7 @@ def _backend_ref_to_dict(ref: BackendArtifactRef) -> dict[str, object]:
         "raw_sha256": ref.raw_sha256,
     }
 
+
 def _backend_ref_from_dict(raw: dict[str, object]) -> BackendArtifactRef:
     return BackendArtifactRef(
         artifact_id=_require_non_empty_str_value(raw.get("artifact_id"), label="artifact_id"),
@@ -836,6 +861,7 @@ def _backend_ref_from_dict(raw: dict[str, object]) -> BackendArtifactRef:
         raw_sha256=_require_non_empty_str_value(raw.get("raw_sha256"), label="raw_sha256"),
     )
 
+
 def _repository_ref_to_dict(ref: RepositoryArtifactRef) -> dict[str, object]:
     return {
         "artifact_id": ref.artifact_id,
@@ -843,6 +869,7 @@ def _repository_ref_to_dict(ref: RepositoryArtifactRef) -> dict[str, object]:
         "size_bytes": ref.size_bytes,
         "raw_sha256": ref.raw_sha256,
     }
+
 
 def _repository_ref_from_dict(raw: dict[str, object]) -> RepositoryArtifactRef:
     return RepositoryArtifactRef(

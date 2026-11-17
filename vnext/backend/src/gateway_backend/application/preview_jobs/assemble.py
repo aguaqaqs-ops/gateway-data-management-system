@@ -369,6 +369,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
 
     return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
+
 def surface_artifact_closure(
     surface: ComparisonSurface | None,
     pair_id: str,
@@ -628,6 +629,7 @@ def surface_artifact_closure(
         if ref not in covered:
             raise PreviewJobError(f"surface ref {ref.artifact_id} is not mapped for bundle closure")
     return BundleArtifactClosure(tuple(bindings))
+
 
 def _assemble_preview(
     payload: PreviewJobPayload,
@@ -890,6 +892,7 @@ def _assemble_preview(
                 CacheOperationOwner("preview-operation", operation_id)
             )
 
+
 def _initial_baseline_pair(
     baseline_is_initial: bool, completeness: InputCompleteness, pair_id: str
 ) -> bool:
@@ -899,6 +902,7 @@ def _initial_baseline_pair(
             completeness is InputCompleteness.MODIFIED_ONLY and pair_id == _PAIR_INITIAL_TO_MODIFIED
         )
     )
+
 
 def _run_pair_pipeline(
     *,
@@ -941,6 +945,7 @@ def _run_pair_pipeline(
         raise
     except PairPipelineError as exc:
         raise PreviewJobError(str(exc)) from exc
+
 
 def _build_preview_result(
     *,
@@ -1015,6 +1020,7 @@ def _build_preview_result(
         created_at=transaction_now,
     )
 
+
 def _identity_pair_model(pair: _PairPipelineResult) -> PreviewIdentityPair:
     surface = pair.surface_result.surface
     if surface is None:
@@ -1041,6 +1047,7 @@ def _identity_pair_model(pair: _PairPipelineResult) -> PreviewIdentityPair:
         assessment_digest=assessment.assessment_digest,
     )
 
+
 def _identity_pair_to_document(pair: _PairPipelineResult) -> dict[str, object]:
     model = _identity_pair_model(pair)
     return {
@@ -1062,6 +1069,7 @@ def _identity_pair_to_document(pair: _PairPipelineResult) -> dict[str, object]:
         "pair_id": model.pair_id,
         "status": model.status.value,
     }
+
 
 def _identity_assessment_set_digest(
     pairs: tuple[PreviewIdentityPair, ...] | list[_PairPipelineResult],
@@ -1088,6 +1096,7 @@ def _identity_assessment_set_digest(
             }
         )
     )
+
 
 def _identity_pairs_from_assemble_state(
     assemble_state: dict[str, object],
@@ -1140,6 +1149,7 @@ def _identity_pairs_from_assemble_state(
         ) from exc
     return tuple(pairs)
 
+
 def _ready_closure_refs_from_assemble(
     assemble_state: dict[str, object],
     bundle_manifest_ref: ArtifactRef,
@@ -1154,6 +1164,7 @@ def _ready_closure_refs_from_assemble(
         refs.append(artifact_ref_from_dict(item))
     refs.append(bundle_manifest_ref)
     return _unique_refs(tuple(refs))
+
 
 def _required_ready_refs(
     *,
@@ -1189,6 +1200,7 @@ def _required_ready_refs(
     refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
 
+
 def _workspace_artifact_ref(ref: ArtifactRef) -> PreviewArtifactRef:
     return PreviewArtifactRef(
         artifact_id=ref.artifact_id,
@@ -1196,6 +1208,7 @@ def _workspace_artifact_ref(ref: ArtifactRef) -> PreviewArtifactRef:
         size_bytes=ref.size_bytes,
         raw_sha256=ref.raw_sha256,
     )
+
 
 def _unchanged_baseline_identity_table_set(
     before: BoundSnapshotInput,

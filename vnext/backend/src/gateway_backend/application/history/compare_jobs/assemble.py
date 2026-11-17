@@ -400,6 +400,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
 
     return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
+
 def _assemble_comparison(
     *,
     payload: HistoryCompareJobPayload,
@@ -596,6 +597,7 @@ def _assemble_comparison(
                 CacheOperationOwner("history-compare-operation", operation_id)
             )
 
+
 @timed("materialize")
 def _ensure_history_demands(
     payload: HistoryCompareJobPayload,
@@ -619,6 +621,7 @@ def _ensure_history_demands(
         if context is not None:
             context.checkpoint()
         return _ensure_history_demands_once(payload, deps, sides, pair_specs, rule_set, session)
+
 
 def _ensure_history_demands_once(
     payload: HistoryCompareJobPayload,
@@ -790,6 +793,7 @@ def _ensure_history_demands_once(
     )
     return loaded, exports
 
+
 def _history_presentations(
     payload: HistoryCompareJobPayload, deps: HistoryCompareRuntimeDependencies
 ) -> dict[str, PresentationMetadata]:
@@ -811,6 +815,7 @@ def _history_presentations(
                 ) from exc
         presentations[commit_id] = presentation_for_commit(metadata)
     return presentations
+
 
 def _run_pair_pipeline(
     *,

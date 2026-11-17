@@ -79,6 +79,7 @@ from gateway_backend.application.submit_jobs.submit import (
     build_submit_import_handler,
 )
 
+
 def build_submit_recovery_port(deps: SubmitRuntimeDependencies) -> RecoveryPort:
     submit_handler = build_submit_import_handler(deps)
     await_handler = build_await_import_result_handler(deps)
@@ -116,6 +117,7 @@ def build_submit_recovery_port(deps: SubmitRuntimeDependencies) -> RecoveryPort:
             )
 
     return cast(RecoveryPort, _SubmitRecoveryPort())
+
 
 def build_submit_operator_recovery_port(
     *,
@@ -169,6 +171,7 @@ def build_submit_operator_recovery_port(
 
     return cast(OperatorRecoveryApplicationPort, _SubmitOperatorRecoveryPort())
 
+
 def _map_handler_failure_to_recovery_outcome(
     exc: BaseException,
 ) -> RecoveryOutcome | None:
@@ -218,6 +221,7 @@ def _map_handler_failure_to_recovery_outcome(
             reason=str(exc),
         )
     return None
+
 
 def _recover_external_effect_step(
     *,

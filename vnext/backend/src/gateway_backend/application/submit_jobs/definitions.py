@@ -33,6 +33,7 @@ from gateway_backend.application.submit_jobs.payload import (
 from gateway_backend.application.submit_jobs.prepare import build_prepare_import_handler
 from gateway_backend.application.submit_jobs.submit import build_submit_import_handler
 
+
 def submit_payload_decoders() -> Mapping[str, PayloadDecoder]:
     decoder: PayloadDecoder = decode_submit_payload
     return {
@@ -40,6 +41,7 @@ def submit_payload_decoders() -> Mapping[str, PayloadDecoder]:
         SUBMIT_IMPORT_DECODER: decoder,
         AWAIT_IMPORT_DECODER: decoder,
     }
+
 
 def bind_submit_control_transaction_factory(
     inner: SubmitControlTransactionFactory,
@@ -68,6 +70,7 @@ def bind_submit_control_transaction_factory(
         return _BoundUnitOfWork(inner())
 
     return factory
+
 
 def submit_composition_bundle(
     deps: SubmitRuntimeDependencies,
@@ -99,6 +102,7 @@ def submit_composition_bundle(
         dict(submit_payload_decoders()),
         bound_deps,
     )
+
 
 def read_write_factory(
     factory: SubmitControlTransactionFactory,

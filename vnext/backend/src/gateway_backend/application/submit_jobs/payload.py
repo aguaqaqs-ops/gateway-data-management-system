@@ -74,14 +74,17 @@ _MAX_PREPARE_PROJECTION_MESSAGE_BYTES = 4 * 1024
 
 _JCS_MEDIA_TYPE = "application/jcs"
 
+
 class SubmitJobError(ValueError):
     """Bounded submit job failure surfaced to the operation runtime."""
+
 
 @dataclass(frozen=True, slots=True)
 class SubmitRepositoryPolicy:
     target_ref: SubmitTargetRef
     verification_policy: SubmitVerificationPolicy
     unknown_type_policy: SubmitUnknownTypePolicy
+
 
 @dataclass(frozen=True, slots=True)
 class SubmitJobPayload:
@@ -125,12 +128,15 @@ class SubmitJobPayload:
         ):
             parse_artifact_id(artifact_id)
 
+
 SubmitControlTransactionFactory = Callable[[], ContextManager[SubmitFinalizeControlTransaction]]
+
 
 @runtime_checkable
 class OperatorRecoveryApplicationPort(Protocol):
     def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
         """Apply or replay one authorized operator recovery command."""
+
 
 @dataclass(frozen=True, slots=True)
 class SubmitRuntimeDependencies:
@@ -142,6 +148,7 @@ class SubmitRuntimeDependencies:
     control_transaction_factory: SubmitControlTransactionFactory
     submission_id_factory: Callable[[], str]
     now_factory: Callable[[], datetime] | None = None
+
 
 def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload:
     _reject_unknown_top_level_keys(payload_object)
@@ -262,6 +269,7 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
             "submit payload contains an invalid backend artifact ID", code="PAYLOAD_SHAPE_INVALID"
         ) from exc
 
+
 def _load_submit_payload(operation: OperationRecord, store: ArtifactStorePort) -> SubmitJobPayload:
     payload_bytes = load_job_payload_bytes(operation, store)
     try:
@@ -275,12 +283,14 @@ def _load_submit_payload(operation: OperationRecord, store: ArtifactStorePort) -
         raise PayloadDecodeError("job_payload must be a JSON object", code="PAYLOAD_SHAPE_INVALID")
     return decode_submit_payload(cast(dict[str, object], payload_object))
 
+
 def _load_submit_attempt(deps: SubmitRuntimeDependencies, submit_attempt_id: str) -> SubmitAttempt:
     with deps.control_transaction_factory() as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
     if attempt is None:
         raise SubmitJobError("submit attempt is missing")
     return attempt
+
 
 def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAttempt) -> None:
     mismatches: list[str] = []
@@ -340,11 +350,13 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
             code="PAYLOAD_ATTEMPT_MISMATCH",
         )
 
+
 def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
     for business_ref in operation.business_refs:
         if business_ref.kind == "submit_attempt":
             return business_ref.value
     raise ValueError("submit operation is missing submit_attempt business ref")
+
 
 def _definition_for_step(step_name: str) -> JobDefinition:
     for definition in submit_job_definitions():
@@ -352,32 +364,39 @@ def _definition_for_step(step_name: str) -> JobDefinition:
             return definition
     raise SubmitJobError(f"submit step definition is missing: {step_name}")
 
+
 def _submit_now(deps: SubmitRuntimeDependencies) -> datetime:
     now = deps.now_factory() if deps.now_factory is not None else datetime.now(UTC)
     if type(now) is not datetime or now.tzinfo is None or now.utcoffset() != UTC.utcoffset(now):
         raise ValueError("Submit clock must return a timezone-aware UTC datetime")
     return now
 
+
 def _iso_utc_timestamp(value: datetime) -> str:
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
 
 def _verification_policy_from_repository(value: str) -> SubmitVerificationPolicy:
     if value == SubmitVerificationPolicy.STRUCTURAL.value:
         return SubmitVerificationPolicy.STRUCTURAL
     raise FinalizeBindingMismatch(f"completed verification policy {value!r} is not supported")
 
+
 def _unknown_type_policy_from_repository(value: str) -> SubmitUnknownTypePolicy:
     if value == SubmitUnknownTypePolicy.REJECT.value:
         return SubmitUnknownTypePolicy.REJECT
     raise FinalizeBindingMismatch(f"completed unknown type policy {value!r} is not supported")
+
 
 def _target_ref_from_repository(value: str) -> SubmitTargetRef:
     if value == SubmitTargetRef.MAIN.value:
         return SubmitTargetRef.MAIN
     raise FinalizeBindingMismatch("completed target ref must be main")
 
+
 def _wire_repository_raw_sha256(value: str) -> str:
     return value.removeprefix("sha256:")
+
 
 def _validate_policy_constants(
     *,
@@ -425,6 +444,7 @@ def _validate_policy_constants(
             code="PAYLOAD_SHAPE_INVALID",
         )
 
+
 _ALLOWED_PAYLOAD_KEYS = frozenset(
     {
         "document_type",
@@ -460,6 +480,7 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
     }
 )
 
+
 def _reject_unknown_top_level_keys(payload_object: dict[str, object]) -> None:
     unknown = sorted(set(payload_object) - _ALLOWED_PAYLOAD_KEYS)
     if unknown:
@@ -468,11 +489,13 @@ def _reject_unknown_top_level_keys(payload_object: dict[str, object]) -> None:
             code="PAYLOAD_SHAPE_INVALID",
         )
 
+
 def _require_non_negative_int(payload_object: dict[str, object], key: str) -> int:
     value = payload_object.get(key)
     if type(value) is not int or isinstance(value, bool) or value < 0:
         raise PayloadDecodeError(f"{key} must be a non-negative int", code="PAYLOAD_SHAPE_INVALID")
     return value
+
 
 def _require_non_empty_str_value(value: object, *, label: str) -> str:
     if type(value) is not str or not value:
@@ -481,6 +504,7 @@ def _require_non_empty_str_value(value: object, *, label: str) -> str:
         )
     return value
 
+
 def _require_non_negative_int_value(value: object) -> int:
     if type(value) is not int or isinstance(value, bool) or value < 0:
         raise CheckpointDecodeError(
@@ -488,12 +512,14 @@ def _require_non_negative_int_value(value: object) -> int:
         )
     return value
 
+
 def _require_mapping(value: object, *, label: str) -> dict[str, object]:
     if type(value) is not dict:
         raise CheckpointDecodeError(
             f"{label} must be an object", code="CHECKPOINT_JOB_STATE_MISMATCH"
         )
     return value
+
 
 def _require_artifact_ref_dict(value: object, *, label: str) -> dict[str, object]:
     mapping = _require_mapping(value, label=label)
@@ -504,6 +530,7 @@ def _require_artifact_ref_dict(value: object, *, label: str) -> dict[str, object
             f"{label} is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH"
         ) from exc
     return mapping
+
 
 def _decode_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
     if type(value) is not list:
@@ -516,6 +543,7 @@ def _decode_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
             )
         decoded.append(item)
     return tuple(decoded)
+
 
 def _decode_checkpoint_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
     if type(value) is not list:
@@ -538,10 +566,12 @@ def _decode_checkpoint_string_tuple(value: object, *, label: str) -> tuple[str, 
         )
     return result
 
+
 def _decode_object_map(value: object, *, label: str) -> dict[str, object]:
     if type(value) is not dict:
         raise PayloadDecodeError(f"{label} must be an object", code="PAYLOAD_SHAPE_INVALID")
     return dict(value)
+
 
 def _decode_repository_policy(value: object) -> SubmitRepositoryPolicy:
     if type(value) is not dict:
@@ -575,6 +605,7 @@ def _decode_repository_policy(value: object) -> SubmitRepositoryPolicy:
         raise PayloadDecodeError(
             "repository_policy contains invalid enum values", code="PAYLOAD_SHAPE_INVALID"
         ) from exc
+
 
 def _decode_builder_mutation_policy(value: object) -> BuilderMutationPolicy:
     if type(value) is not str:

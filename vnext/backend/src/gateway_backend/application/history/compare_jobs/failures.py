@@ -49,6 +49,7 @@ from gateway_backend.application.history.compare_jobs.payload import (
     HistoryCompareRulesetVersionMismatch,
 )
 
+
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
     if payload.comparison_contract_version != HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION:
         raise HistoryCompareRulesetVersionMismatch(
@@ -63,6 +64,7 @@ def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRule
             "frozen comparison ruleset digest does not match runtime ruleset"
         )
     return active_rules
+
 
 def _publish_ruleset_mismatch_failure(
     *,
@@ -108,6 +110,7 @@ def _publish_ruleset_mismatch_failure(
         lease_session.publish_operation(_make_cancelled_terminal_builder())
         return
     lease_session.publish_operation(builder)
+
 
 def _publish_commit_unavailable_failure(
     *,
@@ -155,6 +158,7 @@ def _publish_commit_unavailable_failure(
         return
     lease_session.publish_operation(builder)
 
+
 def _publish_history_compare_resource_failure(
     operation: OperationRecord,
     step: StepRecord,
@@ -171,19 +175,23 @@ def _publish_history_compare_resource_failure(
         control=control,
     )
 
+
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
     return with_resource_failure_terminal(
         handler,
         on_memory_error=_publish_history_compare_resource_failure,
     )
 
+
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
     return publish_stopped_compute_cancelled_step(lease_session, _make_cancelled_terminal_builder)
+
 
 def _release_cancelled_history_compare_protection(
     transaction: HistoryCompareControlTransaction, operation: OperationRecord
 ) -> None:
     _release_history_compare_step_protection(transaction, operation_id=operation.operation_id)
+
 
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]

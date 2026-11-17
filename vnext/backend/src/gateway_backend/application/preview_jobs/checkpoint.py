@@ -153,6 +153,7 @@ _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = Cont
     default=None,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class _CanonicalPreviewMetadata:
     initial_canonical_state_digest: DigestRef
@@ -214,6 +215,7 @@ class _CanonicalPreviewMetadata:
         if type(self.baseline_is_initial) is not bool:
             raise ValueError("baseline_is_initial must be bool")
 
+
 class _CanonicalPreviewDocument(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     canonical_table_set_closure_ref: dict[str, JsonValue]
@@ -229,11 +231,13 @@ class _CanonicalPreviewDocument(BaseModel):
     baseline_is_initial: bool
     rules_semantically_equal: bool
 
+
 @dataclass(frozen=True, slots=True)
 class _MaterializedPreviewInputs:
     sides: dict[str, BoundSnapshotInput]
     canonical: _CanonicalPreviewMetadata
     presentations: dict[str, PresentationMetadata]
+
 
 def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
     if bound.table_set is None:
@@ -246,8 +250,10 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
         refs.extend(table.artifact.manifest.row_file_refs)
     return tuple(refs)
 
+
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
     return unique_artifact_refs(refs)
+
 
 def _payload_source_refs(payload: PreviewJobPayload) -> tuple[ArtifactRef, ...]:
     refs: list[ArtifactRef] = []
@@ -261,6 +267,7 @@ def _payload_source_refs(payload: PreviewJobPayload) -> tuple[ArtifactRef, ...]:
             )
         )
     return tuple(refs)
+
 
 def _release_preview_step_protection(
     unit_of_work: PreviewControlTransaction,
@@ -278,6 +285,7 @@ def _release_preview_step_protection(
             owner_kind="preview-operation",
             owner_id=operation_id,
         )
+
 
 def _pin_preview_refs(
     deps: PreviewRuntimeDependencies,
@@ -298,6 +306,7 @@ def _pin_preview_refs(
             intent=intent,
         )
 
+
 def _closed_refs_from_preview_inputs(
     inputs: _MaterializedPreviewInputs,
 ) -> tuple[ArtifactRef, ...]:
@@ -314,6 +323,7 @@ def _closed_refs_from_preview_inputs(
         refs.append(inputs.canonical.initial_canonicalization_manifest_ref)
     return tuple(refs)
 
+
 def _load_step(
     deps: PreviewRuntimeDependencies,
     *,
@@ -327,6 +337,7 @@ def _load_step(
         mismatch_error=lambda: PreviewJobError("preview step belongs to a different operation"),
     )
 
+
 def _serialize_sides(
     sides: dict[str, BoundSnapshotInput],
     payload: PreviewJobPayload,
@@ -338,6 +349,7 @@ def _serialize_sides(
         payload.input_completeness is InputCompleteness.MODIFIED_ONLY
     )
     return document
+
 
 def _side_binding_document(
     bound: BoundSnapshotInput,
@@ -398,6 +410,7 @@ def _side_binding_document(
         "storage_facts": storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
+
 
 def _materialized_preview_inputs_from_checkpoint(
     job_state: Mapping[str, object],
@@ -581,6 +594,7 @@ def _materialized_preview_inputs_from_checkpoint(
         },
     )
 
+
 def _assemble_state_from_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
@@ -628,6 +642,7 @@ def _assemble_state_from_checkpoint(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     return assemble_state_ref, cast(dict[str, object], assemble_state)
+
 
 def _bound_from_side_document(
     entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str
@@ -741,6 +756,7 @@ def _bound_from_side_document(
         )
     return BoundSnapshotInput(snapshot, summary, table_set, storage_facts)
 
+
 def _bound_from_materialization(
     result: SnapshotMaterializationResult,
     *,
@@ -774,6 +790,7 @@ def _bound_from_materialization(
             if view.canonical_table in descriptors
         )
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set, storage_facts)
+
 
 def _comparison_storage_facts(
     manifest: CanonicalizationManifest,
@@ -810,6 +827,7 @@ def _comparison_storage_facts(
         )
     return tuple(facts)
 
+
 def _publish_canonical_table_set_closure(
     bound: BoundSnapshotInput,
     store: ArtifactStorePort,
@@ -823,6 +841,7 @@ def _publish_canonical_table_set_closure(
         ),
         media_type=_JCS_MEDIA_TYPE,
     )
+
 
 def _canonical_table_set_closure_bytes(bound: BoundSnapshotInput) -> bytes:
     if bound.table_set is None:
@@ -847,6 +866,7 @@ def _canonical_table_set_closure_bytes(bound: BoundSnapshotInput) -> bytes:
         "tables": tables,
     }
     return canonicalize_jcs(canonicalize_json_value(payload))
+
 
 def _assert_configuration_payload(
     facts: ConfigurationFacts, payload: PreviewJobPayload, operation_id: str
@@ -875,6 +895,7 @@ def _assert_configuration_payload(
             raise PreviewJobError("configuration initial source artifact binding mismatch")
     elif facts.initial_origin == "UPLOADED":
         raise PreviewJobError("configuration initial origin does not match input completeness")
+
 
 def _canonical_preview_metadata_to_document(
     canonical: _CanonicalPreviewMetadata,
@@ -905,6 +926,7 @@ def _canonical_preview_metadata_to_document(
         "baseline_is_initial": canonical.baseline_is_initial,
         "rules_semantically_equal": canonical.rules_semantically_equal,
     }
+
 
 def _canonical_preview_metadata_from_document(
     raw: dict[str, object],
@@ -969,11 +991,13 @@ def _canonical_preview_metadata_from_document(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
 
+
 def _checkpoint_string(raw: dict[str, object], key: str) -> str:
     value = raw[key]
     if type(value) is not str or not value:
         raise ValueError(f"{key} must be a non-empty string")
     return value
+
 
 def _preview_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
     try:
@@ -993,6 +1017,7 @@ def _preview_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
             "preview checkpoint has invalid artifact bindings", code="CHECKPOINT_JOB_STATE_MISMATCH"
         ) from exc
 
+
 def _assert_preview_bundle_binding(
     job_state: Mapping[str, object], refs: tuple[ArtifactRef, ...]
 ) -> None:
@@ -1000,6 +1025,7 @@ def _assert_preview_bundle_binding(
         raise CheckpointDecodeError(
             "preview bundle ID is outside its ready closure", code="CHECKPOINT_JOB_STATE_MISMATCH"
         )
+
 
 def _same_resolved_rules(
     before: BoundSnapshotInput,
@@ -1034,6 +1060,7 @@ def _same_resolved_rules(
         return result
 
     return projection(before, before_presentation) == projection(current, current_presentation)
+
 
 def _preview_baseline_presentation(
     *,

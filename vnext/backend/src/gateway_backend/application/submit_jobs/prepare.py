@@ -79,6 +79,7 @@ from gateway_backend.application.submit_jobs.payload import (
     _load_submit_payload,
 )
 
+
 def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecutor:
     prepare_definition = _definition_for_step(SUBMIT_STEP_PREPARE)
 
@@ -190,6 +191,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
 
     return _with_resource_failure_terminal(execute)
 
+
 def _read_prepare_manifest(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
     context = current_kernel_context()
     if context is None:
@@ -199,6 +201,7 @@ def _read_prepare_manifest(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
     context.resources.enter_context(context.memory.reserve(ref.size_bytes * 32 + 4096))
     with reserved_artifact_bytes(store, ref) as payload:
         return payload
+
 
 def _build_prepare_import_build_input(
     *,

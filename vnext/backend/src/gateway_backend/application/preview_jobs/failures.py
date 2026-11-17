@@ -51,8 +51,10 @@ from gateway_backend.application.preview_jobs.payload import (
     PreviewRuntimeDependencies,
 )
 
+
 def _active_preview_ruleset() -> ComparisonRuleSet:
     return comparison_rule_set(migrated_table_ruleset_snapshot())
+
 
 def _publish_preview_ruleset_mismatch_if_needed(
     *,
@@ -76,6 +78,7 @@ def _publish_preview_ruleset_mismatch_if_needed(
         control=control,
     )
     return True
+
 
 def _publish_preview_ruleset_mismatch_failure(
     *,
@@ -125,6 +128,7 @@ def _publish_preview_ruleset_mismatch_failure(
         lease_session.publish_operation(_make_cancelled_terminal_builder())
         return
     lease_session.publish_operation(builder)
+
 
 def _publish_preview_materialization_failure(
     *,
@@ -178,6 +182,7 @@ def _publish_preview_materialization_failure(
         return
     lease_session.publish_operation(builder)
 
+
 def _restore_preview_inputs_or_publish_failure(
     job_state: Mapping[str, object],
     *,
@@ -207,6 +212,7 @@ def _restore_preview_inputs_or_publish_failure(
         )
         return None
 
+
 def _publish_preview_resource_failure(
     operation: OperationRecord,
     step: StepRecord,
@@ -225,14 +231,17 @@ def _publish_preview_resource_failure(
         control=control,
     )
 
+
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
     return with_resource_failure_terminal(
         handler,
         on_memory_error=_publish_preview_resource_failure,
     )
 
+
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
     return publish_stopped_compute_cancelled_step(lease_session, _make_cancelled_terminal_builder)
+
 
 def _release_cancelled_preview_protection(
     transaction: PreviewControlTransaction, operation: OperationRecord
@@ -242,6 +251,7 @@ def _release_cancelled_preview_protection(
         operation_id=operation.operation_id,
         clear_operation_owner=True,
     )
+
 
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]

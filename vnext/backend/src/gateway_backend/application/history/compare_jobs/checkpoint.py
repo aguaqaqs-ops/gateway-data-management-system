@@ -99,6 +99,7 @@ _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction
     )
 )
 
+
 def _required_ready_refs(
     pair_results: list[_PairPipelineResult],
     bundle_manifest_ref: ArtifactRef,
@@ -117,6 +118,7 @@ def _required_ready_refs(
     refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
 
+
 def ready_closure_refs_from_assemble(
     assemble_state: dict[str, object],
     bundle_manifest_ref: ArtifactRef,
@@ -132,11 +134,13 @@ def ready_closure_refs_from_assemble(
     refs.append(bundle_manifest_ref)
     return _unique_refs(tuple(refs))
 
+
 def _serialize_sides(sides: dict[str, BoundSnapshotInput]) -> dict[str, object]:
     return {
         commit_id: _side_binding_document(bound, commit_id=commit_id)
         for commit_id, bound in sides.items()
     }
+
 
 def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict[str, object]:
     if bound.table_set is None:
@@ -158,6 +162,7 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
             for table in bound.table_set.tables
         ],
     }
+
 
 def _sides_from_materialize_checkpoint(
     job_state: Mapping[str, object],
@@ -207,6 +212,7 @@ def _sides_from_materialize_checkpoint(
         sides[commit_id] = bound
     return sides
 
+
 def _assert_history_bundle_binding(
     job_state: Mapping[str, object], refs: tuple[ArtifactRef, ...]
 ) -> None:
@@ -214,6 +220,7 @@ def _assert_history_bundle_binding(
         raise CheckpointDecodeError(
             "history bundle ID is outside its ready closure", code="CHECKPOINT_JOB_STATE_MISMATCH"
         )
+
 
 def history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
     try:
@@ -233,6 +240,7 @@ def history_compare_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
             "history compare checkpoint has invalid artifact bindings",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
+
 
 def history_compare_assemble_state_from_checkpoint(
     job_state: Mapping[str, object],
@@ -283,6 +291,7 @@ def history_compare_assemble_state_from_checkpoint(
         )
     return assemble_state_ref, cast(dict[str, object], assemble_state)
 
+
 def _materialized_sides_ref_from_checkpoint(job_state: Mapping[str, object]) -> ArtifactRef:
     if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF}:
         raise CheckpointDecodeError(
@@ -302,6 +311,7 @@ def _materialized_sides_ref_from_checkpoint(job_state: Mapping[str, object]) -> 
             "history compare materialized sides ref is invalid",
             code="CHECKPOINT_REF_INVALID",
         ) from exc
+
 
 def _bound_from_side_document(
     entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str
@@ -404,6 +414,7 @@ def _bound_from_side_document(
     )
     return BoundSnapshotInput(snapshot, summary, table_set, storage_facts)
 
+
 def _bound_from_materialization(
     result: SnapshotMaterializationResult,
     *,
@@ -417,6 +428,7 @@ def _bound_from_materialization(
         canonical_binding, {item.table_name for item in result.summary.tables}
     )
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set, storage_facts)
+
 
 def _storage_facts_for_binding(
     canonical_binding: CanonicalBinding,
@@ -436,11 +448,13 @@ def _storage_facts_for_binding(
         for view in canonical_binding.tables
     )
 
+
 def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:
     refs: list[ArtifactRef] = []
     for bound in sides.values():
         refs.extend(_side_input_refs(bound))
     return tuple(refs)
+
 
 def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
     if bound.table_set is None:
@@ -453,8 +467,10 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
         refs.extend(table.artifact.manifest.row_file_refs)
     return tuple(refs)
 
+
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
     return unique_artifact_refs(refs)
+
 
 def _pin_history_compare_refs(
     deps: HistoryCompareRuntimeDependencies,
@@ -475,6 +491,7 @@ def _pin_history_compare_refs(
             intent=intent,
         )
 
+
 def _release_history_compare_checkpoint_protection(
     unit_of_work: HistoryCompareControlTransaction,
     *,
@@ -490,6 +507,7 @@ def _release_history_compare_checkpoint_protection(
             owner_id=history_compare_step_id(operation_id, step_name),
         )
 
+
 def _release_history_compare_step_protection(
     unit_of_work: HistoryCompareControlTransaction, *, operation_id: str
 ) -> None:
@@ -498,6 +516,7 @@ def _release_history_compare_step_protection(
         owner_kind="history-compare-operation",
         owner_id=operation_id,
     )
+
 
 def _load_step(
     deps: HistoryCompareRuntimeDependencies,

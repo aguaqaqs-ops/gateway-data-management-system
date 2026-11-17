@@ -378,7 +378,8 @@ def _stop_normally(container_id: str, worktree: Path, env: dict[str, str]) -> No
         time.sleep(2)
 
 
-def main() -> int:
+# Legacy complexity 62 > 30 (benchmark CLI entrypoint); exempted in J5 baseline.
+def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--head", required=True)
     parser.add_argument("--worktree", type=Path, required=True)

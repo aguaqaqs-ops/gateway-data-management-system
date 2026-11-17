@@ -810,7 +810,8 @@ def _dropped_column_from_document(payload: object) -> DroppedColumn:
     )
 
 
-def _validate_rule_record(record: TableRuleRecord) -> None:
+# Legacy complexity 42 > 30 (table rule validation); exempted in J5 baseline.
+def _validate_rule_record(record: TableRuleRecord) -> None:  # noqa: C901
     _validate_compare_excluded_columns(
         compare_excluded_columns=record.compare_excluded_columns,
         ignored_columns=record.ignored_columns,

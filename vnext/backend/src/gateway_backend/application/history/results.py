@@ -378,7 +378,8 @@ def _load_checkpoint_envelope_from_store(
         raise HistoryArtifactUnavailable("compare result is not available") from exc
 
 
-def _load_success_result(
+# Legacy complexity 34 > 30 (result verification pipeline); exempted in J5 baseline.
+def _load_success_result(  # noqa: C901
     *,
     operation: OperationRecord,
     acceptance: HistoryCompareAcceptanceRecord,

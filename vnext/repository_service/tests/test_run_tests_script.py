@@ -269,6 +269,10 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
               printf '%s\\t%s\\n' "$PWD" "$*" >>"${RUNNER_STYLE_LOG}"
               exit "${RUNNER_RUFF_FORMAT_STATUS:-0}"
             fi
+            if [[ "$*" == "-C . run ruff check src tests" ]]; then
+              printf '%s\\t%s\\n' "$PWD" "$*" >>"${RUNNER_STYLE_LOG}"
+              exit "${RUNNER_RUFF_CHECK_STATUS:-0}"
+            fi
             if [[ "$*" == *"python -VV"* ]]; then
               printf 'Python 3.14.6 (fixture)\\n'
               exit 0
@@ -788,12 +792,16 @@ def test_run_tests_runs_backend_ruff_format_check_before_rust_only_when_selected
     assert completed.returncode == 0, completed.stderr
     style_calls = Path(env["RUNNER_STYLE_LOG"]).read_text().splitlines()
     assert style_calls == [
-        f"{repo_root / 'vnext' / 'backend'}\t-C . run ruff format --check src tests"
+        f"{repo_root / 'vnext' / 'backend'}\t-C . run ruff format --check src tests",
+        f"{repo_root / 'vnext' / 'backend'}\t-C . run ruff check src tests",
     ]
     assert completed.stdout.index("==> backend (ruff format)") < completed.stdout.index(
+        "==> backend (ruff check)"
+    )
+    assert completed.stdout.index("==> backend (ruff check)") < completed.stdout.index(
         "==> rust\n"
     )
-    assert completed.stdout.index("==> backend (ruff format)") < completed.stdout.index(
+    assert completed.stdout.index("==> backend (ruff check)") < completed.stdout.index(
         "==> rust (fmt)"
     )
 
@@ -802,17 +810,27 @@ def test_run_tests_runs_backend_ruff_format_check_before_rust_only_when_selected
     assert unselected.returncode == 0, unselected.stderr
     assert not Path(unselected_env["RUNNER_STYLE_LOG"]).exists()
     assert "==> backend (ruff format)" not in unselected.stdout
+    assert "==> backend (ruff check)" not in unselected.stdout
 
 
 @pytest.mark.unit
-def test_run_tests_backend_ruff_format_failure_propagates_and_skips_serial(
+@pytest.mark.parametrize(
+    ("env_var", "step_label"),
+    [
+        ("RUNNER_RUFF_FORMAT_STATUS", "ruff format"),
+        ("RUNNER_RUFF_CHECK_STATUS", "ruff check"),
+    ],
+)
+def test_run_tests_backend_ruff_failure_propagates_and_skips_serial(
     tmp_path: Path,
+    env_var: str,
+    step_label: str,
 ) -> None:
     repo_root, calls_log, env = _runner_fixture(tmp_path)
-    env["RUNNER_RUFF_FORMAT_STATUS"] = "1"
+    env[env_var] = "1"
     completed = _run_runner(repo_root, env)
     assert completed.returncode == 1, completed.stderr
-    assert "==> backend (ruff format) elapsed_seconds=" in completed.stdout
+    assert f"==> backend ({step_label}) elapsed_seconds=" in completed.stdout
     assert "status=1" in completed.stdout
     assert "==> skipping serial batches because an earlier step failed" in completed.stdout
     assert "==> backend (serial)" not in completed.stdout

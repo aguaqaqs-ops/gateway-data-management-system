@@ -37,3 +37,27 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         "gateway_backend.capabilities.mutation_planning._repository_replay_renderer",
     }
 )
+
+# Frozen Ruff C901 (>30) function exemptions by (relative_path, qualname).
+# Strict 1-to-1 match enforced by tests/test_architecture.py; may only shrink.
+COMPLEXITY_NOQA_BASELINE: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("benchmarks/dc58_content_compare.py", "compare_snapshot_descriptions"),
+        ("benchmarks/real_dump_census.py", "_duplicate_and_effective_key_stats"),
+        ("benchmarks/real_dump_journey.py", "_run_tier"),
+        ("benchmarks/real_dump_journey.py", "run_journey"),
+        ("benchmarks/s4_submit_measurement_driver.py", "main"),
+        ("src/gateway_backend/application/history/results.py", "_load_success_result"),
+        ("src/gateway_backend/application/preview_jobs/assemble.py", "surface_artifact_closure"),
+        (
+            "src/gateway_backend/capabilities/business_navigation/contracts.py",
+            "validate_diagnostics",
+        ),
+        ("src/gateway_backend/capabilities/business_navigation/producer.py", "_Builder.devices"),
+        ("src/gateway_backend/capabilities/business_navigation/producer.py", "_Builder.groups"),
+        ("src/gateway_backend/capabilities/comparison/production.py", "_compare_plan_native_once"),
+        ("src/gateway_backend/capabilities/risk_evaluation/_engine.py", "_evaluate_table_impl"),
+        ("src/gateway_backend/capabilities/table_rules/contracts.py", "_validate_rule_record"),
+        ("src/gateway_backend/http/errors.py", "map_domain_exception"),
+    }
+)

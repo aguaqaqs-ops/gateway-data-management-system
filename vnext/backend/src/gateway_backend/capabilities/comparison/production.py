@@ -1314,7 +1314,8 @@ def compare_plan_native(
         )
 
 
-def _compare_plan_native_once(
+# Legacy complexity 40 > 30 (native comparison orchestration); exempted in J5 baseline.
+def _compare_plan_native_once(  # noqa: C901
     plan: ComparisonPlan,
     *,
     session: ComparisonTaskSession | None = None,

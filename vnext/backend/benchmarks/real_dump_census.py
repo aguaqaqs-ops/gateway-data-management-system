@@ -690,7 +690,8 @@ class KeyScanStats:
     ordered_projection_by_table: dict[str, dict[str, Any]]
 
 
-def _duplicate_and_effective_key_stats(
+# Legacy complexity 31 > 30 (benchmark duplicate/effective key census); exempted in J5 baseline.
+def _duplicate_and_effective_key_stats(  # noqa: C901
     *,
     table_set: SnapshotTableSet | None,
     presentation: PresentationMetadata,

@@ -141,7 +141,8 @@ def sanitize_validation_errors(errors: Sequence[Any]) -> list[dict[str, object]]
     return sanitized
 
 
-def map_domain_exception(exc: BaseException) -> ApiError | None:
+# Legacy complexity 59 > 30 (domain-to-HTTP error mapping table); exempted in J5 baseline.
+def map_domain_exception(exc: BaseException) -> ApiError | None:  # noqa: C901
     if isinstance(exc, ApiError):
         return exc
     if isinstance(exc, PermissionDenied):

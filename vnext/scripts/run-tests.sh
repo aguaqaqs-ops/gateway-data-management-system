@@ -378,6 +378,18 @@ if [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
         PACKAGE_STATUS[backend]=failed
     fi
     echo "==> backend (ruff format) elapsed_seconds=$((SECONDS - format_start)) status=${format_status}"
+    echo "==> backend (ruff check)"
+    lint_start=${SECONDS}
+    lint_status=0
+    if ! (
+        cd "${VNEXT_ROOT}/backend"
+        "${UV_CONSUME}" -C . run ruff check src tests
+    ); then
+        test_exit=1
+        lint_status=1
+        PACKAGE_STATUS[backend]=failed
+    fi
+    echo "==> backend (ruff check) elapsed_seconds=$((SECONDS - lint_start)) status=${lint_status}"
 fi
 
 if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" ]]; then

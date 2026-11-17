@@ -9,10 +9,12 @@ from pathlib import Path
 import pytest
 
 from tests.architecture_baseline import (
+    COMPLEXITY_NOQA_BASELINE,
     IMPORT_RULE_BASELINE,
     RUNTIME_CYCLE_BASELINE,
     UNREACHABLE_MODULE_BASELINE,
 )
+from tests.support.complexity_rules import find_complexity_baseline_drift
 from tests.support.import_rules import (
     RULE_CAPABILITY_SURFACE,
     RULE_CONTRACTS_LEAF,
@@ -1448,3 +1450,61 @@ def test_http_must_not_import_domain_policies(tmp_path: Path) -> None:
     assert any("http/auth.py:1" in text and "[http-policy]" in text for text in described)
     assert any("bad_route.py:3" in text and "[http-policy]" in text for text in described)
     assert any("bad_orch.py:1" in text and "[http-policy]" in text for text in described)
+
+
+def test_complexity_noqa_matches_frozen_baseline() -> None:
+    unexpected, stale, duplicates = find_complexity_baseline_drift(COMPLEXITY_NOQA_BASELINE)
+    assert not unexpected and not stale and not duplicates, (
+        "Ruff C901 complexity noqa baseline drift (baseline may only shrink).\n"
+        f"Unexpected or unapproved C901 noqa entries: {unexpected}\n"
+        f"Stale baseline entries (now removed or simplified): {stale}\n"
+        f"Duplicate C901 noqa entries: {duplicates}"
+    )
+
+
+def test_complexity_noqa_checker_detects_new_stale_file_level_and_bare_noqa(
+    tmp_path: Path,
+) -> None:
+    src = tmp_path / "src" / "pkg"
+    tests = tmp_path / "tests"
+    src.mkdir(parents=True)
+    tests.mkdir(parents=True)
+
+    (src / "mod.py").write_text(
+        "class Builder:\n"
+        "    def registered(self) -> int:  # noqa: C901\n"
+        '        """Literal # noqa: C901 in docstring must be ignored."""\n'
+        "        return 1\n",
+        encoding="utf-8",
+    )
+    baseline = frozenset({("src/pkg/mod.py", "Builder.registered")})
+    assert find_complexity_baseline_drift(baseline, root=tmp_path) == ([], [], [])
+
+    # Stale entry fails when the exemption is removed.
+    stale_baseline = baseline | {("src/pkg/mod.py", "removed_fn")}
+    unexpected, stale, duplicates = find_complexity_baseline_drift(stale_baseline, root=tmp_path)
+    assert unexpected == []
+    assert stale == [("src/pkg/mod.py", "removed_fn")]
+    assert duplicates == []
+
+    # Unregistered function exemption, file-level ignore, bare noqa, and non-def line fail.
+    (src / "mod.py").write_text(
+        "# ruff: noqa: C901\n"
+        "class Builder:\n"
+        "    def registered(self) -> int:  # noqa: C901\n"
+        "        x = 1  # noqa: C901\n"
+        "        return x\n"
+        "    def new_complex(self) -> int:  # noqa: C901\n"
+        "        return 2\n",
+        encoding="utf-8",
+    )
+    (tests / "test_sample.py").write_text("def test_ok() -> None:  # noqa\n    pass\n")
+    unexpected, stale, duplicates = find_complexity_baseline_drift(baseline, root=tmp_path)
+    assert stale == []
+    assert duplicates == []
+    assert unexpected == [
+        ("src/pkg/mod.py", "<file:1>"),
+        ("src/pkg/mod.py", "<non-def-line:4>"),
+        ("src/pkg/mod.py", "Builder.new_complex"),
+        ("tests/test_sample.py", "<bare-noqa:1>"),
+    ]

@@ -634,7 +634,8 @@ def snapshot_descriptions(run: Run, masked_paths: set[str]) -> dict[tuple[str, s
     return result
 
 
-def compare_snapshot_descriptions(
+# Legacy complexity 32 > 30 (benchmark snapshot comparison); exempted in J5 baseline.
+def compare_snapshot_descriptions(  # noqa: C901
     base: Run,
     candidate: Run,
     masked_paths: set[str],

@@ -402,7 +402,10 @@ class _Builder:
         self.charge(item)
         return item
 
-    def groups(self, tables: tuple[NavigationTable, ...], side: str | None) -> list[dict[str, Any]]:
+    # Legacy complexity 34 > 30 (navigation group builder); exempted in J5 baseline.
+    def groups(  # noqa: C901
+        self, tables: tuple[NavigationTable, ...], side: str | None
+    ) -> list[dict[str, Any]]:
         diagnostic_start = len(self.diagnostics)
         self.replacement = side is not None
         names = {t.table_name: t for t in tables}
@@ -756,7 +759,8 @@ class _Builder:
             self.charge(notice)
             self.notices.append(notice)
 
-    def devices(
+    # Legacy complexity 103 > 30 (navigation device builder); exempted in J5 baseline.
+    def devices(  # noqa: C901
         self,
         output: list[dict[str, Any]],
         names: dict[str, NavigationTable],

@@ -372,7 +372,8 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
     return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
-def surface_artifact_closure(
+# Legacy complexity 36 > 30 (bundle artifact closure assembly); exempted in J5 baseline.
+def surface_artifact_closure(  # noqa: C901
     surface: ComparisonSurface | None,
     pair_id: str,
     records_closure: ComparisonRecordsClosure | None = None,

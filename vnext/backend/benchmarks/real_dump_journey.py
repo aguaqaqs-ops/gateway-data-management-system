@@ -3029,7 +3029,8 @@ def _offline_composite_comparison(
     return {"counts": counts, "elapsed_seconds": elapsed}
 
 
-def _run_tier(
+# Legacy complexity 47 > 30 (benchmark journey tier runner); exempted in J5 baseline.
+def _run_tier(  # noqa: C901
     *,
     tier: str,
     v1_id: str,
@@ -4264,7 +4265,8 @@ def _validate_w1_w2_scope(
         )
 
 
-def run_journey(
+# Legacy complexity 51 > 30 (benchmark journey orchestrator); exempted in J5 baseline.
+def run_journey(  # noqa: C901
     *,
     tier_filter: str | None = None,
     scope: str = "full",

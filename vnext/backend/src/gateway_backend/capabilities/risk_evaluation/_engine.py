@@ -412,7 +412,8 @@ def _evaluate_table(
         return replace(outcome, charges=charges.pop_all())
 
 
-def _evaluate_table_impl(
+# Legacy complexity 54 > 30 (table risk rule evaluation); exempted in J5 baseline.
+def _evaluate_table_impl(  # noqa: C901
     item: ExtractedRiskFacts,
     rules: Mapping[RiskRuleId, RiskRuleSpec],
     evaluation_input: RiskEvaluationInput,

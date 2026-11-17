@@ -709,7 +709,8 @@ class _Diagnostics(_Document):
     diagnostics: list[_Diagnostic]
 
 
-def validate_diagnostics(
+# Legacy complexity 47 > 30 (navigation diagnostics validation); exempted in J5 baseline.
+def validate_diagnostics(  # noqa: C901
     document: object,
     navigation: dict[str, Any],
     table_ids: frozenset[str],

@@ -479,29 +479,56 @@ free capacity in the physical host pool.
 
 ## Dolt 升级核对流程
 
-这是后续**已授权版本升级**的操作入口；本次整顿不升级 Dolt、不运行验证。以当前产品
-`CandidateADoltCli` 路径及整顿 D24 保存的真实 t4 为依据，不使用已退役的 P2-R1 平行测量工具。
+本节为后续**已授权 Dolt 版本升级**的操作 Runbook；P7 专项整顿本身不升级 Dolt，也不新增升级脚本或框架。产品导入/读取路径使用 `CandidateADoltCli`（`vnext/repository_service/src/gateway_repository_service/versioned_import/provider.py`），不使用已删除的 P2-R1 平行测量 probe。
 
-1. 在 clean 开发 worktree 同步 `vnext/repository_service/Dockerfile` 的 `DOLT_VERSION`、
-   `vnext/deploy/p2r1-cache/Dockerfile.dependency-base` 的 `DOLT_VERSION` 和
-   `vnext/repository_service/src/gateway_repository_service/settings.py` 的 `dolt_version`。
-   复核其他镜像参数/版本断言与当前 HEAD；`process.py` 的 `DoltRunner._validate_version`
-   必须继续在实际版本不符时拒绝启动。版本/基础镜像变更均本地提交，不夹带 schema 或业务语义调整。
-2. 按 DC67 在 CT201 取得所需 Dolt/基础镜像制品，经获准 LAN 预填充到实际验证节点；不让测试 CT
-   访问公网。记录来源提交、制品归档 SHA256、预填充时间、config digest 和全部 RootFS DiffID，
-   不用跨节点 `docker inspect` ID 比身份，不记录凭据。保留实际可达缓存/预置依赖模式；缺缓存停止补齐。
-3. 由开发机编排 `python3 scripts/run-stage-gate.py <完整SHA> --fresh --purpose stage --session dolt-upgrade`，
-   目标源码先按获准方式到 04；脚本在固定 clean worktree 原子占用、重建当前 RS 产品镜像并运行六包。
-   backend/worker 容器由 runner 正常构建；无需重复单跑同次通过的 Compose。
-   仅构建成功或历史包通过不能替代本次 fresh 结果；失败停止依赖验收并保留日志。
-4. 在 DC33 确认的专用节点/输入范围跑真实 t4 完整旅程；与
-   `/home/dev/gdds-stage-exchange/p7-backend-remediation/reference/` 中经核收的 D24 参考比对：
-   相同输入/规则/资源与缓存条件下，正式结果和 digest 一致，核 RS 导入耗时与内存峰值。
-   保存 P7-D23 逐尝试摘要、版本/输入/配置/结果引用、hostname、起止 HEAD/时间、exit 与日志 SHA256。
-   参考尚未产出或条件不一致就不能声称对照通过；明显回归按 D22 说明瓶颈/收益，不用增加样本掩盖失败。
-5. 记录升级提交、镜像身份、六包/容器/真实旅程结论和限制；按实际风险独审核收。
-   当前可重建测试数据由本任务独立准备，不能破坏别人的卷。
-   首次需要保留部署数据时，先按 Phase 8/9 的一致备份、前向升级和隔离恢复方案演练；
-   不能假设新 Dolt 数据可由旧二进制直接打开或以删除 immutable commit 回退。
+### 版本源、身份拒启与构建/缓存入口
 
-不另建设升级脚本/框架，版本数量、测试文件数量和代码行号均在每次升级时重新核对。
+每次升级前须在当前 HEAD 重新检索并核对全部版本号与检验位（不复用历史行号或文件计数；可用 `rg -n "2\.1\.11|DOLT_VERSION|dolt_version" vnext/` 复核）：
+
+1. **核心版本源与构建脚本（必须同步）**
+   - `vnext/repository_service/Dockerfile`：`ARG DOLT_VERSION`、`ARG DOLT_SHA256`（`dolt-linux-amd64.tar.gz` 压缩包 SHA-256，供缓存下载分支校验）、`LABEL gateway.p2r1.dolt-version="${DOLT_VERSION}"`，以及在预置/缓存双分支均执行的 `/usr/local/bin/dolt version` 精确断言。若同期变更 `vnext/repository_service/uv.lock`，须同步更新 `ARG UV_LOCK_SHA256`。
+   - `vnext/deploy/p2r1-cache/Dockerfile.dependency-base`：`ARG DOLT_VERSION`、`ARG DOLT_BINARY_SHA256`（无默认值，构建时强制校验解包后的 `offline-assets/dolt` 二进制 SHA-256）、`LABEL gateway.p2r1.dolt-version="${DOLT_VERSION}"` 与 `/usr/local/bin/dolt version` 断言；构建时需传入与当前 `vnext/repository_service/uv.lock` 一致的 `UV_LOCK_SHA256`（注意文件内默认值可能滞后于当前 lock）。
+   - `vnext/repository_service/src/gateway_repository_service/settings.py`：`RepositoryServiceSettings.dolt_version` 默认值（以及 `dolt_binary: Path = Path("/usr/local/bin/dolt")`，`vnext/deploy/compose.yaml` 显式透传 `GATEWAY_REPOSITORY_DOLT_BINARY: /usr/local/bin/dolt`）。
+   - `vnext/scripts/build-repository-service-image.sh`：`cache_reachable()` 与 `DOLT_DOWNLOAD_URL` 硬编码了 `/dolt/2.1.11/dolt-linux-amd64.tar.gz`，且脚本不向 `Dockerfile` 传入 `DOLT_VERSION`；升级时必须同步更新其中路径。另注意 `dependency_base_available()` 仅检查 `${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:lock-${UV_LOCK_SHA256:0:12}}` 的 `gateway.p2r1.uv-lock-sha256` 标签，不核 `gateway.p2r1.dolt-version`；若 `uv.lock` 未变而仅升级 Dolt，必须在全部目标节点用新 Dolt 重建并重新加载 dependency-base（或通过 `GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE` 指定新 tag 并同步 04 节点配置），否则 `Dockerfile` 构建阶段会在 `/usr/local/bin/dolt version` 断言失败。
+2. **其余字面量与测试夹具（一并核对）**
+   - 诊断/历史脚本：`vnext/backend/benchmarks/p6_s1a_dolt_batch_preflight.py`（`_EXPECTED_DOLT_VERSION`），以及历史 R6-W1 夹具脚本 `vnext/scripts/generate_r6_w1_packages.py`、`vnext/scripts/validate_r6_w1_packages.py`。
+   - 测试与支持夹具：`vnext/repository_service/tests/support/lifecycle_harness.py`、`tests/support/{crash_recovery_worker,import_crash_recovery_worker,import_admission_crash_worker,import_recovery_crash_worker}.py`、`tests/test_auth_lifecycle.py`、`tests/test_p2_r1_primitives.py`，以及使用假 `dolt` 脚本或环境样本的单测（`tests/test_run_tests_script.py`、`tests/test_snapshot_admin.py`、`tests/test_test_input_closure.py`）。
+3. **身份校验与启动拒启（不得绕过）**
+   - 构建期：`Dockerfile.dependency-base` 校验 `DOLT_BINARY_SHA256` 与 `dolt version == ${DOLT_VERSION}`；`repository_service/Dockerfile` 校验 `DOLT_SHA256`（非预置分支）并在全部模式下断言 `/usr/local/bin/dolt version` 等于 `${DOLT_VERSION}`。
+   - 运行期：`DoltRunner.__init__`（`vnext/repository_service/src/gateway_repository_service/process.py`）先写私有 `HOME/.dolt/config_global.json`（`versioncheck.disabled=true`、`metrics.disabled=true`），再经 `_validate_version()` 调用 `parse_dolt_version()` 校验实际 `dolt version` 等于 `RepositoryServiceSettings.dolt_version`，不符即抛 `ProcessBoundaryError`；`OfflineCliCapabilityGate.verify()`（`provider_lifecycle.py`）在 `ServiceRuntime.start()`（`runtime.py`）与 `versioned_import/admin.py` 启动路径核验二进制存在性与该门禁，不符即抛 `ProviderUnavailableError` 拒启（`snapshot_admin.py`、`create_repository/*` 亦通过 `DoltRunner.for_layout()` 触发同样拒启）。`docker-entrypoint.sh` 中的 `RuntimePreflight` 仅校验挂载/marker/cgroup，Dolt 版本拒启在随后启动的 `ServiceRuntime.start()` 生效。
+4. **DC67 缓存与预填充入口**
+   - 当前仓库**不存在** `build-p2r1-dependency-base.sh` 脚本（只有 backend 使用 `vnext/scripts/build-backend-dependency-base.sh`）。Repository Service 使用 `vnext/deploy/p2r1-cache/Dockerfile.dependency-base`（`USE_PRELOADED_DEPENDENCIES=1` 预置基础镜像模式）或 `gateway-p2r1-dependency-cache.service` 服务的 LAN 制品缓存（`GATEWAY_P2R1_CACHE_URL`，默认 `http://172.17.0.1:18080` 仅适用于本机 Docker bridge gateway；参见 [测试规程](../../docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)）。
+   - RS 非容器 `integration` 测试及 `vnext/scripts/test_input_closure.py`（采集宿主机 `dolt version`）直接消费测试节点宿主机 `/usr/local/bin/dolt`，因此预填充须同时覆盖**宿主机 `/usr/local/bin/dolt`** 与 **容器 dependency-base / LAN 制品缓存**。
+
+### 执行步骤
+
+1. **同步版本与提交候选**：在 clean 开发 worktree 同步上述版本源、构建脚本及测试夹具，确认未夹带 schema、接口或业务语义改动，本地提交至 `main` 并记录完整 `<full-sha>`。
+2. **CT201 取得制品与 DC67 节点预填充**（严禁让测试 CT 直连公网或使用转发代理）：
+   - 在 `CT201` 获取新版本 Dolt 归档包，计算 `dolt-linux-amd64.tar.gz`（`DOLT_SHA256`）与解包后 `dolt` 二进制（`DOLT_BINARY_SHA256`）的精确 SHA-256。
+   - 按目标节点实际消费模式完成预填充：
+     - **宿主机二进制**：经获准 LAN 将新 `dolt` 二进制预填充至各实际验证节点（`ct108-gw-dms-04` 及真实数据节点如 `CT108`/`05`）的 `/usr/local/bin/dolt`，核对 `dolt version`。
+     - **容器预置依赖 / 缓存**：在 CT201 使用 `vnext/deploy/p2r1-cache/Dockerfile.dependency-base`（传 `DOLT_BINARY_SHA256` 与当前 `UV_LOCK_SHA256`）构建新 dependency-base，`docker image save` 后经获准 LAN 传至目标节点执行 `docker load`；若使用 HTTP 制品缓存，则将新归档写入 `/var/lib/gateway/p2r1-dependency-cache/dolt/<new-version>/dolt-linux-amd64.tar.gz` 并确认节点 `GATEWAY_P2R1_CACHE_URL` 可达。
+     - 若 04 节点的 `/home/dev/gdds-stage-gate-config.json` 中 `GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE`、cache URL 或 `cache_provenance` 发生变化，由节点维护者同步更新（`source_node`、`source_commit`、`artifact_sha256`、`prefilled_at`、`endpoint_identifier`、`identity_record`）。
+   - 记录来源提交、归档 SHA-256、预填充 UTC 时间、镜像 `config_digest` 及全部 `RootFS` `DiffID`（跨节点不比较 `docker inspect` ID，不记录凭据）；缺缓存即停止补齐。
+3. **运行六包 `--fresh --purpose stage` 阶段门禁**：
+   - 将目标 `<full-sha>` 按获准 LAN 方式同步到 `ct108-gw-dms-04` 的 `/home/dev/gateway-data-management-system`，由开发机编排：
+     ```bash
+     python3 scripts/run-stage-gate.py <full-sha> --fresh --purpose stage --session dolt-upgrade
+     ```
+   - 该命令在 `04` 固定 clean worktree 原子占位、跳过查表沿用，重建 RS 产品镜像并运行全部六包（`rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`）与 Compose 容器门禁（backend/worker 由 runner 内 Compose harness 正常构建；同次已过 Compose 不另重跑）。
+   - 仅构建成功或历史包沿用不能替代本次 `--fresh` 结果；任一步失败即停止依赖验收并保留原件日志（见 [`scripts/README.md`](../../scripts/README.md)）。
+4. **运行真实 `t4` 旅程并与 D24 参考对照**：
+   - 在 DC33 确认的专用测试节点（如 `CT108`，严禁选用 `06` 节点）取得 `/home/dev/gdds-node-busy.d` 原子占用，确认 clean detached worktree、`TMPDIR` 在真实文件系统且离线环境变量已设置，使用固定输入包 `rd-t4-d-v1/v2`（`/home/dev/gateway-real-dumps/packages/rd-t4-d-v{1,2}.tar.gz`，校验 `datasets.json` SHA-256；严禁使用 `source-dirs/`）与标准 `W1 / active 1 / N1 / E32 / reserve 8 / M24 GiB` 配置运行：
+     ```bash
+     ./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync python \
+       benchmarks/real_dump_journey.py --tier t4 --scope full \
+       --kernel-threads 1 --kernel-memory-budget-bytes 25769803776
+     ```
+   - 在栈销毁前从 `/v1/operations/{operation_id}/statistics/executions` 提取并保存各步骤的 `P7-D23` 逐尝试 `ExecutionSummary`。
+   - 与 `/home/dev/gdds-stage-exchange/p7-backend-remediation/reference/real-data-run-card.md` 所索引的 D24 核收参考逐项对照：
+     - **确定性结果与摘要**：`v1/v2 preview`（`preview` 表/行变化计数、`identity`、`keyless_fallback_tables`、`bundle_transfer` 逻辑记录数与字节数）、`v1/v2 submit`（`canonical_state_digest`、`repository.pseudo_rows_total` 与逐表行数）、`repeat-v1`（`changed_table_count == 0`、`identity`）、`history`（`record_count`、`composite_record_count`、`surface_digest`、`bundle_transfer` 记录数/闭合数/字节）；注意不同冷栈导出 Parquet metadata 含每栈随机 `repository_id`，`bundle_digest` 不作跨冷栈相等依据。
+     - **RS 导入耗时与内存峰值**：对照 `ExecutionSummary.metrics.stage_duration_ms.rs_import`（ms）、`rss_peak_bytes`、`cgroup_peak_bytes`、`scratch_peak_bytes`、`duration_ms`、`cpu_time_us` 以及 driver `step_metrics[*].cpu_seconds.repository-service` / `wall_seconds`。
+   - 保存完整运行原件（hostname、起止 HEAD 与 UTC、numeric exit、stdout JSON 报告、原始日志及 SHA-256、D23 摘要 JSON 及 SHA-256、镜像 `config_digest` 及全部 `RootFS` `DiffID`）。D24 参考尚未产出或输入/资源/缓存条件不一致时，不得声称对照通过；明显回归须如实定界并说明瓶颈/收益，不得增加重复测量掩盖失败。
+5. **收尾、独立审核与数据兼容性边界**：
+   - 记录升级提交、镜像身份、六包门禁与真实 `t4` 对照结论及未测限制，按实际风险完成独立审核；收尾只清理本人测试临时目录与占用标记，不破坏他人卷。
+   - 首次需要保留部署数据时，先按 Phase 8/9 的一致备份、停组排空（`manage-worker-group.py stop-group`）、前向升级与隔离恢复方案演练；不能假设新 Dolt 仓库数据可由旧二进制直接打开，也不得以删除 immutable commit 回退。

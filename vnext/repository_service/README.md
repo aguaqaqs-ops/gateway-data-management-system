@@ -256,9 +256,10 @@ docker compose -f vnext/deploy/compose.yaml --profile p2-r2 up -d --no-build rep
 
 `build-repository-service-image.sh` 的优先级：
 
-1. 本地存在 `gateway-p2r1-repository:dependency-base-python3.14-dolt2.1.11-uv0.11.28` 时
+1. 本地存在 `${GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE:-gateway-p2r1-repository:lock-<uv_lock_12>}`
+   且其 `gateway.p2r1.uv-lock-sha256` 标签匹配当前 `vnext/repository_service/uv.lock` 时，
    使用 `USE_PRELOADED_DEPENDENCIES=1`（最快，source-only rebuild）；
-2. 否则探测 `http://172.17.0.1:18080` 上的 artifact cache；
+2. 否则探测 `${GATEWAY_P2R1_CACHE_URL:-http://172.17.0.1:18080}` 上的 artifact cache；
 3. 两者都不可用则 fail closed，不会回退到无 cache 的公网下载。
 
 S10 集成测试 `tests/test_import_compose_e2e.py` 调用同一脚本；可通过
@@ -278,8 +279,14 @@ P2-R1 选型测量记录保留在历史文档/Git 中，probe 不再作为操作
 产品导入/读取使用 `versioned_import/provider.py` 的 `CandidateADoltCli`。
 仍在用的 `p2r1-cache/Dockerfile.dependency-base`、构建缓存、`gateway.p2r1.*` labels 和
 `gateway-p2r1-repository` image 名保持；不因旧名字删除活跃依赖链。
-Dolt 升级按[部署操作说明](../deploy/README.md#dolt-升级核对流程)，使用当前产品门禁与真实 t4 参考，
-不恢复测量工具的平行 provider。离线 CLI 真实读取/并发出现硬限制时才从 Git 历史重开选型。
+RS 侧的 Dolt 版本源与运行期拒启分布在 [RS Dockerfile](Dockerfile)、
+[dependency-base Dockerfile](../deploy/p2r1-cache/Dockerfile.dependency-base)、
+[`settings.py`](src/gateway_repository_service/settings.py)（`dolt_version`）、
+[`process.py`](src/gateway_repository_service/process.py)（`DoltRunner._validate_version`）、
+[`provider_lifecycle.py`](src/gateway_repository_service/provider_lifecycle.py)（`OfflineCliCapabilityGate.verify`）与
+[`build-repository-service-image.sh`](../scripts/build-repository-service-image.sh)。
+完整 **Dolt 升级 Runbook**（全部版本源同步、DC67 宿主机与镜像预填充、`run-stage-gate.py --fresh --purpose stage` 六包及真实 `t4` 与 D24 参考对照）见
+[部署操作说明](../deploy/README.md#dolt-升级核对流程)；离线 CLI 真实读取/并发出现硬限制时才从 Git 历史重开选型。
 
 P7 S1a production startup also requires `GATEWAY_RESOURCE_PROFILE_FILE`, paired
 with `GATEWAY_STORAGE_LAYOUT_FILE`. Host mount/source and explicit marker

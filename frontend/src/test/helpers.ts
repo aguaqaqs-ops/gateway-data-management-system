@@ -1,3 +1,4 @@
+import type { FileMetaData } from "hyparquet";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -82,6 +83,8 @@ export interface FixtureTableCase {
   filterTabs: Array<{ facts: NavigationFacts | null; rowFilter: NavigationRowFilter | null }>;
   beforeEncodings: Map<string, SnapshotColumnEncoding>;
   currentEncodings: Map<string, SnapshotColumnEncoding>;
+  beforeMetadata: FileMetaData | null;
+  currentMetadata: FileMetaData | null;
 }
 
 /** Loads one table of a generated fixture through the same call chain ComparisonPage uses. */
@@ -153,6 +156,8 @@ export async function loadTableCase(
     currentEncodings: currentMeta
       ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableName}.current`)
       : new Map(),
+    beforeMetadata: beforeMeta,
+    currentMetadata: currentMeta,
   };
 }
 

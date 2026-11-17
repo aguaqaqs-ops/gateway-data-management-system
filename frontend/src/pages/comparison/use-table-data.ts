@@ -25,16 +25,14 @@ import {
 } from "../../features/view-model/model";
 import { describeRiskReason } from "../../features/view-model/risk-copy";
 import {
-  decodeSnapshotEncodings,
-  type SnapshotColumnEncoding,
-} from "../../features/view-model/snapshot-encoding";
+  assembleTableRows,
+  checkTableRowLocations,
+  decodeTableEncodings,
+} from "../../features/view-model/table-assembly";
 import {
-  buildBrowseRows,
-  canReuseUnrecordedIdentity,
   deriveChangeLocations,
   parseRowLocator,
   rowRiskAnnotation,
-  validateRowLocations,
   type BrowseRow,
   type DeletionLayout,
 } from "../../features/view-model/table-rows";
@@ -129,9 +127,7 @@ export function useTableData(options: {
       const tableRecords = rowRecords as RowDiffRecord[];
       const locator = parseRowLocator(locatorRows as Record<string, unknown>[]);
       const filterTabs = filterTabsForTable(surfaceTable.table_name);
-      const exactTable =
-        filterTabs.length > 0 && filterTabs.every((tab) => tab.facts?.basis === "EXACT");
-      validateRowLocations({
+      checkTableRowLocations({
         table: surfaceTable,
         locator,
         records: tableRecords,
@@ -139,8 +135,7 @@ export function useTableData(options: {
         currentRowCount: currentSnapshotRows.length,
         hasBeforeSnapshot: Boolean(paths?.before),
         hasCurrentSnapshot: Boolean(paths?.current),
-        publishesFilterTabs: filterTabs.length > 0,
-        exactTable,
+        filterTabs,
       });
       const degraded = tableRecords.some(
         (record) =>
@@ -166,24 +161,18 @@ export function useTableData(options: {
           ? readParquetMetadata(bundle, paths.current)
           : Promise.resolve(null),
       ]);
-      const tableLabel = `表 ${surfaceTable.table_name}`;
-      const beforeEncodings: Map<string, SnapshotColumnEncoding> = beforeMeta
-        ? decodeSnapshotEncodings(beforeMeta.key_value_metadata, `${tableLabel}.改前`)
-        : new Map();
-      const currentEncodings: Map<string, SnapshotColumnEncoding> =
-        needsEncodings && currentMeta
-          ? decodeSnapshotEncodings(currentMeta.key_value_metadata, `${tableLabel}.改后`)
-          : new Map();
-      const currentCanonicalBlanks =
-        currentMeta?.key_value_metadata?.some(
-          (entry) =>
-            entry.key === "gateway-vnext.batch.blank_provenance" &&
-            entry.value === "CANONICAL_PSEUDO_GID",
-        ) ?? false;
+      const { beforeEncodings, currentEncodings, currentCanonicalBlanks } = decodeTableEncodings({
+        tableName: surfaceTable.table_name,
+        beforeMetadata: beforeMeta,
+        currentMetadata: currentMeta,
+        degraded,
+        rowFilter: selectedTab.rowFilter,
+        hasUnassigned: unassigned !== null,
+      });
       setBeforeRows(beforeSnapshotRows);
       setCurrentRows(currentSnapshotRows);
       setAnnotations(risks);
-      const built = buildBrowseRows({
+      const built = assembleTableRows({
         table: surfaceTable,
         beforeRows: beforeSnapshotRows,
         currentRows: currentSnapshotRows,
@@ -197,12 +186,7 @@ export function useTableData(options: {
         beforeEncodings,
         currentEncodings,
         degraded,
-        reuseUnrecordedBefore: canReuseUnrecordedIdentity(
-          surfaceTable,
-          filterTabs,
-          Boolean(paths?.before),
-          Boolean(paths?.current),
-        ),
+        filterTabs,
         unassigned,
         onlyInteresting: browse.onlyInteresting,
         search: browse.search,

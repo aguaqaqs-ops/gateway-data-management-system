@@ -3,7 +3,7 @@ import {
   connectionStatusLabel,
   getConnectionStatus,
   type ConnectionStatus,
-} from "../features/api/connection-status";
+} from "../api/connection-status";
 
 export function ConnectionStatusIndicator({
   hideConnected = false,

@@ -123,7 +123,7 @@ import {
   RiskBadge,
   formatBytes,
 } from "../design-system/components";
-import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
+import { ConnectionStatusIndicator } from "../features/workbench/ConnectionStatusIndicator";
 import { Button } from "../design-system/components";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { ApiError } from "../features/api/authenticated-fetch";

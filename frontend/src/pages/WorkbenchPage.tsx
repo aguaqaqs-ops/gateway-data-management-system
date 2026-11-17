@@ -43,7 +43,7 @@ import {
   OpfsBundleStore,
   type InstalledBundle,
 } from "../features/bundle/local-bundle";
-import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
+import { ConnectionStatusIndicator } from "../features/workbench/ConnectionStatusIndicator";
 import { ErrorState, LoadingSkeleton } from "../design-system/components";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
 import { UploadStepCard } from "../features/workbench/UploadStepCard";

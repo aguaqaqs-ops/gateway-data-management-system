@@ -166,23 +166,43 @@ async function waitForOperation(
   token: string,
   operationId: string,
 ): Promise<OperationBody> {
+  const origin = new URL(page.url()).origin;
   const deadline = Date.now() + 300_000;
   while (Date.now() < deadline) {
-    const operation = await page.evaluate(
-      async ({ token, operationId }) => {
-        const snapshot = window.__gatewaySession as GatewaySession;
-        if (snapshot.accessToken !== token) throw new Error("会话已变化");
-        const response = await fetch(`/v1/operations/${encodeURIComponent(operationId)}`, {
-          headers: {
-            authorization: `Bearer ${token}`,
-            "X-Gateway-Device-Key": snapshot.deviceRouteKey,
-          },
-        });
-        if (!response.ok) throw new Error(`GET /v1/operations returned ${response.status}`);
-        return (await response.json()) as OperationBody;
+    let session: { accessToken: string; deviceRouteKey: string } | null;
+    try {
+      session = await page.evaluate(() => {
+        const snapshot = window.__gatewaySession as GatewaySession | undefined;
+        return snapshot
+          ? { accessToken: snapshot.accessToken, deviceRouteKey: snapshot.deviceRouteKey }
+          : null;
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /Execution context was destroyed|Cannot find context/i.test(error.message)
+      ) {
+        await page.waitForLoadState("domcontentloaded");
+        continue;
+      }
+      throw error;
+    }
+    if (!session) {
+      await page.waitForTimeout(100);
+      continue;
+    }
+    if (session.accessToken !== token) throw new Error("会话已变化");
+    const response = await page.request.get(
+      `${origin}/v1/operations/${encodeURIComponent(operationId)}`,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "X-Gateway-Device-Key": session.deviceRouteKey,
+        },
       },
-      { token, operationId },
     );
+    if (!response.ok()) throw new Error(`GET /v1/operations returned ${response.status()}`);
+    const operation = (await response.json()) as OperationBody;
     if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(operation.status)) return operation;
     await page.waitForTimeout(500);
   }

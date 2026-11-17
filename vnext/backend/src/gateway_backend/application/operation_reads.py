@@ -1,24 +1,35 @@
-"""Operation scope re-authorization for HTTP reads."""
+"""Operation, submit attempt, and submission read authorization use cases."""
 
 from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
 
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_KIND,
     PERMISSION_READ_PROJECT_HISTORY,
+    HistoryCompareAcceptanceRecord,
 )
-from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
-from gateway_backend.application.history.contracts import HistoryCompareAcceptanceRecord
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
+from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
+from gateway_backend.application.submission.ports import SubmissionReaderPort
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden, ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope, Workspace
 from gateway_backend.domain.workspace.policies import assert_exact_scope, assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
-from gateway_backend.http.dependencies import SubmissionReaderPort
-from gateway_backend.http.errors import ApiError
-from gateway_backend.operations.contracts import OperationRecord
+from gateway_backend.operations.contracts import OperationRecord, StepRecord
+from gateway_backend.operations.store import RecordNotFound
 
 PERMISSION_WORKSPACE_READ = "workspace_read"
+
+
+@runtime_checkable
+class OperationReaderPort(Protocol):
+    def get_operation(self, operation_id: str) -> OperationRecord:
+        """Return an operation or raise RecordNotFound."""
+
+    def get_step(self, step_id: str) -> StepRecord:
+        """Return a step or raise RecordNotFound."""
 
 
 def assert_workspace_read_permission(context: IdentityContext) -> None:
@@ -46,14 +57,6 @@ def submit_attempt_id_from_operation(operation: OperationRecord) -> str | None:
     return None
 
 
-def _map_scope_resolution_error(_exc: ScopeNotFound) -> ApiError:
-    return ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
-
-
-def _map_history_scope_resolution_error(_exc: ScopeNotFound) -> ApiError:
-    return ApiError(code="SCOPE_FORBIDDEN", message="scope forbidden", status_code=403)
-
-
 def _authorize_workspace_scope(
     *,
     context: IdentityContext,
@@ -64,21 +67,8 @@ def _authorize_workspace_scope(
 ) -> Workspace:
     workspace = workspace_repository.get_workspace(workspace_id)
     if workspace is None:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
-    try:
-        assert_exact_scope(workspace, context)
-    except PermissionDenied:
-        raise
-    except ScopeForbidden:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        ) from None
+        raise ScopeForbidden
+    assert_exact_scope(workspace, context)
     _authorize_current_mapping(
         context=context,
         workspace=workspace,
@@ -95,22 +85,11 @@ def _authorize_current_mapping(
     scope_resolution: ScopeResolutionPort,
     frozen_repository_id: str | None = None,
 ) -> ResolvedScope:
-    try:
-        resolved = scope_resolution.resolve(context)
-    except ScopeNotFound as exc:
-        raise _map_scope_resolution_error(exc) from exc
+    resolved = scope_resolution.resolve(context)
     if resolved.repository_id != workspace.repository_id:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
+        raise ScopeForbidden
     if frozen_repository_id is not None and frozen_repository_id != resolved.repository_id:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
+        raise ScopeForbidden
     return resolved
 
 
@@ -122,50 +101,30 @@ def authorize_history_compare_operation_read(
 ) -> HistoryCompareAcceptanceRecord:
     assert_permission(context, PERMISSION_READ_PROJECT_HISTORY)
     if operation.job_kind != HISTORY_COMPARE_JOB_KIND:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
+        raise ScopeForbidden
     acceptance_id = history_compare_acceptance_id_from_operation(operation)
     if acceptance_id is None:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
+        raise ScopeForbidden
     with unit_of_work_factory(read_only=True) as unit_of_work:
         acceptance = unit_of_work.history_compare.get_acceptance_by_operation_id(
             operation.operation_id
         )
         if acceptance is None or acceptance.acceptance_id != acceptance_id:
-            raise ApiError(
-                code="RESOURCE_NOT_FOUND",
-                message="resource not found",
-                status_code=404,
-            )
+            raise ScopeForbidden
         if (
             acceptance.gateway_device_external_key != context.gateway_device_external_key
             or acceptance.business_project_id != context.business_project_id
         ):
-            raise ApiError(
-                code="RESOURCE_NOT_FOUND",
-                message="resource not found",
-                status_code=404,
-            )
+            raise ScopeForbidden
         try:
             resolved = unit_of_work.resolve_provisioned_scope(
                 gateway_device_external_key=context.gateway_device_external_key,
                 business_project_id=context.business_project_id,
             )
         except ScopeNotFound as exc:
-            raise _map_history_scope_resolution_error(exc) from exc
+            raise PermissionDenied(PERMISSION_READ_PROJECT_HISTORY) from exc
         if resolved.repository_id != acceptance.repository_id:
-            raise ApiError(
-                code="RESOURCE_NOT_FOUND",
-                message="resource not found",
-                status_code=404,
-            )
+            raise ScopeForbidden
     return acceptance
 
 
@@ -182,11 +141,7 @@ def authorize_operation_read(
         assert_workspace_read_permission(context)
     workspace_id = workspace_id_from_operation(operation)
     if workspace_id is None:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        )
+        raise ScopeForbidden
     workspace = _authorize_workspace_scope(
         context=context,
         workspace_id=workspace_id,
@@ -196,13 +151,47 @@ def authorize_operation_read(
     if operation.job_kind == SUBMIT_JOB_KIND:
         submit_attempt_id = submit_attempt_id_from_operation(operation)
         if submit_attempt_id is None:
-            raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+            raise ScopeForbidden
         attempt = submission_reader.get_submit_attempt(
             submit_attempt_id, workspace_id=workspace_id, repository_id=workspace.repository_id
         )
         if attempt is None:
-            raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+            raise ScopeForbidden
     return workspace
+
+
+def read_authorized_operation(
+    *,
+    context: IdentityContext,
+    operation_id: str,
+    operation_reader: OperationReaderPort,
+    workspace_repository: WorkspaceRepository,
+    submission_reader: SubmissionReaderPort,
+    scope_resolution: ScopeResolutionPort,
+    history_unit_of_work_factory: HistoryControlUnitOfWorkFactory,
+) -> OperationRecord:
+    try:
+        operation = operation_reader.get_operation(operation_id)
+    except RecordNotFound:
+        assert_workspace_read_permission(context)
+        raise ScopeForbidden from None
+    if operation.job_kind == HISTORY_COMPARE_JOB_KIND:
+        authorize_history_compare_operation_read(
+            context=context,
+            operation=operation,
+            unit_of_work_factory=history_unit_of_work_factory,
+        )
+        return operation
+    assert_workspace_read_permission(context)
+    authorize_operation_read(
+        context=context,
+        operation=operation,
+        workspace_repository=workspace_repository,
+        submission_reader=submission_reader,
+        scope_resolution=scope_resolution,
+        permission_checked=True,
+    )
+    return operation
 
 
 def read_submit_attempt(
@@ -225,7 +214,7 @@ def read_submit_attempt(
         submit_attempt_id, workspace_id=workspace_id, repository_id=workspace.repository_id
     )
     if attempt is None:
-        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+        raise ScopeForbidden
     return attempt
 
 
@@ -249,5 +238,5 @@ def read_submission(
         submission_id, workspace_id=workspace_id, repository_id=workspace.repository_id
     )
     if submission is None:
-        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
+        raise ScopeForbidden
     return submission

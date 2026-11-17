@@ -55,3 +55,15 @@ class HistoryCompareScopeLimit(HistoryApplicationError):
     def __init__(self, operation_ids: tuple[str, ...]) -> None:
         super().__init__("history compare scope limit reached")
         self.operation_ids = operation_ids
+
+
+class HistoryArtifactUnavailable(HistoryApplicationError):
+    """Raised when a history compare checkpoint, state, or bundle artifact is unavailable."""
+
+
+class HistoryBundleIntegrityFailure(HistoryApplicationError):
+    """Raised when a history compare bundle fails integrity verification."""
+
+
+class HistoryCompareResultExpired(HistoryApplicationError):
+    """Raised when a succeeded history compare result has passed its retention window."""

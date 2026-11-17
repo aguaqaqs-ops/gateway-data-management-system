@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from gateway_backend.application.archive.ports import ArchiveClosureReadPort
 from gateway_backend.application.control_transactions import ControlTransaction
@@ -31,6 +31,41 @@ from gateway_backend.domain.submission.ports import (
 from gateway_backend.domain.workspace.models import ResolvedScope
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
+from gateway_backend.operations.recovery import OperatorRecoveryRequest
+from gateway_backend.operations.state import TransitionDisposition
+
+
+@runtime_checkable
+class ArtifactRefLookupPort(Protocol):
+    def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
+        """Return durable artifact metadata when the store can resolve one id."""
+
+
+@runtime_checkable
+class SubmissionReaderPort(Protocol):
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None:
+        """Load one SubmitAttempt."""
+
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None:
+        """Load one Submission."""
+
+
+@runtime_checkable
+class OperatorRecoveryApplicationPort(Protocol):
+    def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
+        """Apply or replay one authorized operator recovery command."""
 
 
 class SubmitControlTransaction(ControlTransaction, Protocol):

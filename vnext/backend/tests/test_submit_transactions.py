@@ -32,8 +32,6 @@ from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
-    deterministic_submit_attempt_id,
-    deterministic_submit_operation_id,
 )
 from gateway_backend.application.submission.abort_transaction import (
     AbortSubmitTransactionRequest,
@@ -43,6 +41,8 @@ from gateway_backend.application.submission.abort_transaction import (
 from gateway_backend.application.submission.contracts import (
     SUBMIT_JOB_CONTRACT_VERSION,
     AcceptSubmitCommand,
+    deterministic_submit_attempt_id,
+    deterministic_submit_operation_id,
     FinalizeSubmitResult,
     IdentityConfirmationRequest,
     MatchingAbortProof,

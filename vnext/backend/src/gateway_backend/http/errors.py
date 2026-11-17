@@ -25,18 +25,30 @@ from gateway_backend.application.submission.errors import (
     FinalizeRecoveryRequired,
     IdempotencyConflict as SubmitIdempotencyConflict,
     NoCanonicalChange,
+    OperatorRecoveryCapabilityConflict,
+    OperatorRecoveryIdentityConflict,
+    OperatorRecoveryOperationVersionConflict,
+    OperatorRecoveryStateConflict,
+    OperatorRecoveryStepVersionConflict,
+    OperatorRecoveryTargetNotFound,
     ProjectIdentityConfirmationMismatch,
     ProjectIdentityConfirmationRequired,
     PreviewBindingConflict as SubmitPreviewBindingConflict,
     PreviewDerivedStale,
     ReviewIntegrityFailure,
     ReviewWorkspaceOccupancyConflict,
+    SubmitAcceptanceUnavailable,
     SubmitApplicationError,
+    SubmitArtifactUnavailable,
+    SubmitJobNotRegistered,
 )
 from gateway_backend.application.history.errors import (
     HistoryApplicationError,
+    HistoryArtifactUnavailable,
+    HistoryBundleIntegrityFailure,
     HistoryCompareAcceptanceUnavailable,
     HistoryCompareRequestExpired,
+    HistoryCompareResultExpired,
     HistoryCompareScopeLimit,
     HistoryCompareAliasLimit,
     HistoryComparePreflightFailure,
@@ -250,6 +262,45 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             message=str(exc),
             status_code=409,
         )
+    if isinstance(exc, SubmitJobNotRegistered | SubmitAcceptanceUnavailable):
+        return ApiError(
+            code="SERVICE_NOT_READY",
+            message=str(exc),
+            status_code=503,
+        )
+    if isinstance(exc, SubmitArtifactUnavailable):
+        return ApiError(
+            code="ARTIFACT_UNAVAILABLE",
+            message=str(exc),
+            status_code=503,
+        )
+    if isinstance(exc, OperatorRecoveryTargetNotFound):
+        return ApiError(
+            code="RECOVERY_TARGET_NOT_FOUND",
+            message=str(exc),
+            status_code=404,
+        )
+    if isinstance(
+        exc,
+        OperatorRecoveryIdentityConflict
+        | OperatorRecoveryStateConflict
+        | OperatorRecoveryCapabilityConflict,
+    ):
+        return ApiError(
+            code=exc.stable_code,
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(
+        exc,
+        OperatorRecoveryOperationVersionConflict | OperatorRecoveryStepVersionConflict,
+    ):
+        return ApiError(
+            code=exc.stable_code,
+            message=str(exc),
+            status_code=409,
+            details=exc.details,
+        )
     if isinstance(exc, ReviewIntegrityFailure):
         return ApiError(
             code="SERVICE_NOT_READY",
@@ -287,6 +338,12 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
         )
     if isinstance(exc, HistoryCompareRequestExpired):
         return ApiError(code="HISTORY_COMPARE_REQUEST_EXPIRED", message=str(exc), status_code=409)
+    if isinstance(exc, HistoryCompareResultExpired):
+        return ApiError(code="HISTORY_COMPARE_RESULT_EXPIRED", message=str(exc), status_code=410)
+    if isinstance(exc, HistoryArtifactUnavailable):
+        return ApiError(code="ARTIFACT_UNAVAILABLE", message=str(exc), status_code=404)
+    if isinstance(exc, HistoryBundleIntegrityFailure):
+        return ApiError(code="BUNDLE_INTEGRITY_FAILURE", message=str(exc), status_code=503)
     if isinstance(exc, HistoryCompareAliasLimit):
         return ApiError(
             code="HISTORY_COMPARE_ALIAS_LIMIT",

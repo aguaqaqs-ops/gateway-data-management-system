@@ -6,10 +6,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
+from gateway_backend.application.operation_reads import read_submission
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
-from gateway_backend.http.orchestration.operation_scope import read_submission
 from gateway_backend.http.schemas.submit import SubmissionResponse, submission_to_response
 
 router = APIRouter(tags=["submissions"])

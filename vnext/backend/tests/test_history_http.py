@@ -1217,7 +1217,7 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
         and operation.ready_closure_ref is not None
     )
     from gateway_backend.bootstrap.storage_admin import release_expired_history_results
-    from gateway_backend.http.orchestration.history_compare import read_compare_bundle
+    from gateway_backend.application.history.results import read_compare_bundle
 
     prepared = read_compare_bundle(
         operation=operation,
@@ -1818,3 +1818,59 @@ def test_history_rejects_bundle_with_wrong_ordered_input_binding(
     )
     assert replay.status_code == 503
     assert replay.json()["message"] == "history bundle input binding disagrees"
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/v1/history-compares",
+        "/v1/history-compares/op-missing",
+        "/v1/history-compares/op-missing/bundle",
+    ),
+)
+def test_history_compare_reads_require_permission_before_lookup(
+    db_path: Path,
+    tmp_path: Path,
+    path: str,
+) -> None:
+    env = _history_env(
+        tmp_path / "no-history-perm",
+        db_path=db_path,
+        permissions=frozenset({"workspace_read"}),
+    )
+    response = env.client.get(path, headers=env.auth_headers())
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"
+
+
+def test_history_compare_read_hides_missing_and_non_succeeded_bundle(
+    db_path: Path,
+    tmp_path: Path,
+) -> None:
+    review_seed = _seed_pending_review_submission(db_path)
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-404"),
+    )
+    node_a, node_b = _seed_compare_nodes(db_path)
+    env = _history_env(tmp_path / "hidden-compare", db_path=db_path)
+    accepted = env.client.post(
+        "/v1/history-compares",
+        headers=env.auth_headers(idempotency_key="queued-bundle"),
+        json={
+            "nodes": [
+                {"ref_kind": "baseline_node", "ref_id": node_a},
+                {"ref_kind": "baseline_node", "ref_id": node_b},
+            ]
+        },
+    )
+    assert accepted.status_code == 202
+    operation_id = accepted.json()["operation_id"]
+    for url in (
+        "/v1/history-compares/op-missing",
+        "/v1/history-compares/op-missing/bundle",
+        f"/v1/history-compares/{operation_id}/bundle",
+    ):
+        response = env.client.get(url, headers=env.auth_headers())
+        assert response.status_code == 404
+        assert response.json()["code"] == "RESOURCE_NOT_FOUND"

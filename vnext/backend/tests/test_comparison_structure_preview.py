@@ -11,15 +11,17 @@ from gateway_backend.application.preview_jobs import assemble as preview_assembl
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.application.checkpoints import load_ready_closure
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
-from gateway_backend.application.submission.accept_transaction import accept_submit_transaction
+from gateway_backend.application.submission.accept_transaction import (
+    accept_submit_transaction,
+    load_accept_submit_preflight,
+)
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
+from gateway_backend.application.submission.ports import ArtifactRefLookupPort
 from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.application.workspace.preview import build_preview_job_payload
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.domain.workspace.models import InputCompleteness
-from gateway_backend.http.dependencies import ArtifactRefLookupPort
-from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.preview_job_harness import (

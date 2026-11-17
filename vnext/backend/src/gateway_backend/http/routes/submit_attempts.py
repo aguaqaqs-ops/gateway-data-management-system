@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, Request, status
 
 from gateway_backend.http.dependencies import request_scratch
 
-from gateway_backend.application.submission.contracts import IdentityConfirmationRequest
+from gateway_backend.application.operation_reads import read_submit_attempt
+from gateway_backend.application.submission.accept_transaction import accept_submit_operation
+from gateway_backend.application.submission.contracts import (
+    AcceptSubmitCommand,
+    IdentityConfirmationRequest,
+)
 from gateway_backend.domain.submission.models import IdentityConfirmationAction
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
@@ -18,11 +23,6 @@ from gateway_backend.http.dependencies import (
     get_workspace_http,
 )
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.orchestration.operation_scope import read_submit_attempt
-from gateway_backend.http.orchestration.submit_acceptance import (
-    accept_submit_operation,
-    build_accept_submit_command,
-)
 from gateway_backend.http.schemas.submit import (
     AcceptSubmitRequest,
     SubmitAcceptedResponse,
@@ -73,7 +73,7 @@ def accept_submit_route(
             status_code=422,
         )
     options = body.options.model_dump()
-    command = build_accept_submit_command(
+    command = AcceptSubmitCommand(
         context=context,
         workspace_id=workspace_id,
         expected_workspace_version=body.expected_workspace_version,
@@ -107,7 +107,14 @@ def accept_submit_route(
             now=deps.now(),
             operation_queue_limit=deps.operation_queue_limit,
         )
-    return result.response
+    return SubmitAcceptedResponse(
+        submit_attempt_id=result.submit_attempt_id,
+        operation_id=result.operation_id,
+        workspace_id=result.workspace_id,
+        preview_result_id=result.preview_result_id,
+        generation=result.generation,
+        state=result.state.value,
+    )
 
 
 @router.get(

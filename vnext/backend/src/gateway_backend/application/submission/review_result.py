@@ -8,9 +8,7 @@ from dataclasses import dataclass
 
 from gateway_backend.application.checkpoints import ReadyClosureDocument
 from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
-from gateway_backend.application.submission.accept_transaction import (
-    deterministic_submit_operation_id,
-)
+from gateway_backend.application.submission.contracts import deterministic_submit_operation_id
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.operations import BusinessReference
 from gateway_backend.operations.store import RecordNotFound

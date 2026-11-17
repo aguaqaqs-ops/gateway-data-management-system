@@ -72,14 +72,16 @@ from tests.support.preview_fixtures import (
     make_canonical_artifact_fixture,
     make_preview_canonical_bindings,
 )
+from gateway_backend.application.submission.ports import (
+    ArtifactRefLookupPort,
+    OperatorRecoveryApplicationPort,
+)
 from gateway_backend.http.auth import BearerSessionPort, StaticInternalBearerPort
 from gateway_backend.http.dependencies import (
     AdmissionGatePort,
-    ArtifactRefLookupPort,
     FailClosedOperatorRecoveryPort,
     HistoryHttpDependencies,
     OpenAdmissionGate,
-    OperatorRecoveryApplicationPort,
     ReadOnlyOperationStore,
     ReadOnlySubmissionStore,
     WorkspaceHttpDependencies,

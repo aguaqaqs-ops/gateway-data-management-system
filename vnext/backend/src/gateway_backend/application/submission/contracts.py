@@ -21,6 +21,7 @@ from gateway_backend.domain.submission.models import (
     RepositorySubmitOccupancy as RepositorySubmitOccupancy,
     SubmitAcceptanceRecord as SubmitAcceptanceRecord,
     SubmitAttempt,
+    SubmitAttemptState,
     IdentityConfirmationAction,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
@@ -37,6 +38,8 @@ from gateway_backend.domain.workspace.models import (
 )
 from gateway_backend.capabilities.storage_projection.contracts import CanonicalizationManifest
 from gateway_backend.domain.submission.reasons import validate_submission_reason
+from gateway_backend.operations.recovery import OperatorRecoveryCommand
+from gateway_backend.operations.state import TransitionDisposition
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.submission.errors import PreviewBindingConflict
@@ -582,3 +585,48 @@ class RepositoryImportOperation:
     status: RepositoryImportOperationStatus
     result: RepositoryImportOperationResult | None = None
     error: RepositoryImportOperationError | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AcceptSubmitResult:
+    submit_attempt_id: str
+    operation_id: str
+    workspace_id: str
+    preview_result_id: str
+    generation: int
+    state: SubmitAttemptState
+    replay: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ExecuteOperatorRecoveryCommand:
+    path_operation_id: str
+    path_step_id: str
+    body_operation_id: str
+    body_step_id: str
+    command: OperatorRecoveryCommand
+    expected_operation_optimistic_version: int
+    expected_step_optimistic_version: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecuteOperatorRecoveryResult:
+    operation_id: str
+    step_id: str
+    command: OperatorRecoveryCommand
+    disposition: TransitionDisposition
+
+
+def deterministic_submit_attempt_id(*, workspace_id: str, idempotency_key: str) -> str:
+    digest = hashlib.sha256(f"submit:{workspace_id}:{idempotency_key}".encode("utf-8")).hexdigest()[
+        :24
+    ]
+    return f"sa-{digest}"
+
+
+def deterministic_submit_operation_id(*, workspace_id: str, idempotency_key: str) -> str:
+    digest = hashlib.sha256(
+        f"submit-op:{workspace_id}:{idempotency_key}".encode("utf-8")
+    ).hexdigest()[:24]
+    return f"op-{digest}"

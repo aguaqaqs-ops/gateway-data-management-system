@@ -14,10 +14,13 @@ from gateway_backend.application.history.contracts import (
     MAX_HISTORY_PAGE_LIMIT,
     HistoryNodeRef,
     HistoryNodeRefKind,
-    PERMISSION_READ_PROJECT_HISTORY,
+)
+from gateway_backend.application.history.queries import list_compare_operations
+from gateway_backend.application.history.results import (
+    read_history_compare_bundle,
+    read_history_compare_result,
 )
 from gateway_backend.domain.workspace.models import IdentityContext
-from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import (
     HistoryHttpDependencies,
@@ -26,18 +29,13 @@ from gateway_backend.http.dependencies import (
 )
 from gateway_backend.http.orchestration.history_compare import (
     accept_compare_operation,
-    assert_history_result_not_expired,
     build_history_compare_accept_command,
-    get_compare_result,
-    read_compare_bundle,
+    history_compare_list_to_response,
+    history_compare_result_to_response,
 )
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.errors import ErrorResponse
 from gateway_backend.http.orchestration.history_read import list_history_operation
-from gateway_backend.http.orchestration.history_compare_list import list_compare_operations
-from gateway_backend.http.orchestration.operation_scope import (
-    authorize_history_compare_operation_read,
-)
 from gateway_backend.http.schemas.history import (
     HistoryCompareAcceptRequest,
     HistoryCompareAcceptResponse,
@@ -111,7 +109,13 @@ def list_history_compares_route(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     after: Annotated[str | None, Query(max_length=1024)] = None,
 ) -> HistoryCompareListResponse:
-    return list_compare_operations(context=context, deps=deps, limit=limit, cursor=after)
+    page = list_compare_operations(
+        context=context,
+        unit_of_work_factory=deps.unit_of_work_factory,
+        limit=limit,
+        cursor=after,
+    )
+    return history_compare_list_to_response(page)
 
 
 @router.post(
@@ -196,20 +200,15 @@ def get_history_compare_route(
     deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> HistoryCompareResultResponse:
-    assert_permission(context, PERMISSION_READ_PROJECT_HISTORY)
-    operation = deps.operation_reader.get_operation(operation_id)
-    acceptance = authorize_history_compare_operation_read(
+    result = read_history_compare_result(
         context=context,
-        operation=operation,
-        unit_of_work_factory=deps.unit_of_work_factory,
-    )
-    assert_history_result_not_expired(operation=operation, acceptance=acceptance, now=deps.now())
-    return get_compare_result(
-        operation=operation,
-        acceptance=acceptance,
+        operation_id=operation_id,
+        operation_reader=deps.operation_reader,
         unit_of_work_factory=deps.unit_of_work_factory,
         artifact_store=deps.artifact_store,
+        now=deps.now(),
     )
+    return history_compare_result_to_response(result)
 
 
 @router.get(
@@ -246,18 +245,13 @@ def get_history_compare_bundle_route(
     deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> StreamingResponse:
-    assert_permission(context, PERMISSION_READ_PROJECT_HISTORY)
-    operation = deps.operation_reader.get_operation(operation_id)
-    acceptance = authorize_history_compare_operation_read(
+    prepared = read_history_compare_bundle(
         context=context,
-        operation=operation,
-        unit_of_work_factory=deps.unit_of_work_factory,
-    )
-    assert_history_result_not_expired(operation=operation, acceptance=acceptance, now=deps.now())
-    prepared = read_compare_bundle(
-        operation=operation,
+        operation_id=operation_id,
+        operation_reader=deps.operation_reader,
         bundle_reader=deps.bundle_reader,
         unit_of_work_factory=deps.unit_of_work_factory,
         artifact_store=deps.artifact_store,
+        now=deps.now(),
     )
     return BundleStreamingResponse(prepared)

@@ -16,14 +16,17 @@ from gateway_backend.artifacts.scratch import ScratchSpacePort, scratch_scope
 from uuid import uuid4
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.operation_reads import OperationReaderPort
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.submission.ports import (
+    ArtifactRefLookupPort,
+    OperatorRecoveryApplicationPort,
     ReviewApplyControlUnitOfWorkFactory,
     RepositoryMainResolvePort,
+    SubmissionReaderPort,
     SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
-from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.application.workspace.ports import (
@@ -34,6 +37,7 @@ from gateway_backend.application.workspace.ports import (
 )
 from gateway_backend.application.control_transactions import ControlDbSession
 from gateway_backend.application.history.ports import (
+    BundleReaderPort,
     HistoryControlUnitOfWorkFactory,
     HistorySnapshotLoaderPort,
 )
@@ -41,7 +45,6 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.recovery import OperatorRecoveryRequest
 from gateway_backend.operations.state import TransitionDisposition
-from gateway_backend.operations.store import RecordNotFound
 
 if TYPE_CHECKING:
     from gateway_backend.http.auth import InternalBearerPort, SessionPort
@@ -53,44 +56,8 @@ def _default_internal_bearer_port() -> InternalBearerPort:
     return FailClosedInternalBearerPort()
 
 
-@runtime_checkable
-class OperationReaderPort(Protocol):
-    def get_operation(self, operation_id: str) -> OperationRecord:
-        """Return an operation or raise RecordNotFound."""
-
-    def get_step(self, step_id: str) -> StepRecord:
-        """Return a step or raise RecordNotFound."""
-
-
 class ReadOnlyControlDbUnitOfWorkFactory(Protocol):
     def __call__(self, *, read_only: bool = False) -> AbstractContextManager[ControlDbSession]: ...
-
-
-@runtime_checkable
-class SubmissionReaderPort(Protocol):
-    def get_submit_attempt(
-        self,
-        submit_attempt_id: str,
-        *,
-        workspace_id: str | None = None,
-        repository_id: str | None = None,
-    ) -> SubmitAttempt | None:
-        """Load one SubmitAttempt."""
-
-    def get_submission(
-        self,
-        submission_id: str,
-        *,
-        workspace_id: str | None = None,
-        repository_id: str | None = None,
-    ) -> Submission | None:
-        """Load one Submission."""
-
-
-@runtime_checkable
-class OperatorRecoveryApplicationPort(Protocol):
-    def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
-        """Apply or replay one authorized operator recovery command."""
 
 
 @runtime_checkable
@@ -127,22 +94,10 @@ def request_scratch(scratch: ScratchSpacePort) -> Iterator[None]:
         yield
 
 
-@runtime_checkable
-class ArtifactRefLookupPort(Protocol):
-    def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
-        """Return durable artifact metadata when the store can resolve one id."""
-
-
 class FailClosedArtifactRefLookup:
     def lookup_ref(self, artifact_id: str) -> ArtifactRef | None:
         del artifact_id
         return None
-
-
-@runtime_checkable
-class BundleReaderPort(Protocol):
-    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
-        """Finish all preflight checks before returning an owned bounded tar stream."""
 
 
 class OpenAdmissionGate:
@@ -354,29 +309,11 @@ class ReadOnlyOperationStore:
 
     def get_operation(self, operation_id: str) -> OperationRecord:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            try:
-                return unit_of_work.operations.get_operation(operation_id)
-            except RecordNotFound:
-                from gateway_backend.http.errors import ApiError
-
-                raise ApiError(
-                    code="RESOURCE_NOT_FOUND",
-                    message="resource not found",
-                    status_code=404,
-                ) from None
+            return unit_of_work.operations.get_operation(operation_id)
 
     def get_step(self, step_id: str) -> StepRecord:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            try:
-                return unit_of_work.operations.get_step(step_id)
-            except RecordNotFound:
-                from gateway_backend.http.errors import ApiError
-
-                raise ApiError(
-                    code="RECOVERY_TARGET_NOT_FOUND",
-                    message="recovery target not found",
-                    status_code=404,
-                ) from None
+            return unit_of_work.operations.get_step(step_id)
 
 
 class ReadOnlySubmissionStore:

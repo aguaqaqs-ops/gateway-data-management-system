@@ -26,6 +26,7 @@ from gateway_backend.application.submission.contracts import (
 )
 from gateway_backend.application.submission.errors import FinalizeBindingMismatch
 from gateway_backend.application.submission.ports import (
+    OperatorRecoveryApplicationPort,
     RepositoryParentCatalogPort,
     RepositoryTerminalEvidenceDecodePort,
     RepositoryWritePort,
@@ -46,16 +47,10 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
 )
 from gateway_backend.operations.contracts import OperationRecord
-from gateway_backend.operations.recovery import (
-    OperatorRecoveryRequest,
-    RECONCILE_SESSION_BUDGET_SECONDS,
-)
-from gateway_backend.operations.state import TransitionDisposition
+from gateway_backend.operations.recovery import RECONCILE_SESSION_BUDGET_SECONDS
 from typing import (
     ContextManager,
-    Protocol,
     cast,
-    runtime_checkable,
 )
 
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v2"
@@ -130,12 +125,6 @@ class SubmitJobPayload:
 
 
 SubmitControlTransactionFactory = Callable[[], ContextManager[SubmitFinalizeControlTransaction]]
-
-
-@runtime_checkable
-class OperatorRecoveryApplicationPort(Protocol):
-    def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
-        """Apply or replay one authorized operator recovery command."""
 
 
 @dataclass(frozen=True, slots=True)

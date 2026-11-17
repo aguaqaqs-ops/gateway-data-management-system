@@ -9,6 +9,7 @@ import struct
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
+from gateway_backend.application.operation_reads import assert_workspace_read_permission
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import (
     assert_statistics_group_permission,
@@ -22,7 +23,6 @@ from gateway_backend.http.dependencies import (
     get_workspace_http,
 )
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.orchestration.operation_scope import assert_workspace_read_permission
 from gateway_backend.http.routes.operations import get_operation_route
 from gateway_backend.http.schemas.statistics import (
     CurrentProcess,

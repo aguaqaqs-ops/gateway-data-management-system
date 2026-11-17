@@ -6,18 +6,16 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
+from gateway_backend.application.operation_reads import read_authorized_operation
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
-from gateway_backend.http.mappers import operation_to_response
-from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
-from gateway_backend.http.orchestration.operation_scope import (
-    assert_workspace_read_permission,
-    authorize_history_compare_operation_read,
-    authorize_operation_read,
+from gateway_backend.http.dependencies import (
+    HistoryHttpDependencies,
+    WorkspaceHttpDependencies,
+    get_history_http,
+    get_workspace_http,
 )
-from gateway_backend.http.dependencies import get_history_http, HistoryHttpDependencies
-from gateway_backend.http.errors import ApiError
+from gateway_backend.http.mappers import operation_to_response
 from gateway_backend.http.schemas.operation import OperationResponse
 
 router = APIRouter(tags=["operations"])
@@ -39,36 +37,13 @@ def get_operation_route(
     history_deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> OperationResponse:
-    try:
-        operation = deps.operation_reader.get_operation(operation_id)
-    except ApiError as exc:
-        if exc.status_code == 404:
-            assert_workspace_read_permission(context)
-        raise
-    if operation.job_kind == HISTORY_COMPARE_JOB_KIND:
-        authorize_history_compare_operation_read(
-            context=context,
-            operation=operation,
-            unit_of_work_factory=history_deps.unit_of_work_factory,
-        )
-        response = operation_to_response(operation)
-        return OperationResponse(
-            operation_id=response.operation_id,
-            job_kind=response.job_kind,
-            status=response.status,
-            optimistic_version=response.optimistic_version,
-            created_at=response.created_at,
-            started_at=response.started_at,
-            completed_at=response.completed_at,
-            diagnostic=response.diagnostic,
-        )
-    assert_workspace_read_permission(context)
-    authorize_operation_read(
+    operation = read_authorized_operation(
         context=context,
-        operation=operation,
+        operation_id=operation_id,
+        operation_reader=deps.operation_reader,
         workspace_repository=deps.workspace_repository,
         submission_reader=deps.submission_reader,
         scope_resolution=deps.scope_resolution,
-        permission_checked=True,
+        history_unit_of_work_factory=history_deps.unit_of_work_factory,
     )
     return operation_to_response(operation)

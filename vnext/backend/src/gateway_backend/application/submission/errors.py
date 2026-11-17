@@ -146,6 +146,76 @@ class SubmitJobNotRegistered(SubmitApplicationError):
         super().__init__("submit job definition is not registered")
 
 
+class SubmitArtifactUnavailable(SubmitApplicationError):
+    """A required submit acceptance artifact is not readable."""
+
+    stable_code = "ARTIFACT_UNAVAILABLE"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class SubmitAcceptanceUnavailable(SubmitApplicationError):
+    """Submit attempt is unavailable immediately after acceptance."""
+
+    stable_code = "SERVICE_NOT_READY"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class OperatorRecoveryTargetNotFound(SubmitApplicationError):
+    """Operator recovery target operation, step, or submit attempt does not exist."""
+
+    stable_code = "RECOVERY_TARGET_NOT_FOUND"
+
+    def __init__(self, reason: str = "recovery target not found") -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class OperatorRecoveryOperationVersionConflict(SubmitApplicationError):
+    """Operation optimistic version does not match the recovery precondition."""
+
+    stable_code = "OPERATION_VERSION_CONFLICT"
+
+    def __init__(
+        self,
+        reason: str = "operation optimistic version is stale",
+        *,
+        expected: int | None = None,
+        actual: int | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.details: dict[str, int] | None = (
+            {"expected": expected, "actual": actual}
+            if expected is not None and actual is not None
+            else None
+        )
+
+
+class OperatorRecoveryStepVersionConflict(SubmitApplicationError):
+    """Step optimistic version does not match the recovery precondition."""
+
+    stable_code = "STEP_VERSION_CONFLICT"
+
+    def __init__(
+        self,
+        reason: str = "step optimistic version is stale",
+        *,
+        expected: int | None = None,
+        actual: int | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.details: dict[str, int] | None = (
+            {"expected": expected, "actual": actual}
+            if expected is not None and actual is not None
+            else None
+        )
+
+
 class OperatorRecoveryIdentityConflict(SubmitApplicationError):
     """Operator recovery target identity does not match persisted facts."""
 

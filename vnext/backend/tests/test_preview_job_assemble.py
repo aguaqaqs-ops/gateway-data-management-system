@@ -62,9 +62,9 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 
 
+from gateway_backend.application.submission.accept_transaction import load_accept_submit_preflight
+from gateway_backend.application.submission.ports import ArtifactRefLookupPort
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
-from gateway_backend.http.dependencies import ArtifactRefLookupPort
-from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
 from gateway_backend.operations.worker import ExecutorAcknowledgment, ExecutionControl

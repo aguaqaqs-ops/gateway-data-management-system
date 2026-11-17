@@ -22,6 +22,7 @@ from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKin
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewStatus
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
+from gateway_backend.operations.contracts import OperationDiagnostic, OperationStatus
 
 PERMISSION_READ_PROJECT_HISTORY = "read_project_history"
 DEFAULT_HISTORY_PAGE_LIMIT = 100
@@ -282,6 +283,51 @@ class HistoryCompareAcceptCommand:
     context: IdentityContext
     idempotency_key: str
     node_refs: tuple[HistoryNodeRef, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareListItem:
+    operation_id: str
+    nodes: tuple[HistoryNodeRef, ...]
+    status: OperationStatus
+    accepted_at: datetime
+    completed_at: datetime | None
+    result_expires_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareListPage:
+    items: tuple[HistoryCompareListItem, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryComparePairResult:
+    pair_id: str
+    before_ref: HistoryNodeRef
+    before_commit: str
+    current_ref: HistoryNodeRef
+    current_commit: str
+    comparison_digest: str
+    risk_digest: str
+    surface_digest: str
+    record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareResultData:
+    nodes: tuple[HistoryCompareNodeBinding, ...]
+    pairs: tuple[HistoryComparePairResult, ...]
+    bundle_digest: str
+    completed_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryCompareResultRead:
+    operation_id: str
+    status: OperationStatus
+    diagnostic: OperationDiagnostic | None
+    result: HistoryCompareResultData | None
 
 
 def parse_nodes_json(raw: str) -> tuple[HistoryCompareNodeBinding, ...]:

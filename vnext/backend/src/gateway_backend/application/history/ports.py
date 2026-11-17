@@ -13,6 +13,7 @@ from gateway_backend.application.history.contracts import (
     HistoryFacts,
     HistoryPageSnapshot,
 )
+from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableIndexPort
 from gateway_backend.domain.workspace.models import ResolvedScope
@@ -144,6 +145,12 @@ class HistoryComparePort(Protocol):
         ref_id: str,
     ) -> str | None:
         """Resolve one node ref to a commit id or None."""
+
+
+@runtime_checkable
+class BundleReaderPort(Protocol):
+    def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
+        """Finish all preflight checks before returning an owned bounded tar stream."""
 
 
 @runtime_checkable

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, replace
 from datetime import datetime
+
+from gateway_shared_kernel import DigestRef
 
 from gateway_backend.application.job_definitions import (
     JobDefinitionLookupError,
@@ -14,21 +15,32 @@ from gateway_backend.application.job_definitions import (
 from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
+    AcceptPreflightLoadedFacts,
     assert_no_canonical_change,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
+    try_accept_submit_replay,
     validate_accept_submit_with_frozen,
 )
 from gateway_backend.application.submission.contracts import (
     SUBMIT_JOB_CONTRACT_VERSION,
     AcceptSubmitCommand,
+    AcceptSubmitResult,
     AcceptSubmitValidationResult,
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
+    deterministic_submit_attempt_id as deterministic_submit_attempt_id,
+    deterministic_submit_operation_id as deterministic_submit_operation_id,
 )
 from gateway_backend.application.submission.errors import (
     PreviewBindingConflict,
+    SubmitAcceptanceUnavailable,
+    SubmitArtifactUnavailable,
     SubmitJobNotRegistered,
+)
+from gateway_backend.application.submission.import_builder import (
+    SubmitImportBuilderError,
+    resolve_canonical_snapshot_bindings,
 )
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
@@ -38,10 +50,14 @@ from gateway_backend.application.submission.job_payload import (
     build_submit_job_payload,
 )
 from gateway_backend.application.submission.ports import (
+    ArtifactRefLookupPort,
     RepositoryMainResolvePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
 )
+from gateway_backend.application.submission.review_result import load_preview_review_closure
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
+from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
     BuilderMutationPolicy,
@@ -54,9 +70,14 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
 )
-from gateway_backend.domain.workspace.models import BaselineHead, PreviewResult
+from gateway_backend.domain.workspace.errors import ScopeForbidden
+from gateway_backend.domain.workspace.models import (
+    BaselineHead,
+    PreviewResult,
+    UploadRevision,
+)
 from gateway_backend.domain.workspace.policies import assert_permission
-from gateway_backend.domain.workspace.ports import ScopeResolutionPort
+from gateway_backend.domain.workspace.ports import ScopeResolutionPort, WorkspaceRepository
 from gateway_backend.operations.store import RecordNotFound
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -99,18 +120,210 @@ def assert_submit_job_registered(registry: JobDefinitionRegistry) -> None:
         raise SubmitJobNotRegistered() from exc
 
 
-def deterministic_submit_attempt_id(*, workspace_id: str, idempotency_key: str) -> str:
-    digest = hashlib.sha256(f"submit:{workspace_id}:{idempotency_key}".encode("utf-8")).hexdigest()[
-        :24
-    ]
-    return f"sa-{digest}"
+def build_replay_preflight_from_attempt(attempt: SubmitAttempt) -> AcceptSubmitPreflight:
+    return AcceptSubmitPreflight(
+        preview_ready_closure_digest=attempt.preview_ready_closure_digest,
+        preview_operation_id="",
+        protected_artifact_refs=(),
+        current_storage_projection_ruleset_digest="",
+    )
 
 
-def deterministic_submit_operation_id(*, workspace_id: str, idempotency_key: str) -> str:
-    digest = hashlib.sha256(
-        f"submit-op:{workspace_id}:{idempotency_key}".encode("utf-8")
-    ).hexdigest()[:24]
-    return f"op-{digest}"
+def load_accept_submit_preflight(
+    *,
+    command: AcceptSubmitCommand,
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
+    preview_result: PreviewResult,
+    upload_revision: UploadRevision,
+    artifact_ref_lookup: ArtifactRefLookupPort,
+    artifact_store: BoundedArtifactStorePort,
+    current_storage_projection_ruleset_digest: str,
+) -> AcceptSubmitPreflight:
+    preview_operation_id = preview_result.operation_id
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        preview_refs = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="current-preview",
+            owner_id=command.workspace_id,
+        )
+        operation_refs = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="preview-operation",
+            owner_id=preview_operation_id,
+        )
+        held_ids = preview_refs | operation_refs
+
+    try:
+        _table_bindings, canonical_refs = resolve_canonical_snapshot_bindings(
+            operation_artifact_refs=tuple(
+                ref
+                for artifact_id in held_ids
+                if (ref := artifact_ref_lookup.lookup_ref(artifact_id)) is not None
+            ),
+            canonical_table_set_closure_ref=(
+                preview_result.canonical.canonical_table_set_closure_ref.artifact_id
+            ),
+            canonical_table_set_closure_digest=(
+                preview_result.canonical.canonical_table_set_closure_digest.value
+            ),
+            canonicalization_manifest_ref=(
+                preview_result.canonical.canonicalization_manifest_ref.artifact_id
+            ),
+            canonicalization_manifest_digest=(
+                preview_result.canonical.canonicalization_manifest_digest.value
+            ),
+            read_artifact=lambda ref: b"".join(artifact_store.read_exact(ref)),
+        )
+    except SubmitImportBuilderError as exc:
+        raise PreviewBindingConflict(str(exc)) from exc
+    try:
+        review_refs = load_preview_review_closure(
+            preview_result, lookup=artifact_ref_lookup, store=artifact_store
+        )
+    except ManifestVerificationError as exc:
+        raise SubmitArtifactUnavailable("required review artifact is not readable") from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise PreviewBindingConflict("preview review closure is invalid") from exc
+    refs_by_id = {ref.artifact_id: ref for ref in (*canonical_refs, *review_refs)}
+    for _role, binding in upload_revision.source_artifacts.items():
+        refs_by_id[binding.artifact_id] = ArtifactRef(
+            artifact_id=binding.artifact_id,
+            media_type=binding.media_type,
+            size_bytes=binding.size_bytes,
+            raw_sha256=DigestRef(binding.raw_sha256),
+        )
+    ready_ref = artifact_ref_lookup.lookup_ref(preview_result.ready_closure_artifact_id)
+    if ready_ref is None:
+        raise PreviewBindingConflict("preview ready closure artifact metadata is missing")
+    refs_by_id[ready_ref.artifact_id] = ready_ref
+    protected_artifact_refs = tuple(refs_by_id[key] for key in sorted(refs_by_id))
+    expected_preview_ids = frozenset(refs_by_id) - frozenset(
+        binding.artifact_id for binding in upload_revision.source_artifacts.values()
+    )
+    if not expected_preview_ids.issubset(held_ids):
+        raise PreviewBindingConflict("preview protection does not cover canonical bindings")
+    return AcceptSubmitPreflight(
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(preview_result),
+        preview_operation_id=preview_operation_id,
+        protected_artifact_refs=protected_artifact_refs,
+        current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
+    )
+
+
+def accept_submit_operation(
+    *,
+    command: AcceptSubmitCommand,
+    scope_resolution: ScopeResolutionPort,
+    workspace_repository: WorkspaceRepository,
+    unit_of_work_factory: SubmitControlUnitOfWorkFactory,
+    job_registry: JobDefinitionRegistry,
+    artifact_store: BoundedArtifactStorePort,
+    artifact_ref_lookup: ArtifactRefLookupPort,
+    main_resolve: RepositoryMainResolvePort,
+    current_storage_projection_ruleset_digest: str,
+    now: datetime,
+    operation_queue_limit: int = 32,
+) -> AcceptSubmitResult:
+    assert_submit_job_registered(job_registry)
+    assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
+
+    is_replay = False
+    preflight: AcceptSubmitPreflight
+    new_key_loaded: AcceptPreflightLoadedFacts | None = None
+
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        resolved = scope_resolution.resolve(command.context)
+        replay_result = try_accept_submit_replay(
+            command=command,
+            workspace_repository=unit_of_work.workspace,
+            submission_repository=unit_of_work.submission,
+            resolved_repository_id=resolved.repository_id,
+            baseline_head=resolved.baseline_head,
+        )
+        if replay_result is not None:
+            is_replay = True
+            prior_attempt = replay_result.prior_attempt
+            if prior_attempt is None:
+                raise PreviewBindingConflict("submit replay validation failed")
+            preflight = build_replay_preflight_from_attempt(prior_attempt)
+        else:
+            loaded_upload = workspace_repository.get_upload_revision(command.upload_revision_id)
+            loaded_preview = workspace_repository.get_preview_result(
+                command.preview_result_id,
+                workspace_id=command.workspace_id,
+                repository_id=resolved.repository_id,
+            )
+            if loaded_upload is None or loaded_preview is None:
+                raise ScopeForbidden
+            preview_ready_closure_digest = derive_preview_ready_closure_digest(loaded_preview)
+            new_key_loaded = load_new_accept_preflight_facts(
+                command=command,
+                workspace_repository=unit_of_work.workspace,
+                occupancy=unit_of_work.submission,
+                resolved_repository_id=resolved.repository_id,
+                baseline_head=resolved.baseline_head,
+                preview_ready_closure_digest=preview_ready_closure_digest,
+                current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
+            )
+            evaluate_new_accept_preflight_local_guards(command=command, loaded=new_key_loaded)
+
+    if not is_replay:
+        if new_key_loaded is None:
+            raise PreviewBindingConflict("accept preflight is missing loaded facts")
+        assert_no_canonical_change(loaded=new_key_loaded)
+        upload_revision = new_key_loaded.upload_revision
+        preview_result = new_key_loaded.preview_result
+        if new_key_loaded.workspace_occupancy_held or new_key_loaded.repository_occupancy_held:
+            preflight = AcceptSubmitPreflight(
+                preview_ready_closure_digest=derive_preview_ready_closure_digest(preview_result),
+                preview_operation_id=preview_result.operation_id,
+                protected_artifact_refs=(),
+                current_storage_projection_ruleset_digest=(
+                    current_storage_projection_ruleset_digest
+                ),
+            )
+        else:
+            preflight = load_accept_submit_preflight(
+                command=command,
+                unit_of_work_factory=unit_of_work_factory,
+                preview_result=preview_result,
+                upload_revision=upload_revision,
+                artifact_ref_lookup=artifact_ref_lookup,
+                artifact_store=artifact_store,
+                current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
+            )
+            for ref in preflight.protected_artifact_refs:
+                verified = artifact_store.verify_readable(
+                    ref,
+                    expected_size=ref.size_bytes,
+                    expected_raw_sha256=ref.raw_sha256,
+                )
+                if not verified.verified:
+                    raise SubmitArtifactUnavailable("required artifact is not readable")
+
+    transaction_result = accept_submit_transaction(
+        command=command,
+        scope_resolution=scope_resolution,
+        unit_of_work_factory=unit_of_work_factory,
+        job_registry=job_registry,
+        main_resolve=main_resolve,
+        preflight=preflight,
+        now=now,
+        operation_queue_limit=operation_queue_limit,
+    )
+
+    with unit_of_work_factory(read_only=True) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(transaction_result.submit_attempt_id)
+    if attempt is None:
+        raise SubmitAcceptanceUnavailable("submit attempt is unavailable after acceptance")
+
+    return AcceptSubmitResult(
+        submit_attempt_id=transaction_result.submit_attempt_id,
+        operation_id=transaction_result.operation_id,
+        workspace_id=command.workspace_id,
+        preview_result_id=command.preview_result_id,
+        generation=command.generation,
+        state=attempt.state,
+        replay=transaction_result.replay,
+    )
 
 
 def accept_submit_transaction(

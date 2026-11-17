@@ -12,8 +12,6 @@ from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitTransactionResult,
     accept_submit_transaction,
     assert_submit_job_registered,
-    deterministic_submit_attempt_id,
-    deterministic_submit_operation_id,
 )
 from gateway_backend.application.submission.contracts import (
     ACCEPT_SUBMIT_REQUEST_PREFIX,
@@ -33,6 +31,8 @@ from gateway_backend.application.submission.contracts import (
     compute_replay_accept_fingerprint,
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
+    deterministic_submit_attempt_id,
+    deterministic_submit_operation_id,
     preview_canonical_business_digest,
 )
 from gateway_backend.application.submission.review import (

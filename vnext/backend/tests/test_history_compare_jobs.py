@@ -41,8 +41,9 @@ from gateway_backend.capabilities.comparison import (
     OrderedRecordKind,
     ComparisonTableStatus,
 )
+from gateway_backend.application.history.errors import HistoryArtifactUnavailable
+from gateway_backend.application.history.results import get_compare_result
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.orchestration.history_compare import get_compare_result
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
 from gateway_backend.operations.worker import ExecutorAcknowledgment
@@ -1002,7 +1003,7 @@ def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: 
             harness.operation_id
         )
     assert acceptance is not None
-    with pytest.raises(ApiError) as exc_info:
+    with pytest.raises(HistoryArtifactUnavailable):
         get_compare_result(
             operation=operation,
             acceptance=acceptance,
@@ -1012,7 +1013,6 @@ def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: 
             ),
             artifact_store=harness.artifact_store,
         )
-    assert exc_info.value.code == "ARTIFACT_UNAVAILABLE"
 
 
 @pytest.mark.parametrize(

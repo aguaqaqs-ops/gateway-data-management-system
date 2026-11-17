@@ -32,6 +32,10 @@ export interface UploadDirs {
 }
 
 export async function selectUploadDirs(page: Page, dirs: UploadDirs): Promise<void> {
+  const reupload = page.locator("details.workspace-reupload");
+  if ((await reupload.count()) > 0 && !(await reupload.evaluate((el) => (el as HTMLDetailsElement).open))) {
+    await page.locator("details.workspace-reupload > summary").click();
+  }
   if (dirs.initial) {
     await page.getByTestId("upload-initial-input").setInputFiles(dirs.initial);
     await page.getByTestId("upload-modified-input").setInputFiles(dirs.modified);

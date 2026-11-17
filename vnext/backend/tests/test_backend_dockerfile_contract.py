@@ -136,7 +136,7 @@ def test_compose_backend_build_args_and_runtime_separation() -> None:
 def test_compose_worker_grace_and_backend_internal_bearer_secret() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
     worker_block = re.search(
-        r"^  worker:\n(.*?)(?=^  repository-probe:)",
+        r"^  worker:\n(.*?)(?=^  repository-service:)",
         compose,
         re.M | re.S,
     )

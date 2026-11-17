@@ -274,7 +274,7 @@ S10 集成测试 `tests/test_import_compose_e2e.py` 调用同一脚本；可通�
 
 P2-R1 选型测量记录保留在历史文档/Git 中，probe 不再作为操作或 Dolt 升级入口。
 [后端专项整顿 C1](../../docs/backend-vnext/refactoring/formal/plans/p7-backend-remediation-execution-plan.md)
-已决定删除无消费者的测量源码、专属测试与 `repository-probe`；本次只更新说明，代码删除须由 C1 提交证明。
+已删除无消费者的测量源码、专属测试与 `repository-probe`。
 产品导入/读取使用 `versioned_import/provider.py` 的 `CandidateADoltCli`。
 仍在用的 `p2r1-cache/Dockerfile.dependency-base`、构建缓存、`gateway.p2r1.*` labels 和
 `gateway-p2r1-repository` image 名保持；不因旧名字删除活跃依赖链。

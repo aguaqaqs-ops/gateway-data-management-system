@@ -62,9 +62,9 @@ container runtime.
 
 ## Compose services
 
-P2-R1 测量 probe 不属于当前部署入口，其源码/专属 Compose 服务按
-[后端整顿 C1](../../docs/backend-vnext/refactoring/formal/plans/p7-backend-remediation-execution-plan.md)删除
-（删除实施待 C1 提交，本次仅修订说明）。保留正在使用的依赖基础镜像和 `gateway.p2r1.*` 构建身份。
+P2-R1 测量 probe 不属于当前部署入口，其源码/专属 Compose 服务已按
+[后端整顿 C1](../../docs/backend-vnext/refactoring/formal/plans/p7-backend-remediation-execution-plan.md)删除。
+保留正在使用的依赖基础镜像和 `gateway.p2r1.*` 构建身份。
 
 - `backend` — HTTP API, control DB, artifact root, session, and mapping mounts
 - `worker` — operation worker sharing backend control DB and artifacts

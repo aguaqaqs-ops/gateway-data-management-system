@@ -82,15 +82,6 @@ def test_dockerfile_and_compose_emit_three_independent_provenance_fields() -> No
     assert "SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}" in service
     assert "BUILD_REVISION:" not in service
 
-    probe = _service_block(COMPOSE.read_text(encoding="utf-8"), "repository-probe")
-    assert "CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-unknown}" in probe
-    assert "BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-unknown}" in probe
-    assert "SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-unknown}" in probe
-    assert "GATEWAY_P2R1_CANDIDATE_SHA: ${GATEWAY_P2R1_CANDIDATE_SHA:-}" in probe
-    assert "GATEWAY_P2R1_BUILD_INPUT_REVISION: ${GATEWAY_P2R1_BUILD_INPUT_REVISION:-}" in probe
-    assert "GATEWAY_P2R1_SOURCE_TREE_SHA256: ${GATEWAY_P2R1_SOURCE_TREE_SHA256:-}" in probe
-    assert "GATEWAY_P2R1_BUILD_REVISION: ${GATEWAY_P2R1_BUILD_REVISION:-}" in probe
-
 
 def test_dockerfile_uv_lock_sha256_matches_lockfile() -> None:
     assert _dockerfile_uv_lock_default() == _uv_lock_sha256()
@@ -128,12 +119,10 @@ def test_compose_dev_overlay_points_backend_session_at_local_fixture() -> None:
     assert (VNEXT_ROOT / "deploy/config/session/session.json").is_file()
 
 
-def test_compose_repository_probe_unchanged_on_p2_r1_profile() -> None:
+def test_compose_has_no_repository_probe() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
-    probe = _service_block(compose, "repository-probe")
-    assert 'profiles: ["p2-r1"]' in probe
-    assert 'command: ["python", "-m", "gateway_repository_service.target_gate"]' in probe
-    assert "repository-data:/var/lib/gateway/repository" in probe
+    assert re.search(r"^  repository-probe:", compose, re.M) is None
+    assert "gateway_repository_service.target_gate" not in compose
 
 
 def test_compose_repository_roots_are_supplied_only_by_runtime_renderer() -> None:
@@ -180,7 +169,7 @@ def test_compose_repository_service_maps_operational_env_allowlist() -> None:
 
 def test_compose_services_wire_docker_build_network() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
-    for service_name in ("backend", "worker", "repository-service", "repository-probe"):
+    for service_name in ("backend", "worker", "repository-service"):
         service = _service_block(compose, service_name)
         assert "network: ${GATEWAY_DOCKER_BUILD_NETWORK:-}" in service
 

@@ -1146,10 +1146,7 @@ make_pkg("gateway_repository_service", service_pkg)
 make_pkg("gateway_repository_service.versioned_import", service_pkg / "versioned_import")
 
 importlib.import_module("gateway_repository_service.versioned_import.provider")
-blocked = (
-    "gateway_repository_service.providers",
-    "gateway_repository_service.workflow",
-)
+blocked = ("gateway_repository_service.providers",)
 for name in blocked:
     if name in sys.modules:
         raise SystemExit(name)
@@ -1538,94 +1535,6 @@ def test_offline_stream_advances_plateau_window_while_accumulating(
     provider.last_stream_peak_rss_kib = 0
     provider.last_stream_rss_delta_kib = 0
 
-    list(
-        provider.stream_table(
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            table,
-            UnknownTypePolicy.REJECT,
-        )
-    )
-
-    assert len(active_windows) >= 5
-
-
-@pytest.mark.unit
-def test_sql_server_stream_advances_plateau_window_while_accumulating(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import asyncio
-    import gateway_repository_service.providers as providers_module
-    from gateway_repository_service.providers import SqlServerProvider
-    from typing import Any
-
-    active_windows: list[tuple[str, ...]] = []
-
-    class SpySampler:
-        def __init__(self, *_args: object, **_kwargs: object) -> None:
-            pass
-
-        def start(self) -> None:
-            pass
-
-        def set_active(self, windows: object) -> None:
-            active_windows.append(tuple(cast("tuple[str, ...]", windows)))
-
-        def set_baseline(self, *_args: object) -> None:
-            pass
-
-        def sample(self, *_args: object) -> None:
-            pass
-
-        def stop(self) -> dict[str, dict[str, int]]:
-            return {
-                "workflow_process_tree": {},
-                "provider_process_tree": {},
-                "arrow_memory_pool": {},
-                "cgroup": {},
-            }
-
-        def absolute_peaks(self) -> dict[str, dict[str, int]]:
-            return self.stop()
-
-    fetch_batches: list[list[tuple[str]]] = [
-        [("v1",), ("v2",), ("v3",), ("v4",)],
-        [("v5",), ("v6",)],
-    ]
-
-    class FakeCursor:
-        def fetchmany(self, size: int) -> list[tuple[str]]:
-            if fetch_batches:
-                return fetch_batches.pop(0)
-            return []
-
-        def close(self) -> None:
-            return None
-
-    class FakeSupervisor:
-        process = type("Process", (), {"pid": 55})()
-
-    monkeypatch.setattr(providers_module, "MemorySampler", SpySampler)
-    monkeypatch.setattr(providers_module, "process_tree_rss_kib", lambda _pid: 1)
-
-    async def fake_open_cursor(_table: str, _commit_id: str) -> FakeCursor:
-        return FakeCursor()
-
-    provider: Any = SqlServerProvider.__new__(SqlServerProvider)
-    provider.settings = RepositoryServiceSettings(record_batch_rows=4)
-    provider.supervisor = FakeSupervisor()
-    provider.cgroup = None
-    provider.last_stream_metrics = {}
-    provider.last_plateau_peaks = {}
-    provider.last_plateau_peaks_absolute = {}
-    provider.last_stream_peak_rss_kib = 0
-    provider.last_stream_rss_delta_kib = 0
-    provider._open_cursor = fake_open_cursor
-    provider._call = lambda awaitable: (
-        asyncio.run(awaitable) if asyncio.iscoroutine(awaitable) else awaitable
-    )
-    provider._reset_connection = lambda: None
-
-    table = TableCatalog("t", (ColumnCatalog("value", "VARCHAR(8)", False, None),), 6)
     list(
         provider.stream_table(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

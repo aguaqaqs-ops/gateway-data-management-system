@@ -21,7 +21,7 @@ from gateway_repository_service.arrow_mapping import (
     compile_table_plan,
     record_batch,
 )
-from gateway_repository_service.fixtures import Workload, generate_fixture
+from support.fixtures import Workload, generate_fixture
 from gateway_repository_service.layout import DurableLayout
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.candidate_a.sql import _tagged_select_list

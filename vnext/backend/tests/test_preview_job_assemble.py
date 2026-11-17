@@ -21,6 +21,7 @@ from gateway_backend.application.preview_jobs.payload import PreviewJobError
 from gateway_backend.capabilities.bundle_assembly import (
     BundleAssemblyResult,
     BundleAssemblyStatus,
+    read_bundle_transport_metadata,
 )
 from gateway_backend.capabilities.comparison import (
     ComparisonMode,
@@ -219,6 +220,14 @@ def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> 
     required_refs = assemble_state["required_refs"]
     assert isinstance(required_refs, list)
     assert required_refs
+    bundle_artifact_id = envelope.job_state["bundle_artifact_id"]
+    manifest_ref = next(
+        artifact_ref_from_dict(item)
+        for item in required_refs
+        if isinstance(item, dict) and item.get("artifact_id") == bundle_artifact_id
+    )
+    metadata = read_bundle_transport_metadata(harness.artifact_store.locate(manifest_ref))
+    assert metadata.input_roles == ((0, "baseline"), (1, "initial"), (2, "modified"))
 
 
 def test_cancel_during_preview_assembly_loop_leaves_operation_cancelled(
@@ -308,6 +317,14 @@ def test_modified_only_assemble_checkpoint_contains_single_pair(tmp_path: Path) 
     required_refs = assemble_state["required_refs"]
     assert isinstance(required_refs, list)
     assert required_refs
+    bundle_artifact_id = envelope.job_state["bundle_artifact_id"]
+    manifest_ref = next(
+        artifact_ref_from_dict(item)
+        for item in required_refs
+        if isinstance(item, dict) and item.get("artifact_id") == bundle_artifact_id
+    )
+    metadata = read_bundle_transport_metadata(harness.artifact_store.locate(manifest_ref))
+    assert metadata.input_roles == ((0, "baseline"), (1, "modified"))
 
 
 def test_assemble_failure_retains_bounded_bundle_diagnostic(

@@ -72,7 +72,9 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleRefScope,
     BundleTableBinding,
     BundleTableSide,
+    PreviewBundleInputRole,
     collect_surface_refs,
+    preview_bundle_input,
 )
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
@@ -673,11 +675,7 @@ def _assemble_preview(
             (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], True, False),
         )
         bundle_profile = BundleProfile.MULTI_PAIR
-        bundle_inputs: tuple[BundleInput, ...] = (
-            BundleInput(0, "baseline", "Baseline"),
-            BundleInput(1, "initial", "Initial"),
-            BundleInput(2, "modified", "Modified"),
-        )
+        bundle_inputs = _preview_bundle_inputs(payload.input_completeness)
         bundle_indexes: dict[str, tuple[int, int]] = {
             _PAIR_BASELINE_TO_INITIAL: (0, 1),
             _PAIR_INITIAL_TO_MODIFIED: (1, 2),
@@ -693,10 +691,7 @@ def _assemble_preview(
             ),
         )
         bundle_profile = BundleProfile.SINGLE_PAIR
-        bundle_inputs = (
-            BundleInput(0, "baseline", "Baseline"),
-            BundleInput(1, "modified", "Modified"),
-        )
+        bundle_inputs = _preview_bundle_inputs(payload.input_completeness)
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
     dedup_requests: list[ComparisonRequest] = []
@@ -891,6 +886,19 @@ def _assemble_preview(
             computation_cache.release_operation_pins(
                 CacheOperationOwner("preview-operation", operation_id)
             )
+
+
+def _preview_bundle_inputs(completeness: InputCompleteness) -> tuple[BundleInput, ...]:
+    if completeness is InputCompleteness.FULL:
+        return (
+            preview_bundle_input(0, PreviewBundleInputRole.BASELINE, "Baseline"),
+            preview_bundle_input(1, PreviewBundleInputRole.INITIAL, "Initial"),
+            preview_bundle_input(2, PreviewBundleInputRole.MODIFIED, "Modified"),
+        )
+    return (
+        preview_bundle_input(0, PreviewBundleInputRole.BASELINE, "Baseline"),
+        preview_bundle_input(1, PreviewBundleInputRole.MODIFIED, "Modified"),
+    )
 
 
 def _initial_baseline_pair(

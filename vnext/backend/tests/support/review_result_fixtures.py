@@ -10,10 +10,10 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.bundle_assembly import (
-    BundleInput,
     BundlePairInput,
     BundleProfile,
     assemble_bundle,
+    preview_bundle_input,
 )
 from gateway_backend.domain.workspace.models import (
     PreviewComparisonPair,
@@ -46,7 +46,7 @@ def closed_review_preview(
             pairs,
             profile=BundleProfile.MULTI_PAIR if full else BundleProfile.SINGLE_PAIR,
             inputs=tuple(
-                BundleInput(index, name, name)
+                preview_bundle_input(index, name, name)
                 for index, name in enumerate(
                     ("baseline", "initial", "modified") if full else ("baseline", "modified")
                 )

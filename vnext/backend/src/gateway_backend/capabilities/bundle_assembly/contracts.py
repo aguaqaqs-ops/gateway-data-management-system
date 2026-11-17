@@ -72,6 +72,14 @@ class BundleTableSide(StrEnum):
     BROWSE = "browse"
 
 
+class PreviewBundleInputRole(StrEnum):
+    """Closed input role set enforced at Preview bundle construction boundaries."""
+
+    BASELINE = "baseline"
+    INITIAL = "initial"
+    MODIFIED = "modified"
+
+
 @dataclass(frozen=True, slots=True)
 class BundleTableBinding:
     pair_id: str
@@ -216,6 +224,32 @@ class BundleInput:
             "role": self.role,
             "snapshot_digest": None if self.snapshot_digest is None else self.snapshot_digest.value,
         }
+
+
+def preview_bundle_input(
+    input_index: int,
+    role: PreviewBundleInputRole | str,
+    display_name: str,
+    *,
+    display_metadata: tuple[tuple[str, str], ...] = (),
+    snapshot_digest: DigestRef | None = None,
+) -> BundleInput:
+    """Build a BundleInput enforcing Preview's closed three-role boundary."""
+    try:
+        resolved_role = (
+            role if isinstance(role, PreviewBundleInputRole) else PreviewBundleInputRole(role)
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "preview bundle input role must be one of baseline, initial, modified"
+        ) from exc
+    return BundleInput(
+        input_index=input_index,
+        role=resolved_role.value,
+        display_name=display_name,
+        display_metadata=display_metadata,
+        snapshot_digest=snapshot_digest,
+    )
 
 
 @dataclass(frozen=True, slots=True)

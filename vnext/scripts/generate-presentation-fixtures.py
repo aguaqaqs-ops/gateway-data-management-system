@@ -42,8 +42,14 @@ from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_
 from presentation_fixture_submit import run_comment_only_submit
 from gateway_backend.artifacts.scratch import scratch_scope
 from gateway_backend.capabilities.bundle_assembly import (
-    BUNDLE_CONTRACT_VERSION, BundleAssemblyInput, BundleInput, BundlePairInput,
-    BundleProfile, BundleRefScope, assemble_bundle,
+    BUNDLE_CONTRACT_VERSION,
+    BundleAssemblyInput,
+    BundleInput,
+    BundlePairInput,
+    BundleProfile,
+    BundleRefScope,
+    assemble_bundle,
+    preview_bundle_input,
 )
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.capabilities.comparison import BoundSnapshotInput
@@ -412,7 +418,7 @@ def generate_bundle(root: Path, scenario: dict[str, Any], inputs: dict[str, byte
         bundle_contract_version=BUNDLE_CONTRACT_VERSION,
         bundle_profile=BundleProfile.MULTI_PAIR if len(pair_inputs) > 1 else BundleProfile.SINGLE_PAIR,
         inputs=tuple(BundleInput(i, f"fixture-history-ref-{i}", f"node-{i}")
-            if scenario["flow"] == "HISTORY" else BundleInput(i, node["role"], node["role"].capitalize())
+            if scenario["flow"] == "HISTORY" else preview_bundle_input(i, node["role"], node["role"].capitalize())
             for i, node in enumerate(scenario["nodes"])),
         pairs=tuple(pair_inputs), ref_scope=BundleRefScope.BUNDLE_RELATIVE,
     ), source_store=store)

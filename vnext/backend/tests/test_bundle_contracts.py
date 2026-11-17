@@ -21,6 +21,8 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleProfile,
     BundleTableBinding,
     BundleTableSide,
+    PreviewBundleInputRole,
+    preview_bundle_input,
     validate_logical_path,
 )
 from gateway_backend.capabilities.surface_assembly import (
@@ -159,3 +161,26 @@ def test_delivery_boundaries_reject_unsupported_artifact_identity(artifact_id: s
         SurfaceTableRefs(current_table_ref=ref)
     with pytest.raises(ValueError, match="a1:"):
         BundleArtifactBinding(ref, "tables/member.json", BundleArtifactKind.SNAPSHOT_TABLE)
+
+
+def test_preview_bundle_input_enforces_closed_three_role_boundary() -> None:
+    assert tuple(role.value for role in PreviewBundleInputRole) == (
+        "baseline",
+        "initial",
+        "modified",
+    )
+    from_enum = preview_bundle_input(0, PreviewBundleInputRole.BASELINE, "Baseline")
+    from_text = preview_bundle_input(0, "baseline", "Baseline")
+    direct = BundleInput(0, "baseline", "Baseline")
+    assert from_enum == direct
+    assert from_text == direct
+    assert type(from_enum.role) is str
+    assert from_enum.to_document() == direct.to_document()
+
+    for invalid_role in ("before", "current", "left", "middle", "right", "node-0", ""):
+        with pytest.raises(ValueError, match="baseline, initial, modified"):
+            preview_bundle_input(0, invalid_role, "Invalid")
+
+    # History compare continues to carry node ref_id values in generic BundleInput.role.
+    history_input = BundleInput(0, "refs/heads/release-1", "node-0")
+    assert history_input.role == "refs/heads/release-1"

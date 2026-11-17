@@ -45,6 +45,8 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
     BundleTableBinding,
     BundleTableSide,
     ComparisonBundle,
+    PreviewBundleInputRole,
+    preview_bundle_input,
     validate_logical_path,
 )
 from gateway_backend.capabilities.bundle_assembly.transport import (
@@ -86,12 +88,14 @@ __all__ = [
     "BundleTableSide",
     "BundleTransportMetadata",
     "ComparisonBundle",
+    "PreviewBundleInputRole",
     "assemble_bundle",
     "closure_digest",
     "collect_surface_refs",
     "compute_bundle_digest",
     "integrity_payload",
     "manifest_semantic_payload",
+    "preview_bundle_input",
     "read_bundle_transport_metadata",
     "validate_bundle",
     "validate_bundle_ref",

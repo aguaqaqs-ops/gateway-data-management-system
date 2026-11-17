@@ -16,16 +16,16 @@ async function renderApp() {
   let headerControl: React.ReactNode;
   if (import.meta.env.DEV && (window as Window & { __gddsManual08?: boolean }).__gddsManual08) {
     const { prepareManual08, Manual08Controls } = await import("./features/dev/manual08");
-    if (!await prepareManual08(rootElement!)) return;
+    if (!(await prepareManual08(rootElement!))) return;
     headerControl = <Manual08Controls />;
   }
   initializeGatewaySession();
   // Publish the initial development identity before scope-bound state reads.
   if (import.meta.env.DEV) await import("./features/dev/DevIdentityControl");
   createRoot(rootElement!).render(
-  <React.StrictMode>
-    <App headerControl={headerControl} />
-  </React.StrictMode>
+    <React.StrictMode>
+      <App headerControl={headerControl} />
+    </React.StrictMode>,
   );
 }
 void renderApp();

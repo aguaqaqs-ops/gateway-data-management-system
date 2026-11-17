@@ -11,8 +11,8 @@ describe("view-level status copy", () => {
     const failed = presentViewStatus({ failed_table_count: 1 }, 0);
     expect(failed.text).toBe("一致");
     expect(failed.tooltipItems).toContain("1 张表比较失败");
-    expect(presentViewStatus({ degraded_table_count: 2, failed_table_count: 1 }, 3).tooltipItems).toEqual([
-      "2 张表降级比较", "1 张表比较失败", "3 张表有比较提示",
-    ]);
+    expect(
+      presentViewStatus({ degraded_table_count: 2, failed_table_count: 1 }, 3).tooltipItems,
+    ).toEqual(["2 张表降级比较", "1 张表比较失败", "3 张表有比较提示"]);
   });
 });

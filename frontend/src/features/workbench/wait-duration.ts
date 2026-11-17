@@ -5,5 +5,7 @@ export function formatWaitDuration(seconds: number): string {
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor((total % 3600) / 60);
   const remaining = total % 60;
-  return hours > 0 ? `${hours} 小时 ${minutes} 分 ${remaining} 秒` : `${minutes} 分 ${remaining} 秒`;
+  return hours > 0
+    ? `${hours} 小时 ${minutes} 分 ${remaining} 秒`
+    : `${minutes} 分 ${remaining} 秒`;
 }

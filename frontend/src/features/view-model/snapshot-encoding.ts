@@ -37,7 +37,9 @@ export function decodeSnapshotEncodings(
   keyValueMetadata: ReadonlyArray<{ key: string; value?: string }> | undefined | null,
   where: string,
 ): Map<string, SnapshotColumnEncoding> {
-  const raw = keyValueMetadata?.find((entry) => entry.key === SNAPSHOT_ENCODING_METADATA_KEY)?.value;
+  const raw = keyValueMetadata?.find(
+    (entry) => entry.key === SNAPSHOT_ENCODING_METADATA_KEY,
+  )?.value;
   if (raw === undefined || raw === null) {
     throw new ComparisonDecodeError(`${where} 缺少 ${SNAPSHOT_ENCODING_METADATA_KEY} 文件元数据`);
   }
@@ -57,9 +59,12 @@ export function decodeSnapshotEncodings(
     }
     const columnName: string = item["canonical_name"];
     const declaredType = isRecord(item["declared_type"]) ? item["declared_type"] : null;
-    const declaredKind = typeof declaredType?.["kind"] === "string" ? (declaredType["kind"] as string) : null;
-    const logicalType = typeof item["logical_type"] === "string" ? (item["logical_type"] as string) : "";
-    const physicalType = typeof item["physical_type"] === "string" ? (item["physical_type"] as string) : "";
+    const declaredKind =
+      typeof declaredType?.["kind"] === "string" ? (declaredType["kind"] as string) : null;
+    const logicalType =
+      typeof item["logical_type"] === "string" ? (item["logical_type"] as string) : "";
+    const physicalType =
+      typeof item["physical_type"] === "string" ? (item["physical_type"] as string) : "";
     const encoding: SnapshotColumnEncoding = {
       columnName,
       scalarKind: "unsupported",
@@ -70,9 +75,14 @@ export function decodeSnapshotEncodings(
       physicalType,
       declaredKind: declaredKind,
     };
-    if (logicalType === "standard" && (declaredKind === "signed-integer" || declaredKind === "unsigned-integer")) {
+    if (
+      logicalType === "standard" &&
+      (declaredKind === "signed-integer" || declaredKind === "unsigned-integer")
+    ) {
       if (physicalType !== "utf8") {
-        throw new ComparisonDecodeError(`${where} 列 ${encoding.columnName} 的整数声明与物理类型矛盾`);
+        throw new ComparisonDecodeError(
+          `${where} 列 ${encoding.columnName} 的整数声明与物理类型矛盾`,
+        );
       }
       const bits: unknown = declaredType?.["bits"] ?? null;
       if (typeof bits !== "number" || !INTEGER_BITS.has(bits)) {
@@ -85,7 +95,9 @@ export function decodeSnapshotEncodings(
       encoding.scalarKind = "string";
     }
     if (encodings.has(encoding.columnName)) {
-      throw new ComparisonDecodeError(`${where} 的 ${SNAPSHOT_ENCODING_METADATA_KEY} 列名重复：${encoding.columnName}`);
+      throw new ComparisonDecodeError(
+        `${where} 的 ${SNAPSHOT_ENCODING_METADATA_KEY} 列名重复：${encoding.columnName}`,
+      );
     }
     encodings.set(encoding.columnName, encoding);
   }
@@ -114,7 +126,11 @@ function checkIntegerRange(value: bigint, encoding: SnapshotColumnEncoding, wher
  * safe range plus the declared width and signedness. Rejects negative zero,
  * whitespace, decimals, exponents and trailing characters.
  */
-export function parseStrictIntegerText(text: string, encoding: SnapshotColumnEncoding, where: string): bigint {
+export function parseStrictIntegerText(
+  text: string,
+  encoding: SnapshotColumnEncoding,
+  where: string,
+): bigint {
   if (!CANONICAL_INTEGER_TEXT.test(text)) {
     throw new ComparisonDecodeError(`${where} 不是规范十进制整数`);
   }
@@ -144,7 +160,11 @@ export function assertPredicateCompatible(
       throw new ComparisonDecodeError(`${where} 的整数谓词与列 ${encoding.columnName} 的类型矛盾`);
     }
     for (const candidate of predicate.values) {
-      checkIntegerRange(BigInt(candidate as number), encoding, `${where} 列 ${encoding.columnName}`);
+      checkIntegerRange(
+        BigInt(candidate as number),
+        encoding,
+        `${where} 列 ${encoding.columnName}`,
+      );
     }
     return;
   }
@@ -154,7 +174,12 @@ export function assertPredicateCompatible(
 }
 
 function unwrapScalar(value: unknown): unknown {
-  if (value && typeof value === "object" && !(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) {
+  if (
+    value &&
+    typeof value === "object" &&
+    !(value instanceof ArrayBuffer) &&
+    !ArrayBuffer.isView(value)
+  ) {
     const document = value as Record<string, unknown>;
     if (Object.hasOwn(document, "text")) return document.text;
     return undefined;
@@ -185,7 +210,8 @@ export function matchesTypedPredicate(
       throw new ComparisonDecodeError(`${where} 的整数谓词与列 ${encoding.columnName} 的类型矛盾`);
     }
     const candidates = (predicate.values as number[]).map((candidate) =>
-      checkIntegerRange(BigInt(candidate), encoding, `${where} 列 ${encoding.columnName}`));
+      checkIntegerRange(BigInt(candidate), encoding, `${where} 列 ${encoding.columnName}`),
+    );
     let actual: bigint;
     if (typeof raw === "string") {
       actual = parseStrictIntegerText(raw, encoding, `${where} 列 ${encoding.columnName}`);

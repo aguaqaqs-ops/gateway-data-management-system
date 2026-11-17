@@ -152,8 +152,17 @@ export interface ApiEnvelope<T> {
   body: T;
 }
 
-function headersFor(identity: JourneyIdentity, extra?: Record<string, string>): Record<string, string> {
-  return { ...extra, Authorization: `Bearer ${identity.token}`, "X-Gateway-Device-Key": createHash("sha256").update(identity.gatewayDeviceExternalKey).digest("hex") };
+function headersFor(
+  identity: JourneyIdentity,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  return {
+    ...extra,
+    Authorization: `Bearer ${identity.token}`,
+    "X-Gateway-Device-Key": createHash("sha256")
+      .update(identity.gatewayDeviceExternalKey)
+      .digest("hex"),
+  };
 }
 
 export async function apiRequest<T>(
@@ -188,12 +197,16 @@ export async function tryApi<T>(
   method: string,
   path: string,
   options: { body?: unknown; headers?: Record<string, string> } = {},
-): Promise<{ ok: true; status: number; body: T } | { ok: false; status: number; code: string | null; message: string }> {
+): Promise<
+  | { ok: true; status: number; body: T }
+  | { ok: false; status: number; code: string | null; message: string }
+> {
   try {
     const result = await apiRequest<T>(identity, method, path, options);
     return { ok: true, status: result.status, body: result.body };
   } catch (error) {
-    if (error instanceof ApiCallError) return { ok: false, status: error.status, code: error.code, message: error.message };
+    if (error instanceof ApiCallError)
+      return { ok: false, status: error.status, code: error.code, message: error.message };
     throw error;
   }
 }
@@ -221,10 +234,17 @@ export function getPreviewResult(
   workspaceId: string,
   previewResultId: string,
 ): Promise<ApiEnvelope<PreviewResultBody>> {
-  return apiRequest<PreviewResultBody>(identity, "GET", `/v1/workspaces/${workspaceId}/preview-results/${previewResultId}`);
+  return apiRequest<PreviewResultBody>(
+    identity,
+    "GET",
+    `/v1/workspaces/${workspaceId}/preview-results/${previewResultId}`,
+  );
 }
 
-export function getOperation(identity: JourneyIdentity, operationId: string): Promise<ApiEnvelope<OperationBody>> {
+export function getOperation(
+  identity: JourneyIdentity,
+  operationId: string,
+): Promise<ApiEnvelope<OperationBody>> {
   return apiRequest<OperationBody>(identity, "GET", `/v1/operations/${operationId}`);
 }
 
@@ -233,7 +253,11 @@ export function getSubmitAttempt(
   workspaceId: string,
   attemptId: string,
 ): Promise<ApiEnvelope<SubmitAttemptBody>> {
-  return apiRequest<SubmitAttemptBody>(identity, "GET", `/v1/workspaces/${workspaceId}/submit-attempts/${attemptId}`);
+  return apiRequest<SubmitAttemptBody>(
+    identity,
+    "GET",
+    `/v1/workspaces/${workspaceId}/submit-attempts/${attemptId}`,
+  );
 }
 
 export function getSubmission(
@@ -241,17 +265,28 @@ export function getSubmission(
   workspaceId: string,
   submissionId: string,
 ): Promise<ApiEnvelope<SubmissionBody>> {
-  return apiRequest<SubmissionBody>(identity, "GET", `/v1/workspaces/${workspaceId}/submissions/${submissionId}`);
+  return apiRequest<SubmissionBody>(
+    identity,
+    "GET",
+    `/v1/workspaces/${workspaceId}/submissions/${submissionId}`,
+  );
 }
 
-export function getReviewFacts(identity: JourneyIdentity, submissionId: string): Promise<ApiEnvelope<ReviewFactsBody>> {
+export function getReviewFacts(
+  identity: JourneyIdentity,
+  submissionId: string,
+): Promise<ApiEnvelope<ReviewFactsBody>> {
   return apiRequest<ReviewFactsBody>(identity, "GET", `/v1/submissions/${submissionId}/review`);
 }
 
 export function applyReview(
   identity: JourneyIdentity,
   submissionId: string,
-  body: { expected_review_version: number; action: "APPROVE" | "REJECT" | "WITHDRAW"; reason?: string },
+  body: {
+    expected_review_version: number;
+    action: "APPROVE" | "REJECT" | "WITHDRAW";
+    reason?: string;
+  },
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<ApiEnvelope<{ submission_id: string; status: ReviewStatus; review_version: number }>> {
   return apiRequest(identity, "POST", `/v1/submissions/${submissionId}/review-events`, {
@@ -272,7 +307,11 @@ export interface ArchiveCandidatesBody {
   blockers: string[];
   pending_submission_ids: string[];
   pending_submission_count: number;
-  head: { business_baseline_node_id: string; business_baseline_commit_id: string; baseline_head_version: number };
+  head: {
+    business_baseline_node_id: string;
+    business_baseline_commit_id: string;
+    baseline_head_version: number;
+  };
 }
 
 export interface ArchiveIssueBody {
@@ -310,13 +349,20 @@ export interface ArchivePlanBody {
   business_validation: {
     rule_id: string;
     baseline_facts_digest: string | null;
-    issues: Array<{ issue_code: string; subject_kind: string; side: string | null; affected_submission_ids: string[] }>;
+    issues: Array<{
+      issue_code: string;
+      subject_kind: string;
+      side: string | null;
+      affected_submission_ids: string[];
+    }>;
     source_diagnostics: unknown[];
     time_comparisons: unknown[];
   };
 }
 
-export function listArchiveCandidates(identity: JourneyIdentity): Promise<ApiEnvelope<ArchiveCandidatesBody>> {
+export function listArchiveCandidates(
+  identity: JourneyIdentity,
+): Promise<ApiEnvelope<ArchiveCandidatesBody>> {
   return apiRequest<ArchiveCandidatesBody>(identity, "GET", "/v1/archive-candidates");
 }
 
@@ -324,7 +370,9 @@ export function previewArchivePlan(
   identity: JourneyIdentity,
   selected: { submission_id: string; expected_candidate_digest: string },
 ): Promise<ApiEnvelope<ArchivePlanBody>> {
-  return apiRequest<ArchivePlanBody>(identity, "POST", "/v1/archive-plan-preview", { body: { selected } });
+  return apiRequest<ArchivePlanBody>(identity, "POST", "/v1/archive-plan-preview", {
+    body: { selected },
+  });
 }
 
 export function appendArchiveConfirmation(
@@ -332,7 +380,10 @@ export function appendArchiveConfirmation(
   body: Record<string, unknown>,
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<ApiEnvelope<{ event_id: string; sequence: number }>> {
-  return apiRequest(identity, "POST", "/v1/archive-confirmations", { body, headers: { "Idempotency-Key": idempotencyKey } });
+  return apiRequest(identity, "POST", "/v1/archive-confirmations", {
+    body,
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
 }
 
 export function appendArchiveAnomalyResolution(
@@ -340,31 +391,68 @@ export function appendArchiveAnomalyResolution(
   body: Record<string, unknown>,
   idempotencyKey: string = crypto.randomUUID(),
 ): Promise<ApiEnvelope<{ event_id: string; sequence: number }>> {
-  return apiRequest(identity, "POST", "/v1/archive-anomaly-resolutions", { body, headers: { "Idempotency-Key": idempotencyKey } });
+  return apiRequest(identity, "POST", "/v1/archive-anomaly-resolutions", {
+    body,
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
 }
 
 export function startArchive(
   identity: JourneyIdentity,
   body: Record<string, unknown>,
   idempotencyKey: string = crypto.randomUUID(),
-): Promise<ApiEnvelope<{ archive_result_id: string; selected_submission_id: string; dispositions: Array<{ submission_id: string; disposition: string }> }>> {
-  return apiRequest(identity, "POST", "/v1/archives", { body, headers: { "Idempotency-Key": idempotencyKey } });
+): Promise<
+  ApiEnvelope<{
+    archive_result_id: string;
+    selected_submission_id: string;
+    dispositions: Array<{ submission_id: string; disposition: string }>;
+  }>
+> {
+  return apiRequest(identity, "POST", "/v1/archives", {
+    body,
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
 }
 
 export function getArchiveResult(
   identity: JourneyIdentity,
   archiveResultId: string,
-): Promise<ApiEnvelope<{ archive_result_id: string; selected_submission_id: string; baseline_node_id: string; baseline_head_version: number; dispositions: Array<{ submission_id: string; disposition: string }> }>> {
+): Promise<
+  ApiEnvelope<{
+    archive_result_id: string;
+    selected_submission_id: string;
+    baseline_node_id: string;
+    baseline_head_version: number;
+    dispositions: Array<{ submission_id: string; disposition: string }>;
+  }>
+> {
   return apiRequest(identity, "GET", `/v1/archives/${archiveResultId}`);
 }
 
 export function closeSubmission(
   identity: JourneyIdentity,
   submissionId: string,
-  body: { expected_baseline_node_id: string; expected_baseline_head_version: number; expected_review_version: number; reason: string },
+  body: {
+    expected_baseline_node_id: string;
+    expected_baseline_head_version: number;
+    expected_review_version: number;
+    reason: string;
+  },
   idempotencyKey: string = crypto.randomUUID(),
-): Promise<ApiEnvelope<{ submission_id: string; disposition: string; source_kind: string; closed_by: string; closed_at: string; reason: string }>> {
-  return apiRequest(identity, "POST", `/v1/submissions/${submissionId}/closure`, { body, headers: { "Idempotency-Key": idempotencyKey } });
+): Promise<
+  ApiEnvelope<{
+    submission_id: string;
+    disposition: string;
+    source_kind: string;
+    closed_by: string;
+    closed_at: string;
+    reason: string;
+  }>
+> {
+  return apiRequest(identity, "POST", `/v1/submissions/${submissionId}/closure`, {
+    body,
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
 }
 
 export async function fetchTar(identity: JourneyIdentity, path: string): Promise<TarResponse> {
@@ -389,15 +477,26 @@ export async function waitForOperation(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const { body } = await getOperation(identity, operationId);
-    if (body.status === "SUCCEEDED" || body.status === "FAILED" || body.status === "CANCELLED") return body;
-    if (Date.now() > deadline) throw new Error(`operation ${operationId} did not settle within ${timeoutMs}ms (last ${body.status})`);
+    if (body.status === "SUCCEEDED" || body.status === "FAILED" || body.status === "CANCELLED")
+      return body;
+    if (Date.now() > deadline)
+      throw new Error(
+        `operation ${operationId} did not settle within ${timeoutMs}ms (last ${body.status})`,
+      );
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
 
-export async function submissionFromWorkspace(identity: JourneyIdentity, workspace: WorkspaceBody): Promise<SubmissionBody> {
+export async function submissionFromWorkspace(
+  identity: JourneyIdentity,
+  workspace: WorkspaceBody,
+): Promise<SubmissionBody> {
   if (!workspace.active_submission_id) throw new Error("workspace has no active_submission_id");
-  const submission = await getSubmission(identity, workspace.workspace_id, workspace.active_submission_id);
+  const submission = await getSubmission(
+    identity,
+    workspace.workspace_id,
+    workspace.active_submission_id,
+  );
   return submission.body;
 }
 
@@ -409,12 +508,14 @@ export async function waitForPendingSubmission(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const workspace = await currentWorkspace(identity);
-    if (workspace.workspace_id !== workspaceId) throw new Error(`workspace changed: ${workspace.workspace_id} !== ${workspaceId}`);
+    if (workspace.workspace_id !== workspaceId)
+      throw new Error(`workspace changed: ${workspace.workspace_id} !== ${workspaceId}`);
     if (workspace.active_submission_id && !workspace.active_submit_attempt_id) {
       const submission = await getSubmission(identity, workspaceId, workspace.active_submission_id);
       return { workspace, submission: submission.body };
     }
-    if (Date.now() > deadline) throw new Error(`workspace ${workspaceId} has no settled submission within ${timeoutMs}ms`);
+    if (Date.now() > deadline)
+      throw new Error(`workspace ${workspaceId} has no settled submission within ${timeoutMs}ms`);
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }

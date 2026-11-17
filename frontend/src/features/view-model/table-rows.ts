@@ -18,7 +18,15 @@ import {
   type SnapshotColumnEncoding,
 } from "./snapshot-encoding";
 
-export type BrowseRowKind = "unchanged" | "added" | "deleted" | "modified-before" | "modified-after" | "ordered" | "blank-interval" | "collapsed";
+export type BrowseRowKind =
+  | "unchanged"
+  | "added"
+  | "deleted"
+  | "modified-before"
+  | "modified-after"
+  | "ordered"
+  | "blank-interval"
+  | "collapsed";
 
 /**
  * One published blank-interval record. The ranges are the affected region of
@@ -40,7 +48,10 @@ export interface BrowseRow {
   /** Same-side identity context from the locator when that side has no snapshot; used only to match filters. */
   identityContext?: Record<string, unknown> | null;
   /** Real before-side filter evidence for a current row whose address-only change is hidden. */
-  beforeScope?: { values: Record<string, unknown>; identityContext?: Record<string, unknown> | null };
+  beforeScope?: {
+    values: Record<string, unknown>;
+    identityContext?: Record<string, unknown> | null;
+  };
   /** Values come from a record or context, not a snapshot row: absent columns are unavailable, not NULL. */
   partialValues?: boolean;
   /** Interval evidence for a summary or a reliably identified inserted blank. */
@@ -77,26 +88,44 @@ const ADDED_KINDS = new Set(["ROW_ADDED", "ORDERED_ROW_ADDED"]);
 const DELETED_KINDS = new Set(["ROW_DELETED", "ORDERED_ROW_DELETED"]);
 const MODIFIED_KINDS = new Set(["ROW_MODIFIED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"]);
 const STANDARD_ORDINARY_KINDS = new Set(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
-const ORDERED_CURRENT_KINDS = new Set(["ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"]);
+const ORDERED_CURRENT_KINDS = new Set([
+  "ORDERED_ROW_ADDED",
+  "ORDERED_ROW_MODIFIED",
+  "ORDERED_ROW_MOVED",
+]);
 
 const DEVICE_POINT_TABLES = new Set([
-  "device_st", "device_mx", "device_co", "device_sg", "device_sp",
-  "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb",
+  "device_st",
+  "device_mx",
+  "device_co",
+  "device_sg",
+  "device_sp",
+  "device_cnt",
+  "device_sn",
+  "device_tap",
+  "device_other",
+  "device_disturb",
 ]);
 
 /** Only a nonempty list proves that address is the sole change. */
 function displayedChangedColumns(tableName: string, record: RowDiffRecord | undefined): string[] {
   const columns = Array.isArray(record?.changed_columns) ? record.changed_columns : [];
-  return record?.record_kind === "ROW_MODIFIED" && DEVICE_POINT_TABLES.has(tableName) && columns.length > 0
-    ? columns.filter((column) => column !== "dev_addr") : columns;
+  return record?.record_kind === "ROW_MODIFIED" &&
+    DEVICE_POINT_TABLES.has(tableName) &&
+    columns.length > 0
+    ? columns.filter((column) => column !== "dev_addr")
+    : columns;
 }
 
 function isAddressOnlyPointChange(tableName: string, record: RowDiffRecord): boolean {
-  return record.record_kind === "ROW_MODIFIED" && DEVICE_POINT_TABLES.has(tableName)
-    && Array.isArray(record.changed_columns) && record.changed_columns.length > 0
-    && displayedChangedColumns(tableName, record).length === 0;
+  return (
+    record.record_kind === "ROW_MODIFIED" &&
+    DEVICE_POINT_TABLES.has(tableName) &&
+    Array.isArray(record.changed_columns) &&
+    record.changed_columns.length > 0 &&
+    displayedChangedColumns(tableName, record).length === 0
+  );
 }
-
 
 /** One decoded five-column locator row, addressed by its published identity. */
 export interface RowLocatorRecord {
@@ -113,7 +142,8 @@ function bytesToHex(identity: unknown): string | null {
 
 function contextDocument(value: unknown, where: string): Record<string, unknown> | null {
   if (value === null || value === undefined || value === "") return null;
-  if (typeof value !== "string") throw new ComparisonDecodeError(`${where} 的过滤上下文不是 JSON 文本`);
+  if (typeof value !== "string")
+    throw new ComparisonDecodeError(`${where} 的过滤上下文不是 JSON 文本`);
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -148,8 +178,14 @@ export function parseRowLocator(rows: Record<string, unknown>[]): Map<string, Ro
     locator.set(identity, {
       beforeRowIndex: indexValue(row.before_row_index, `${where}.before_row_index`),
       currentRowIndex: indexValue(row.current_row_index, `${where}.current_row_index`),
-      beforeFilterContext: contextDocument(row.before_filter_context_json, `${where}.before_filter_context_json`),
-      currentFilterContext: contextDocument(row.current_filter_context_json, `${where}.current_filter_context_json`),
+      beforeFilterContext: contextDocument(
+        row.before_filter_context_json,
+        `${where}.before_filter_context_json`,
+      ),
+      currentFilterContext: contextDocument(
+        row.current_filter_context_json,
+        `${where}.current_filter_context_json`,
+      ),
     });
   }
   return locator;
@@ -172,7 +208,11 @@ export function canReuseUnrecordedIdentity(
 ): boolean {
   if (filterTabs.length === 0) return false;
   if (!hasCurrentSnapshot || hasBeforeSnapshot) return false;
-  if (table.row_change_stats?.row_count_before == null || table.row_change_stats?.row_count_current == null) return false;
+  if (
+    table.row_change_stats?.row_count_before == null ||
+    table.row_change_stats?.row_count_current == null
+  )
+    return false;
   return filterTabs.every((tab) => tab.facts?.basis === "EXACT");
 }
 
@@ -195,7 +235,9 @@ export function validateRowLocations(input: {
   publishesFilterTabs: boolean;
   exactTable: boolean;
 }): void {
-  const ordinary = input.records.filter((record) => STANDARD_ORDINARY_KINDS.has(String(record.record_kind)));
+  const ordinary = input.records.filter((record) =>
+    STANDARD_ORDINARY_KINDS.has(String(record.record_kind)),
+  );
   if (ordinary.length > 0 && input.locator.size === 0) {
     throw new ComparisonDecodeError(`表 ${input.table.table_name} 有普通行记录但缺少行定位产物`);
   }
@@ -203,48 +245,77 @@ export function validateRowLocations(input: {
     const suppressedAdded = input.table.row_change_stats?.suppressed_added_count ?? 0;
     const suppressedDeleted = input.table.row_change_stats?.suppressed_deleted_count ?? 0;
     if (suppressedAdded !== 0 || suppressedDeleted !== 0) {
-      throw new ComparisonDecodeError(`表 ${input.table.table_name} 为 EXACT 但 suppressed 计数非零`);
+      throw new ComparisonDecodeError(
+        `表 ${input.table.table_name} 为 EXACT 但 suppressed 计数非零`,
+      );
     }
     const published = { ROW_ADDED: 0, ROW_DELETED: 0, ROW_MODIFIED: 0 };
     for (const record of ordinary) {
       const kind = String(record.record_kind);
-      if (kind === "ROW_ADDED" || kind === "ROW_DELETED" || kind === "ROW_MODIFIED") published[kind] += 1;
+      if (kind === "ROW_ADDED" || kind === "ROW_DELETED" || kind === "ROW_MODIFIED")
+        published[kind] += 1;
     }
     const stats = input.table.row_change_stats;
-    if (typeof stats?.row_added_count === "number" && published.ROW_ADDED !== stats.row_added_count) {
-      throw new ComparisonDecodeError(`表 ${input.table.table_name} 已发布新增行数与 row_change_stats 不符`);
+    if (
+      typeof stats?.row_added_count === "number" &&
+      published.ROW_ADDED !== stats.row_added_count
+    ) {
+      throw new ComparisonDecodeError(
+        `表 ${input.table.table_name} 已发布新增行数与 row_change_stats 不符`,
+      );
     }
-    if (typeof stats?.row_deleted_count === "number" && published.ROW_DELETED !== stats.row_deleted_count) {
-      throw new ComparisonDecodeError(`表 ${input.table.table_name} 已发布删除行数与 row_change_stats 不符`);
+    if (
+      typeof stats?.row_deleted_count === "number" &&
+      published.ROW_DELETED !== stats.row_deleted_count
+    ) {
+      throw new ComparisonDecodeError(
+        `表 ${input.table.table_name} 已发布删除行数与 row_change_stats 不符`,
+      );
     }
-    if (typeof stats?.row_modified_count === "number" && published.ROW_MODIFIED !== stats.row_modified_count) {
-      throw new ComparisonDecodeError(`表 ${input.table.table_name} 已发布修改行数与 row_change_stats 不符`);
+    if (
+      typeof stats?.row_modified_count === "number" &&
+      published.ROW_MODIFIED !== stats.row_modified_count
+    ) {
+      throw new ComparisonDecodeError(
+        `表 ${input.table.table_name} 已发布修改行数与 row_change_stats 不符`,
+      );
     }
   }
   const seen = new Set<string>();
   for (const record of ordinary) {
     const identity = locatorIdentity(record);
-    if (!identity) throw new ComparisonDecodeError(`表 ${input.table.table_name} 的普通行记录缺少身份`);
-    if (seen.has(identity)) throw new ComparisonDecodeError(`表 ${input.table.table_name} 的普通行记录身份重复：${identity}`);
+    if (!identity)
+      throw new ComparisonDecodeError(`表 ${input.table.table_name} 的普通行记录缺少身份`);
+    if (seen.has(identity))
+      throw new ComparisonDecodeError(
+        `表 ${input.table.table_name} 的普通行记录身份重复：${identity}`,
+      );
     seen.add(identity);
     const located = input.locator.get(identity);
-    if (!located) throw new ComparisonDecodeError(`表 ${input.table.table_name} 缺少行定位：${identity}`);
+    if (!located)
+      throw new ComparisonDecodeError(`表 ${input.table.table_name} 缺少行定位：${identity}`);
     const where = `表 ${input.table.table_name} 的行定位 ${identity}`;
     const beforeExists = !ADDED_KINDS.has(String(record.record_kind));
     const currentExists = !DELETED_KINDS.has(String(record.record_kind));
     if (!beforeExists) {
-      if (located.beforeRowIndex !== null) throw new ComparisonDecodeError(`${where} 的改前侧不存在却有快照位置`);
+      if (located.beforeRowIndex !== null)
+        throw new ComparisonDecodeError(`${where} 的改前侧不存在却有快照位置`);
     } else if (input.hasBeforeSnapshot) {
-      if (located.beforeRowIndex === null || located.beforeRowIndex >= input.beforeRowCount) throw new ComparisonDecodeError(`${where} 的改前侧位置无效`);
-      if (located.beforeFilterContext !== null) throw new ComparisonDecodeError(`${where} 的改前侧有快照时上下文必须为空`);
+      if (located.beforeRowIndex === null || located.beforeRowIndex >= input.beforeRowCount)
+        throw new ComparisonDecodeError(`${where} 的改前侧位置无效`);
+      if (located.beforeFilterContext !== null)
+        throw new ComparisonDecodeError(`${where} 的改前侧有快照时上下文必须为空`);
     } else if (located.beforeRowIndex !== null) {
       throw new ComparisonDecodeError(`${where} 缺少改前快照却给出了改前位置`);
     }
     if (!currentExists) {
-      if (located.currentRowIndex !== null) throw new ComparisonDecodeError(`${where} 的改后侧不存在却有快照位置`);
+      if (located.currentRowIndex !== null)
+        throw new ComparisonDecodeError(`${where} 的改后侧不存在却有快照位置`);
     } else if (input.hasCurrentSnapshot) {
-      if (located.currentRowIndex === null || located.currentRowIndex >= input.currentRowCount) throw new ComparisonDecodeError(`${where} 的改后侧位置无效`);
-      if (located.currentFilterContext !== null) throw new ComparisonDecodeError(`${where} 的改后侧有快照时上下文必须为空`);
+      if (located.currentRowIndex === null || located.currentRowIndex >= input.currentRowCount)
+        throw new ComparisonDecodeError(`${where} 的改后侧位置无效`);
+      if (located.currentFilterContext !== null)
+        throw new ComparisonDecodeError(`${where} 的改后侧有快照时上下文必须为空`);
     } else if (located.currentRowIndex !== null) {
       throw new ComparisonDecodeError(`${where} 缺少改后快照却给出了改后位置`);
     }
@@ -275,7 +346,8 @@ function recordValues(value: unknown): Record<string, unknown> {
 }
 
 function positionNumber(value: unknown): number | null {
-  if (typeof value !== "number" && typeof value !== "bigint" && typeof value !== "string") return null;
+  if (typeof value !== "number" && typeof value !== "bigint" && typeof value !== "string")
+    return null;
   if (typeof value === "string" && value.trim() === "") return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -284,7 +356,8 @@ function positionNumber(value: unknown): number | null {
 function rowRiskMap(annotations: RiskAnnotation[]): Map<string, RiskLevel> {
   const risks = new Map<string, RiskLevel>();
   for (const annotation of annotations) {
-    for (const identity of riskAnnotationRowIdentities(annotation)) risks.set(identity, annotation.risk_level);
+    for (const identity of riskAnnotationRowIdentities(annotation))
+      risks.set(identity, annotation.risk_level);
   }
   return risks;
 }
@@ -305,7 +378,8 @@ export function formatFloatBits(bits: string): string | null {
     }
     return String(value);
   }
-  view.setUint32(0, Number.parseInt(bits.slice(0, 8), 16)); view.setUint32(4, Number.parseInt(bits.slice(8), 16));
+  view.setUint32(0, Number.parseInt(bits.slice(0, 8), 16));
+  view.setUint32(4, Number.parseInt(bits.slice(8), 16));
   const value = view.getFloat64(0);
   return Number.isFinite(value) ? String(value) : null;
 }
@@ -313,51 +387,95 @@ export function formatFloatBits(bits: string): string | null {
 function displayValue(value: unknown, column?: SurfaceColumn): string {
   if (value === null || value === undefined) return "—";
   // Snapshots carry FLOAT/DOUBLE as their exact bit pattern; show the number.
-  if (typeof value === "string" && column && FLOAT_SQL_TYPE.test(column.scalar_type ?? "")) return formatFloatBits(value) ?? value;
-  if (value && typeof value === "object" && ((value as { kind?: unknown }).kind === "float32" || (value as { kind?: unknown }).kind === "float64")
-    && typeof (value as { text?: unknown }).text === "string") {
+  if (typeof value === "string" && column && FLOAT_SQL_TYPE.test(column.scalar_type ?? ""))
+    return formatFloatBits(value) ?? value;
+  if (
+    value &&
+    typeof value === "object" &&
+    ((value as { kind?: unknown }).kind === "float32" ||
+      (value as { kind?: unknown }).kind === "float64") &&
+    typeof (value as { text?: unknown }).text === "string"
+  ) {
     const text = (value as { text: string }).text;
     return formatFloatBits(text) ?? text;
   }
   if (typeof value === "bigint") return value.toString();
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    return String(value);
   if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return "二进制值";
   if (typeof value === "object") {
     const object = value as Record<string, unknown>;
     if (typeof object.text === "string") return object.text;
     if (object.kind === "null") return "—";
-    try { return JSON.stringify(value); } catch { return "[无法显示]"; }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[无法显示]";
+    }
   }
   return String(value);
 }
 
 function isBinaryColumn(column: SurfaceColumn): boolean {
-  return /^(BIT|BINARY|VARBINARY|TINYBLOB|BLOB|MEDIUMBLOB|LONGBLOB)(\b|\()/i.test(column.scalar_type ?? "");
+  return /^(BIT|BINARY|VARBINARY|TINYBLOB|BLOB|MEDIUMBLOB|LONGBLOB)(\b|\()/i.test(
+    column.scalar_type ?? "",
+  );
 }
 
 export function displayRowSearchText(row: BrowseRow, columns: SurfaceColumn[]): string {
-  const values = columns.filter((column) => !isBinaryColumn(column) && !(row.values[column.name] instanceof ArrayBuffer)
-    && !ArrayBuffer.isView(row.values[column.name]))
-    .map((column) => displayValue(row.values[column.name], column)).join(" ").toLocaleLowerCase();
-  return row.interval ? `${blankIntervalLabel(row.interval)} ${values}`.toLocaleLowerCase() : values;
+  const values = columns
+    .filter(
+      (column) =>
+        !isBinaryColumn(column) &&
+        !(row.values[column.name] instanceof ArrayBuffer) &&
+        !ArrayBuffer.isView(row.values[column.name]),
+    )
+    .map((column) => displayValue(row.values[column.name], column))
+    .join(" ")
+    .toLocaleLowerCase();
+  return row.interval
+    ? `${blankIntervalLabel(row.interval)} ${values}`.toLocaleLowerCase()
+    : values;
 }
 
-export function collapseUnchangedRows(rows: BrowseRow[], expandedKeys: ReadonlySet<string>): BrowseRow[] {
+export function collapseUnchangedRows(
+  rows: BrowseRow[],
+  expandedKeys: ReadonlySet<string>,
+): BrowseRow[] {
   const output: BrowseRow[] = [];
   for (let index = 0; index < rows.length;) {
     const row = rows[index];
-    if (!row || row.kind !== "unchanged" || row.riskLevel) { if (row) output.push(row); index += 1; continue; }
+    if (!row || row.kind !== "unchanged" || row.riskLevel) {
+      if (row) output.push(row);
+      index += 1;
+      continue;
+    }
     const run: BrowseRow[] = [];
     while (rows[index]?.kind === "unchanged" && !rows[index]?.riskLevel) {
-      const next = rows[index]; if (next) run.push(next); index += 1;
+      const next = rows[index];
+      if (next) run.push(next);
+      index += 1;
     }
     if (!run.length) continue;
     const key = `unchanged:${run[0]?.rowNumber ?? 0}:${run.length}`;
     const expanded = expandedKeys.has(key);
     output.push({
-      key, kind: "collapsed", side: null, rowNumber: run[0]?.rowNumber ?? null, rowIdentity: null, riskLevel: null,
-      recordKind: null, semanticKind: null, beforePosition: null, currentPosition: null,
-      changedColumns: [], values: {}, pairKey: null, collapsedCount: run.length, collapsedRows: run, expanded,
+      key,
+      kind: "collapsed",
+      side: null,
+      rowNumber: run[0]?.rowNumber ?? null,
+      rowIdentity: null,
+      riskLevel: null,
+      recordKind: null,
+      semanticKind: null,
+      beforePosition: null,
+      currentPosition: null,
+      changedColumns: [],
+      values: {},
+      pairKey: null,
+      collapsedCount: run.length,
+      collapsedRows: run,
+      expanded,
     });
     if (expanded) output.push(...run);
   }
@@ -371,8 +489,14 @@ const EMPTY_ENCODINGS: ReadonlyMap<string, SnapshotColumnEncoding> = new Map();
  * physically absent on the row's side shows 该侧无此列, which is distinct
  * from a NULL value on a present column (shown as — by displayValue).
  */
-export function missingSideMarker(side: "before" | "current" | null, presentIn: ColumnPresentIn | undefined): string | null {
-  if ((side === "before" && presentIn === "CURRENT") || (side === "current" && presentIn === "BEFORE")) {
+export function missingSideMarker(
+  side: "before" | "current" | null,
+  presentIn: ColumnPresentIn | undefined,
+): string | null {
+  if (
+    (side === "before" && presentIn === "CURRENT") ||
+    (side === "current" && presentIn === "BEFORE")
+  ) {
     return "该侧无此列";
   }
   return null;
@@ -385,11 +509,15 @@ function scalarPosition(value: unknown): number | null {
   return positionNumber(text);
 }
 
-function intervalRange(interval: Record<string, unknown>, side: "before" | "current"): readonly [number, number] | null {
+function intervalRange(
+  interval: Record<string, unknown>,
+  side: "before" | "current",
+): readonly [number, number] | null {
   const start = positionNumber(interval[`${side}_start`]);
   const end = positionNumber(interval[`${side}_end`]);
   if (start === null && end === null) return null;
-  if (start === null || end === null || end < start) throw new ComparisonDecodeError(`空点区间的 ${side} 范围无效`);
+  if (start === null || end === null || end < start)
+    throw new ComparisonDecodeError(`空点区间的 ${side} 范围无效`);
   return [start, end];
 }
 
@@ -399,16 +527,26 @@ function intervalRange(interval: Record<string, unknown>, side: "before" | "curr
  * row_count is the net change in occupancy.
  */
 export function blankIntervalSummary(record: RowDiffRecord): BlankIntervalSummary | null {
-  const direction = record.record_kind === "BLANK_INSERT_INTERVAL" ? "INSERT" : record.record_kind === "BLANK_DELETE_INTERVAL" ? "DELETE" : null;
+  const direction =
+    record.record_kind === "BLANK_INSERT_INTERVAL"
+      ? "INSERT"
+      : record.record_kind === "BLANK_DELETE_INTERVAL"
+        ? "DELETE"
+        : null;
   if (direction === null) return null;
-  const interval = record.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : null;
+  const interval =
+    record.interval && typeof record.interval === "object"
+      ? (record.interval as Record<string, unknown>)
+      : null;
   if (!interval) throw new ComparisonDecodeError("空点区间记录缺少 interval");
   const before = intervalRange(interval, "before");
   const current = intervalRange(interval, "current");
-  if ((direction === "INSERT" ? current : before) === null) throw new ComparisonDecodeError("空点区间缺少变化侧范围");
+  if ((direction === "INSERT" ? current : before) === null)
+    throw new ComparisonDecodeError("空点区间缺少变化侧范围");
   const rawCount = interval.row_count;
   const rowCount = rawCount === null || rawCount === undefined ? null : positionNumber(rawCount);
-  if (rawCount !== null && rawCount !== undefined && rowCount === null) throw new ComparisonDecodeError("空点区间的 row_count 无效");
+  if (rawCount !== null && rawCount !== undefined && rowCount === null)
+    throw new ComparisonDecodeError("空点区间的 row_count 无效");
   return { direction, before, current, rowCount };
 }
 
@@ -426,14 +564,28 @@ export function blankIntervalLabel(interval: BlankIntervalSummary): string {
   return interval.direction === "INSERT" ? "+ 新增" : "− 删除";
 }
 
-function unwrapRecordScalar(value: unknown): { present: boolean; isNull: boolean; text: string | null } {
+function unwrapRecordScalar(value: unknown): {
+  present: boolean;
+  isNull: boolean;
+  text: string | null;
+} {
   if (value === null) return { present: true, isNull: true, text: null };
-  if (value && typeof value === "object" && !(value instanceof ArrayBuffer) && !ArrayBuffer.isView(value)) {
+  if (
+    value &&
+    typeof value === "object" &&
+    !(value instanceof ArrayBuffer) &&
+    !ArrayBuffer.isView(value)
+  ) {
     const document = value as Record<string, unknown>;
     if (document.kind === "null") return { present: true, isNull: true, text: null };
-    return { present: true, isNull: false, text: typeof document.text === "string" ? document.text : null };
+    return {
+      present: true,
+      isNull: false,
+      text: typeof document.text === "string" ? document.text : null,
+    };
   }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") return { present: true, isNull: false, text: String(value) };
+  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint")
+    return { present: true, isNull: false, text: String(value) };
   return { present: true, isNull: false, text: null };
 }
 
@@ -441,14 +593,21 @@ function unwrapRecordScalar(value: unknown): { present: boolean; isNull: boolean
  * The locator context and the record's own before/current values describe the
  * same row; an overlapping identity value that disagrees is a decode error.
  */
-function assertContextAgrees(context: Record<string, unknown> | null, values: Record<string, unknown>, where: string): void {
+function assertContextAgrees(
+  context: Record<string, unknown> | null,
+  values: Record<string, unknown>,
+  where: string,
+): void {
   if (!context) return;
   for (const [column, expected] of Object.entries(context)) {
     if (!Object.hasOwn(values, column)) continue;
     const actual = unwrapRecordScalar(values[column]);
-    const agrees = expected === null ? actual.isNull
-      : typeof expected === "number" || typeof expected === "string" ? !actual.isNull && actual.text === String(expected)
-        : false;
+    const agrees =
+      expected === null
+        ? actual.isNull
+        : typeof expected === "number" || typeof expected === "string"
+          ? !actual.isNull && actual.text === String(expected)
+          : false;
     if (!agrees) throw new ComparisonDecodeError(`${where} 的过滤上下文 ${column} 与记录值矛盾`);
   }
 }
@@ -459,24 +618,41 @@ function assertContextAgrees(context: Record<string, unknown> | null, values: Re
  * safe integer for integer predicates, a string for string predicates. SQL NULL
  * or a missing column never matches.
  */
-function matchesContextPredicate(predicate: NavigationPredicate | null, context: Record<string, unknown>, where: string): boolean {
+function matchesContextPredicate(
+  predicate: NavigationPredicate | null,
+  context: Record<string, unknown>,
+  where: string,
+): boolean {
   if (!predicate || !Object.hasOwn(context, predicate.column)) return false;
   const value = context[predicate.column];
   if (value === null) return false;
   const integer = typeof predicate.values[0] === "number";
-  if (integer ? !(typeof value === "number" && Number.isSafeInteger(value)) : typeof value !== "string") {
+  if (
+    integer
+      ? !(typeof value === "number" && Number.isSafeInteger(value))
+      : typeof value !== "string"
+  ) {
     throw new ComparisonDecodeError(`${where} 的上下文值类型与谓词矛盾：${predicate.column}`);
   }
   return predicate.values.includes(value as string | number);
 }
 
-function matchesSide(predicate: NavigationPredicate | null, row: Pick<BrowseRow, "values" | "identityContext">, encodings: ReadonlyMap<string, SnapshotColumnEncoding>, where: string): boolean {
+function matchesSide(
+  predicate: NavigationPredicate | null,
+  row: Pick<BrowseRow, "values" | "identityContext">,
+  encodings: ReadonlyMap<string, SnapshotColumnEncoding>,
+  where: string,
+): boolean {
   if (row.identityContext) return matchesContextPredicate(predicate, row.identityContext, where);
   return matchesTypedPredicate(predicate, row.values, encodings, where);
 }
 
 /** Rows that exist on both sides and keep their before-side order. */
-const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modified-after", "ordered"]);
+const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set([
+  "unchanged",
+  "modified-after",
+  "ordered",
+]);
 
 /**
  * Moves deleted rows (sorted last, numbered by before-side row) back to where
@@ -487,7 +663,8 @@ const SURVIVOR_KINDS: ReadonlySet<BrowseRowKind> = new Set(["unchanged", "modifi
  * together instead: -14 -15 -16 +14 +15 +16. Moves make this approximate.
  */
 function placeDeletedRowsInline(rows: BrowseRow[], layout: DeletionLayout): void {
-  const deleted = rows.filter((row) => row.kind === "deleted" && row.rowNumber !== null)
+  const deleted = rows
+    .filter((row) => row.kind === "deleted" && row.rowNumber !== null)
     .sort((left, right) => (left.rowNumber ?? 0) - (right.rowNumber ?? 0));
   if (!deleted.length) return;
   const base = rows.filter((row) => row.kind !== "deleted");
@@ -501,7 +678,10 @@ function placeDeletedRowsInline(rows: BrowseRow[], layout: DeletionLayout): void
     let index = start;
     for (const row of group ?? []) {
       output.push(row);
-      if (layout === "interleave" && base[index]?.kind === "added") { output.push(base[index] as BrowseRow); index += 1; }
+      if (layout === "interleave" && base[index]?.kind === "added") {
+        output.push(base[index] as BrowseRow);
+        index += 1;
+      }
     }
     return index;
   };
@@ -518,7 +698,8 @@ function placeDeletedRowsInline(rows: BrowseRow[], layout: DeletionLayout): void
     groups.delete(survivors);
     index = flush(group, index + 1) - 1;
   }
-  for (const group of [...groups.entries()].sort(([left], [right]) => left - right)) output.push(...group[1]);
+  for (const group of [...groups.entries()].sort(([left], [right]) => left - right))
+    output.push(...group[1]);
   output.push(...rows.filter((row) => row.kind === "deleted" && row.rowNumber === null));
   rows.splice(0, rows.length, ...output);
 }
@@ -560,15 +741,29 @@ export function buildBrowseRows(input: {
   const rows: BrowseRow[] = [];
   let insertion = 0;
   const makeRow = (args: {
-    key: string; kind: BrowseRowKind; side: "before" | "current" | null; source: Record<string, unknown>; rowNumber: number | null;
-    rowNumberTitle?: string; identity?: string | null; record?: RowDiffRecord; values?: Record<string, unknown>;
-    pairKey?: string | null; formulaChanged?: boolean; physical?: number;
+    key: string;
+    kind: BrowseRowKind;
+    side: "before" | "current" | null;
+    source: Record<string, unknown>;
+    rowNumber: number | null;
+    rowNumberTitle?: string;
+    identity?: string | null;
+    record?: RowDiffRecord;
+    values?: Record<string, unknown>;
+    pairKey?: string | null;
+    formulaChanged?: boolean;
+    physical?: number;
   }): BrowseRow => {
     const record = args.record;
     return {
       ...(args.physical !== undefined ? { physicalIndex: args.physical } : {}),
-      key: args.key, kind: args.kind, side: args.side, rowNumber: args.rowNumber, ...(args.rowNumberTitle ? { rowNumberTitle: args.rowNumberTitle } : {}),
-      rowIdentity: args.identity ?? null, riskLevel: args.identity ? risks.get(args.identity) ?? null : null,
+      key: args.key,
+      kind: args.kind,
+      side: args.side,
+      rowNumber: args.rowNumber,
+      ...(args.rowNumberTitle ? { rowNumberTitle: args.rowNumberTitle } : {}),
+      rowIdentity: args.identity ?? null,
+      riskLevel: args.identity ? (risks.get(args.identity) ?? null) : null,
       recordKind: typeof record?.record_kind === "string" ? record.record_kind : null,
       semanticKind: typeof record?.semantic_kind === "string" ? record.semantic_kind : null,
       beforePosition: positionNumber(record?.before_position),
@@ -582,7 +777,7 @@ export function buildBrowseRows(input: {
 
   const located = (record: RowDiffRecord): RowLocatorRecord | null => {
     const identity = locatorIdentity(record);
-    return identity ? input.locator.get(identity) ?? null : null;
+    return identity ? (input.locator.get(identity) ?? null) : null;
   };
   const recordByCurrentIndex = new Map<number, RowDiffRecord>();
   const recordByBeforeIndex = new Map<number, RowDiffRecord>();
@@ -602,8 +797,11 @@ export function buildBrowseRows(input: {
       const position = scalarPosition(row[ORDERED_POSITION_COLUMN]);
       if (position !== null && !indexByPosition.has(position)) indexByPosition.set(position, index);
     });
-    const movesLast = [...records].sort((left, right) =>
-      Number(left.record_kind === "ORDERED_ROW_MOVED") - Number(right.record_kind === "ORDERED_ROW_MOVED"));
+    const movesLast = [...records].sort(
+      (left, right) =>
+        Number(left.record_kind === "ORDERED_ROW_MOVED") -
+        Number(right.record_kind === "ORDERED_ROW_MOVED"),
+    );
     for (const record of movesLast) {
       if (!ORDERED_CURRENT_KINDS.has(String(record.record_kind))) continue;
       const position = positionNumber(record.current_position);
@@ -616,9 +814,31 @@ export function buildBrowseRows(input: {
 
   const tableKind = input.table.change_kind ?? input.table.table_status;
   if (tableKind === "ADDED" || tableKind === "ADDED_TABLE") {
-    input.currentRows.forEach((source, index) => rows.push(makeRow({ key: `table-added:${index}`, kind: "added", side: "current", source, rowNumber: index + 1, physical: index })));
+    input.currentRows.forEach((source, index) =>
+      rows.push(
+        makeRow({
+          key: `table-added:${index}`,
+          kind: "added",
+          side: "current",
+          source,
+          rowNumber: index + 1,
+          physical: index,
+        }),
+      ),
+    );
   } else if (tableKind === "DELETED" || tableKind === "DELETED_TABLE") {
-    input.beforeRows.forEach((source, index) => rows.push(makeRow({ key: `table-deleted:${index}`, kind: "deleted", side: "before", source, rowNumber: index + 1, physical: index })));
+    input.beforeRows.forEach((source, index) =>
+      rows.push(
+        makeRow({
+          key: `table-deleted:${index}`,
+          kind: "deleted",
+          side: "before",
+          source,
+          rowNumber: index + 1,
+          physical: index,
+        }),
+      ),
+    );
   } else {
     const consumed = new Set<RowDiffRecord>();
     input.currentRows.forEach((source, index) => {
@@ -627,43 +847,78 @@ export function buildBrowseRows(input: {
       if (!candidate) {
         // Real snapshot rows stay as they are, blank points included: a blank
         // interval is summarised once, never painted onto the rows it spans.
-        rows.push(makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source, rowNumber: index + 1, physical: index }));
+        rows.push(
+          makeRow({
+            key: `current:${index + 1}`,
+            kind: "unchanged",
+            side: "current",
+            source,
+            rowNumber: index + 1,
+            physical: index,
+          }),
+        );
         return;
       }
       consumed.add(candidate);
       const kind = String(candidate.record_kind);
       const identity = locatorIdentity(candidate);
       if (isAddressOnlyPointChange(input.table.table_name, candidate)) {
-        const row = makeRow({ key: `current:${index + 1}`, kind: "unchanged", side: "current", source,
-          rowNumber: index + 1, identity, record: candidate, physical: index });
+        const row = makeRow({
+          key: `current:${index + 1}`,
+          kind: "unchanged",
+          side: "current",
+          source,
+          rowNumber: index + 1,
+          identity,
+          record: candidate,
+          physical: index,
+        });
         row.riskLevel = null;
         const entry = located(candidate);
         const beforeIndex = entry?.beforeRowIndex ?? null;
         if (hasBeforeSnapshot && beforeIndex !== null && input.beforeRows[beforeIndex]) {
           row.beforeScope = { values: input.beforeRows[beforeIndex] };
         } else if (entry?.beforeFilterContext) {
-          assertContextAgrees(entry.beforeFilterContext, recordValues(candidate.before_values), `表 ${input.table.table_name} 的修改行 ${identity ?? index + 1}`);
+          assertContextAgrees(
+            entry.beforeFilterContext,
+            recordValues(candidate.before_values),
+            `表 ${input.table.table_name} 的修改行 ${identity ?? index + 1}`,
+          );
           row.beforeScope = { values: {}, identityContext: entry.beforeFilterContext };
         }
         rows.push(row);
         return;
       }
       if (kind === "ORDERED_ROW_MOVED" && hasCurrentSnapshot) {
-        rows.push(makeRow({ key: `record:moved:${index + 1}`, kind: "ordered", side: "current", source,
-          rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate, physical: index }));
+        rows.push(
+          makeRow({
+            key: `record:moved:${index + 1}`,
+            kind: "ordered",
+            side: "current",
+            source,
+            rowNumber: positionNumber(candidate.current_position) ?? index + 1,
+            identity,
+            record: candidate,
+            physical: index,
+          }),
+        );
         return;
       }
       if (MODIFIED_KINDS.has(kind)) {
         const entry = located(candidate);
         const beforeIndex = entry?.beforeRowIndex ?? null;
-        const changedColumns = Array.isArray(candidate.changed_columns) ? candidate.changed_columns : [];
+        const changedColumns = Array.isArray(candidate.changed_columns)
+          ? candidate.changed_columns
+          : [];
         const oldRecordValues = recordValues(candidate.before_values);
         const newRecordValues = recordValues(candidate.current_values);
         const currentFormulaDigest = Object.hasOwn(newRecordValues, "formula_digest")
-          ? newRecordValues.formula_digest : source.formula_digest;
-        const formulaChanged = Object.hasOwn(oldRecordValues, "formula_digest")
-          && currentFormulaDigest !== undefined
-          && oldRecordValues.formula_digest !== currentFormulaDigest;
+          ? newRecordValues.formula_digest
+          : source.formula_digest;
+        const formulaChanged =
+          Object.hasOwn(oldRecordValues, "formula_digest") &&
+          currentFormulaDigest !== undefined &&
+          oldRecordValues.formula_digest !== currentFormulaDigest;
         let beforeValues: Record<string, unknown>;
         let beforeNumber: number | null;
         let title: string | undefined;
@@ -678,38 +933,92 @@ export function buildBrowseRows(input: {
           const effective = input.table.compare?.effective_columns ?? [];
           beforeValues = {};
           for (const [name, value] of Object.entries(source)) {
-            if (!ignored.has(name) && (!effective.length || effective.includes(name))) beforeValues[name] = value;
+            if (!ignored.has(name) && (!effective.length || effective.includes(name)))
+              beforeValues[name] = value;
           }
-          for (const column of changedColumns) if (column in oldRecordValues) beforeValues[column] = oldRecordValues[column];
+          for (const column of changedColumns)
+            if (column in oldRecordValues) beforeValues[column] = oldRecordValues[column];
           // The before context identifies the row for filters; it never replaces values.
           beforeContext = entry?.beforeFilterContext ?? null;
-          assertContextAgrees(beforeContext, oldRecordValues, `表 ${input.table.table_name} 的修改行 ${identity ?? index + 1}`);
+          assertContextAgrees(
+            beforeContext,
+            oldRecordValues,
+            `表 ${input.table.table_name} 的修改行 ${identity ?? index + 1}`,
+          );
           beforeNumber = null;
-          title = "改前快照不在本 bundle 中：改前值由改后行与修改记录推出" + (ignored.size ? "，不参与比较的列不可得" : "");
+          title =
+            "改前快照不在本 bundle 中：改前值由改后行与修改记录推出" +
+            (ignored.size ? "，不参与比较的列不可得" : "");
         }
         const move = moveByCurrentIndex.get(index);
         if (move) consumed.add(move);
-        const movedFrom = positionNumber(move?.before_position) ?? positionNumber(candidate.before_position);
-        const movedTo = positionNumber(move?.current_position) ?? positionNumber(candidate.current_position);
+        const movedFrom =
+          positionNumber(move?.before_position) ?? positionNumber(candidate.before_position);
+        const movedTo =
+          positionNumber(move?.current_position) ?? positionNumber(candidate.current_position);
         if (beforeNumber === null && movedFrom !== null) beforeNumber = movedFrom;
         if (title && beforeNumber === null) title += "；改前行号不可得";
         const pairKey = `pair:${identity ?? index + 1}`;
-        const beforeRow = makeRow({ key: `${pairKey}:before`, kind: "modified-before", side: "before", source: beforeValues, rowNumber: beforeNumber,
-          rowNumberTitle: title, identity, record: candidate, values: beforeValues, pairKey });
+        const beforeRow = makeRow({
+          key: `${pairKey}:before`,
+          kind: "modified-before",
+          side: "before",
+          source: beforeValues,
+          rowNumber: beforeNumber,
+          rowNumberTitle: title,
+          identity,
+          record: candidate,
+          values: beforeValues,
+          pairKey,
+        });
         if (beforeContext) beforeRow.identityContext = beforeContext;
         const pair = [
           beforeRow,
-          makeRow({ key: `${pairKey}:after`, kind: "modified-after", side: "current", source, rowNumber: index + 1,
-            identity, record: candidate, values: source, pairKey, formulaChanged, physical: index }),
+          makeRow({
+            key: `${pairKey}:after`,
+            kind: "modified-after",
+            side: "current",
+            source,
+            rowNumber: index + 1,
+            identity,
+            record: candidate,
+            values: source,
+            pairKey,
+            formulaChanged,
+            physical: index,
+          }),
         ];
-        for (const row of pair) { if (movedFrom !== null) row.beforePosition = movedFrom; if (movedTo !== null) row.currentPosition = movedTo; }
+        for (const row of pair) {
+          if (movedFrom !== null) row.beforePosition = movedFrom;
+          if (movedTo !== null) row.currentPosition = movedTo;
+        }
         rows.push(...pair);
       } else if (ADDED_KINDS.has(kind)) {
-        rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: "added", side: "current",
-          source, rowNumber: index + 1, identity, record: candidate, physical: index }));
+        rows.push(
+          makeRow({
+            key: `record:${identity ?? index + 1}`,
+            kind: "added",
+            side: "current",
+            source,
+            rowNumber: index + 1,
+            identity,
+            record: candidate,
+            physical: index,
+          }),
+        );
       } else if (DELETED_KINDS.has(kind)) {
-        rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: "unchanged", side: "current",
-          source, rowNumber: index + 1, identity, record: candidate, physical: index }));
+        rows.push(
+          makeRow({
+            key: `record:${identity ?? index + 1}`,
+            kind: "unchanged",
+            side: "current",
+            source,
+            rowNumber: index + 1,
+            identity,
+            record: candidate,
+            physical: index,
+          }),
+        );
       }
     });
 
@@ -717,22 +1026,51 @@ export function buildBrowseRows(input: {
       input.beforeRows.forEach((source, index) => {
         const candidate = recordByBeforeIndex.get(index);
         if (!candidate) {
-          rows.push(makeRow({ key: `before-only:${index + 1}`, kind: "unchanged", side: "before", source, rowNumber: index + 1, physical: index }));
+          rows.push(
+            makeRow({
+              key: `before-only:${index + 1}`,
+              kind: "unchanged",
+              side: "before",
+              source,
+              rowNumber: index + 1,
+              physical: index,
+            }),
+          );
           return;
         }
         consumed.add(candidate);
         const kind = String(candidate.record_kind);
         const identity = locatorIdentity(candidate);
         if (isAddressOnlyPointChange(input.table.table_name, candidate)) {
-          const row = makeRow({ key: `before-only:${index + 1}`, kind: "unchanged", side: "before", source,
-            rowNumber: index + 1, identity, record: candidate, physical: index });
+          const row = makeRow({
+            key: `before-only:${index + 1}`,
+            kind: "unchanged",
+            side: "before",
+            source,
+            rowNumber: index + 1,
+            identity,
+            record: candidate,
+            physical: index,
+          });
           row.riskLevel = null;
           rows.push(row);
           return;
         }
         const rowKind = DELETED_KINDS.has(kind) ? "deleted" : "modified-before";
         const pairKey = rowKind === "modified-before" ? `pair:${identity ?? index + 1}` : null;
-        rows.push(makeRow({ key: `${rowKind}:${identity ?? index + 1}`, kind: rowKind, side: "before", source, rowNumber: index + 1, identity, record: candidate, pairKey, physical: index }));
+        rows.push(
+          makeRow({
+            key: `${rowKind}:${identity ?? index + 1}`,
+            kind: rowKind,
+            side: "before",
+            source,
+            rowNumber: index + 1,
+            identity,
+            record: candidate,
+            pairKey,
+            physical: index,
+          }),
+        );
       });
     }
 
@@ -749,15 +1087,30 @@ export function buildBrowseRows(input: {
         // Value source order: the real before snapshot row, else the validated
         // record.before_values. The locator context only identifies the row.
         const fromSnapshot = hasBeforeSnapshot && beforeIndex !== null;
-        const context = fromSnapshot ? null : entry?.beforeFilterContext ?? null;
+        const context = fromSnapshot ? null : (entry?.beforeFilterContext ?? null);
         if (!fromSnapshot) assertContextAgrees(context, recorded, where);
         const hasRecordValues = Object.keys(recorded).length > 0;
-        const source = fromSnapshot ? input.beforeRows[beforeIndex] ?? {} : recorded;
+        const source = fromSnapshot ? (input.beforeRows[beforeIndex] ?? {}) : recorded;
         // Preview has no before snapshot; an ordered table's deleted record still carries its before `no`.
-        const orderedBefore = !fromSnapshot && input.table.ordered_extension ? scalarPosition(recorded[ORDERED_POSITION_COLUMN]) : null;
-        const row = makeRow({ key: `deleted:${identity ?? insertion}`, kind: "deleted", side: "before", source, values: source,
+        const orderedBefore =
+          !fromSnapshot && input.table.ordered_extension
+            ? scalarPosition(recorded[ORDERED_POSITION_COLUMN])
+            : null;
+        const row = makeRow({
+          key: `deleted:${identity ?? insertion}`,
+          kind: "deleted",
+          side: "before",
+          source,
+          values: source,
           rowNumber: fromSnapshot ? beforeIndex + 1 : orderedBefore,
-          rowNumberTitle: fromSnapshot ? undefined : hasRecordValues ? "改前快照不在本 bundle 中：显示删除记录中的改前值" : "改前值不可得", identity, record });
+          rowNumberTitle: fromSnapshot
+            ? undefined
+            : hasRecordValues
+              ? "改前快照不在本 bundle 中：显示删除记录中的改前值"
+              : "改前值不可得",
+          identity,
+          record,
+        });
         if (!fromSnapshot) {
           row.partialValues = true;
           if (context) row.identityContext = context;
@@ -771,32 +1124,66 @@ export function buildBrowseRows(input: {
         // If the canonical blanks in this region equal the net increase,
         // none can be retained blanks. Otherwise their individual identities
         // are ambiguous and the interval must remain a summary.
-        if (interval.direction === "INSERT" && interval.current && interval.rowCount !== null && interval.rowCount > 0 && hasCurrentSnapshot && input.currentCanonicalBlanks) {
+        if (
+          interval.direction === "INSERT" &&
+          interval.current &&
+          interval.rowCount !== null &&
+          interval.rowCount > 0 &&
+          hasCurrentSnapshot &&
+          input.currentCanonicalBlanks
+        ) {
           const [start, end] = interval.current;
-          const positions = input.currentRows.map((row) => scalarPosition(row[ORDERED_POSITION_COLUMN]));
+          const positions = input.currentRows.map((row) =>
+            scalarPosition(row[ORDERED_POSITION_COLUMN]),
+          );
           const overlaps = records.some((other) => {
-            if (other === record || (other.record_kind !== "BLANK_INSERT_INTERVAL" && other.record_kind !== "BLANK_DELETE_INTERVAL")) return false;
+            if (
+              other === record ||
+              (other.record_kind !== "BLANK_INSERT_INTERVAL" &&
+                other.record_kind !== "BLANK_DELETE_INTERVAL")
+            )
+              return false;
             const range = blankIntervalSummary(other)?.current;
             return range && range[0] <= end && range[1] >= start;
           });
-          if (!overlaps && positions.every((position) => position !== null) && new Set(positions).size === positions.length) {
+          if (
+            !overlaps &&
+            positions.every((position) => position !== null) &&
+            new Set(positions).size === positions.length
+          ) {
             const candidates = input.currentRows.flatMap((source, index) => {
               const position = positions[index];
               const gid = scalarPosition(source.gid);
-              return position !== null && position !== undefined && position >= start && position <= end
-                && gid !== null && gid >= 4_000_000_000 && gid <= 4_294_967_295 ? [index] : [];
+              return position !== null &&
+                position !== undefined &&
+                position >= start &&
+                position <= end &&
+                gid !== null &&
+                gid >= 4_000_000_000 &&
+                gid <= 4_294_967_295
+                ? [index]
+                : [];
             });
             const candidateRows = candidates.flatMap((index) => {
-              const row = rows.find((item) => item.side === "current" && item.physicalIndex === index && item.kind === "unchanged");
+              const row = rows.find(
+                (item) =>
+                  item.side === "current" &&
+                  item.physicalIndex === index &&
+                  item.kind === "unchanged",
+              );
               return row ? [row] : [];
             });
-            if (candidates.length === interval.rowCount && candidateRows.length === candidates.length) {
+            if (
+              candidates.length === interval.rowCount &&
+              candidateRows.length === candidates.length
+            ) {
               for (const row of candidateRows) {
                 row.kind = "added";
                 row.recordKind = kind;
                 row.semanticKind = kind;
                 row.interval = interval;
-                row.riskLevel = blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null;
+                row.riskLevel =
+                  blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null;
               }
               consumed.add(record);
               continue;
@@ -804,12 +1191,24 @@ export function buildBrowseRows(input: {
           }
         }
         const orderRows = hasCurrentSnapshot ? input.currentRows : input.beforeRows;
-        const anchor = (hasCurrentSnapshot ? interval.current ?? interval.before : interval.before ?? interval.current) ?? [Number.MAX_SAFE_INTEGER];
+        const anchor = (hasCurrentSnapshot
+          ? (interval.current ?? interval.before)
+          : (interval.before ?? interval.current)) ?? [Number.MAX_SAFE_INTEGER];
         rows.push({
-          key: `blank-interval:${blankIndex}`, kind: "blank-interval", side: null, rowNumber: null,
-          rowIdentity: null, riskLevel: blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null,
-          recordKind: kind, semanticKind: kind, beforePosition: null, currentPosition: null, changedColumns: [],
-          values: {}, pairKey: null, interval,
+          key: `blank-interval:${blankIndex}`,
+          kind: "blank-interval",
+          side: null,
+          rowNumber: null,
+          rowIdentity: null,
+          riskLevel: blankIntervalRiskAnnotation(interval, input.annotations)?.risk_level ?? null,
+          recordKind: kind,
+          semanticKind: kind,
+          beforePosition: null,
+          currentPosition: null,
+          changedColumns: [],
+          values: {},
+          pairKey: null,
+          interval,
           // Sit just above the first real row whose business `no` reaches the gap.
           sortPosition: physicalPositionOfNo(orderRows, anchor[0]) - 0.5,
         });
@@ -818,17 +1217,32 @@ export function buildBrowseRows(input: {
       }
     }
 
-    const physicalOrder = (row: BrowseRow) => row.physicalIndex !== undefined ? row.physicalIndex + 1 : row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
-    const afterPositionByPair = new Map<string, number>(rows.filter((row) => row.kind === "modified-after" && row.pairKey)
-      .map((row) => [row.pairKey as string, physicalOrder(row)] as const));
+    const physicalOrder = (row: BrowseRow) =>
+      row.physicalIndex !== undefined
+        ? row.physicalIndex + 1
+        : (row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER);
+    const afterPositionByPair = new Map<string, number>(
+      rows
+        .filter((row) => row.kind === "modified-after" && row.pairKey)
+        .map((row) => [row.pairKey as string, physicalOrder(row)] as const),
+    );
     rows.sort((left, right) => {
       const leftDeleted = left.kind === "deleted" ? 1 : 0;
       const rightDeleted = right.kind === "deleted" ? 1 : 0;
       if (leftDeleted !== rightDeleted) return leftDeleted - rightDeleted;
       const position = (row: BrowseRow) => {
         if (row.kind === "blank-interval") return row.sortPosition ?? Number.MAX_SAFE_INTEGER;
-        if (row.kind === "deleted") return hasBeforeSnapshot ? row.rowNumber ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-        if (row.kind === "modified-before" && row.pairKey) return afterPositionByPair.get(row.pairKey) ?? row.beforePosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
+        if (row.kind === "deleted")
+          return hasBeforeSnapshot
+            ? (row.rowNumber ?? Number.MAX_SAFE_INTEGER)
+            : Number.MAX_SAFE_INTEGER;
+        if (row.kind === "modified-before" && row.pairKey)
+          return (
+            afterPositionByPair.get(row.pairKey) ??
+            row.beforePosition ??
+            row.rowNumber ??
+            Number.MAX_SAFE_INTEGER
+          );
         return physicalOrder(row);
       };
       return position(left) - position(right);
@@ -836,7 +1250,13 @@ export function buildBrowseRows(input: {
     if (hasCurrentSnapshot) placeDeletedRowsInline(rows, input.deletionLayout ?? "interleave");
   }
   // A modified pair shares the position of its current half.
-  const pairPhysical = new Map(rows.flatMap((row) => row.pairKey && row.physicalIndex !== undefined ? [[row.pairKey, row.physicalIndex] as const] : []));
+  const pairPhysical = new Map(
+    rows.flatMap((row) =>
+      row.pairKey && row.physicalIndex !== undefined
+        ? [[row.pairKey, row.physicalIndex] as const]
+        : [],
+    ),
+  );
   let last = 0;
   for (const row of rows) {
     const physical = row.physicalIndex ?? (row.pairKey ? pairPhysical.get(row.pairKey) : undefined);
@@ -848,20 +1268,33 @@ export function buildBrowseRows(input: {
   const beforeEncodings = input.beforeEncodings ?? EMPTY_ENCODINGS;
   const currentEncodings = input.currentEncodings ?? EMPTY_ENCODINGS;
   const pairs = new Map<string, BrowseRow[]>();
-  for (const row of rows) if (row.pairKey) pairs.set(row.pairKey, [...(pairs.get(row.pairKey) ?? []), row]);
+  for (const row of rows)
+    if (row.pairKey) pairs.set(row.pairKey, [...(pairs.get(row.pairKey) ?? []), row]);
   const keepPairs = (matches: (row: BrowseRow) => boolean) =>
-    rows.filter((row) => row.pairKey ? (pairs.get(row.pairKey) ?? []).some(matches) : matches(row));
-  const filter = input.degraded === true ? null : input.rowFilter ?? null;
+    rows.filter((row) =>
+      row.pairKey ? (pairs.get(row.pairKey) ?? []).some(matches) : matches(row),
+    );
+  const filter = input.degraded === true ? null : (input.rowFilter ?? null);
   if (filter) {
     assertPredicateCompatible(filter.before, beforeEncodings, "改前筛选");
     assertPredicateCompatible(filter.current, currentEncodings, "改后筛选");
-    const reusable = input.reuseUnrecordedBefore === true && !hasBeforeSnapshot && hasCurrentSnapshot;
+    const reusable =
+      input.reuseUnrecordedBefore === true && !hasBeforeSnapshot && hasCurrentSnapshot;
     scoped = keepPairs((row) => {
-      if (row.side === "before") return matchesSide(filter.before, row, beforeEncodings, "改前筛选");
+      if (row.side === "before")
+        return matchesSide(filter.before, row, beforeEncodings, "改前筛选");
       if (row.side === "current") {
         if (matchesSide(filter.current, row, currentEncodings, "改后筛选")) return true;
-        if (row.beforeScope && matchesSide(filter.before, row.beforeScope, beforeEncodings, "改前筛选")) return true;
-        return reusable && row.recordKind === null && matchesTypedPredicate(filter.before, row.values, currentEncodings, "改前筛选");
+        if (
+          row.beforeScope &&
+          matchesSide(filter.before, row.beforeScope, beforeEncodings, "改前筛选")
+        )
+          return true;
+        return (
+          reusable &&
+          row.recordKind === null &&
+          matchesTypedPredicate(filter.before, row.values, currentEncodings, "改前筛选")
+        );
       }
       // A blank-interval summary belongs to the ordered table, not to a device filter.
       return false;
@@ -873,36 +1306,57 @@ export function buildBrowseRows(input: {
     for (const predicate of predicates) assertPredicateCompatible(predicate, encodings, where);
     scoped = keepPairs((row) => {
       const candidate = row.side === side ? row : side === "before" ? row.beforeScope : undefined;
-      return candidate !== undefined && !predicates.some((predicate) => matchesSide(predicate, candidate, encodings, where));
+      return (
+        candidate !== undefined &&
+        !predicates.some((predicate) => matchesSide(predicate, candidate, encodings, where))
+      );
     });
   }
   const query = input.search?.trim().toLocaleLowerCase();
-  let visible = scoped.filter((row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query));
-  if (input.onlyInteresting) visible = collapseUnchangedRows(visible, input.expandedRuns ?? new Set());
+  let visible = scoped.filter(
+    (row) => !query || displayRowSearchText(row, input.table.columns ?? []).includes(query),
+  );
+  if (input.onlyInteresting)
+    visible = collapseUnchangedRows(visible, input.expandedRuns ?? new Set());
   return { rows: visible, scoped };
 }
 
 function annotationSide(annotation: RiskAnnotation): unknown {
-  return annotation.reasons.flatMap((reason) => reason.evidence).find(([name]) => name === "side")?.[1];
+  return annotation.reasons
+    .flatMap((reason) => reason.evidence)
+    .find(([name]) => name === "side")?.[1];
 }
 
 /**
  * The ROW_INTERVAL annotation of one blank-interval record: same changed side
  * and the same affected range. It is never matched to the real rows the range spans.
  */
-function blankIntervalRiskAnnotation(interval: BlankIntervalSummary, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
+function blankIntervalRiskAnnotation(
+  interval: BlankIntervalSummary,
+  annotations: RiskAnnotation[],
+): RiskAnnotation | undefined {
   const side = interval.direction === "INSERT" ? "CURRENT" : "BEFORE";
   const range = interval.direction === "INSERT" ? interval.current : interval.before;
   if (!range) return undefined;
-  return annotations.find((annotation) => annotation.target.target_type === "ROW_INTERVAL"
-    && annotationSide(annotation) === side
-    && annotation.target.position_range?.[0] === range[0] && annotation.target.position_range?.[1] === range[1]);
+  return annotations.find(
+    (annotation) =>
+      annotation.target.target_type === "ROW_INTERVAL" &&
+      annotationSide(annotation) === side &&
+      annotation.target.position_range?.[0] === range[0] &&
+      annotation.target.position_range?.[1] === range[1],
+  );
 }
 
 /** The annotation behind a row's risk: by row identity, or the interval risk of a blank-interval summary. */
-export function rowRiskAnnotation(row: BrowseRow, annotations: RiskAnnotation[]): RiskAnnotation | undefined {
+export function rowRiskAnnotation(
+  row: BrowseRow,
+  annotations: RiskAnnotation[],
+): RiskAnnotation | undefined {
   const identity = row.rowIdentity;
-  if (identity) return annotations.find((annotation) => riskAnnotationRowIdentities(annotation).includes(identity));
+  if (identity)
+    return annotations.find((annotation) =>
+      riskAnnotationRowIdentities(annotation).includes(identity),
+    );
   return row.interval ? blankIntervalRiskAnnotation(row.interval, annotations) : undefined;
 }
 
@@ -917,7 +1371,14 @@ export interface ChangeLocation {
   position: number | null;
 }
 
-const LOCATION_KINDS: ReadonlySet<BrowseRowKind> = new Set(["added", "deleted", "modified-before", "modified-after", "ordered", "blank-interval"]);
+const LOCATION_KINDS: ReadonlySet<BrowseRowKind> = new Set([
+  "added",
+  "deleted",
+  "modified-before",
+  "modified-after",
+  "ordered",
+  "blank-interval",
+]);
 
 /** Changes in the current scope (after the device filter, before search), in grid order. */
 export function deriveChangeLocations(rows: readonly BrowseRow[]): ChangeLocation[] {
@@ -928,14 +1389,16 @@ export function deriveChangeLocations(rows: readonly BrowseRow[]): ChangeLocatio
     const key = row.pairKey ?? row.rowIdentity ?? row.key;
     if (seen.has(key)) continue;
     seen.add(key);
-    const range = row.interval ? row.interval.current ?? row.interval.before : null;
+    const range = row.interval ? (row.interval.current ?? row.interval.before) : null;
     locations.push({
       index: locations.length + 1,
       rowKey: row.key,
       rowIdentity: row.rowIdentity,
       recordKind: row.recordKind,
       riskLevel: row.riskLevel,
-      position: row.ruler ?? (range ? range[0] : row.currentPosition ?? row.beforePosition ?? row.rowNumber),
+      position:
+        row.ruler ??
+        (range ? range[0] : (row.currentPosition ?? row.beforePosition ?? row.rowNumber)),
     });
   }
   return locations;
@@ -943,13 +1406,21 @@ export function deriveChangeLocations(rows: readonly BrowseRow[]): ChangeLocatio
 
 /** Before → current position when the row changed position, else null. */
 export function rowMove(row: BrowseRow): { from: number; to: number } | null {
-  return row.beforePosition !== null && row.currentPosition !== null && row.beforePosition !== row.currentPosition
-    ? { from: row.beforePosition, to: row.currentPosition } : null;
+  return row.beforePosition !== null &&
+    row.currentPosition !== null &&
+    row.beforePosition !== row.currentPosition
+    ? { from: row.beforePosition, to: row.currentPosition }
+    : null;
 }
 
-export function normalizeDisplayScalar(value: unknown, column?: SurfaceColumn): string { return displayValue(value, column); }
+export function normalizeDisplayScalar(value: unknown, column?: SurfaceColumn): string {
+  return displayValue(value, column);
+}
 
 /** Grid header text: Debug shows the raw field name, User mode the column COMMENT (display_name). */
-export function columnHeaderTitle(column: Pick<SurfaceColumn, "name" | "display_name">, debug: boolean): string {
+export function columnHeaderTitle(
+  column: Pick<SurfaceColumn, "name" | "display_name">,
+  debug: boolean,
+): string {
   return debug ? column.name : column.display_name || column.name;
 }

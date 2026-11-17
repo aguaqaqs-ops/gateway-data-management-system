@@ -13,7 +13,13 @@ import {
   parseTarHeader,
   jsonBytes,
 } from "./posix-tar";
-import type { ArtifactSink, BundleClosure, BundleManifest, BundleStore, BundleWriteTransaction } from "./posix-tar";
+import type {
+  ArtifactSink,
+  BundleClosure,
+  BundleManifest,
+  BundleStore,
+  BundleWriteTransaction,
+} from "./posix-tar";
 
 const FIXTURE_DIR = "src/test/fixtures/backend-interop/be-d-0ba45e5ef8";
 
@@ -145,17 +151,21 @@ describe("backend interop bundle fixtures", () => {
       expect(bytes.byteLength).toBe(file.length);
       expect(sha256(bytes)).toBe(file.sha256);
     }
-    const manifest = JSON.parse(new TextDecoder().decode(await fixture("manifest.json"))) as { bundle_contract_version: string };
+    const manifest = JSON.parse(new TextDecoder().decode(await fixture("manifest.json"))) as {
+      bundle_contract_version: string;
+    };
     expect(manifest.bundle_contract_version).toBe("backend-vnext/comparison-bundle/v3");
 
     const store = new RecordingStore();
-    await expect(installBundleTar({
-      body: bytesStream(tar),
-      store,
-      expectedBundleDigest: index.bundle_digest,
-      etag: index.bundle_digest,
-      contentLength: String(index.content_length),
-    })).rejects.toThrow(/不支持的 bundle contract version/);
+    await expect(
+      installBundleTar({
+        body: bytesStream(tar),
+        store,
+        expectedBundleDigest: index.bundle_digest,
+        etag: index.bundle_digest,
+        contentLength: String(index.content_length),
+      }),
+    ).rejects.toThrow(/不支持的 bundle contract version/);
     expect(store.aborted).toBe(true);
     expect(store.files.size).toBe(0);
   });
@@ -182,15 +192,33 @@ describe("backend interop bundle fixtures", () => {
       { key: "comment", value: "😀" },
     ]);
     expect(() => parseMemberPaxHeader(adjacent)).toThrow("不支持的 key");
-    expect(() => parseMemberPaxHeader(paxPayload([["path", "a"], ["path", "b"]]))).toThrow("重复的 path");
-    expect(() => parseMemberPaxHeader(paxPayload([["size", "1"], ["size", "2"]]))).toThrow("重复的 size");
+    expect(() =>
+      parseMemberPaxHeader(
+        paxPayload([
+          ["path", "a"],
+          ["path", "b"],
+        ]),
+      ),
+    ).toThrow("重复的 path");
+    expect(() =>
+      parseMemberPaxHeader(
+        paxPayload([
+          ["size", "1"],
+          ["size", "2"],
+        ]),
+      ),
+    ).toThrow("重复的 size");
     expect(() => parseMemberPaxHeader(paxPayload([["path", ""]]))).toThrow("path 为空");
     expect(() => parseMemberPaxHeader(paxPayload([["size", ""]]))).toThrow("size 为空");
   });
 
   it("rejects malformed pax records at the split layer", async () => {
     const vectors = await jsonFixture<PaxVectors>("pax-records.json");
-    for (const name of ["invalid_wrong_byte_length", "invalid_no_newline", "invalid_truncated_utf8"]) {
+    for (const name of [
+      "invalid_wrong_byte_length",
+      "invalid_no_newline",
+      "invalid_truncated_utf8",
+    ]) {
       const bytes = new Uint8Array(Buffer.from(vectors[name] ?? "", "hex"));
       expect(() => parsePaxRecords(bytes)).toThrow(BundleIntegrityError);
     }
@@ -220,13 +248,15 @@ describe("backend interop bundle fixtures", () => {
       const contentLength = Math.max(vector.header_length, 1024);
       expect(vector.framed_size).toBeGreaterThanOrEqual(contentLength);
       const store = new RecordingStore();
-      await expect(installBundleTar({
-        body: bytesStream(bytes),
-        store,
-        expectedBundleDigest: index.bundle_digest,
-        etag: index.bundle_digest,
-        contentLength: String(contentLength),
-      })).rejects.toThrow("tar 成员超出 Content-Length");
+      await expect(
+        installBundleTar({
+          body: bytesStream(bytes),
+          store,
+          expectedBundleDigest: index.bundle_digest,
+          etag: index.bundle_digest,
+          contentLength: String(contentLength),
+        }),
+      ).rejects.toThrow("tar 成员超出 Content-Length");
       expect(store.files.size).toBe(0);
       expect(store.aborted).toBe(true);
     }
@@ -237,12 +267,23 @@ describe("backend interop bundle fixtures", () => {
     expect(parseMemberPaxHeader(paxPayload([["path", acceptedPath]])).path).toBe(acceptedPath);
 
     const rejectedPath = "a".repeat(MAX_PATH_UTF8_BYTES + 1);
-    expect(() => parseMemberPaxHeader(paxPayload([["path", rejectedPath]]))).toThrow("pax 头 path 超过允许大小");
+    expect(() => parseMemberPaxHeader(paxPayload([["path", rejectedPath]]))).toThrow(
+      "pax 头 path 超过允许大小",
+    );
 
-    expect(parseMemberPaxHeader(paxPayload([["size", "9007199254740991"]]))).toEqual({ path: null, size: 9_007_199_254_740_991 });
-    expect(() => parseMemberPaxHeader(paxPayload([["size", "9007199254740992"]]))).toThrow("pax size 超出安全整数范围");
+    expect(parseMemberPaxHeader(paxPayload([["size", "9007199254740991"]]))).toEqual({
+      path: null,
+      size: 9_007_199_254_740_991,
+    });
+    expect(() => parseMemberPaxHeader(paxPayload([["size", "9007199254740992"]]))).toThrow(
+      "pax size 超出安全整数范围",
+    );
 
-    const oversizedPaxHeader = tarHeader({ name: "PaxHeaders/path", size: MAX_PAX_PAYLOAD_BYTES + 1, type: "x" });
+    const oversizedPaxHeader = tarHeader({
+      name: "PaxHeaders/path",
+      size: MAX_PAX_PAYLOAD_BYTES + 1,
+      type: "x",
+    });
     // Only the 512-byte header is available: reading the declared PAX payload
     // would hit end-of-stream, so the budget error proves the check ran first.
     const body = new NodeReadableStream<Uint8Array>({
@@ -252,13 +293,15 @@ describe("backend interop bundle fixtures", () => {
       },
     }) as unknown as ReadableStream<Uint8Array>;
     const store = new RecordingStore();
-    await expect(installBundleTar({
-      body,
-      store,
-      expectedBundleDigest: "sha256:" + "0".repeat(64),
-      etag: "sha256:" + "0".repeat(64),
-      contentLength: String(MAX_PAX_PAYLOAD_BYTES + 1024),
-    })).rejects.toThrow("pax 头超过允许大小");
+    await expect(
+      installBundleTar({
+        body,
+        store,
+        expectedBundleDigest: "sha256:" + "0".repeat(64),
+        etag: "sha256:" + "0".repeat(64),
+        contentLength: String(MAX_PAX_PAYLOAD_BYTES + 1024),
+      }),
+    ).rejects.toThrow("pax 头超过允许大小");
     expect(store.files.size).toBe(0);
     expect(store.aborted).toBe(true);
   });

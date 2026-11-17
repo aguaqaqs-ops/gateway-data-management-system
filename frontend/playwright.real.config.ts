@@ -22,12 +22,15 @@ const testMatch = {
 } satisfies Record<string, RegExp>;
 
 if (!(suite in testMatch)) {
-  throw new Error(`GATEWAY_FE_SUITE must be one of ${Object.keys(testMatch).join("|")} (got ${suite})`);
+  throw new Error(
+    `GATEWAY_FE_SUITE must be one of ${Object.keys(testMatch).join("|")} (got ${suite})`,
+  );
 }
 
 const resultsDir = process.env.GATEWAY_FE_RESULTS_DIR;
 const outputDir = resolve(resultsDir ?? "test-results", "artifacts");
-const resultsFile = process.env.GATEWAY_FE_RESULTS_FILE ?? resolve(resultsDir ?? "test-results", "results.json");
+const resultsFile =
+  process.env.GATEWAY_FE_RESULTS_FILE ?? resolve(resultsDir ?? "test-results", "results.json");
 
 export default defineConfig({
   testDir: "./e2e-real",
@@ -37,10 +40,7 @@ export default defineConfig({
   retries: 0,
   timeout: 300_000,
   outputDir,
-  reporter: [
-    ["list"],
-    ["json", { outputFile: resultsFile }],
-  ],
+  reporter: [["list"], ["json", { outputFile: resultsFile }]],
   use: {
     baseURL: process.env.GATEWAY_FE_PREVIEW_URL ?? "http://127.0.0.1:4173",
     trace: "retain-on-failure",

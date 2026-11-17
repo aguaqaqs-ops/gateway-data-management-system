@@ -4,7 +4,9 @@ import { BundleIntegrityError } from "./posix-tar";
 
 describe("bundle loading error classification", () => {
   it("uses the integrity error type rather than matching message text", () => {
-    expect(bundleLoadErrorCode(new BundleIntegrityError("transport failed"))).toBe("BUNDLE_INTEGRITY_MISMATCH");
+    expect(bundleLoadErrorCode(new BundleIntegrityError("transport failed"))).toBe(
+      "BUNDLE_INTEGRITY_MISMATCH",
+    );
     expect(bundleLoadErrorCode(new Error("bundle 校验完整性失败"))).toBe("BUNDLE_LOAD_FAILED");
   });
 });
@@ -30,7 +32,9 @@ describe("OPFS removeEntry retry", () => {
       calls += 1;
       throw new DOMException("locked", "NoModificationAllowedError");
     });
-    await expect(removeEntry(handle, "artifact")).rejects.toMatchObject({ name: "NoModificationAllowedError" });
+    await expect(removeEntry(handle, "artifact")).rejects.toMatchObject({
+      name: "NoModificationAllowedError",
+    });
     expect(calls).toBe(5);
   });
 
@@ -40,7 +44,9 @@ describe("OPFS removeEntry retry", () => {
       calls += 1;
       throw new DOMException("denied", "NotAllowedError");
     });
-    await expect(removeEntry(handle, "artifact")).rejects.toMatchObject({ name: "NotAllowedError" });
+    await expect(removeEntry(handle, "artifact")).rejects.toMatchObject({
+      name: "NotAllowedError",
+    });
     expect(calls).toBe(1);
   });
 

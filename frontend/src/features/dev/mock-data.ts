@@ -4,24 +4,36 @@ type Schemas = components["schemas"];
 
 export const SIMULATED_STRING_VALUES = {
   "OperationResponse.status": {
-    values: ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "SUPERSEDED", "MANUAL_RECOVERY_REQUIRED"],
+    values: [
+      "QUEUED",
+      "RUNNING",
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED",
+      "SUPERSEDED",
+      "MANUAL_RECOVERY_REQUIRED",
+    ],
     source: "vnext/backend/src/gateway_backend/operations/contracts.py:OperationStatus",
   },
   "HistoryCompareResultResponse.status": {
     values: ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"],
-    source: "vnext/backend/src/gateway_backend/http/schemas/history.py:HistoryCompareResultResponse.status",
+    source:
+      "vnext/backend/src/gateway_backend/http/schemas/history.py:HistoryCompareResultResponse.status",
   },
   "OperationResponse.job_kind": {
     values: ["backend-vnext/preview", "backend-vnext/submit", "backend-vnext/history-compare"],
-    source: "preview_jobs.py:PREVIEW_JOB_KIND; submission/job_payload.py:SUBMIT_JOB_KIND; application/history/contracts.py:HISTORY_COMPARE_JOB_KIND",
+    source:
+      "preview_jobs.py:PREVIEW_JOB_KIND; submission/job_payload.py:SUBMIT_JOB_KIND; application/history/contracts.py:HISTORY_COMPARE_JOB_KIND",
   },
   "OperationResponse.diagnostic.code": {
     values: ["r5.manual_recovery_required", "R5.RECOVERY_AUTHORIZED"],
-    source: "vnext/backend/src/gateway_backend/application/recovery.py:DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED; operations/state.py:DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED",
+    source:
+      "vnext/backend/src/gateway_backend/application/recovery.py:DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED; operations/state.py:DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED",
   },
   "HistoryCompareDiagnosticResponse.code": {
     values: ["HISTORY_RULESET_VERSION_MISMATCH"],
-    source: "vnext/backend/src/gateway_backend/application/history/contracts.py:HistoryCompareDiagnosticCode",
+    source:
+      "vnext/backend/src/gateway_backend/application/history/contracts.py:HistoryCompareDiagnosticCode",
   },
   "WorkspaceResponse.state": {
     values: ["OPEN", "CLOSED"],
@@ -33,7 +45,8 @@ export const SIMULATED_STRING_VALUES = {
   },
   "SubmitAcceptedResponse.state": {
     values: ["PREPARED"],
-    source: "vnext/backend/src/gateway_backend/domain/submission/models.py:SubmitAttemptState.PREPARED",
+    source:
+      "vnext/backend/src/gateway_backend/domain/submission/models.py:SubmitAttemptState.PREPARED",
   },
   "ArchivePreviewAnomalyResponse.issue_code": {
     values: ["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"],
@@ -45,31 +58,62 @@ export const SIMULATED_STRING_VALUES = {
   },
   "PreviewArchivePlanResponse.blockers": {
     values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_PENDING_REVIEW", "ARCHIVE_INTEGRITY_FAILURE"],
-    source: "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
+    source:
+      "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
   },
   "ArchiveCandidatesResponse.blockers": {
     values: ["ACTIVE_SUBMIT_ATTEMPT", "ARCHIVE_PENDING_REVIEW", "ARCHIVE_INTEGRITY_FAILURE"],
-    source: "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
+    source:
+      "vnext/backend/src/gateway_backend/application/archive/snapshot.py:collect_repository_submit_blockers",
   },
   "PreviewArchivePlanResponse.confirmation_requirements": {
     values: ["sha256:selection-subject"],
-    source: "vnext/backend/src/gateway_backend/application/archive/queries.py:selection_subject_digest",
+    source:
+      "vnext/backend/src/gateway_backend/application/archive/queries.py:selection_subject_digest",
   },
   "ArchiveAuditEventResponse.subject_kind": {
-    values: ["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"],
+    values: [
+      "CONFIRM_SELECTION",
+      "APPROVED_SIBLING_EXCLUDED",
+      "PROJECT_IDENTITY_EXCEPTION",
+      "CONFIGURATION_SOURCE",
+      "CONFIGURATION_TIME_QUALITY",
+      "CONFIGURATION_TIME_ORDER",
+    ],
     source: "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveSubjectKind",
   },
   "ArchiveAuditEventResponse.action": {
-    values: ["CONFIRM", "REVOKE", "ACKNOWLEDGE_EXCLUSION", "ACKNOWLEDGE_IDENTITY_EXCEPTION", "ACKNOWLEDGE_SOURCE_EXCEPTION", "ACKNOWLEDGE_TIME_QUALITY", "ACKNOWLEDGE_TIME_ORDER"],
-    source: "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveConfirmationAction, ArchiveAnomalyResolutionAction",
+    values: [
+      "CONFIRM",
+      "REVOKE",
+      "ACKNOWLEDGE_EXCLUSION",
+      "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+      "ACKNOWLEDGE_SOURCE_EXCEPTION",
+      "ACKNOWLEDGE_TIME_QUALITY",
+      "ACKNOWLEDGE_TIME_ORDER",
+    ],
+    source:
+      "vnext/backend/src/gateway_backend/domain/archive/models.py:ArchiveConfirmationAction, ArchiveAnomalyResolutionAction",
   },
   "ArchiveAuditEventResponse.issue_code": {
-    values: ["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "INITIAL_SOURCE_UNEXPLAINED", "GENERATION_TIME_MISSING", "GENERATION_TIME_INVALID_VALUES", "GENERATION_TIME_LAST_NOT_MAX", "TIME_ABNORMAL_MODIFIED", "TIME_ABNORMAL_INITIAL", "BASELINE_TIME_UNAVAILABLE", null],
+    values: [
+      "APPROVED_SIBLING_EXCLUDED",
+      "PROJECT_IDENTITY_EXCEPTION",
+      "INITIAL_SOURCE_UNEXPLAINED",
+      "GENERATION_TIME_MISSING",
+      "GENERATION_TIME_INVALID_VALUES",
+      "GENERATION_TIME_LAST_NOT_MAX",
+      "TIME_ABNORMAL_MODIFIED",
+      "TIME_ABNORMAL_INITIAL",
+      "BASELINE_TIME_UNAVAILABLE",
+      null,
+    ],
     source: "vnext/backend/src/gateway_backend/application/archive/queries.py:*_ISSUE",
   },
   "HistoryNodeResponse.eligibility_note": {
     values: ["NOT_CANDIDATE_BASE_ADVANCED", null],
-    source: "vnext/backend/src/gateway_backend/application/history/contracts.py:HistoryEligibilityNote",
+    source:
+      "vnext/backend/src/gateway_backend/application/history/contracts.py:HistoryEligibilityNote",
   },
 } as const;
 
@@ -85,7 +129,8 @@ export const WORKSPACE_RESPONSE = {
   current_upload_revision_id: "upload-fe2b-3",
   current_preview_result_id: "preview-full",
   active_submission_id: null,
-  active_preview_operation_id: null, active_submit_attempt_id: null,
+  active_preview_operation_id: null,
+  active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const WORKSPACE_CREATED = { status: 201, body: WORKSPACE_RESPONSE } as const;
@@ -95,14 +140,24 @@ export const HISTORY_PAGE_ONE = {
   head: { node_id: "fe2a-history-ref-1", commit_id: "commit-baseline-1", version: 21 },
   nodes: [
     {
-      ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1", node_kind: "BASELINE_NODE", baseline_kind: "ARCHIVED_SUBMISSION",
-      commit_id: "commit-baseline-1", created_at: "2026-11-01T13:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
+      ref_kind: "baseline_node",
+      ref_id: "fe2a-history-ref-1",
+      node_kind: "BASELINE_NODE",
+      baseline_kind: "ARCHIVED_SUBMISSION",
+      commit_id: "commit-baseline-1",
+      created_at: "2026-11-01T13:00:00Z",
+      parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
       identity_exception: false,
     },
     {
-      ref_kind: "submission", ref_id: "fe2a-history-ref-2", node_kind: "SUBMISSION", commit_id: "commit-submission-2",
-      created_at: "2026-11-02T09:10:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
-      identity_exception: false, review_status: "PENDING",
+      ref_kind: "submission",
+      ref_id: "fe2a-history-ref-2",
+      node_kind: "SUBMISSION",
+      commit_id: "commit-submission-2",
+      created_at: "2026-11-02T09:10:00Z",
+      parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
+      identity_exception: false,
+      review_status: "PENDING",
     },
   ],
   next_cursor: "history-page-2",
@@ -112,17 +167,30 @@ export const HISTORY_PAGE_TWO = {
   head: HISTORY_PAGE_ONE.head,
   nodes: [
     {
-      ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0", node_kind: "BASELINE_NODE", baseline_kind: "INITIAL",
-      commit_id: "commit-baseline-0", created_at: "2026-10-30T09:00:00Z", parent: null,
+      ref_kind: "baseline_node",
+      ref_id: "fe2a-history-ref-0",
+      node_kind: "BASELINE_NODE",
+      baseline_kind: "INITIAL",
+      commit_id: "commit-baseline-0",
+      created_at: "2026-10-30T09:00:00Z",
+      parent: null,
       identity_exception: false,
     },
     {
       // D4 形态：APPROVED、父基线不是 head（带标记），归档成当前基线 head。
-      ref_kind: "submission", ref_id: "fe2a-history-ref-old", node_kind: "SUBMISSION", commit_id: "commit-submission-old",
-      created_at: "2026-10-31T09:10:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
-      eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: true, review_status: "APPROVED",
-      submission_disposition: "ARCHIVED_BASELINE", disposition_source_kind: "ARCHIVE",
-      disposition_result_id: "archive-result-0", promoted_baseline_node_id: "fe2a-history-ref-1",
+      ref_kind: "submission",
+      ref_id: "fe2a-history-ref-old",
+      node_kind: "SUBMISSION",
+      commit_id: "commit-submission-old",
+      created_at: "2026-10-31T09:10:00Z",
+      parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
+      eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+      identity_exception: true,
+      review_status: "APPROVED",
+      submission_disposition: "ARCHIVED_BASELINE",
+      disposition_source_kind: "ARCHIVE",
+      disposition_result_id: "archive-result-0",
+      promoted_baseline_node_id: "fe2a-history-ref-1",
     },
   ],
   next_cursor: null,
@@ -141,8 +209,13 @@ export const INITIAL_ONLY_HISTORY = {
   head: { node_id: "initial-only-ref-0", commit_id: "commit-initial-only-0", version: 1 },
   nodes: [
     {
-      ref_kind: "baseline_node", ref_id: "initial-only-ref-0", node_kind: "BASELINE_NODE", baseline_kind: "INITIAL",
-      commit_id: "commit-initial-only-0", created_at: "2026-11-03T08:00:00Z", parent: null,
+      ref_kind: "baseline_node",
+      ref_id: "initial-only-ref-0",
+      node_kind: "BASELINE_NODE",
+      baseline_kind: "INITIAL",
+      commit_id: "commit-initial-only-0",
+      created_at: "2026-11-03T08:00:00Z",
+      parent: null,
       identity_exception: false,
     },
   ],
@@ -156,7 +229,15 @@ export const REVIEW_FACTS = {
   updated_by: "submitter",
   updated_at: "2026-11-02T09:10:00Z",
   identity_exception: false,
-  events: [{ sequence: 1, event_kind: "SUBMISSION_FINALIZED", to_status: "PENDING", actor_id: "submitter", occurred_at: "2026-11-02T09:10:00Z" }],
+  events: [
+    {
+      sequence: 1,
+      event_kind: "SUBMISSION_FINALIZED",
+      to_status: "PENDING",
+      actor_id: "submitter",
+      occurred_at: "2026-11-02T09:10:00Z",
+    },
+  ],
   submission_disposition: null,
 } satisfies Schemas["ReviewFactsResponse"];
 
@@ -179,34 +260,46 @@ export const HISTORY_COMPARE_ACCEPTED = { status: 202, body: HISTORY_COMPARE_ACC
 export const HISTORY_COMPARE_REPLAY = { status: 200, body: HISTORY_COMPARE_ACCEPT_BODY } as const;
 
 export const HISTORY_COMPARE_LIST = {
-  items: [{
-    operation_id: "history-compare-fe2b-1",
-    nodes: HISTORY_COMPARE_REQUEST.nodes,
-    status: "RUNNING",
-    accepted_at: "2026-11-15T08:00:00Z",
-    completed_at: null,
-    result_expires_at: null,
-  }],
+  items: [
+    {
+      operation_id: "history-compare-fe2b-1",
+      nodes: HISTORY_COMPARE_REQUEST.nodes,
+      status: "RUNNING",
+      accepted_at: "2026-11-15T08:00:00Z",
+      completed_at: null,
+      result_expires_at: null,
+    },
+  ],
   next_cursor: null,
 } satisfies Schemas["HistoryCompareListResponse"];
 
 export const HISTORY_COMPARE_QUEUED = {
-  operation_id: "history-compare-fe2b-1", status: "QUEUED", diagnostic: null,
+  operation_id: "history-compare-fe2b-1",
+  status: "QUEUED",
+  diagnostic: null,
 } satisfies Schemas["HistoryCompareResultResponse"];
 
 export const HISTORY_COMPARE_FAILED = {
   operation_id: "history-compare-fe2b-failed",
   status: "FAILED",
-  diagnostic: { code: "HISTORY_RULESET_VERSION_MISMATCH", message: "frozen comparison ruleset digest does not match runtime ruleset" },
+  diagnostic: {
+    code: "HISTORY_RULESET_VERSION_MISMATCH",
+    message: "frozen comparison ruleset digest does not match runtime ruleset",
+  },
   result: null,
 } satisfies Schemas["HistoryCompareResultResponse"];
 
 export const HISTORY_COMPARE_CANCELLED = {
-  operation_id: "history-compare-fe2b-cancelled", status: "CANCELLED", diagnostic: null, result: null,
+  operation_id: "history-compare-fe2b-cancelled",
+  status: "CANCELLED",
+  diagnostic: null,
+  result: null,
 } satisfies Schemas["HistoryCompareResultResponse"];
 
 export const HISTORY_COMPARE_RUNNING = {
-  operation_id: "history-compare-fe2b-1", status: "RUNNING", diagnostic: null,
+  operation_id: "history-compare-fe2b-1",
+  status: "RUNNING",
+  diagnostic: null,
 } satisfies Schemas["HistoryCompareResultResponse"];
 
 export const HISTORY_COMPARE_SUCCEEDED = {
@@ -219,20 +312,28 @@ export const HISTORY_COMPARE_SUCCEEDED = {
     input: { nodes: HISTORY_COMPARE_REQUEST.nodes },
     pairs: [
       {
-        pair_id: "left_to_middle", before_commit: "commit-baseline-0", current_commit: "commit-baseline-1",
+        pair_id: "left_to_middle",
+        before_commit: "commit-baseline-0",
+        current_commit: "commit-baseline-1",
         before_ref: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
         current_ref: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
-        comparison_digest: "sha256:2b774878059e5090568163242cae87e737b056bff7c309206108d1fc3d79a315",
+        comparison_digest:
+          "sha256:2b774878059e5090568163242cae87e737b056bff7c309206108d1fc3d79a315",
         risk_digest: "sha256:582612808cb7bcff871c36a65ef61942b106fc95e397e28b70ad181148223d1f",
-        surface_digest: "sha256:b8655d480b64a4aac7a934bad84edc6afd0536a8e0ab6e19fbda2ac369961f5f", record_count: 4,
+        surface_digest: "sha256:b8655d480b64a4aac7a934bad84edc6afd0536a8e0ab6e19fbda2ac369961f5f",
+        record_count: 4,
       },
       {
-        pair_id: "middle_to_right", before_commit: "commit-baseline-1", current_commit: "commit-submission-2",
+        pair_id: "middle_to_right",
+        before_commit: "commit-baseline-1",
+        current_commit: "commit-submission-2",
         before_ref: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" },
         current_ref: { ref_kind: "submission", ref_id: "fe2a-history-ref-2" },
-        comparison_digest: "sha256:a4d362ecddeff4fd28aec475bb8486f3bfbe9c7722892664eb92064b3685acb5",
+        comparison_digest:
+          "sha256:a4d362ecddeff4fd28aec475bb8486f3bfbe9c7722892664eb92064b3685acb5",
         risk_digest: "sha256:8de97b2af288d74b357001276ce5e4aa75ea20f101b98ed047f55c6ce8bb8d7f",
-        surface_digest: "sha256:d2eebde995b72128cae4cb9bb5e6aac8ad4ba390453a11c15845205c5af1b332", record_count: 3,
+        surface_digest: "sha256:d2eebde995b72128cae4cb9bb5e6aac8ad4ba390453a11c15845205c5af1b332",
+        record_count: 3,
       },
     ],
   },
@@ -255,14 +356,55 @@ const OPERATION_FIELDS = {
 } satisfies Omit<Schemas["OperationResponse"], "operation_id" | "job_kind" | "status">;
 
 export const MANUAL_RECOVERY_TO_SUCCESS = [
-  { ...OPERATION_FIELDS, optimistic_version: 3, operation_id: "operation-manual-success", job_kind: "backend-vnext/preview", status: "MANUAL_RECOVERY_REQUIRED", diagnostic: { code: "r5.manual_recovery_required", message: "preview recovery requires a runnable handler replay" } },
-  { ...OPERATION_FIELDS, optimistic_version: 4, operation_id: "operation-manual-success", job_kind: "backend-vnext/preview", status: "RUNNING" },
-  { ...OPERATION_FIELDS, optimistic_version: 5, operation_id: "operation-manual-success", job_kind: "backend-vnext/preview", status: "SUCCEEDED", completed_at: "2026-11-03T09:04:00Z" },
+  {
+    ...OPERATION_FIELDS,
+    optimistic_version: 3,
+    operation_id: "operation-manual-success",
+    job_kind: "backend-vnext/preview",
+    status: "MANUAL_RECOVERY_REQUIRED",
+    diagnostic: {
+      code: "r5.manual_recovery_required",
+      message: "preview recovery requires a runnable handler replay",
+    },
+  },
+  {
+    ...OPERATION_FIELDS,
+    optimistic_version: 4,
+    operation_id: "operation-manual-success",
+    job_kind: "backend-vnext/preview",
+    status: "RUNNING",
+  },
+  {
+    ...OPERATION_FIELDS,
+    optimistic_version: 5,
+    operation_id: "operation-manual-success",
+    job_kind: "backend-vnext/preview",
+    status: "SUCCEEDED",
+    completed_at: "2026-11-03T09:04:00Z",
+  },
 ] satisfies Schemas["OperationResponse"][];
 
 export const MANUAL_RECOVERY_TO_FAILED = [
-  { ...OPERATION_FIELDS, optimistic_version: 3, operation_id: "operation-manual-failed", job_kind: "backend-vnext/preview", status: "MANUAL_RECOVERY_REQUIRED", diagnostic: { code: "r5.manual_recovery_required", message: "preview recovery requires a runnable handler replay" } },
-  { ...OPERATION_FIELDS, optimistic_version: 4, operation_id: "operation-manual-failed", job_kind: "backend-vnext/preview", status: "FAILED", completed_at: "2026-11-03T09:05:00Z", diagnostic: { code: "R5.RECOVERY_AUTHORIZED", message: "操作已人工确认终止" } },
+  {
+    ...OPERATION_FIELDS,
+    optimistic_version: 3,
+    operation_id: "operation-manual-failed",
+    job_kind: "backend-vnext/preview",
+    status: "MANUAL_RECOVERY_REQUIRED",
+    diagnostic: {
+      code: "r5.manual_recovery_required",
+      message: "preview recovery requires a runnable handler replay",
+    },
+  },
+  {
+    ...OPERATION_FIELDS,
+    optimistic_version: 4,
+    operation_id: "operation-manual-failed",
+    job_kind: "backend-vnext/preview",
+    status: "FAILED",
+    completed_at: "2026-11-03T09:05:00Z",
+    diagnostic: { code: "R5.RECOVERY_AUTHORIZED", message: "操作已人工确认终止" },
+  },
 ] satisfies Schemas["OperationResponse"][];
 
 export interface ApiErrorResponse {
@@ -278,104 +420,694 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   schema: "ErrorResponse";
   body: ApiErrorResponse;
 }> = [
-  { route: "/v1/history", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史读取权限" } },
-  { route: "/v1/operations/{operation_id}", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有操作读取权限" } },
-  { route: "/v1/workspaces", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有创建工作区的权限" } },
-  { route: "/v1/workspaces", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "工作区参数无效" } },
-  { route: "/v1/workspaces", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" } },
-  { route: "/v1/workspaces/{workspace_id}/upload-revisions", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有上传权限" } },
-  { route: "/v1/workspaces/{workspace_id}/upload-revisions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" } },
-  { route: "/v1/workspaces/{workspace_id}/upload-revisions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同上传" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-operations", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有启动预览的权限" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-operations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-operations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同预览请求" } },
-  { route: "/v1/workspaces/{workspace_id}/submit-attempts", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有提交权限" } },
-  { route: "/v1/workspaces/{workspace_id}/submit-attempts", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" } },
-  { route: "/v1/workspaces/{workspace_id}/submit-attempts", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同提交请求" } },
-  { route: "/v1/workspaces/{workspace_id}/submit-attempts", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
-  { route: "/v1/workspaces/{workspace_id}/submit-attempts", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "NO_CANONICAL_CHANGE", message: "预览的规范业务摘要与当前业务基线一致" } },
-  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核权限" } },
-  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
-  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同审核请求" } },
-  { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" } },
-  { route: "/v1/submissions/{submission_id}/review", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
-  ...["/v1/submissions/{submission_id}/result", "/v1/submissions/{submission_id}/result/bundle"].flatMap((route) => [
-    { route, method: "GET" as const, status: 403, schema: "ErrorResponse" as const, body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" } },
-    { route, method: "GET" as const, status: 404, schema: "ErrorResponse" as const, body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
-    { route, method: "GET" as const, status: 503, schema: "ErrorResponse" as const, body: { code: "SUBMISSION_RESULT_UNAVAILABLE", message: "提交绑定的比较结果不可用" } },
-    { route, method: "GET" as const, status: 503, schema: "ErrorResponse" as const, body: { code: "SUBMISSION_RESULT_INTEGRITY_FAILURE", message: "提交绑定的比较结果完整性校验失败" } },
+  {
+    route: "/v1/history",
+    method: "GET",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史读取权限" },
+  },
+  {
+    route: "/v1/operations/{operation_id}",
+    method: "GET",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有操作读取权限" },
+  },
+  {
+    route: "/v1/workspaces",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有创建工作区的权限" },
+  },
+  {
+    route: "/v1/workspaces",
+    method: "POST",
+    status: 422,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_VALIDATION_FAILED", message: "工作区参数无效" },
+  },
+  {
+    route: "/v1/workspaces",
+    method: "POST",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/upload-revisions",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有上传权限" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/upload-revisions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/upload-revisions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同上传" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/preview-operations",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有启动预览的权限" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/preview-operations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/preview-operations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同预览请求" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有提交权限" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "WORKSPACE_VERSION_CONFLICT", message: "工作区版本已更新" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同提交请求" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "NO_CANONICAL_CHANGE", message: "预览的规范业务摘要与当前业务基线一致" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/review-events",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核权限" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/review-events",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/review-events",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同审核请求" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/review",
+    method: "GET",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/review",
+    method: "GET",
+    status: 404,
+    schema: "ErrorResponse",
+    body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" },
+  },
+  ...[
+    "/v1/submissions/{submission_id}/result",
+    "/v1/submissions/{submission_id}/result/bundle",
+  ].flatMap((route) => [
+    {
+      route,
+      method: "GET" as const,
+      status: 403,
+      schema: "ErrorResponse" as const,
+      body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有审核读取权限" },
+    },
+    {
+      route,
+      method: "GET" as const,
+      status: 404,
+      schema: "ErrorResponse" as const,
+      body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" },
+    },
+    {
+      route,
+      method: "GET" as const,
+      status: 503,
+      schema: "ErrorResponse" as const,
+      body: { code: "SUBMISSION_RESULT_UNAVAILABLE", message: "提交绑定的比较结果不可用" },
+    },
+    {
+      route,
+      method: "GET" as const,
+      status: 503,
+      schema: "ErrorResponse" as const,
+      body: {
+        code: "SUBMISSION_RESULT_INTEGRITY_FAILURE",
+        message: "提交绑定的比较结果完整性校验失败",
+      },
+    },
   ]),
-  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
-  { route: "/v1/submissions/{submission_id}/review-events", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有关闭提交的权限" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同关闭请求" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "基线已更新" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "REVIEW_TRANSITION_CONFLICT", message: "审核流转已变化" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_OCCUPANCY_CONFLICT", message: "工作区已被其他操作占用" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 404, schema: "ErrorResponse", body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "关闭理由或请求不符合要求" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "关闭请求过大" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "关闭请求已达到并发上限" } },
-  { route: "/v1/submissions/{submission_id}/closure", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
-  { route: "/v1/history-compares", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史比较权限" } },
-  { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" } },
-  { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" } },
-  { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "历史比较请求已达到并发上限" } },
-  { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_REQUEST_EXPIRED", message: "原比较请求已过期" } },
-  { route: "/v1/history-compares", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_SCOPE_LIMIT", message: "该设备已有正在执行的历史比较", details: { operation_ids: ["history-compare-fe2b-1"] } } },
-  { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_ALIAS_LIMIT", message: "同一比较的重复请求过多", details: { operation_id: "history-compare-fe2b-1" } } },
-  { route: "/v1/history-compares", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "OPERATION_QUEUE_FULL", message: "服务器任务队列已满" } },
-  { route: "/v1/history-compares/{operation_id}", method: "GET", status: 410, schema: "ErrorResponse", body: { code: "HISTORY_COMPARE_RESULT_EXPIRED", message: "比较结果已过期" } },
-  { route: "/v1/archive-candidates", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有读取归档候选的权限" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有预检归档方案的权限" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "预检请求不符合要求" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "预检请求过大" } },
-  { route: "/v1/archive-plan-preview", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有确认归档的权限" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同确认" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "确认请求不符合要求" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "确认请求过大" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "确认请求已达到并发上限" } },
-  { route: "/v1/archive-confirmations", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有处理归档异常的权限" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同异常处理" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "异常处理请求不符合要求" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "异常处理请求过大" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "异常处理请求已达到并发上限" } },
-  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
-  { route: "/v1/archives", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有归档主线的权限" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同归档请求" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_CONFIRMATION_REQUIRED", message: "归档选择尚未确认" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_ANOMALY_UNRESOLVED", message: "还有归档异常未处理" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_PENDING_REVIEW", message: "出现了新的待审核提交" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ACTIVE_SUBMIT_ATTEMPT", message: "已有提交正在处理" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" } },
-  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "WORKSPACE_OCCUPANCY_CONFLICT", message: "工作区已被其他操作占用" } },
-  { route: "/v1/archives", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "归档请求不符合要求" } },
-  { route: "/v1/archives", method: "POST", status: 413, schema: "ErrorResponse", body: { code: "REQUEST_TOO_LARGE", message: "归档请求过大" } },
-  { route: "/v1/archives", method: "POST", status: 429, schema: "ErrorResponse", body: { code: "ADMISSION_LIMIT_REACHED", message: "归档请求已达到并发上限" } },
-  { route: "/v1/archives", method: "POST", status: 503, schema: "ErrorResponse" as const, body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" } },
-  { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
-  { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
-  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 404, schema: "ErrorResponse", body: { code: "ARTIFACT_UNAVAILABLE", message: "比较结果已不可用" } },
-  { route: "/v1/history-compares/{operation_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse" as const, body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" } },
+  {
+    route: "/v1/submissions/{submission_id}/review-events",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/review-events",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有关闭提交的权限" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同关闭请求" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "BASELINE_VERSION_CONFLICT", message: "基线已更新" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "REVIEW_VERSION_CONFLICT", message: "审核状态已更新" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "REVIEW_TRANSITION_CONFLICT", message: "审核流转已变化" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_CLOSED", message: "该提交已归档或关闭" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "WORKSPACE_OCCUPANCY_CONFLICT", message: "工作区已被其他操作占用" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 404,
+    schema: "ErrorResponse",
+    body: { code: "RESOURCE_NOT_FOUND", message: "未找到该提交" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 422,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_VALIDATION_FAILED", message: "关闭理由或请求不符合要求" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 413,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_TOO_LARGE", message: "关闭请求过大" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: { code: "ADMISSION_LIMIT_REACHED", message: "关闭请求已达到并发上限" },
+  },
+  {
+    route: "/v1/submissions/{submission_id}/closure",
+    method: "POST",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史比较权限" },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同请求" },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ADMISSION_CONFLICT", message: "历史比较请求与当前工作冲突" },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: { code: "ADMISSION_LIMIT_REACHED", message: "历史比较请求已达到并发上限" },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "HISTORY_COMPARE_REQUEST_EXPIRED", message: "原比较请求已过期" },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: {
+      code: "HISTORY_COMPARE_SCOPE_LIMIT",
+      message: "该设备已有正在执行的历史比较",
+      details: { operation_ids: ["history-compare-fe2b-1"] },
+    },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: {
+      code: "HISTORY_COMPARE_ALIAS_LIMIT",
+      message: "同一比较的重复请求过多",
+      details: { operation_id: "history-compare-fe2b-1" },
+    },
+  },
+  {
+    route: "/v1/history-compares",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: { code: "OPERATION_QUEUE_FULL", message: "服务器任务队列已满" },
+  },
+  {
+    route: "/v1/history-compares/{operation_id}",
+    method: "GET",
+    status: 410,
+    schema: "ErrorResponse",
+    body: { code: "HISTORY_COMPARE_RESULT_EXPIRED", message: "比较结果已过期" },
+  },
+  {
+    route: "/v1/archive-candidates",
+    method: "GET",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有读取归档候选的权限" },
+  },
+  {
+    route: "/v1/archive-plan-preview",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有预检归档方案的权限" },
+  },
+  {
+    route: "/v1/archive-plan-preview",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" },
+  },
+  {
+    route: "/v1/archive-plan-preview",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" },
+  },
+  {
+    route: "/v1/archive-plan-preview",
+    method: "POST",
+    status: 422,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_VALIDATION_FAILED", message: "预检请求不符合要求" },
+  },
+  {
+    route: "/v1/archive-plan-preview",
+    method: "POST",
+    status: 413,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_TOO_LARGE", message: "预检请求过大" },
+  },
+  {
+    route: "/v1/archive-plan-preview",
+    method: "POST",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有确认归档的权限" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同确认" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 422,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_VALIDATION_FAILED", message: "确认请求不符合要求" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 413,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_TOO_LARGE", message: "确认请求过大" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: { code: "ADMISSION_LIMIT_REACHED", message: "确认请求已达到并发上限" },
+  },
+  {
+    route: "/v1/archive-confirmations",
+    method: "POST",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有处理归档异常的权限" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同异常处理" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 422,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_VALIDATION_FAILED", message: "异常处理请求不符合要求" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 413,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_TOO_LARGE", message: "异常处理请求过大" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: { code: "ADMISSION_LIMIT_REACHED", message: "异常处理请求已达到并发上限" },
+  },
+  {
+    route: "/v1/archive-anomaly-resolutions",
+    method: "POST",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 403,
+    schema: "ErrorResponse",
+    body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有归档主线的权限" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同归档请求" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_SET_CONFLICT", message: "归档候选集合已变化" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_CONFIRMATION_REQUIRED", message: "归档选择尚未确认" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_ANOMALY_UNRESOLVED", message: "还有归档异常未处理" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_PENDING_REVIEW", message: "出现了新的待审核提交" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ACTIVE_SUBMIT_ATTEMPT", message: "已有提交正在处理" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "ARCHIVE_SCOPE_LIMIT_EXCEEDED", message: "归档候选超过上限" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 409,
+    schema: "ErrorResponse",
+    body: { code: "WORKSPACE_OCCUPANCY_CONFLICT", message: "工作区已被其他操作占用" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 422,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_VALIDATION_FAILED", message: "归档请求不符合要求" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 413,
+    schema: "ErrorResponse",
+    body: { code: "REQUEST_TOO_LARGE", message: "归档请求过大" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 429,
+    schema: "ErrorResponse",
+    body: { code: "ADMISSION_LIMIT_REACHED", message: "归档请求已达到并发上限" },
+  },
+  {
+    route: "/v1/archives",
+    method: "POST",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "ARCHIVE_INTEGRITY_FAILURE", message: "归档数据完整性校验未通过" },
+  },
+  {
+    route: "/v1/history-compares/{operation_id}",
+    method: "GET",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+    method: "GET",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" },
+  },
+  {
+    route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+    method: "GET",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" },
+  },
+  {
+    route: "/v1/history-compares/{operation_id}/bundle",
+    method: "GET",
+    status: 404,
+    schema: "ErrorResponse",
+    body: { code: "ARTIFACT_UNAVAILABLE", message: "比较结果已不可用" },
+  },
+  {
+    route: "/v1/history-compares/{operation_id}/bundle",
+    method: "GET",
+    status: 503,
+    schema: "ErrorResponse" as const,
+    body: { code: "BUNDLE_INTEGRITY_FAILURE", message: "比较结果完整性校验失败" },
+  },
 ];
 
 // B7: reachable disposition scenarios shared by the D1–D5 e2e and the unit
@@ -444,29 +1176,48 @@ export const DISPOSITION_SCENARIO_NODES: Schemas["HistoryNodeResponse"][] = [
     disposition_result_id: "archive-result-1",
     eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
   }),
-  dispositionSubmission("d-manual", "2026-11-05T03:00:00Z", {
-    submission_disposition: "CLOSED_NOT_ARCHIVED",
-    disposition_source_kind: "MANUAL_CLOSE",
-    closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
-  }, "baseline-arch-2"),
-  dispositionSubmission("d4", "2026-11-05T04:00:00Z", {
-    submission_disposition: "ARCHIVED_BASELINE",
-    disposition_source_kind: "ARCHIVE",
-    disposition_result_id: "archive-result-2",
-    promoted_baseline_node_id: "baseline-arch-2",
-    eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
-  }, "baseline-arch"),
+  dispositionSubmission(
+    "d-manual",
+    "2026-11-05T03:00:00Z",
+    {
+      submission_disposition: "CLOSED_NOT_ARCHIVED",
+      disposition_source_kind: "MANUAL_CLOSE",
+      closure: {
+        closed_by: "owner-9",
+        closed_at: "2026-11-06T08:00:00Z",
+        reason: "第一行\n第二行\n第三行\n第四行",
+      },
+    },
+    "baseline-arch-2",
+  ),
+  dispositionSubmission(
+    "d4",
+    "2026-11-05T04:00:00Z",
+    {
+      submission_disposition: "ARCHIVED_BASELINE",
+      disposition_source_kind: "ARCHIVE",
+      disposition_result_id: "archive-result-2",
+      promoted_baseline_node_id: "baseline-arch-2",
+      eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+    },
+    "baseline-arch",
+  ),
 ];
 
 // D5 stays out of the shared scenario array: APPROVED plus the stale note
 // with no disposition is DC89-unreachable defensive data, used only by D5 cases.
 // The chain rules below take it as an explicitly listed exception.
-export const DISPOSITION_D5_NODE: Schemas["HistoryNodeResponse"] =
-  dispositionSubmission("d5", "2026-11-05T05:00:00Z", { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" });
+export const DISPOSITION_D5_NODE: Schemas["HistoryNodeResponse"] = dispositionSubmission(
+  "d5",
+  "2026-11-05T05:00:00Z",
+  { eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED" },
+);
 
 // Head for the D1-D5 tree: the tip of the baseline chain.
 export const DISPOSITION_HEAD: Schemas["HistoryListResponse"]["head"] = {
-  node_id: "baseline-arch-2", commit_id: "commit-baseline-arch-2", version: 23,
+  node_id: "baseline-arch-2",
+  commit_id: "commit-baseline-arch-2",
+  version: 23,
 };
 
 export const DISPOSITION_SCENARIO_BASELINES: Schemas["HistoryNodeResponse"][] = [
@@ -510,106 +1261,302 @@ export const DISPOSITION_REVIEW_FACTS: Schemas["ReviewFactsResponse"][] = [
     disposition: "CLOSED_NOT_ARCHIVED",
     source_kind: "MANUAL_CLOSE",
     result_id: null,
-    closure: { closed_by: "owner-9", closed_at: "2026-11-06T08:00:00Z", reason: "第一行\n第二行\n第三行\n第四行" },
+    closure: {
+      closed_by: "owner-9",
+      closed_at: "2026-11-06T08:00:00Z",
+      reason: "第一行\n第二行\n第三行\n第四行",
+    },
   }),
 ];
 
 export const WRITE_SCENARIO_COVERAGE = [
-  { method: "POST", route: "/v1/workspaces", outcomes: ["success:201", "success:200", "403:SCOPE_FORBIDDEN"] },
-  { method: "POST", route: "/v1/workspaces/{workspace_id}/upload-revisions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/workspaces/{workspace_id}/preview-operations", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/workspaces/{workspace_id}/submit-attempts", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:WORKSPACE_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT", "409:NO_CANONICAL_CHANGE"] },
-  { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/submissions/{submission_id}/closure", outcomes: ["success:201", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:BASELINE_VERSION_CONFLICT", "409:REVIEW_VERSION_CONFLICT"] },
-  { method: "POST", route: "/v1/history-compares", outcomes: ["success:202", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:ADMISSION_CONFLICT", "409:HISTORY_COMPARE_REQUEST_EXPIRED", "409:HISTORY_COMPARE_SCOPE_LIMIT", "429:ADMISSION_LIMIT_REACHED", "429:HISTORY_COMPARE_ALIAS_LIMIT", "429:OPERATION_QUEUE_FULL"] },
-  { method: "POST", route: "/v1/archive-plan-preview", outcomes: ["success:200", "403:SCOPE_FORBIDDEN", "409:CANDIDATE_BINDING_CONFLICT"] },
-  { method: "POST", route: "/v1/archive-confirmations", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/archive-anomaly-resolutions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/archives", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  {
+    method: "POST",
+    route: "/v1/workspaces",
+    outcomes: ["success:201", "success:200", "403:SCOPE_FORBIDDEN"],
+  },
+  {
+    method: "POST",
+    route: "/v1/workspaces/{workspace_id}/upload-revisions",
+    outcomes: [
+      "success:201",
+      "403:SCOPE_FORBIDDEN",
+      "409:WORKSPACE_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/workspaces/{workspace_id}/preview-operations",
+    outcomes: [
+      "success:202",
+      "403:SCOPE_FORBIDDEN",
+      "409:WORKSPACE_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    outcomes: [
+      "success:202",
+      "403:SCOPE_FORBIDDEN",
+      "409:WORKSPACE_VERSION_CONFLICT",
+      "409:BASELINE_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+      "409:NO_CANONICAL_CHANGE",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/submissions/{submission_id}/review-events",
+    outcomes: [
+      "success:201",
+      "403:SCOPE_FORBIDDEN",
+      "409:REVIEW_VERSION_CONFLICT",
+      "409:BASELINE_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/submissions/{submission_id}/closure",
+    outcomes: [
+      "success:201",
+      "replay:200",
+      "403:SCOPE_FORBIDDEN",
+      "409:IDEMPOTENCY_CONFLICT",
+      "409:BASELINE_VERSION_CONFLICT",
+      "409:REVIEW_VERSION_CONFLICT",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/history-compares",
+    outcomes: [
+      "success:202",
+      "replay:200",
+      "403:SCOPE_FORBIDDEN",
+      "409:IDEMPOTENCY_CONFLICT",
+      "409:ADMISSION_CONFLICT",
+      "409:HISTORY_COMPARE_REQUEST_EXPIRED",
+      "409:HISTORY_COMPARE_SCOPE_LIMIT",
+      "429:ADMISSION_LIMIT_REACHED",
+      "429:HISTORY_COMPARE_ALIAS_LIMIT",
+      "429:OPERATION_QUEUE_FULL",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/archive-plan-preview",
+    outcomes: ["success:200", "403:SCOPE_FORBIDDEN", "409:CANDIDATE_BINDING_CONFLICT"],
+  },
+  {
+    method: "POST",
+    route: "/v1/archive-confirmations",
+    outcomes: [
+      "success:201",
+      "403:SCOPE_FORBIDDEN",
+      "409:BASELINE_VERSION_CONFLICT",
+      "409:ARCHIVE_AUDIT_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/archive-anomaly-resolutions",
+    outcomes: [
+      "success:201",
+      "403:SCOPE_FORBIDDEN",
+      "409:BASELINE_VERSION_CONFLICT",
+      "409:ARCHIVE_AUDIT_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+    ],
+  },
+  {
+    method: "POST",
+    route: "/v1/archives",
+    outcomes: [
+      "success:201",
+      "403:SCOPE_FORBIDDEN",
+      "409:BASELINE_VERSION_CONFLICT",
+      "409:ARCHIVE_AUDIT_VERSION_CONFLICT",
+      "409:IDEMPOTENCY_CONFLICT",
+    ],
+  },
 ] as const;
 
 export const TEST_OPERATION_SUCCEEDED = {
-  operation_id: "op-1", job_kind: "backend-vnext/preview", status: "SUCCEEDED", optimistic_version: 3,
-  created_at: "2026-11-03T09:00:00Z", started_at: "2026-11-03T09:00:01Z", completed_at: "2026-11-03T09:00:02Z", diagnostic: null,
+  operation_id: "op-1",
+  job_kind: "backend-vnext/preview",
+  status: "SUCCEEDED",
+  optimistic_version: 3,
+  created_at: "2026-11-03T09:00:00Z",
+  started_at: "2026-11-03T09:00:01Z",
+  completed_at: "2026-11-03T09:00:02Z",
+  diagnostic: null,
 } satisfies Schemas["OperationResponse"];
 
 export const TEST_OPERATION_RUNNING = {
-  operation_id: "op-1", job_kind: "backend-vnext/preview", status: "RUNNING", optimistic_version: 2,
-  created_at: "2026-11-03T09:00:00Z", started_at: "2026-11-03T09:00:01Z", completed_at: null, diagnostic: null,
+  operation_id: "op-1",
+  job_kind: "backend-vnext/preview",
+  status: "RUNNING",
+  optimistic_version: 2,
+  created_at: "2026-11-03T09:00:00Z",
+  started_at: "2026-11-03T09:00:01Z",
+  completed_at: null,
+  diagnostic: null,
 } satisfies Schemas["OperationResponse"];
 
 export const OPERATION_TERMINAL_RESPONSES = {
   SUCCEEDED: TEST_OPERATION_SUCCEEDED,
   FAILED: MANUAL_RECOVERY_TO_FAILED[1],
-  CANCELLED: { ...OPERATION_FIELDS, operation_id: "operation-cancelled", job_kind: "backend-vnext/preview", status: "CANCELLED", completed_at: "2026-11-03T09:06:00Z" },
-  SUPERSEDED: { ...OPERATION_FIELDS, operation_id: "operation-superseded", job_kind: "backend-vnext/preview", status: "SUPERSEDED", completed_at: "2026-11-03T09:07:00Z" },
+  CANCELLED: {
+    ...OPERATION_FIELDS,
+    operation_id: "operation-cancelled",
+    job_kind: "backend-vnext/preview",
+    status: "CANCELLED",
+    completed_at: "2026-11-03T09:06:00Z",
+  },
+  SUPERSEDED: {
+    ...OPERATION_FIELDS,
+    operation_id: "operation-superseded",
+    job_kind: "backend-vnext/preview",
+    status: "SUPERSEDED",
+    completed_at: "2026-11-03T09:07:00Z",
+  },
 } satisfies Record<string, Schemas["OperationResponse"]>;
 
 export const TEST_WORKSPACE = {
-  workspace_id: "ws-1", gateway_device_external_key: "device-1", business_project_id: "project-1", state: "OPEN",
-  generation: 4, optimistic_version: 10, created_at: "2026-11-03T09:00:00Z", updated_at: "2026-11-03T09:00:00Z",
+  workspace_id: "ws-1",
+  gateway_device_external_key: "device-1",
+  business_project_id: "project-1",
+  state: "OPEN",
+  generation: 4,
+  optimistic_version: 10,
+  created_at: "2026-11-03T09:00:00Z",
+  updated_at: "2026-11-03T09:00:00Z",
   current_preview_result_id: "preview-1",
   active_submission_id: null,
-  active_preview_operation_id: null, active_submit_attempt_id: null,
+  active_preview_operation_id: null,
+  active_submit_attempt_id: null,
 } satisfies Schemas["WorkspaceResponse"];
 
 export const TEST_UPLOAD_FULL = {
-  upload_revision_id: "upload-1", workspace_id: "ws-1", generation: 4, input_completeness: "FULL", source_artifacts: {},
-  optimistic_version: 9, created_at: "2026-11-03T09:00:00Z",
+  upload_revision_id: "upload-1",
+  workspace_id: "ws-1",
+  generation: 4,
+  input_completeness: "FULL",
+  source_artifacts: {},
+  optimistic_version: 9,
+  created_at: "2026-11-03T09:00:00Z",
 } satisfies Schemas["UploadRevisionResponse"];
 
 export const TEST_SUBMIT_ACCEPTED = {
-  submit_attempt_id: "attempt-1", operation_id: "submit-op", workspace_id: "ws-1", preview_result_id: "preview-1",
-  generation: 4, state: "PREPARED",
+  submit_attempt_id: "attempt-1",
+  operation_id: "submit-op",
+  workspace_id: "ws-1",
+  preview_result_id: "preview-1",
+  generation: 4,
+  state: "PREPARED",
 } satisfies Schemas["SubmitAcceptedResponse"];
 
 export function testPreviewResult(bundleDigest: string): Schemas["PreviewResultResponse"] {
   return {
-    preview_result_id: "preview-1", workspace_id: "ws-1", upload_revision_id: "upload-1", generation: 4,
-    operation_id: "op-1", business_baseline_node_id: "baseline-1", business_baseline_commit_id: "commit-a",
-    derived_stale: false, bundle_digest: bundleDigest, identity_assessment_set_digest: "sha256:identity",
-    identity_pairs: [], created_at: "2026-11-03T09:00:02Z",
+    preview_result_id: "preview-1",
+    workspace_id: "ws-1",
+    upload_revision_id: "upload-1",
+    generation: 4,
+    operation_id: "op-1",
+    business_baseline_node_id: "baseline-1",
+    business_baseline_commit_id: "commit-a",
+    derived_stale: false,
+    bundle_digest: bundleDigest,
+    identity_assessment_set_digest: "sha256:identity",
+    identity_pairs: [],
+    created_at: "2026-11-03T09:00:02Z",
   } satisfies Schemas["PreviewResultResponse"];
 }
 
 export const TEST_SUBMIT_ATTEMPT_FINALIZED = {
-  submit_attempt_id: "attempt-1", workspace_id: "ws-1", upload_revision_id: "upload-1", preview_result_id: "preview-1",
-  generation: 4, operation_id: "submit-op", state: "FINALIZED", business_baseline_node_id: "baseline-1",
-  business_baseline_commit_id: "commit-a", canonical_business_digest: "sha256:business", created_at: "2026-11-03T09:00:02Z",
+  submit_attempt_id: "attempt-1",
+  workspace_id: "ws-1",
+  upload_revision_id: "upload-1",
+  preview_result_id: "preview-1",
+  generation: 4,
+  operation_id: "submit-op",
+  state: "FINALIZED",
+  business_baseline_node_id: "baseline-1",
+  business_baseline_commit_id: "commit-a",
+  canonical_business_digest: "sha256:business",
+  created_at: "2026-11-03T09:00:02Z",
   submission_id: "submission-1",
 } satisfies Schemas["SubmitAttemptResponse"];
 
 export const TEST_SUBMISSION = {
-  submission_id: "submission-1", submit_attempt_id: "attempt-1", workspace_id: "ws-1", upload_revision_id: "upload-1",
-  preview_result_id: "preview-1", generation: 4, repository_id: "repo-1", based_on_baseline_node_id: "baseline-1",
-  business_baseline_commit_id: "commit-a", repository_commit_id: "commit-b", canonical_business_digest: "sha256:business",
-  canonicalization_manifest_digest: "sha256:manifest", created_by: "user-1", created_at: "2026-11-03T09:00:02Z",
+  submission_id: "submission-1",
+  submit_attempt_id: "attempt-1",
+  workspace_id: "ws-1",
+  upload_revision_id: "upload-1",
+  preview_result_id: "preview-1",
+  generation: 4,
+  repository_id: "repo-1",
+  based_on_baseline_node_id: "baseline-1",
+  business_baseline_commit_id: "commit-a",
+  repository_commit_id: "commit-b",
+  canonical_business_digest: "sha256:business",
+  canonicalization_manifest_digest: "sha256:manifest",
+  created_by: "user-1",
+  created_at: "2026-11-03T09:00:02Z",
 } satisfies Schemas["SubmissionResponse"];
 
 export const TEST_REVIEW_FACTS = {
-  submission_id: "fe2a-history-ref-2", status: "PENDING", review_version: 5, updated_by: "reviewer",
-  updated_at: "2026-11-03T09:00:00Z", identity_exception: false, events: [],
+  submission_id: "fe2a-history-ref-2",
+  status: "PENDING",
+  review_version: 5,
+  updated_by: "reviewer",
+  updated_at: "2026-11-03T09:00:00Z",
+  identity_exception: false,
+  events: [],
   submission_disposition: null,
 } satisfies Schemas["ReviewFactsResponse"];
 
 export const TEST_REVIEW_HISTORY = {
   head: { node_id: "fe2a-history-ref-1", commit_id: "commit-baseline-1", version: 18 },
-  nodes: [HISTORY_PAGE_ONE.nodes[1]], next_cursor: null,
+  nodes: [HISTORY_PAGE_ONE.nodes[1]],
+  next_cursor: null,
 } satisfies Schemas["HistoryListResponse"];
-export const TEST_REVIEW_HISTORY_EMPTY = { ...TEST_REVIEW_HISTORY, nodes: [] } satisfies Schemas["HistoryListResponse"];
+export const TEST_REVIEW_HISTORY_EMPTY = {
+  ...TEST_REVIEW_HISTORY,
+  nodes: [],
+} satisfies Schemas["HistoryListResponse"];
 export const TEST_REVIEW_HISTORY_NO_PARENT = {
-  ...TEST_REVIEW_HISTORY, nodes: [{ ...TEST_REVIEW_HISTORY.nodes[0]!, parent: null }],
+  ...TEST_REVIEW_HISTORY,
+  nodes: [{ ...TEST_REVIEW_HISTORY.nodes[0]!, parent: null }],
 } satisfies Schemas["HistoryListResponse"];
 
 export const TEST_REVIEW_APPLIED = {
-  submission_id: "submission-1", status: "APPROVED", review_version: 9,
-  event: { sequence: 2, event_kind: "APPROVED", to_status: "APPROVED", actor_id: "reviewer", occurred_at: "2026-11-03T09:00:00Z" },
+  submission_id: "submission-1",
+  status: "APPROVED",
+  review_version: 9,
+  event: {
+    sequence: 2,
+    event_kind: "APPROVED",
+    to_status: "APPROVED",
+    actor_id: "reviewer",
+    occurred_at: "2026-11-03T09:00:00Z",
+  },
 } satisfies Schemas["ReviewAppliedResponse"];
 
 export const TEST_CLOSE_SUBMISSION = {
-  submission_id: "fe2a-history-ref-old", disposition: "CLOSED_NOT_ARCHIVED", source_kind: "MANUAL_CLOSE",
-  closed_by: "reviewer", closed_at: "2026-11-03T10:00:00Z", reason: "不再需要该提交",
-  released_workspace_id: "workspace-fe2b", workspace_version: 13,
+  submission_id: "fe2a-history-ref-old",
+  disposition: "CLOSED_NOT_ARCHIVED",
+  source_kind: "MANUAL_CLOSE",
+  closed_by: "reviewer",
+  closed_at: "2026-11-03T10:00:00Z",
+  reason: "不再需要该提交",
+  released_workspace_id: "workspace-fe2b",
+  workspace_version: 13,
 } satisfies Schemas["CloseSubmissionResponse"];
 
 export const ARCHIVE_ANOMALY_IDENTITY = {
@@ -639,21 +1586,36 @@ export const EMPTY_BUSINESS_VALIDATION = {
 } satisfies Schemas["ArchiveBusinessValidationResponse"];
 
 export const ARCHIVE_PLAN_READY = {
-  head: { business_baseline_node_id: "baseline-4", business_baseline_commit_id: "commit-a", baseline_head_version: 21 },
+  head: {
+    business_baseline_node_id: "baseline-4",
+    business_baseline_commit_id: "commit-a",
+    baseline_head_version: 21,
+  },
   selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
   selection_subject_digest: "sha256:selection-subject",
-  candidate_set_digest: "sha256:candidates", confirmation_requirements: ["sha256:selection-subject"],
+  candidate_set_digest: "sha256:candidates",
+  confirmation_requirements: ["sha256:selection-subject"],
   anomalies: [ARCHIVE_ANOMALY_IDENTITY],
   audit_validity: true,
-  dispositions: [], workspace_releases: [], can_start: true, blockers: [],
-  pending_submission_ids: [], pending_submission_count: 0, business_validation: EMPTY_BUSINESS_VALIDATION,
+  dispositions: [],
+  workspace_releases: [],
+  can_start: true,
+  blockers: [],
+  pending_submission_ids: [],
+  pending_submission_count: 0,
+  business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const ARCHIVE_PLAN_NEEDS_CONFIRMATION = {
-  ...ARCHIVE_PLAN_READY, confirmation_requirements: ["sha256:selection-subject"],
+  ...ARCHIVE_PLAN_READY,
+  confirmation_requirements: ["sha256:selection-subject"],
   anomalies: [ARCHIVE_ANOMALY_IDENTITY],
-  can_start: false, blockers: [], audit_validity: false,
-  pending_submission_ids: [], pending_submission_count: 0, business_validation: EMPTY_BUSINESS_VALIDATION,
+  can_start: false,
+  blockers: [],
+  audit_validity: false,
+  pending_submission_ids: [],
+  pending_submission_count: 0,
+  business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const TEST_ARCHIVE_CANDIDATES = {
@@ -662,65 +1624,124 @@ export const TEST_ARCHIVE_CANDIDATES = {
     // review_version comes from the same read transaction as the review projection
     // (Q18); it is a required key and must not collide with workspace, baseline,
     // or sibling versions in reachability scenarios (§5.3).
-    { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate", review_version: 7 },
+    {
+      submission_id: "submission-1",
+      expected_candidate_digest: "sha256:candidate",
+      review_version: 7,
+    },
   ],
-  candidate_set_digest: "sha256:candidates", blockers: [],
-  pending_submission_ids: [], pending_submission_count: 0,
+  candidate_set_digest: "sha256:candidates",
+  blockers: [],
+  pending_submission_ids: [],
+  pending_submission_count: 0,
 } satisfies Schemas["ArchiveCandidatesResponse"];
 export const TEST_ARCHIVE_CANDIDATES_BLOCKED = {
-  ...TEST_ARCHIVE_CANDIDATES, blockers: ["ARCHIVE_INTEGRITY_FAILURE"],
+  ...TEST_ARCHIVE_CANDIDATES,
+  blockers: ["ARCHIVE_INTEGRITY_FAILURE"],
 } satisfies Schemas["ArchiveCandidatesResponse"];
 
 export const TEST_ARCHIVE_CONFIRM_EVENT = {
-  event_id: "event-5", subject_kind: "CONFIRM_SELECTION", subject_digest: "sha256:selection-subject", sequence: 5,
-  action: "CONFIRM", issue_code: null, actor_id: "owner", occurred_at: "2026-11-03T09:00:00Z",
+  event_id: "event-5",
+  subject_kind: "CONFIRM_SELECTION",
+  subject_digest: "sha256:selection-subject",
+  sequence: 5,
+  action: "CONFIRM",
+  issue_code: null,
+  actor_id: "owner",
+  occurred_at: "2026-11-03T09:00:00Z",
 } satisfies Schemas["ArchiveAuditEventResponse"];
 
 export const TEST_ARCHIVE_ANOMALY_EVENT = {
-  event_id: "event-7", subject_kind: "PROJECT_IDENTITY_EXCEPTION", subject_digest: "sha256:anomaly", sequence: 7,
-  action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", actor_id: "owner", occurred_at: "2026-11-03T09:01:00Z",
+  event_id: "event-7",
+  subject_kind: "PROJECT_IDENTITY_EXCEPTION",
+  subject_digest: "sha256:anomaly",
+  sequence: 7,
+  action: "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+  issue_code: "PROJECT_IDENTITY_EXCEPTION",
+  actor_id: "owner",
+  occurred_at: "2026-11-03T09:01:00Z",
 } satisfies Schemas["ArchiveAuditEventResponse"];
 
-export const TEST_ARCHIVE_CONFIRM_APPEND = { event_id: "event-6", sequence: 6 } satisfies Schemas["ArchiveAuditAppendResponse"];
-export const TEST_ARCHIVE_RESOLUTION_APPEND = { event_id: "event-7", sequence: 7 } satisfies Schemas["ArchiveAuditAppendResponse"];
+export const TEST_ARCHIVE_CONFIRM_APPEND = {
+  event_id: "event-6",
+  sequence: 6,
+} satisfies Schemas["ArchiveAuditAppendResponse"];
+export const TEST_ARCHIVE_RESOLUTION_APPEND = {
+  event_id: "event-7",
+  sequence: 7,
+} satisfies Schemas["ArchiveAuditAppendResponse"];
 
 /* (CloseSubmission 201/200 bodies reuse TEST_CLOSE_SUBMISSION above.) */
 
 export const TEST_ARCHIVE_STARTED = {
-  archive_plan_id: "plan-1", archive_result_id: "archive-1", baseline_node_id: "baseline-4", baseline_commit_id: "commit-a",
-  baseline_head_version: 21, selected_submission_id: "submission-1", dispositions: [], released_workspace_ids: [],
-  archived_by: "owner", archived_at: "2026-11-03T09:00:00Z",
+  archive_plan_id: "plan-1",
+  archive_result_id: "archive-1",
+  baseline_node_id: "baseline-4",
+  baseline_commit_id: "commit-a",
+  baseline_head_version: 21,
+  selected_submission_id: "submission-1",
+  dispositions: [],
+  released_workspace_ids: [],
+  archived_by: "owner",
+  archived_at: "2026-11-03T09:00:00Z",
 } satisfies Schemas["ArchiveStartedResponse"];
 
 export const TEST_ARCHIVE_RESULT = {
-  archive_result_id: "archive-1", archive_plan_id: "plan-1", baseline_node_id: "baseline-4", baseline_commit_id: "commit-a",
-  baseline_head_version: 21, selected_submission_id: "submission-1", selected_repository_commit_id: "commit-b",
-  candidate_set_digest: "sha256:candidates", confirmation_refs: [], anomaly_resolution_refs: [], dispositions: [],
-  archived_by: "owner", archived_at: "2026-11-03T09:00:00Z",
+  archive_result_id: "archive-1",
+  archive_plan_id: "plan-1",
+  baseline_node_id: "baseline-4",
+  baseline_commit_id: "commit-a",
+  baseline_head_version: 21,
+  selected_submission_id: "submission-1",
+  selected_repository_commit_id: "commit-b",
+  candidate_set_digest: "sha256:candidates",
+  confirmation_refs: [],
+  anomaly_resolution_refs: [],
+  dispositions: [],
+  archived_by: "owner",
+  archived_at: "2026-11-03T09:00:00Z",
   business_validation: EMPTY_BUSINESS_VALIDATION,
 } satisfies Schemas["ArchiveResultResponse"];
 
 export const TEST_OPERATION_ACCEPTED = {
-  operation_id: "op-1", workspace_id: "ws-1", upload_revision_id: "upload-1", generation: 4, status: "QUEUED",
+  operation_id: "op-1",
+  workspace_id: "ws-1",
+  upload_revision_id: "upload-1",
+  generation: 4,
+  status: "QUEUED",
 } satisfies Schemas["OperationAcceptedResponse"];
 
 export const TEST_PREVIEW_RESULT_OTHER_OPERATION = {
-  ...testPreviewResult("sha256:bundle"), operation_id: "other-operation",
+  ...testPreviewResult("sha256:bundle"),
+  operation_id: "other-operation",
 } satisfies Schemas["PreviewResultResponse"];
 export const TEST_PREVIEW_RESULT_OTHER_UPLOAD = {
-  ...testPreviewResult("sha256:bundle"), upload_revision_id: "other-upload",
+  ...testPreviewResult("sha256:bundle"),
+  upload_revision_id: "other-upload",
 } satisfies Schemas["PreviewResultResponse"];
 
 export const TEST_OPERATION_SUBMIT_SUCCEEDED = {
-  ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op", job_kind: "backend-vnext/submit",
+  ...TEST_OPERATION_SUCCEEDED,
+  operation_id: "submit-op",
+  job_kind: "backend-vnext/submit",
 } satisfies Schemas["OperationResponse"];
 
-export function testUploadRevision(inputCompleteness: Schemas["UploadRevisionResponse"]["input_completeness"]): Schemas["UploadRevisionResponse"] {
-  return { ...TEST_UPLOAD_FULL, input_completeness: inputCompleteness } satisfies Schemas["UploadRevisionResponse"];
+export function testUploadRevision(
+  inputCompleteness: Schemas["UploadRevisionResponse"]["input_completeness"],
+): Schemas["UploadRevisionResponse"] {
+  return {
+    ...TEST_UPLOAD_FULL,
+    input_completeness: inputCompleteness,
+  } satisfies Schemas["UploadRevisionResponse"];
 }
 
-export function testHistoryCompareAcceptance(operationId: string): Schemas["HistoryCompareAcceptResponse"] {
-  return { ...HISTORY_COMPARE_ACCEPT_BODY, operation_id: operationId } satisfies Schemas["HistoryCompareAcceptResponse"];
+export function testHistoryCompareAcceptance(
+  operationId: string,
+): Schemas["HistoryCompareAcceptResponse"] {
+  return {
+    ...HISTORY_COMPARE_ACCEPT_BODY,
+    operation_id: operationId,
+  } satisfies Schemas["HistoryCompareAcceptResponse"];
 }
 
 export function testArchiveResultWithRefs(): Schemas["ArchiveResultResponse"] {
@@ -733,79 +1754,324 @@ export function testArchiveResultWithRefs(): Schemas["ArchiveResultResponse"] {
 
 export const TEST_HISTORY_CURSOR_FIRST = {
   head: { node_id: "baseline-2", commit_id: "commit-b", version: 9 },
-  nodes: [{ ref_kind: "baseline_node", ref_id: "baseline-2", node_kind: "BASELINE_NODE", baseline_kind: "ARCHIVED_SUBMISSION", commit_id: "commit-b", created_at: "2026-11-03T09:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, identity_exception: false }],
+  nodes: [
+    {
+      ref_kind: "baseline_node",
+      ref_id: "baseline-2",
+      node_kind: "BASELINE_NODE",
+      baseline_kind: "ARCHIVED_SUBMISSION",
+      commit_id: "commit-b",
+      created_at: "2026-11-03T09:00:00Z",
+      parent: { ref_kind: "baseline_node", ref_id: "baseline-1" },
+      identity_exception: false,
+    },
+  ],
   next_cursor: "cursor/next",
 } satisfies Schemas["HistoryListResponse"];
 
 export const TEST_HISTORY_CURSOR_SECOND = {
   head: TEST_HISTORY_CURSOR_FIRST.head,
-  nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-03T09:01:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "APPROVED" }],
+  nodes: [
+    {
+      ref_kind: "submission",
+      ref_id: "submission-1",
+      node_kind: "SUBMISSION",
+      commit_id: "commit-c",
+      created_at: "2026-11-03T09:01:00Z",
+      parent: { ref_kind: "baseline_node", ref_id: "baseline-1" },
+      eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED",
+      identity_exception: false,
+      review_status: "APPROVED",
+    },
+  ],
   next_cursor: null,
 } satisfies Schemas["HistoryListResponse"];
 
-export const TEST_ARCHIVE_EVENTS_EMPTY = { events: [], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
-export const TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION = { events: [TEST_ARCHIVE_CONFIRM_EVENT], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
+export const TEST_ARCHIVE_EVENTS_EMPTY = {
+  events: [],
+  next_after_sequence: null,
+} satisfies Schemas["ArchiveAuditEventsResponse"];
+export const TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION = {
+  events: [TEST_ARCHIVE_CONFIRM_EVENT],
+  next_after_sequence: null,
+} satisfies Schemas["ArchiveAuditEventsResponse"];
 
 export const TEST_SUBMISSION_RESULT = {
-  submission_id: "fe2a-history-ref-2", preview_result_id: "preview-1",
-  bundle_digest: "sha256:" + "a".repeat(64), default_pair_id: "initial_to_modified",
-  input_completeness: "MODIFIED_ONLY", pairs: [{ pair_id: "initial_to_modified",
-    comparison_digest: "sha256:" + "b".repeat(64), surface_digest: "sha256:" + "c".repeat(64), risk_digest: null }],
+  submission_id: "fe2a-history-ref-2",
+  preview_result_id: "preview-1",
+  bundle_digest: "sha256:" + "a".repeat(64),
+  default_pair_id: "initial_to_modified",
+  input_completeness: "MODIFIED_ONLY",
+  pairs: [
+    {
+      pair_id: "initial_to_modified",
+      comparison_digest: "sha256:" + "b".repeat(64),
+      surface_digest: "sha256:" + "c".repeat(64),
+      risk_digest: null,
+    },
+  ],
 } satisfies Schemas["SubmissionResultResponse"];
 
-export function testSubmissionResult(manifest: { bundle_digest: string; pairs: unknown[] }, submissionId = "fe2a-history-ref-2"): Schemas["SubmissionResultResponse"] {
-  return { ...TEST_SUBMISSION_RESULT, submission_id: submissionId, bundle_digest: manifest.bundle_digest,
+export function testSubmissionResult(
+  manifest: { bundle_digest: string; pairs: unknown[] },
+  submissionId = "fe2a-history-ref-2",
+): Schemas["SubmissionResultResponse"] {
+  return {
+    ...TEST_SUBMISSION_RESULT,
+    submission_id: submissionId,
+    bundle_digest: manifest.bundle_digest,
     input_completeness: manifest.pairs.length === 2 ? "FULL" : "MODIFIED_ONLY",
     pairs: manifest.pairs.map((value) => {
-      const pair = value as { pair_id: string; comparison_digest: string; surface_digest: string; risk_evaluation_digest: string | null };
-      return { pair_id: pair.pair_id, comparison_digest: pair.comparison_digest,
-        surface_digest: pair.surface_digest, risk_digest: pair.risk_evaluation_digest };
-    }) };
+      const pair = value as {
+        pair_id: string;
+        comparison_digest: string;
+        surface_digest: string;
+        risk_evaluation_digest: string | null;
+      };
+      return {
+        pair_id: pair.pair_id,
+        comparison_digest: pair.comparison_digest,
+        surface_digest: pair.surface_digest,
+        risk_digest: pair.risk_evaluation_digest,
+      };
+    }),
+  };
 }
 
 export const COMPLETE_RESPONSE_SCENARIOS = [
-  { name: "CreateOrGet new workspace", method: "POST", route: "/v1/workspaces", status: 201, schema: "WorkspaceResponse", body: WORKSPACE_CREATED.body },
-  { name: "CreateOrGet existing workspace", method: "POST", route: "/v1/workspaces", status: 200, schema: "WorkspaceResponse", body: WORKSPACE_ALREADY_EXISTS.body },
-  { name: "History first page", method: "GET", route: "/v1/history?limit=100", status: 200, schema: "HistoryListResponse", body: HISTORY_PAGE_ONE },
-  { name: "History cursor page", method: "GET", route: "/v1/history?limit=100&cursor=cursor%2Fnext", status: 200, schema: "HistoryListResponse", body: HISTORY_PAGE_TWO },
-  { name: "Preview upload", method: "POST", route: "/v1/workspaces/{workspace_id}/upload-revisions", status: 201, schema: "UploadRevisionResponse", body: TEST_UPLOAD_FULL },
-  { name: "Preview operation accepted", method: "POST", route: "/v1/workspaces/{workspace_id}/preview-operations", status: 202, schema: "OperationAcceptedResponse", body: TEST_OPERATION_ACCEPTED },
-  { name: "Operation status", method: "GET", route: "/v1/operations/{operation_id}", status: 200, schema: "OperationResponse", body: TEST_OPERATION_SUCCEEDED },
-  { name: "Operation running status", method: "GET", route: "/v1/operations/{operation_id}", status: 200, schema: "OperationResponse", body: TEST_OPERATION_RUNNING },
-  { name: "Submit accepted", method: "POST", route: "/v1/workspaces/{workspace_id}/submit-attempts", status: 202, schema: "SubmitAcceptedResponse", body: TEST_SUBMIT_ACCEPTED },
-  { name: "Review applied", method: "POST", route: "/v1/submissions/{submission_id}/review-events", status: 201, schema: "ReviewAppliedResponse", body: TEST_REVIEW_APPLIED },
-  { name: "Review facts", method: "GET", route: "/v1/submissions/{submission_id}/review", status: 200, schema: "ReviewFactsResponse", body: REVIEW_FACTS },
-  { name: "Submission result", method: "GET", route: "/v1/submissions/{submission_id}/result", status: 200, schema: "SubmissionResultResponse", body: TEST_SUBMISSION_RESULT },
-  { name: "History compare accepted", method: "POST", route: "/v1/history-compares", status: 202, schema: "HistoryCompareAcceptResponse", body: HISTORY_COMPARE_ACCEPT_BODY },
-  { name: "History compare idempotent replay", method: "POST", route: "/v1/history-compares", status: 200, schema: "HistoryCompareAcceptResponse", body: HISTORY_COMPARE_ACCEPT_BODY },
-  { name: "History compare list", method: "GET", route: "/v1/history-compares?limit=50", status: 200, schema: "HistoryCompareListResponse", body: HISTORY_COMPARE_LIST },
-  { name: "History compare QUEUED", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_QUEUED },
-  { name: "History compare status", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_RUNNING },
-  { name: "History compare result", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_SUCCEEDED },
-  { name: "History compare failed", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_FAILED },
-  { name: "History compare cancelled", method: "GET", route: "/v1/history-compares/{operation_id}", status: 200, schema: "HistoryCompareResultResponse", body: HISTORY_COMPARE_CANCELLED },
-  { name: "Archive plan preview", method: "POST", route: "/v1/archive-plan-preview", status: 200, schema: "PreviewArchivePlanResponse", body: ARCHIVE_PLAN_READY },
-  { name: "Archive confirmation", method: "POST", route: "/v1/archive-confirmations", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_CONFIRM_APPEND },
-  { name: "Archive anomaly resolution", method: "POST", route: "/v1/archive-anomaly-resolutions", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_RESOLUTION_APPEND },
-  { name: "Archive started", method: "POST", route: "/v1/archives", status: 201, schema: "ArchiveStartedResponse", body: TEST_ARCHIVE_STARTED },
-  { name: "Close submission", method: "POST", route: "/v1/submissions/{submission_id}/closure", status: 201, schema: "CloseSubmissionResponse", body: TEST_CLOSE_SUBMISSION },
-  { name: "Close submission idempotent replay", method: "POST", route: "/v1/submissions/{submission_id}/closure", status: 200, schema: "CloseSubmissionResponse", body: TEST_CLOSE_SUBMISSION },
+  {
+    name: "CreateOrGet new workspace",
+    method: "POST",
+    route: "/v1/workspaces",
+    status: 201,
+    schema: "WorkspaceResponse",
+    body: WORKSPACE_CREATED.body,
+  },
+  {
+    name: "CreateOrGet existing workspace",
+    method: "POST",
+    route: "/v1/workspaces",
+    status: 200,
+    schema: "WorkspaceResponse",
+    body: WORKSPACE_ALREADY_EXISTS.body,
+  },
+  {
+    name: "History first page",
+    method: "GET",
+    route: "/v1/history?limit=100",
+    status: 200,
+    schema: "HistoryListResponse",
+    body: HISTORY_PAGE_ONE,
+  },
+  {
+    name: "History cursor page",
+    method: "GET",
+    route: "/v1/history?limit=100&cursor=cursor%2Fnext",
+    status: 200,
+    schema: "HistoryListResponse",
+    body: HISTORY_PAGE_TWO,
+  },
+  {
+    name: "Preview upload",
+    method: "POST",
+    route: "/v1/workspaces/{workspace_id}/upload-revisions",
+    status: 201,
+    schema: "UploadRevisionResponse",
+    body: TEST_UPLOAD_FULL,
+  },
+  {
+    name: "Preview operation accepted",
+    method: "POST",
+    route: "/v1/workspaces/{workspace_id}/preview-operations",
+    status: 202,
+    schema: "OperationAcceptedResponse",
+    body: TEST_OPERATION_ACCEPTED,
+  },
+  {
+    name: "Operation status",
+    method: "GET",
+    route: "/v1/operations/{operation_id}",
+    status: 200,
+    schema: "OperationResponse",
+    body: TEST_OPERATION_SUCCEEDED,
+  },
+  {
+    name: "Operation running status",
+    method: "GET",
+    route: "/v1/operations/{operation_id}",
+    status: 200,
+    schema: "OperationResponse",
+    body: TEST_OPERATION_RUNNING,
+  },
+  {
+    name: "Submit accepted",
+    method: "POST",
+    route: "/v1/workspaces/{workspace_id}/submit-attempts",
+    status: 202,
+    schema: "SubmitAcceptedResponse",
+    body: TEST_SUBMIT_ACCEPTED,
+  },
+  {
+    name: "Review applied",
+    method: "POST",
+    route: "/v1/submissions/{submission_id}/review-events",
+    status: 201,
+    schema: "ReviewAppliedResponse",
+    body: TEST_REVIEW_APPLIED,
+  },
+  {
+    name: "Review facts",
+    method: "GET",
+    route: "/v1/submissions/{submission_id}/review",
+    status: 200,
+    schema: "ReviewFactsResponse",
+    body: REVIEW_FACTS,
+  },
+  {
+    name: "Submission result",
+    method: "GET",
+    route: "/v1/submissions/{submission_id}/result",
+    status: 200,
+    schema: "SubmissionResultResponse",
+    body: TEST_SUBMISSION_RESULT,
+  },
+  {
+    name: "History compare accepted",
+    method: "POST",
+    route: "/v1/history-compares",
+    status: 202,
+    schema: "HistoryCompareAcceptResponse",
+    body: HISTORY_COMPARE_ACCEPT_BODY,
+  },
+  {
+    name: "History compare idempotent replay",
+    method: "POST",
+    route: "/v1/history-compares",
+    status: 200,
+    schema: "HistoryCompareAcceptResponse",
+    body: HISTORY_COMPARE_ACCEPT_BODY,
+  },
+  {
+    name: "History compare list",
+    method: "GET",
+    route: "/v1/history-compares?limit=50",
+    status: 200,
+    schema: "HistoryCompareListResponse",
+    body: HISTORY_COMPARE_LIST,
+  },
+  {
+    name: "History compare QUEUED",
+    method: "GET",
+    route: "/v1/history-compares/{operation_id}",
+    status: 200,
+    schema: "HistoryCompareResultResponse",
+    body: HISTORY_COMPARE_QUEUED,
+  },
+  {
+    name: "History compare status",
+    method: "GET",
+    route: "/v1/history-compares/{operation_id}",
+    status: 200,
+    schema: "HistoryCompareResultResponse",
+    body: HISTORY_COMPARE_RUNNING,
+  },
+  {
+    name: "History compare result",
+    method: "GET",
+    route: "/v1/history-compares/{operation_id}",
+    status: 200,
+    schema: "HistoryCompareResultResponse",
+    body: HISTORY_COMPARE_SUCCEEDED,
+  },
+  {
+    name: "History compare failed",
+    method: "GET",
+    route: "/v1/history-compares/{operation_id}",
+    status: 200,
+    schema: "HistoryCompareResultResponse",
+    body: HISTORY_COMPARE_FAILED,
+  },
+  {
+    name: "History compare cancelled",
+    method: "GET",
+    route: "/v1/history-compares/{operation_id}",
+    status: 200,
+    schema: "HistoryCompareResultResponse",
+    body: HISTORY_COMPARE_CANCELLED,
+  },
+  {
+    name: "Archive plan preview",
+    method: "POST",
+    route: "/v1/archive-plan-preview",
+    status: 200,
+    schema: "PreviewArchivePlanResponse",
+    body: ARCHIVE_PLAN_READY,
+  },
+  {
+    name: "Archive confirmation",
+    method: "POST",
+    route: "/v1/archive-confirmations",
+    status: 201,
+    schema: "ArchiveAuditAppendResponse",
+    body: TEST_ARCHIVE_CONFIRM_APPEND,
+  },
+  {
+    name: "Archive anomaly resolution",
+    method: "POST",
+    route: "/v1/archive-anomaly-resolutions",
+    status: 201,
+    schema: "ArchiveAuditAppendResponse",
+    body: TEST_ARCHIVE_RESOLUTION_APPEND,
+  },
+  {
+    name: "Archive started",
+    method: "POST",
+    route: "/v1/archives",
+    status: 201,
+    schema: "ArchiveStartedResponse",
+    body: TEST_ARCHIVE_STARTED,
+  },
+  {
+    name: "Close submission",
+    method: "POST",
+    route: "/v1/submissions/{submission_id}/closure",
+    status: 201,
+    schema: "CloseSubmissionResponse",
+    body: TEST_CLOSE_SUBMISSION,
+  },
+  {
+    name: "Close submission idempotent replay",
+    method: "POST",
+    route: "/v1/submissions/{submission_id}/closure",
+    status: 200,
+    schema: "CloseSubmissionResponse",
+    body: TEST_CLOSE_SUBMISSION,
+  },
 ] as const;
 
-export const RESPONSE_SCENARIO_STRING_SOURCE = "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
+export const RESPONSE_SCENARIO_STRING_SOURCE =
+  "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
 
-export function testHistoryCompareSucceeded(bundleDigest: string): Schemas["HistoryCompareResultResponse"] {
+export function testHistoryCompareSucceeded(
+  bundleDigest: string,
+): Schemas["HistoryCompareResultResponse"] {
   const pair = HISTORY_COMPARE_SUCCEEDED.result?.pairs[1];
   if (!pair) throw new Error("history comparison fixture pair is missing");
   return {
     operation_id: HISTORY_COMPARE_SUCCEEDED.operation_id,
     status: "SUCCEEDED",
     diagnostic: null,
-    result: { bundle_digest: bundleDigest, completed_at: "2026-11-03T09:15:00Z", input: { nodes: [pair.before_ref, pair.current_ref] }, pairs: [pair] },
+    result: {
+      bundle_digest: bundleDigest,
+      completed_at: "2026-11-03T09:15:00Z",
+      input: { nodes: [pair.before_ref, pair.current_ref] },
+      pairs: [pair],
+    },
   } satisfies Schemas["HistoryCompareResultResponse"];
 }
 
-export const RESPONSE_SOURCE_TABLE = "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
+export const RESPONSE_SOURCE_TABLE =
+  "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
 
 const REQUIRED_IDEMPOTENCY_KEY_ROUTES: ReadonlyArray<{ name: string; pattern: RegExp }> = [
   { name: "upload revision", pattern: /^\/v1\/workspaces\/[^/]+\/upload-revisions$/ },
@@ -845,7 +2111,11 @@ export function validateSimulatedRequest(input: {
   // requests accept exactly submission_id + expected_candidate_digest in
   // `selected`. Forwarding a whole candidate read object (now carrying
   // review_version) is rejected with 422 before the handler runs.
-  if (method === "POST" && ARCHIVE_SELECTED_ROUTES.some((route) => route.test(path)) && input.body !== undefined) {
+  if (
+    method === "POST" &&
+    ARCHIVE_SELECTED_ROUTES.some((route) => route.test(path)) &&
+    input.body !== undefined
+  ) {
     try {
       const parsed = JSON.parse(input.body) as { selected?: Record<string, unknown> };
       const selected = parsed.selected;
@@ -853,7 +2123,10 @@ export function validateSimulatedRequest(input: {
         const keys = Object.keys(selected).sort();
         const allowed = ["expected_candidate_digest", "submission_id"];
         if (keys.length !== allowed.length || keys.some((key, index) => key !== allowed[index])) {
-          return { code: "REQUEST_VALIDATION_FAILED", message: "selected 只允许 submission_id 与 expected_candidate_digest" };
+          return {
+            code: "REQUEST_VALIDATION_FAILED",
+            message: "selected 只允许 submission_id 与 expected_candidate_digest",
+          };
         }
       }
     } catch {
@@ -861,19 +2134,32 @@ export function validateSimulatedRequest(input: {
     }
   }
   if (method === "POST" && path === "/v1/workspaces" && idempotencyKey) {
-    return { code: "REQUEST_VALIDATION_FAILED", message: "POST /v1/workspaces 不接受 Idempotency-Key" };
+    return {
+      code: "REQUEST_VALIDATION_FAILED",
+      message: "POST /v1/workspaces 不接受 Idempotency-Key",
+    };
   }
-  if (method === "GET" && path === "/v1/archive-audit-events"
-    && (!input.url.searchParams.get("subject_kind") || !input.url.searchParams.get("subject_digest"))) {
+  if (
+    method === "GET" &&
+    path === "/v1/archive-audit-events" &&
+    (!input.url.searchParams.get("subject_kind") || !input.url.searchParams.get("subject_digest"))
+  ) {
     return { code: "REQUEST_VALIDATION_FAILED", message: "缺少 subject_kind 或 subject_digest" };
   }
-  if (method === "POST" && REQUIRED_IDEMPOTENCY_KEY_ROUTES.some((route) => route.pattern.test(path)) && !idempotencyKey) {
+  if (
+    method === "POST" &&
+    REQUIRED_IDEMPOTENCY_KEY_ROUTES.some((route) => route.pattern.test(path)) &&
+    !idempotencyKey
+  ) {
     return { code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" };
   }
   return null;
 }
 
-function headerValue(headers: Record<string, string | undefined>, name: string): string | undefined {
+function headerValue(
+  headers: Record<string, string | undefined>,
+  name: string,
+): string | undefined {
   const key = Object.keys(headers).find((item) => item.toLowerCase() === name);
   return key ? headers[key] : undefined;
 }

@@ -30,8 +30,12 @@ describe("archive validation fixtures", () => {
   it("gives every candidate a required review_version matching its review facts", () => {
     for (const candidate of V_CANDIDATES.candidates) {
       expect(candidate.review_version, candidate.submission_id).toBeGreaterThan(1);
-      expect(candidate.review_version, candidate.submission_id).toBe(V_REVIEW_VERSIONS[candidate.submission_id]);
-      expect(vReviewFacts(candidate.submission_id).review_version, candidate.submission_id).toBe(candidate.review_version);
+      expect(candidate.review_version, candidate.submission_id).toBe(
+        V_REVIEW_VERSIONS[candidate.submission_id],
+      );
+      expect(vReviewFacts(candidate.submission_id).review_version, candidate.submission_id).toBe(
+        candidate.review_version,
+      );
     }
     const versions = V_CANDIDATES.candidates.map((candidate) => candidate.review_version);
     expect(new Set(versions).size).toBe(versions.length);
@@ -39,7 +43,11 @@ describe("archive validation fixtures", () => {
 
   it("covers every known issue code exactly once in the V1 set", () => {
     const codes = vAllKindsAnomalies().map((anomaly) => anomaly.issue_code);
-    expect([...codes].sort()).toEqual([...SIMULATED_STRING_VALUES["ArchiveAuditEventResponse.issue_code"].values].filter((code) => code !== null).sort());
+    expect([...codes].sort()).toEqual(
+      [...SIMULATED_STRING_VALUES["ArchiveAuditEventResponse.issue_code"].values]
+        .filter((code) => code !== null)
+        .sort(),
+    );
   });
 
   it("keeps V1 items UNRESOLVED with zero sequences and empty audit facts", () => {
@@ -54,12 +62,16 @@ describe("archive validation fixtures", () => {
 
   it("models source items as UNEXPLAINED and the rest as DETECTED (queries.py:424)", () => {
     for (const anomaly of vAllKindsAnomalies()) {
-      expect(anomaly.detected_status).toBe(anomaly.subject_kind === "CONFIGURATION_SOURCE" ? "UNEXPLAINED" : "DETECTED");
+      expect(anomaly.detected_status).toBe(
+        anomaly.subject_kind === "CONFIGURATION_SOURCE" ? "UNEXPLAINED" : "DETECTED",
+      );
     }
   });
 
   it("binds the baseline-time item to BASELINE with the full candidate set", () => {
-    const baseline = vAllKindsAnomalies().find((anomaly) => anomaly.issue_code === "BASELINE_TIME_UNAVAILABLE");
+    const baseline = vAllKindsAnomalies().find(
+      (anomaly) => anomaly.issue_code === "BASELINE_TIME_UNAVAILABLE",
+    );
     expect(baseline?.side).toBe("BASELINE");
     expect(baseline?.affected_submission_ids).toEqual(["v-s1", "v-s2", "v-s3"]);
   });
@@ -82,10 +94,16 @@ describe("archive validation fixtures", () => {
     expect(candidates.candidates).toHaveLength(200);
     const preview = vPreview399();
     expect(preview.anomalies).toHaveLength(399);
-    expect(preview.anomalies.filter((anomaly) => anomaly.issue_code === "APPROVED_SIBLING_EXCLUDED")).toHaveLength(199);
-    expect(preview.anomalies.filter((anomaly) => anomaly.issue_code === "GENERATION_TIME_MISSING")).toHaveLength(200);
+    expect(
+      preview.anomalies.filter((anomaly) => anomaly.issue_code === "APPROVED_SIBLING_EXCLUDED"),
+    ).toHaveLength(199);
+    expect(
+      preview.anomalies.filter((anomaly) => anomaly.issue_code === "GENERATION_TIME_MISSING"),
+    ).toHaveLength(200);
     const accepted = vPreview399Accepted();
-    expect(accepted.anomalies.every((anomaly) => anomaly.resolution_status === "ACCEPTED")).toBe(true);
+    expect(accepted.anomalies.every((anomaly) => anomaly.resolution_status === "ACCEPTED")).toBe(
+      true,
+    );
     expect(accepted.can_start).toBe(true);
   });
 
@@ -110,15 +128,28 @@ describe("archive validation fixtures", () => {
   it("re-derives every subject after the close changed the candidate set (V10)", () => {
     const preview = vPreviewAfterClose();
     expect(preview.candidate_set_digest).not.toBe(V_CANDIDATES.candidate_set_digest);
-    expect(preview.anomalies.every((anomaly) => anomaly.resolution_status === "UNRESOLVED")).toBe(true);
-    expect(preview.anomalies.some((anomaly) => anomaly.issue_code === "INITIAL_SOURCE_UNEXPLAINED")).toBe(true);
+    expect(preview.anomalies.every((anomaly) => anomaly.resolution_status === "UNRESOLVED")).toBe(
+      true,
+    );
+    expect(
+      preview.anomalies.some((anomaly) => anomaly.issue_code === "INITIAL_SOURCE_UNEXPLAINED"),
+    ).toBe(true);
   });
 
   it("keeps all V previews and candidates within the backend start rules", () => {
-    for (const plan of [vPreviewAllKinds(), vPreviewTwoSided(), vPreviewPending(), vPreviewAfterClose(), vPreviewUnknownCode(), vPreview399(), vPreviewBlocked("ARCHIVE_INTEGRITY_FAILURE")]) {
+    for (const plan of [
+      vPreviewAllKinds(),
+      vPreviewTwoSided(),
+      vPreviewPending(),
+      vPreviewAfterClose(),
+      vPreviewUnknownCode(),
+      vPreview399(),
+      vPreviewBlocked("ARCHIVE_INTEGRITY_FAILURE"),
+    ]) {
       expect(plan.audit_validity, "audit_validity").toBe(false);
       expect(plan.can_start, "can_start").toBe(false);
-      if (plan.selection_subject_digest) expect(plan.confirmation_requirements).toContain(plan.selection_subject_digest);
+      if (plan.selection_subject_digest)
+        expect(plan.confirmation_requirements).toContain(plan.selection_subject_digest);
     }
   });
   it("only emits REVOKED/ACCEPTED with the §16.8 field combinations", () => {
@@ -159,7 +190,9 @@ describe("archive validation fixtures", () => {
       [vPreviewPending(), 2],
       [vPreview399(), 200],
     ] as const) {
-      expect(plan.anomalies.length, plan.candidate_set_digest).toBeLessThanOrEqual(8 * candidateCount + 1);
+      expect(plan.anomalies.length, plan.candidate_set_digest).toBeLessThanOrEqual(
+        8 * candidateCount + 1,
+      );
     }
   });
 });

@@ -2,20 +2,30 @@ import { ApiError } from "./authenticated-fetch";
 import { bindGatewayApi } from "./client";
 import type { components } from "./generated/openapi";
 import type { GatewayApi, ReviewAction, UploadRevisionInput } from "./client";
-import { ensureLocalBundle, type InstalledBundle, type ReadableBundleStore } from "../bundle/local-bundle";
+import {
+  ensureLocalBundle,
+  type InstalledBundle,
+  type ReadableBundleStore,
+} from "../bundle/local-bundle";
 import { reportConnectionStatus } from "./connection-status";
 
 type Schemas = components["schemas"];
 
 export class OperationFailedError extends Error {
-  constructor(readonly operationId: string, readonly diagnostic: Schemas["OperationResponse"]["diagnostic"]) {
+  constructor(
+    readonly operationId: string,
+    readonly diagnostic: Schemas["OperationResponse"]["diagnostic"],
+  ) {
     super(diagnostic?.message ?? `操作 ${operationId} 执行失败`);
     this.name = "OperationFailedError";
   }
 }
 
 export class PollingConnectionLostError extends Error {
-  constructor(readonly operationId: string, readonly attempts: number) {
+  constructor(
+    readonly operationId: string,
+    readonly attempts: number,
+  ) {
     super(`操作 ${operationId} 暂时无法连接，请重试查询`);
     this.name = "PollingConnectionLostError";
   }
@@ -40,14 +50,22 @@ function abortableWait(milliseconds: number, signal?: AbortSignal): Promise<void
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason ?? new DOMException("已取消", "AbortError"));
     const timer = setTimeout(resolve, milliseconds);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new DOMException("已取消", "AbortError"));
-    }, { once: true });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new DOMException("已取消", "AbortError"));
+      },
+      { once: true },
+    );
   });
 }
 
-export async function pollOperation(api: GatewayApi, operationId: string, options: PollOptions = {}): Promise<Schemas["OperationResponse"]> {
+export async function pollOperation(
+  api: GatewayApi,
+  operationId: string,
+  options: PollOptions = {},
+): Promise<Schemas["OperationResponse"]> {
   api = bindGatewayApi(api);
   const intervalMs = options.intervalMs ?? 1_000;
   const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
@@ -56,10 +74,15 @@ export async function pollOperation(api: GatewayApi, operationId: string, option
   let transientRetries = 0;
   let lastStatus: Schemas["OperationResponse"]["status"] | null = null;
   for (;;) {
-    if (options.signal?.aborted) throw options.signal.reason ?? new DOMException("已取消", "AbortError");
+    if (options.signal?.aborted)
+      throw options.signal.reason ?? new DOMException("已取消", "AbortError");
     const request = new AbortController();
-    const timeout = setTimeout(() => request.abort(new DOMException("状态请求超时", "TimeoutError")), requestTimeoutMs);
-    const abortParent = () => request.abort(options.signal?.reason ?? new DOMException("查询已取消", "AbortError"));
+    const timeout = setTimeout(
+      () => request.abort(new DOMException("状态请求超时", "TimeoutError")),
+      requestTimeoutMs,
+    );
+    const abortParent = () =>
+      request.abort(options.signal?.reason ?? new DOMException("查询已取消", "AbortError"));
     options.signal?.addEventListener("abort", abortParent, { once: true });
     try {
       const operation = await api.getOperation(operationId, request.signal);
@@ -69,7 +92,11 @@ export async function pollOperation(api: GatewayApi, operationId: string, option
       reportConnectionStatus("connected");
       options.onUpdate?.(operation);
       if (operation.status === "SUCCEEDED") return operation;
-      if (operation.status === "FAILED" || operation.status === "CANCELLED" || operation.status === "SUPERSEDED") {
+      if (
+        operation.status === "FAILED" ||
+        operation.status === "CANCELLED" ||
+        operation.status === "SUPERSEDED"
+      ) {
         throw new OperationFailedError(operationId, operation.diagnostic);
       }
     } catch (cause) {
@@ -103,7 +130,11 @@ export async function pollOperation(api: GatewayApi, operationId: string, option
 }
 
 function isRequestTimeout(cause: unknown, signal: AbortSignal): boolean {
-  return signal.aborted || (cause instanceof DOMException && (cause.name === "TimeoutError" || cause.name === "AbortError"));
+  return (
+    signal.aborted ||
+    (cause instanceof DOMException &&
+      (cause.name === "TimeoutError" || cause.name === "AbortError"))
+  );
 }
 
 // A 503 with one of these codes is a definite server answer about the result,
@@ -136,10 +167,15 @@ export async function pollHistoryCompare(
   const wait = options.wait ?? abortableWait;
   let transientRetries = 0;
   for (;;) {
-    if (options.signal?.aborted) throw options.signal.reason ?? new DOMException("已取消", "AbortError");
+    if (options.signal?.aborted)
+      throw options.signal.reason ?? new DOMException("已取消", "AbortError");
     const request = new AbortController();
-    const timeout = setTimeout(() => request.abort(new DOMException("状态请求超时", "TimeoutError")), requestTimeoutMs);
-    const abortParent = () => request.abort(options.signal?.reason ?? new DOMException("查询已取消", "AbortError"));
+    const timeout = setTimeout(
+      () => request.abort(new DOMException("状态请求超时", "TimeoutError")),
+      requestTimeoutMs,
+    );
+    const abortParent = () =>
+      request.abort(options.signal?.reason ?? new DOMException("查询已取消", "AbortError"));
     options.signal?.addEventListener("abort", abortParent, { once: true });
     try {
       const result = await api.getHistoryCompare(operationId, request.signal);
@@ -147,7 +183,12 @@ export async function pollHistoryCompare(
       options.onConnectionStatus?.("connected");
       reportConnectionStatus("connected");
       options.onUpdate?.(result);
-      if (result.status === "SUCCEEDED" || result.status === "FAILED" || result.status === "CANCELLED") return result;
+      if (
+        result.status === "SUCCEEDED" ||
+        result.status === "FAILED" ||
+        result.status === "CANCELLED"
+      )
+        return result;
     } catch (cause) {
       if (options.signal?.aborted) throw options.signal.reason ?? cause;
       if (isRequestTimeout(cause, request.signal)) {
@@ -238,13 +279,17 @@ export async function runPreviewJourney(
   if (!workspaceId) throw new Error("上传失败：缺少工作区标识");
   if (!progress.operationId) {
     progress.previewKey ??= input.previewIdempotencyKey ?? crypto.randomUUID();
-    const accepted = await api.startPreview(workspaceId, {
-      expected_workspace_version: upload.optimistic_version,
-      upload_revision_id: upload.upload_revision_id,
-      generation: upload.generation,
-      expected_baseline_node_id: input.baselineNodeId,
-      expected_baseline_head_version: input.baselineHeadVersion,
-    }, progress.previewKey);
+    const accepted = await api.startPreview(
+      workspaceId,
+      {
+        expected_workspace_version: upload.optimistic_version,
+        upload_revision_id: upload.upload_revision_id,
+        generation: upload.generation,
+        expected_baseline_node_id: input.baselineNodeId,
+        expected_baseline_head_version: input.baselineHeadVersion,
+      },
+      progress.previewKey,
+    );
     progress.operationId = accepted.operation_id;
     input.onOperationAccepted?.(accepted.operation_id);
   }
@@ -264,7 +309,8 @@ export async function runPreviewJourney(
   if (!previewResultId) throw new Error("预览操作完成后工作区没有当前 Preview 结果");
   const preview = await api.getPreviewResult(workspaceId, previewResultId);
   if (preview.operation_id !== operationId) throw new Error("Preview 结果不属于本次预览操作");
-  if (preview.upload_revision_id !== upload.upload_revision_id) throw new Error("Preview 结果不属于本次上传版本");
+  if (preview.upload_revision_id !== upload.upload_revision_id)
+    throw new Error("Preview 结果不属于本次上传版本");
   input.onDownloadStart?.();
   const bundle = await ensureJourneyBundle(api, {
     store,
@@ -309,7 +355,10 @@ export interface SubmitJourneyResult {
   submission: Schemas["SubmissionResponse"];
 }
 
-export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInput): Promise<SubmitJourneyResult> {
+export async function runSubmitJourney(
+  api: GatewayApi,
+  input: SubmitJourneyInput,
+): Promise<SubmitJourneyResult> {
   api = bindGatewayApi(api);
   const body = {
     expected_workspace_version: input.expectedWorkspaceVersion,
@@ -344,15 +393,26 @@ export interface HistoryComparisonJourneyResult {
   bundle: InstalledBundle;
 }
 
-export async function runHistoryComparison(api: GatewayApi, store: ReadableBundleStore, nodes: Schemas["HistoryCompareNodeRequest"][], idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<HistoryComparisonJourneyResult> {
+export async function runHistoryComparison(
+  api: GatewayApi,
+  store: ReadableBundleStore,
+  nodes: Schemas["HistoryCompareNodeRequest"][],
+  idempotencyKey: string,
+  options: HistoryComparePollOptions = {},
+): Promise<HistoryComparisonJourneyResult> {
   api = bindGatewayApi(api);
   if (nodes.length < 2 || nodes.length > 3) throw new Error("历史比较需要两到三个节点");
-  if (nodes.some((node) => node.ref_kind === "submission" && !node.ref_id)) throw new Error("历史提交节点缺少标识");
-  const accepted = await api.startHistoryCompare({
-    nodes,
-  }, idempotencyKey);
+  if (nodes.some((node) => node.ref_kind === "submission" && !node.ref_id))
+    throw new Error("历史提交节点缺少标识");
+  const accepted = await api.startHistoryCompare(
+    {
+      nodes,
+    },
+    idempotencyKey,
+  );
   const result = await pollHistoryCompare(api, accepted.operation_id, options);
-  if (result.status !== "SUCCEEDED" || !result.result) throw new Error(result.diagnostic?.message ?? "历史比较没有成功结果");
+  if (result.status !== "SUCCEEDED" || !result.result)
+    throw new Error(result.diagnostic?.message ?? "历史比较没有成功结果");
   const bundle = await ensureJourneyBundle(api, {
     store,
     expectedBundleDigest: result.result.bundle_digest,
@@ -362,26 +422,56 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
   return { accepted, result, bundle };
 }
 
-export function assertSubmissionReviewBundle(submissionId: string, result: Schemas["SubmissionResultResponse"], bundle: InstalledBundle): void {
+export function assertSubmissionReviewBundle(
+  submissionId: string,
+  result: Schemas["SubmissionResultResponse"],
+  bundle: InstalledBundle,
+): void {
   const actual = bundle.manifest.pairs.map((value) => {
-    const pair = value && typeof value === "object" ? value as Record<string, unknown> : {};
-    return [pair.pair_id, pair.comparison_digest, pair.surface_digest, pair.risk_evaluation_digest ?? null];
+    const pair = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    return [
+      pair.pair_id,
+      pair.comparison_digest,
+      pair.surface_digest,
+      pair.risk_evaluation_digest ?? null,
+    ];
   });
-  const expected = result.pairs.map((pair) => [pair.pair_id, pair.comparison_digest, pair.surface_digest, pair.risk_digest]);
-  if (result.submission_id !== submissionId || result.bundle_digest !== bundle.manifest.bundle_digest
-    || JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new ApiError("提交绑定的比较对与 bundle 不一致", 503, "SUBMISSION_RESULT_INTEGRITY_FAILURE");
+  const expected = result.pairs.map((pair) => [
+    pair.pair_id,
+    pair.comparison_digest,
+    pair.surface_digest,
+    pair.risk_digest,
+  ]);
+  if (
+    result.submission_id !== submissionId ||
+    result.bundle_digest !== bundle.manifest.bundle_digest ||
+    JSON.stringify(actual) !== JSON.stringify(expected)
+  ) {
+    throw new ApiError(
+      "提交绑定的比较对与 bundle 不一致",
+      503,
+      "SUBMISSION_RESULT_INTEGRITY_FAILURE",
+    );
   }
 }
 
-export async function applyReviewAction(api: GatewayApi, submissionId: string, reviewVersion: number, action: ReviewAction, reason?: string, idempotencyKey?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {
+export async function applyReviewAction(
+  api: GatewayApi,
+  submissionId: string,
+  reviewVersion: number,
+  action: ReviewAction,
+  reason?: string,
+  idempotencyKey?: string,
+): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {
   if (action === "REJECT" && !reason?.trim()) throw new Error("退回时必须填写理由");
   const body = {
     expected_review_version: reviewVersion,
     action,
     ...(reason === undefined ? {} : { reason }),
   };
-  return idempotencyKey ? api.applyReview(submissionId, body, idempotencyKey) : api.applyReview(submissionId, body);
+  return idempotencyKey
+    ? api.applyReview(submissionId, body, idempotencyKey)
+    : api.applyReview(submissionId, body);
 }
 
 /**
@@ -403,7 +493,12 @@ export function buildArchiveSelectedRef(source: {
 
 export interface ArchiveJourneyInput {
   selected: Schemas["ArchiveSelectedRefRequest"];
-  confirmations?: Array<{ subjectDigest: string; action: "CONFIRM" | "REVOKE"; reason?: string | null; idempotencyKey?: string }>;
+  confirmations?: Array<{
+    subjectDigest: string;
+    action: "CONFIRM" | "REVOKE";
+    reason?: string | null;
+    idempotencyKey?: string;
+  }>;
   startIdempotencyKey?: string;
   idempotencyKey?: string;
 }
@@ -431,7 +526,11 @@ export function createArchiveJourneyProgress(): ArchiveJourneyProgress {
 
 export type ArchiveSubjectKind = NonNullable<Schemas["ArchiveAuditEventResponse"]["subject_kind"]>;
 
-async function listSubjectEvents(api: GatewayApi, subjectKind: ArchiveSubjectKind, subjectDigest: string): Promise<Schemas["ArchiveAuditEventResponse"][]> {
+async function listSubjectEvents(
+  api: GatewayApi,
+  subjectKind: ArchiveSubjectKind,
+  subjectDigest: string,
+): Promise<Schemas["ArchiveAuditEventResponse"][]> {
   const events: Schemas["ArchiveAuditEventResponse"][] = [];
   let afterSequence = 0;
   for (;;) {
@@ -443,7 +542,11 @@ async function listSubjectEvents(api: GatewayApi, subjectKind: ArchiveSubjectKin
   }
 }
 
-async function getLatestSubjectSequence(api: GatewayApi, subjectKind: ArchiveSubjectKind, subjectDigest: string): Promise<number> {
+async function getLatestSubjectSequence(
+  api: GatewayApi,
+  subjectKind: ArchiveSubjectKind,
+  subjectDigest: string,
+): Promise<number> {
   const events = await listSubjectEvents(api, subjectKind, subjectDigest);
   return events.reduce((max, event) => Math.max(max, event.sequence), 0);
 }
@@ -452,34 +555,49 @@ export async function runArchiveJourney(
   api: GatewayApi,
   input: ArchiveJourneyInput,
   progress: ArchiveJourneyProgress = createArchiveJourneyProgress(),
-): Promise<{ plan: Schemas["PreviewArchivePlanResponse"]; started: Schemas["ArchiveStartedResponse"]; result: Schemas["ArchiveResultResponse"] }> {
+): Promise<{
+  plan: Schemas["PreviewArchivePlanResponse"];
+  started: Schemas["ArchiveStartedResponse"];
+  result: Schemas["ArchiveResultResponse"];
+}> {
   api = archiveApis.get(progress) ?? bindGatewayApi(api);
   archiveApis.set(progress, api);
   const candidates = await api.listArchiveCandidates();
   let plan = await api.previewArchive({ selected: input.selected });
-  if (candidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
+  if (candidates.candidate_set_digest !== plan.candidate_set_digest)
+    throw new Error("归档候选列表已变化，请重新确认");
   const confirmationRefs: Schemas["ArchiveAuditReferenceRequest"][] = [];
   const anomalyResolutionRefs: Schemas["ArchiveAuditReferenceRequest"][] = [];
   let appended = false;
   for (const confirmation of input.confirmations ?? []) {
-    const entry = resolveAuditProgress(progress.confirmations, confirmation.subjectDigest, confirmation.idempotencyKey, () =>
-      getLatestSubjectSequence(api, "CONFIRM_SELECTION", confirmation.subjectDigest));
+    const entry = resolveAuditProgress(
+      progress.confirmations,
+      confirmation.subjectDigest,
+      confirmation.idempotencyKey,
+      () => getLatestSubjectSequence(api, "CONFIRM_SELECTION", confirmation.subjectDigest),
+    );
     const resolved = await entry;
     if (resolved.sequence === undefined) {
-      const response = await api.appendArchiveConfirmation({
-        expected_baseline_node_id: plan.head.business_baseline_node_id,
-        expected_baseline_head_version: plan.head.baseline_head_version,
-        selected: input.selected,
-        candidate_set_digest: plan.candidate_set_digest,
-        subject_digest: confirmation.subjectDigest,
-        expected_sequence: resolved.expectedSequence,
-        action: confirmation.action,
-        reason: confirmation.reason,
-      }, resolved.key);
+      const response = await api.appendArchiveConfirmation(
+        {
+          expected_baseline_node_id: plan.head.business_baseline_node_id,
+          expected_baseline_head_version: plan.head.baseline_head_version,
+          selected: input.selected,
+          candidate_set_digest: plan.candidate_set_digest,
+          subject_digest: confirmation.subjectDigest,
+          expected_sequence: resolved.expectedSequence,
+          action: confirmation.action,
+          reason: confirmation.reason,
+        },
+        resolved.key,
+      );
       resolved.sequence = response.sequence;
       appended = true;
     }
-    confirmationRefs.push({ subject_digest: confirmation.subjectDigest, sequence: resolved.sequence });
+    confirmationRefs.push({
+      subject_digest: confirmation.subjectDigest,
+      sequence: resolved.sequence,
+    });
   }
   if (appended) plan = await api.previewArchive({ selected: input.selected });
   // Anomaly acceptances are appended one by one in the dialog (§16.4) before this
@@ -491,21 +609,33 @@ export async function runArchiveJourney(
   // would mask the server verdict the e2e journeys assert on.
   for (const anomaly of plan.anomalies) {
     if (anomaly.resolution_status !== "ACCEPTED") continue;
-    const entry = await resolveAuditProgress(progress.anomalyResolutions, anomaly.subject_digest, undefined, async () => anomaly.latest_sequence);
+    const entry = await resolveAuditProgress(
+      progress.anomalyResolutions,
+      anomaly.subject_digest,
+      undefined,
+      async () => anomaly.latest_sequence,
+    );
     if (entry.sequence === undefined) entry.sequence = anomaly.latest_sequence;
-    anomalyResolutionRefs.push({ subject_digest: anomaly.subject_digest, sequence: entry.sequence });
+    anomalyResolutionRefs.push({
+      subject_digest: anomaly.subject_digest,
+      sequence: entry.sequence,
+    });
   }
   const latestCandidates = await api.listArchiveCandidates();
-  if (latestCandidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
+  if (latestCandidates.candidate_set_digest !== plan.candidate_set_digest)
+    throw new Error("归档候选列表已变化，请重新确认");
   progress.startKey ??= input.startIdempotencyKey ?? input.idempotencyKey ?? crypto.randomUUID();
-  progress.started ??= await api.startArchive({
-    expected_baseline_node_id: plan.head.business_baseline_node_id,
-    expected_baseline_head_version: plan.head.baseline_head_version,
-    candidate_set_digest: plan.candidate_set_digest,
-    selected: input.selected,
-    confirmation_refs: confirmationRefs,
-    anomaly_resolution_refs: anomalyResolutionRefs,
-  }, progress.startKey);
+  progress.started ??= await api.startArchive(
+    {
+      expected_baseline_node_id: plan.head.business_baseline_node_id,
+      expected_baseline_head_version: plan.head.baseline_head_version,
+      candidate_set_digest: plan.candidate_set_digest,
+      selected: input.selected,
+      confirmation_refs: confirmationRefs,
+      anomaly_resolution_refs: anomalyResolutionRefs,
+    },
+    progress.startKey,
+  );
   progress.result ??= await api.getArchiveResult(progress.started.archive_result_id);
   api.assertSession?.();
   return { plan, started: progress.started, result: progress.result };
@@ -519,7 +649,10 @@ async function resolveAuditProgress(
 ): Promise<ArchiveAuditSubjectProgress> {
   const existing = entries.get(subjectDigest);
   if (existing) return existing;
-  const entry = { key: suppliedKey ?? crypto.randomUUID(), expectedSequence: await latestSequence() };
+  const entry = {
+    key: suppliedKey ?? crypto.randomUUID(),
+    expectedSequence: await latestSequence(),
+  };
   entries.set(subjectDigest, entry);
   return entry;
 }
@@ -528,12 +661,20 @@ async function resolveAuditProgress(
 export async function runDatasetReplacementPreview(
   api: GatewayApi,
   store: ReadableBundleStore,
-  input: Omit<PreviewJourneyInput, "upload"> & { upload: Omit<UploadRevisionInput, "expectedWorkspaceVersion" | "initial" | "inputCompleteness"> & { inputCompleteness: "MODIFIED_ONLY"; initial?: never } },
+  input: Omit<PreviewJourneyInput, "upload"> & {
+    upload: Omit<
+      UploadRevisionInput,
+      "expectedWorkspaceVersion" | "initial" | "inputCompleteness"
+    > & { inputCompleteness: "MODIFIED_ONLY"; initial?: never };
+  },
 ): Promise<BundleJourneyResult> {
   return runPreviewJourney(api, store, input);
 }
 
-async function ensureJourneyBundle(api: GatewayApi, options: Parameters<typeof ensureLocalBundle>[0]): Promise<InstalledBundle> {
+async function ensureJourneyBundle(
+  api: GatewayApi,
+  options: Parameters<typeof ensureLocalBundle>[0],
+): Promise<InstalledBundle> {
   try {
     const bundle = await ensureLocalBundle(options);
     api.assertSession?.();

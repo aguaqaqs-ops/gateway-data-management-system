@@ -10,21 +10,21 @@ export default tseslint.config(
       "coverage/**",
       "playwright-report/**",
       "test-results/**",
-      "src/features/api/generated/openapi.d.ts"
-    ]
+      "src/features/api/generated/openapi.d.ts",
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
-    languageOptions: { globals: globals.browser }
+    languageOptions: { globals: globals.browser },
   },
   {
     files: ["scripts/**/*.mjs"],
-    languageOptions: { globals: globals.node }
+    languageOptions: { globals: globals.node },
   },
   {
     files: ["*.config.{js,ts}", "eslint.config.js"],
-    languageOptions: { globals: globals.node }
-  }
+    languageOptions: { globals: globals.node },
+  },
 );

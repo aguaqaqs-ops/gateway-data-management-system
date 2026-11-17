@@ -113,7 +113,10 @@ async function baselineProcesses(browser: Browser): Promise<Map<number, ProcessS
   return baselines;
 }
 
-async function snapshotProcesses(browser: Browser, baselines: Map<number, ProcessSnapshot>): Promise<ProcessSnapshot[]> {
+async function snapshotProcesses(
+  browser: Browser,
+  baselines: Map<number, ProcessSnapshot>,
+): Promise<ProcessSnapshot[]> {
   const procs = await browserProcs(browser);
   const seen = new Set<number>();
   const snapshots: ProcessSnapshot[] = [];
@@ -127,7 +130,8 @@ async function snapshotProcesses(browser: Browser, baselines: Map<number, Proces
       baseHwmBytes: base?.baseHwmBytes ?? null,
       baseRssBytes: base?.baseRssBytes ?? null,
       peakBytes: status?.hwmBytes ?? null,
-      incrementBytes: status && base?.baseHwmBytes != null ? status.hwmBytes - base.baseHwmBytes : null,
+      incrementBytes:
+        status && base?.baseHwmBytes != null ? status.hwmBytes - base.baseHwmBytes : null,
     });
   }
   for (const [pid, base] of baselines) {
@@ -137,22 +141,52 @@ async function snapshotProcesses(browser: Browser, baselines: Map<number, Proces
   return snapshots;
 }
 
-function parseManifest(body: Buffer | null, contentType: string | null): {
+function parseManifest(
+  body: Buffer | null,
+  contentType: string | null,
+): {
   manifest: unknown;
   inputCompleteness: string | null;
   initialSizeBytes: number | null;
   modifiedSizeBytes: number | null;
 } {
-  if (!body) return { manifest: null, inputCompleteness: null, initialSizeBytes: null, modifiedSizeBytes: null };
+  if (!body)
+    return {
+      manifest: null,
+      inputCompleteness: null,
+      initialSizeBytes: null,
+      modifiedSizeBytes: null,
+    };
   const boundaryMatch = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType ?? "");
   const boundary = (boundaryMatch?.[1] ?? boundaryMatch?.[2] ?? "").trim();
-  if (!boundary) return { manifest: null, inputCompleteness: null, initialSizeBytes: null, modifiedSizeBytes: null };
+  if (!boundary)
+    return {
+      manifest: null,
+      inputCompleteness: null,
+      initialSizeBytes: null,
+      modifiedSizeBytes: null,
+    };
   const parts = body.toString("latin1").split(`--${boundary}`);
   const part = parts.find((candidate) => /name="manifest"/.test(candidate));
-  if (!part) return { manifest: null, inputCompleteness: null, initialSizeBytes: null, modifiedSizeBytes: null };
+  if (!part)
+    return {
+      manifest: null,
+      inputCompleteness: null,
+      initialSizeBytes: null,
+      modifiedSizeBytes: null,
+    };
   const headerEnd = part.indexOf("\r\n\r\n");
-  if (headerEnd < 0) return { manifest: null, inputCompleteness: null, initialSizeBytes: null, modifiedSizeBytes: null };
-  const jsonText = part.slice(headerEnd + 4).replace(/\r\n$/, "").trim();
+  if (headerEnd < 0)
+    return {
+      manifest: null,
+      inputCompleteness: null,
+      initialSizeBytes: null,
+      modifiedSizeBytes: null,
+    };
+  const jsonText = part
+    .slice(headerEnd + 4)
+    .replace(/\r\n$/, "")
+    .trim();
   try {
     const parsed = JSON.parse(jsonText) as {
       input_completeness?: string;
@@ -168,7 +202,12 @@ function parseManifest(body: Buffer | null, contentType: string | null): {
       modifiedSizeBytes: parsed.artifacts?.MODIFIED?.size_bytes ?? null,
     };
   } catch {
-    return { manifest: null, inputCompleteness: null, initialSizeBytes: null, modifiedSizeBytes: null };
+    return {
+      manifest: null,
+      inputCompleteness: null,
+      initialSizeBytes: null,
+      modifiedSizeBytes: null,
+    };
   }
 }
 
@@ -185,12 +224,21 @@ async function observePhases(page: import("@playwright/test").Page): Promise<voi
       }
     };
     record();
-    new MutationObserver(record).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["data-phase"] });
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-phase"],
+    });
   });
 }
 
-async function readPhases(page: import("@playwright/test").Page): Promise<Array<{ phase: string; at: number }>> {
-  return page.evaluate(() => (window as unknown as { __m1Phases?: Array<{ phase: string; at: number }> }).__m1Phases ?? []);
+async function readPhases(
+  page: import("@playwright/test").Page,
+): Promise<Array<{ phase: string; at: number }>> {
+  return page.evaluate(
+    () =>
+      (window as unknown as { __m1Phases?: Array<{ phase: string; at: number }> }).__m1Phases ?? [],
+  );
 }
 
 test("M1 packaging peak memory", async () => {
@@ -198,7 +246,9 @@ test("M1 packaging peak memory", async () => {
   const mode = process.env.GATEWAY_M1_MODE ?? "modified";
   const reportPath = process.env.GATEWAY_M1_REPORT;
   if (!inputRoot || !reportPath || (mode !== "modified" && mode !== "full")) {
-    throw new Error("GATEWAY_M1_INPUT_ROOT / GATEWAY_M1_MODE=modified|full / GATEWAY_M1_REPORT are required");
+    throw new Error(
+      "GATEWAY_M1_INPUT_ROOT / GATEWAY_M1_MODE=modified|full / GATEWAY_M1_REPORT are required",
+    );
   }
   const runs = Number(process.env.GATEWAY_M1_RUNS ?? "3");
   const { files: fileCount, bytes: dirBytes } = await dirStats(inputRoot);
@@ -242,11 +292,19 @@ test("M1 packaging peak memory", async () => {
       const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
       await context.route("**/v1/workspaces", async (route) => {
         if (route.request().method() !== "POST") return route.fallback();
-        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stubWorkspace) });
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(stubWorkspace),
+        });
       });
       await context.route("**/v1/history*", async (route) => {
         if (route.request().method() !== "GET") return route.fallback();
-        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stubHistory) });
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(stubHistory),
+        });
       });
       await context.addInitScript(() => {
         (window as unknown as { __gatewaySession: GatewaySession }).__gatewaySession = {
@@ -257,7 +315,9 @@ test("M1 packaging peak memory", async () => {
       });
       const page = await context.newPage();
       await page.goto("/");
-      await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
+      await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({
+        timeout: 30000,
+      });
       await expect(page.getByLabel("上传与预览")).toBeVisible({ timeout: 30000 });
 
       // FULL uses the same directory for ① (initial) and ② (modified).
@@ -265,7 +325,9 @@ test("M1 packaging peak memory", async () => {
         const initial = page.locator('[data-testid="upload-initial-input"]');
         await initial.evaluate((el) => el.classList.remove("sr-only"));
         await initial.setInputFiles(inputRoot);
-        await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({ timeout: 30000 });
+        await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({
+          timeout: 30000,
+        });
       }
       const modified = page.locator('[data-testid="upload-modified-input"]');
       await modified.evaluate((el) => el.classList.remove("sr-only"));
@@ -287,7 +349,9 @@ test("M1 packaging peak memory", async () => {
       });
 
       await observePhases(page);
-      const uploadResponse = page.waitForResponse("**/v1/workspaces/*/upload-revisions", { timeout: 600000 });
+      const uploadResponse = page.waitForResponse("**/v1/workspaces/*/upload-revisions", {
+        timeout: 600000,
+      });
       const clickAt = Date.now();
       await page.getByRole("button", { name: "上传并生成预览" }).click();
       await uploadResponse;
@@ -296,12 +360,14 @@ test("M1 packaging peak memory", async () => {
       const phases = await readPhases(page);
       const packagingAt = phases.find((entry) => entry.phase === "packaging")?.at ?? null;
       const uploadingAt = phases.find((entry) => entry.phase === "uploading")?.at ?? null;
-      const packagingMs = packagingAt != null && uploadingAt != null && uploadingAt >= packagingAt
-        ? Math.round(uploadingAt - packagingAt)
-        : null;
+      const packagingMs =
+        packagingAt != null && uploadingAt != null && uploadingAt >= packagingAt
+          ? Math.round(uploadingAt - packagingAt)
+          : null;
       const parsed = parseManifest(manifestBody, manifestContentType);
       const jsHeapUsedBytes = await page.evaluate(() => {
-        const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory;
+        const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number } })
+          .memory;
         return memory?.usedJSHeapSize ?? null;
       });
       const processes = await snapshotProcesses(browser, baselines);
@@ -331,7 +397,9 @@ test("M1 packaging peak memory", async () => {
       .reduce((max, process) => Math.max(max, process.incrementBytes ?? 0), 0);
   const rendererIncrements = scenarios.map(rendererIncrement);
   const sortedRenderers = [...rendererIncrements].sort((a, b) => a - b);
-  const packagingTimes = scenarios.map((scenario) => scenario.packagingMs).filter((value): value is number => value != null);
+  const packagingTimes = scenarios
+    .map((scenario) => scenario.packagingMs)
+    .filter((value): value is number => value != null);
   const sortedPackaging = [...packagingTimes].sort((a, b) => a - b);
 
   await writeFile(
@@ -348,9 +416,15 @@ test("M1 packaging peak memory", async () => {
         rendererMaxIncrementBytes: Math.max(...rendererIncrements),
         rendererMedianIncrementBytes: sortedRenderers[Math.floor(sortedRenderers.length / 2)] ?? 0,
         packagingMaxMs: packagingTimes.length ? Math.max(...packagingTimes) : null,
-        packagingMedianMs: sortedPackaging.length ? sortedPackaging[Math.floor(sortedPackaging.length / 2)] : null,
-        modifiedSizeMaxBytes: Math.max(...scenarios.map((scenario) => scenario.modifiedSizeBytes ?? 0)),
-        initialSizeMaxBytes: Math.max(...scenarios.map((scenario) => scenario.initialSizeBytes ?? 0)),
+        packagingMedianMs: sortedPackaging.length
+          ? sortedPackaging[Math.floor(sortedPackaging.length / 2)]
+          : null,
+        modifiedSizeMaxBytes: Math.max(
+          ...scenarios.map((scenario) => scenario.modifiedSizeBytes ?? 0),
+        ),
+        initialSizeMaxBytes: Math.max(
+          ...scenarios.map((scenario) => scenario.initialSizeBytes ?? 0),
+        ),
       },
       null,
       2,

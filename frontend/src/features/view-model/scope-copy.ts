@@ -15,18 +15,30 @@ export function scopeChangeMark(scope: TabScope): ScopeChangeMark {
   if (scope.kind === "WHOLE_TABLE") return { kind: "badge", changeKind: scope.changeKind };
   const changes = scope.rowChanges;
   if (!changes) return { kind: "badge", changeKind: scope.changeKind };
-  if (changes.added > 0 || changes.deleted > 0) return { kind: "badge", changeKind: scope.changeKind };
+  if (changes.added > 0 || changes.deleted > 0)
+    return { kind: "badge", changeKind: scope.changeKind };
   const moved = changes.moved_in + changes.moved_out;
   if (changes.modified > moved) return { kind: "badge", changeKind: "UPDATED" };
-  if (changes.moved_in > 0 && changes.moved_out === 0) return { kind: "marker", text: "移入", title: "测点从其他装置移入本装置，不是新建" };
-  if (changes.moved_out > 0 && changes.moved_in === 0) return { kind: "marker", text: "移出", title: "测点移出本装置，未被删除" };
-  if (moved > 0) return { kind: "marker", text: "迁移", title: "测点在装置之间迁移，不是新建或删除" };
-  if (scope.membershipChanged) return { kind: "marker", text: "归属变化", title: "测点内容未变，注册归属变化，不是新建或删除" };
+  if (changes.moved_in > 0 && changes.moved_out === 0)
+    return { kind: "marker", text: "移入", title: "测点从其他装置移入本装置，不是新建" };
+  if (changes.moved_out > 0 && changes.moved_in === 0)
+    return { kind: "marker", text: "移出", title: "测点移出本装置，未被删除" };
+  if (moved > 0)
+    return { kind: "marker", text: "迁移", title: "测点在装置之间迁移，不是新建或删除" };
+  if (scope.membershipChanged)
+    return {
+      kind: "marker",
+      text: "归属变化",
+      title: "测点内容未变，注册归属变化，不是新建或删除",
+    };
   return { kind: "badge", changeKind: "UNCHANGED" };
 }
 
 /** User wording for a scope's change: whole-table status, or local rows created/removed vs moved between devices. */
-export function scopeChangeText(scope: TabScope, wholeTableText: (changeKind: string) => string): string {
+export function scopeChangeText(
+  scope: TabScope,
+  wholeTableText: (changeKind: string) => string,
+): string {
   if (scope.changeKind === null) return "变化未知";
   if (scope.kind === "WHOLE_TABLE") return wholeTableText(scope.changeKind);
   const changes = scope.rowChanges;
@@ -54,9 +66,19 @@ export function itemChangeMark(item: NavItem, scopes: readonly TabScope[]): Scop
   const local = scopes.filter((scope) => scope.kind !== "WHOLE_TABLE");
   if (local.length === 0 || local.length !== scopes.length) return null;
   const marks = local.map(scopeChangeMark);
-  if (marks.some((mark) => mark.kind !== "marker" && !(mark.kind === "badge" && mark.changeKind === "UNCHANGED"))) return null;
-  const markers = marks.filter((mark): mark is Extract<ScopeChangeMark, { kind: "marker" }> => mark.kind === "marker");
+  if (
+    marks.some(
+      (mark) =>
+        mark.kind !== "marker" && !(mark.kind === "badge" && mark.changeKind === "UNCHANGED"),
+    )
+  )
+    return null;
+  const markers = marks.filter(
+    (mark): mark is Extract<ScopeChangeMark, { kind: "marker" }> => mark.kind === "marker",
+  );
   if (markers.length === 0 || item.changeKinds.length === 0) return null;
   const texts = new Set(markers.map((mark) => mark.text));
-  return texts.size === 1 ? markers[0]! : { kind: "marker", text: "迁移", title: "测点在装置之间迁移或注册归属变化，不是新建或删除" };
+  return texts.size === 1
+    ? markers[0]!
+    : { kind: "marker", text: "迁移", title: "测点在装置之间迁移或注册归属变化，不是新建或删除" };
 }

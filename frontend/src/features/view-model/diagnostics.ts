@@ -1,4 +1,9 @@
-import { ComparisonDecodeError, NAVIGATION_CONTRACT_VERSION, type ComparisonSurface, type SurfaceTable } from "./model";
+import {
+  ComparisonDecodeError,
+  NAVIGATION_CONTRACT_VERSION,
+  type ComparisonSurface,
+  type SurfaceTable,
+} from "./model";
 
 export type DiagnosticSide = "BEFORE" | "CURRENT" | null;
 
@@ -30,25 +35,71 @@ const REASON_COPY: Readonly<Record<string, string>> = {
 };
 
 const NAVIGATION_COPY: Readonly<Record<string, { template: string; params: readonly string[] }>> = {
-  DEVICE_ADDRESS_DUPLICATE: { template: "{side}装置总表中装置地址 {dev_addr} 重复", params: ["dev_addr"] },
-  DEVICE_GID_DUPLICATE: { template: "{side}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确", params: ["gid"] },
-  DEVICE_TAB_COUNT_UNKNOWN: { template: "{side}{table}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空", params: ["identity_column"] },
-  DEVICE_ROWS_UNASSIGNED: { template: "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表", params: ["identity_column", "row_count", "changed_row_count"] },
-  CHANNEL_TABLE_UNCLAIMED: { template: "{side}{table}属于通道 {channel_prefix}，但{registry_table}中没有对应配置或 exe 为空", params: ["channel_prefix", "registry_table"] },
-  PROTOCOL_TABLE_NOT_FOUND: { template: "{side}通道 {channel_prefix} 的规约 {protocol} 没有匹配的表（{registry_table}；预期表名前缀：{expected_prefixes}）", params: ["channel_prefix", "registry_table", "protocol", "expected_prefixes"] },
-  APP_TABLE_CFG_MISSING: { template: "{side}全局参数 {app_name} 未指定参数表", params: ["app_name"] },
-  APP_TABLE_CFG_DUPLICATE: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次", params: ["app_name", "table_cfg"] },
-  APP_TABLE_NOT_FOUND: { template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 不存在", params: ["app_name", "table_cfg"] },
-  DEVICE_TAB_FACTS_UNAVAILABLE: { template: "{table}的装置页签无法确定本装置的逐行变化（{reason}），变化显示为未知，不代表整表结果", params: ["identity_column", "reason"] },
-  DEVICE_TAB_RISK_UNAVAILABLE: { template: "{table}的风险信息不完整（{reason}），装置页签只列出已确认的风险", params: ["identity_column", "reason"] },
-  DEVICE_MEMBERSHIP_UNAVAILABLE: { template: "{table}的测点归属变化无法完整判断（{reason}），装置页签只列出已确认的归属变化", params: ["identity_column", "reason"] },
-  DEVICE_FILTER_VALUE_UNSUPPORTED: { template: "{side}{table}的 {identity_column} 无法用于按装置筛选（{reason}），已改为整表显示", params: ["identity_column", "reason"] },
+  DEVICE_ADDRESS_DUPLICATE: {
+    template: "{side}装置总表中装置地址 {dev_addr} 重复",
+    params: ["dev_addr"],
+  },
+  DEVICE_GID_DUPLICATE: {
+    template: "{side}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确",
+    params: ["gid"],
+  },
+  DEVICE_TAB_COUNT_UNKNOWN: {
+    template: "{side}{table}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空",
+    params: ["identity_column"],
+  },
+  DEVICE_ROWS_UNASSIGNED: {
+    template:
+      "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表",
+    params: ["identity_column", "row_count", "changed_row_count"],
+  },
+  CHANNEL_TABLE_UNCLAIMED: {
+    template: "{side}{table}属于通道 {channel_prefix}，但{registry_table}中没有对应配置或 exe 为空",
+    params: ["channel_prefix", "registry_table"],
+  },
+  PROTOCOL_TABLE_NOT_FOUND: {
+    template:
+      "{side}通道 {channel_prefix} 的规约 {protocol} 没有匹配的表（{registry_table}；预期表名前缀：{expected_prefixes}）",
+    params: ["channel_prefix", "registry_table", "protocol", "expected_prefixes"],
+  },
+  APP_TABLE_CFG_MISSING: {
+    template: "{side}全局参数 {app_name} 未指定参数表",
+    params: ["app_name"],
+  },
+  APP_TABLE_CFG_DUPLICATE: {
+    template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次",
+    params: ["app_name", "table_cfg"],
+  },
+  APP_TABLE_NOT_FOUND: {
+    template: "{side}全局参数 {app_name} 指向的参数表 {table_cfg} 不存在",
+    params: ["app_name", "table_cfg"],
+  },
+  DEVICE_TAB_FACTS_UNAVAILABLE: {
+    template:
+      "{table}的装置页签无法确定本装置的逐行变化（{reason}），变化显示为未知，不代表整表结果",
+    params: ["identity_column", "reason"],
+  },
+  DEVICE_TAB_RISK_UNAVAILABLE: {
+    template: "{table}的风险信息不完整（{reason}），装置页签只列出已确认的风险",
+    params: ["identity_column", "reason"],
+  },
+  DEVICE_MEMBERSHIP_UNAVAILABLE: {
+    template: "{table}的测点归属变化无法完整判断（{reason}），装置页签只列出已确认的归属变化",
+    params: ["identity_column", "reason"],
+  },
+  DEVICE_FILTER_VALUE_UNSUPPORTED: {
+    template: "{side}{table}的 {identity_column} 无法用于按装置筛选（{reason}），已改为整表显示",
+    params: ["identity_column", "reason"],
+  },
 };
 
 export const NAVIGATION_DIAGNOSTIC_CODES = Object.keys(NAVIGATION_COPY);
 
 /** Local-fact diagnostics are table-wide: side null, target the shared table in SECONDARY_DEVICES. */
-const TABLE_WIDE_CODES: ReadonlySet<string> = new Set(["DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_TAB_RISK_UNAVAILABLE", "DEVICE_MEMBERSHIP_UNAVAILABLE"]);
+const TABLE_WIDE_CODES: ReadonlySet<string> = new Set([
+  "DEVICE_TAB_FACTS_UNAVAILABLE",
+  "DEVICE_TAB_RISK_UNAVAILABLE",
+  "DEVICE_MEMBERSHIP_UNAVAILABLE",
+]);
 
 const SURFACE_COPY: Readonly<Record<string, string>> = {
   DEGRADE_NO_COMPARE_KEY: "本表没有可用的比较键",
@@ -156,52 +207,134 @@ export const SURFACE_DIAGNOSTIC_CODES = [
   "COMPARISON_RULESET_DIGEST_MISSING",
 ] as const;
 
-
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+  return (
+    Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+  );
 }
 
 /** Decode the versioned diagnostics artifact before it reaches the UI. */
 export function decodeNavigationDiagnostics(input: unknown): NavigationDiagnosticsDocument {
-  const fail = (): never => { throw new ComparisonDecodeError("无效的业务导航诊断产物"); };
-  if (!record(input) || !exactKeys(input, ["contract_version", "diagnostics"]) || input.contract_version !== NAVIGATION_CONTRACT_VERSION || !Array.isArray(input.diagnostics) || input.diagnostics.length === 0) return fail();
+  const fail = (): never => {
+    throw new ComparisonDecodeError("无效的业务导航诊断产物");
+  };
+  if (
+    !record(input) ||
+    !exactKeys(input, ["contract_version", "diagnostics"]) ||
+    input.contract_version !== NAVIGATION_CONTRACT_VERSION ||
+    !Array.isArray(input.diagnostics) ||
+    input.diagnostics.length === 0
+  )
+    return fail();
   const diagnostics: NavigationDiagnostic[] = input.diagnostics.map((raw: unknown) => {
-    if (!record(raw) || !exactKeys(raw, ["code", "target", "side", "params"]) || typeof raw.code !== "string" || !Object.hasOwn(NAVIGATION_COPY, raw.code) || !record(raw.params) || !record(raw.target)) return fail();
+    if (
+      !record(raw) ||
+      !exactKeys(raw, ["code", "target", "side", "params"]) ||
+      typeof raw.code !== "string" ||
+      !Object.hasOwn(NAVIGATION_COPY, raw.code) ||
+      !record(raw.params) ||
+      !record(raw.target)
+    )
+      return fail();
     const keys = NAVIGATION_COPY[raw.code].params;
-    if (!exactKeys(raw.params, keys) || !exactKeys(raw.target, ["group_key", "item_key", "tab_key", "table_id"]) || !Object.values(raw.target).every((value) => value === null || typeof value === "string") || ![null, "BEFORE", "CURRENT"].includes(raw.side as null | string)) return fail();
+    if (
+      !exactKeys(raw.params, keys) ||
+      !exactKeys(raw.target, ["group_key", "item_key", "tab_key", "table_id"]) ||
+      !Object.values(raw.target).every((value) => value === null || typeof value === "string") ||
+      ![null, "BEFORE", "CURRENT"].includes(raw.side as null | string)
+    )
+      return fail();
     const tableWide = TABLE_WIDE_CODES.has(raw.code);
     if (tableWide ? raw.side !== null : raw.side === null) return fail();
-    if (tableWide && (raw.target.group_key !== "SECONDARY_DEVICES" || raw.target.item_key !== null || raw.target.tab_key !== null || typeof raw.target.table_id !== "string")) return fail();
+    if (
+      tableWide &&
+      (raw.target.group_key !== "SECONDARY_DEVICES" ||
+        raw.target.item_key !== null ||
+        raw.target.tab_key !== null ||
+        typeof raw.target.table_id !== "string")
+    )
+      return fail();
     for (const [key, value] of Object.entries(raw.params)) {
       if (key === "expected_prefixes") {
-        if (!Array.isArray(value) || value.length < 1 || value.length > 2 || !value.every((v: unknown) => typeof v === "string" && v.length > 0)) return fail();
+        if (
+          !Array.isArray(value) ||
+          value.length < 1 ||
+          value.length > 2 ||
+          !value.every((v: unknown) => typeof v === "string" && v.length > 0)
+        )
+          return fail();
       } else if (["dev_addr", "gid", "row_count", "changed_row_count"].includes(key)) {
-        if (!(key === "changed_row_count" && value === null) && (typeof value !== "number" || !Number.isSafeInteger(value))) return fail();
-      } else if (!(key === "app_name" && value === null) && typeof value !== "string") return fail();
+        if (
+          !(key === "changed_row_count" && value === null) &&
+          (typeof value !== "number" || !Number.isSafeInteger(value))
+        )
+          return fail();
+      } else if (!(key === "app_name" && value === null) && typeof value !== "string")
+        return fail();
     }
     if (raw.code === "CHANNEL_TABLE_UNCLAIMED" || raw.code === "PROTOCOL_TABLE_NOT_FOUND") {
       const prefix = raw.params.channel_prefix;
       const registry = raw.params.registry_table;
-      const match = typeof prefix === "string" ? /^b(0|[1-9]\d*)_([nc])(0|[1-9]\d*)$/.exec(prefix) : null;
-      if (!match || !Number.isSafeInteger(Number(match[1])) || !Number.isSafeInteger(Number(match[3])) || (registry !== "net_cfg" && registry !== "com_cfg") || (match[2] === "n" ? registry !== "net_cfg" : registry !== "com_cfg")) return fail();
-      if (raw.code === "PROTOCOL_TABLE_NOT_FOUND" && !(raw.params.expected_prefixes as string[]).every((value) => value.startsWith((prefix as string) + "_"))) return fail();
+      const match =
+        typeof prefix === "string" ? /^b(0|[1-9]\d*)_([nc])(0|[1-9]\d*)$/.exec(prefix) : null;
+      if (
+        !match ||
+        !Number.isSafeInteger(Number(match[1])) ||
+        !Number.isSafeInteger(Number(match[3])) ||
+        (registry !== "net_cfg" && registry !== "com_cfg") ||
+        (match[2] === "n" ? registry !== "net_cfg" : registry !== "com_cfg")
+      )
+        return fail();
+      if (
+        raw.code === "PROTOCOL_TABLE_NOT_FOUND" &&
+        !(raw.params.expected_prefixes as string[]).every((value) =>
+          value.startsWith((prefix as string) + "_"),
+        )
+      )
+        return fail();
     }
-    if (raw.code === "DEVICE_FILTER_VALUE_UNSUPPORTED" && !["INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"].includes(raw.params.reason as string)) return fail();
-    if (raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" && !["RECORDS_UNAVAILABLE", "TABLE_DEGRADED"].includes(raw.params.reason as string)) return fail();
-    if (raw.code === "DEVICE_TAB_RISK_UNAVAILABLE" && raw.params.reason !== "RISK_ATTRIBUTION_UNAVAILABLE") return fail();
-    if (raw.code === "DEVICE_MEMBERSHIP_UNAVAILABLE" && raw.params.reason !== "MEMBERSHIP_UNAVAILABLE") return fail();
+    if (
+      raw.code === "DEVICE_FILTER_VALUE_UNSUPPORTED" &&
+      !["INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"].includes(
+        raw.params.reason as string,
+      )
+    )
+      return fail();
+    if (
+      raw.code === "DEVICE_TAB_FACTS_UNAVAILABLE" &&
+      !["RECORDS_UNAVAILABLE", "TABLE_DEGRADED"].includes(raw.params.reason as string)
+    )
+      return fail();
+    if (
+      raw.code === "DEVICE_TAB_RISK_UNAVAILABLE" &&
+      raw.params.reason !== "RISK_ATTRIBUTION_UNAVAILABLE"
+    )
+      return fail();
+    if (
+      raw.code === "DEVICE_MEMBERSHIP_UNAVAILABLE" &&
+      raw.params.reason !== "MEMBERSHIP_UNAVAILABLE"
+    )
+      return fail();
     return raw as unknown as NavigationDiagnostic;
   });
   return { contract_version: NAVIGATION_CONTRACT_VERSION, diagnostics };
 }
 
 /** Keep diagnostics for hidden or zero-tab items reachable in their group. */
-export function groupNavigationDiagnostics(diagnostics: readonly NavigationDiagnostic[], groupKey: string, visibleItemKeys: readonly string[]): NavigationDiagnostic[] {
-  return diagnostics.filter(({ target }) => target.group_key === groupKey && (!target.item_key || !visibleItemKeys.includes(target.item_key)));
+export function groupNavigationDiagnostics(
+  diagnostics: readonly NavigationDiagnostic[],
+  groupKey: string,
+  visibleItemKeys: readonly string[],
+): NavigationDiagnostic[] {
+  return diagnostics.filter(
+    ({ target }) =>
+      target.group_key === groupKey &&
+      (!target.item_key || !visibleItemKeys.includes(target.item_key)),
+  );
 }
 
 function displayParam(value: NavigationDiagnostic["params"][string]): string {
@@ -217,20 +350,32 @@ export function formatNavigationDiagnostic(
   const definition = NAVIGATION_COPY[diagnostic.code];
   if (!definition) return `导航提示（${diagnostic.code}）`;
   const changedRowCount = diagnostic.params.changed_row_count ?? null;
-  let template = diagnostic.code === "DEVICE_ROWS_UNASSIGNED" && changedRowCount === null
-    ? "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中变化行数未知），可查看整表"
-    : definition.template;
-  if (diagnostic.code === "CHANNEL_TABLE_UNCLAIMED" && diagnostic.target.group_key === "OTHER_TABLES") template += "，已放入“其他表”";
-  const params = Object.fromEntries(definition.params.map((key) => [key, displayParam(diagnostic.params[key] ?? null)]));
+  let template =
+    diagnostic.code === "DEVICE_ROWS_UNASSIGNED" && changedRowCount === null
+      ? "{side}{table}有 {row_count} 行的 {identity_column} 不属于任何装置（其中变化行数未知），可查看整表"
+      : definition.template;
+  if (
+    diagnostic.code === "CHANNEL_TABLE_UNCLAIMED" &&
+    diagnostic.target.group_key === "OTHER_TABLES"
+  )
+    template += "，已放入“其他表”";
+  const params = Object.fromEntries(
+    definition.params.map((key) => [key, displayParam(diagnostic.params[key] ?? null)]),
+  );
   if (diagnostic.params.registry_table === "net_cfg") params.registry_table = "网口配置表";
   if (diagnostic.params.registry_table === "com_cfg") params.registry_table = "串口配置表";
   if (typeof diagnostic.params.reason === "string") {
     params.reason = REASON_COPY[diagnostic.params.reason] ?? "原因未提供";
   }
   const tableName = diagnostic.target.table_id
-    ? tables.find((table) => table.table_id === diagnostic.target.table_id || table.table_name === diagnostic.target.table_id)?.display_name
+    ? tables.find(
+        (table) =>
+          table.table_id === diagnostic.target.table_id ||
+          table.table_name === diagnostic.target.table_id,
+      )?.display_name
     : undefined;
-  const side = diagnostic.side === "BEFORE" ? "改前侧" : diagnostic.side === "CURRENT" ? "改后侧" : "";
+  const side =
+    diagnostic.side === "BEFORE" ? "改前侧" : diagnostic.side === "CURRENT" ? "改后侧" : "";
   return template
     .replaceAll("{side}", side)
     .replaceAll("{table}", tableName ?? diagnostic.target.table_id ?? "该表")
@@ -243,17 +388,30 @@ export function formatSurfaceDiagnostic(value: string): { message: string; raw: 
 }
 
 export function firstDegradedDiagnostic(codes: readonly string[]): string {
-  const priority = new Map<string, number>(SURFACE_DIAGNOSTIC_CODES.map((code, index): [string, number] => [code, index]));
+  const priority = new Map<string, number>(
+    SURFACE_DIAGNOSTIC_CODES.map((code, index): [string, number] => [code, index]),
+  );
   const known = codes
     .filter((code) => SURFACE_COPY[code] !== undefined)
-    .sort((left, right) => (priority.get(left) ?? Number.MAX_SAFE_INTEGER) - (priority.get(right) ?? Number.MAX_SAFE_INTEGER));
+    .sort(
+      (left, right) =>
+        (priority.get(left) ?? Number.MAX_SAFE_INTEGER) -
+        (priority.get(right) ?? Number.MAX_SAFE_INTEGER),
+    );
   return known[0] ? formatSurfaceDiagnostic(known[0]).message : "降级原因未提供";
 }
 
 export function pairSurfaceDiagnosticCodes(surface: ComparisonSurface): string[] {
-  const view = surface.view && typeof surface.view === "object" ? surface.view as Record<string, unknown> : {};
-  const summary = Array.isArray(view.diagnostics_summary) ? view.diagnostics_summary.filter((code): code is string => typeof code === "string") : [];
-  const tableCodes = new Set(surface.tables.flatMap((table) => table.diagnostics?.diagnostics_summary ?? []));
+  const view =
+    surface.view && typeof surface.view === "object"
+      ? (surface.view as Record<string, unknown>)
+      : {};
+  const summary = Array.isArray(view.diagnostics_summary)
+    ? view.diagnostics_summary.filter((code): code is string => typeof code === "string")
+    : [];
+  const tableCodes = new Set(
+    surface.tables.flatMap((table) => table.diagnostics?.diagnostics_summary ?? []),
+  );
   return [...new Set(summary.filter((code) => !tableCodes.has(code)))];
 }
 

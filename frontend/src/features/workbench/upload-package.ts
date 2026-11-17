@@ -67,7 +67,8 @@ export function collectLocalDirectory(input: FileList | File[]): LocalDirectoryV
   const errors: string[] = [];
   if (mainFiles.length !== 1) errors.push("根目录下必须恰好存在一个 .pmc 文件");
   if (!byPath.has(REQUIRED_SQL_PATH)) errors.push("目录中必须存在 sql/dbcfg.sql");
-  if (relative.length > MAX_DIRECTORY_FILES) errors.push(`文件数量不能超过 ${MAX_DIRECTORY_FILES} 个`);
+  if (relative.length > MAX_DIRECTORY_FILES)
+    errors.push(`文件数量不能超过 ${MAX_DIRECTORY_FILES} 个`);
   if (totalBytes > MAX_DIRECTORY_BYTES) errors.push("目录总大小不能超过 1 GB");
   if (errors.length > 0) return { directory: null, errors };
   const directory: LocalDirectory = {
@@ -161,7 +162,8 @@ export async function buildTar(directory: LocalDirectory): Promise<Uint8Array> {
 
 /** Packages one selected directory as a deterministic gzip-compressed tar artifact. */
 export async function buildSourcePackage(directory: LocalDirectory): Promise<File> {
-  if (directory.files.length > MAX_ARCHIVE_ENTRIES) throw new Error("条目超过 8192，后端将返回 413");
+  if (directory.files.length > MAX_ARCHIVE_ENTRIES)
+    throw new Error("条目超过 8192，后端将返回 413");
   const tar = await buildTar(directory);
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -169,7 +171,9 @@ export async function buildSourcePackage(directory: LocalDirectory): Promise<Fil
       controller.close();
     },
   });
-  const compressed = source.pipeThrough(new CompressionStream("gzip") as unknown as TransformStream<Uint8Array, Uint8Array>);
+  const compressed = source.pipeThrough(
+    new CompressionStream("gzip") as unknown as TransformStream<Uint8Array, Uint8Array>,
+  );
   const bytes = await new Response(compressed).arrayBuffer();
   if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new Error("压缩后超过 256 MiB，后端将返回 413");
   return new File([bytes], `${directory.rootName}.tar.gz`, { type: "application/gzip" });

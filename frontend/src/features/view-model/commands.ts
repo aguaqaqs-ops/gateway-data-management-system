@@ -55,7 +55,11 @@ export const initialBrowseState: BrowseState = {
 export type BrowseCommand =
   | { name: "select-pair"; pairId: string }
   | { name: "set-bundle"; mode: BrowseMode; bundleDigest: string }
-  | { name: "set-operation"; operationId: string | null; operationKind: "history-compare" | "operation" | null }
+  | {
+      name: "set-operation";
+      operationId: string | null;
+      operationKind: "history-compare" | "operation" | null;
+    }
   | { name: "select-node"; nodeKey: string }
   | { name: "select-tab"; tabKey: string }
   | { name: "select-side"; side: "before" | "current" }
@@ -90,30 +94,79 @@ function normalizeState(state: BrowseState): BrowseState {
 export function executeBrowseCommand(state: BrowseState, command: BrowseCommand): BrowseState {
   let next = state;
   switch (command.name) {
-    case "select-pair": next = { ...state, pairId: command.pairId, changeIndex: 0, unassignedSide: command.pairId === state.pairId ? state.unassignedSide : null }; break;
-    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, pairId: null, nodeKey: null, tabKey: null, unassignedSide: null, changeIndex: 0 }; break;
-    case "set-operation": next = { ...state, operationId: command.operationId, operationKind: command.operationKind }; break;
-    case "select-node": next = { ...state, nodeKey: command.nodeKey }; break;
-    case "select-tab": next = { ...state, tabKey: command.tabKey, unassignedSide: command.tabKey === state.tabKey ? state.unassignedSide : null }; break;
-    case "set-unassigned": next = { ...state, unassignedSide: command.side, changeIndex: 0 }; break;
-    case "select-side": next = { ...state, side: command.side }; break;
-    case "jump-to-change": next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) }; break;
-    case "toggle-group": next = {
-      ...state,
-      expandedGroups: state.expandedGroups.includes(command.groupKey)
-        ? state.expandedGroups.filter((key) => key !== command.groupKey)
-        : [...state.expandedGroups, command.groupKey],
-    }; break;
-    case "set-only-interesting": next = { ...state, onlyInteresting: command.enabled }; break;
-    case "set-debug": next = { ...state, debug: command.enabled }; break;
-    case "set-search": next = { ...state, search: command.search }; break;
+    case "select-pair":
+      next = {
+        ...state,
+        pairId: command.pairId,
+        changeIndex: 0,
+        unassignedSide: command.pairId === state.pairId ? state.unassignedSide : null,
+      };
+      break;
+    case "set-bundle":
+      next = {
+        ...state,
+        mode: command.mode,
+        bundleDigest: command.bundleDigest,
+        pairId: null,
+        nodeKey: null,
+        tabKey: null,
+        unassignedSide: null,
+        changeIndex: 0,
+      };
+      break;
+    case "set-operation":
+      next = { ...state, operationId: command.operationId, operationKind: command.operationKind };
+      break;
+    case "select-node":
+      next = { ...state, nodeKey: command.nodeKey };
+      break;
+    case "select-tab":
+      next = {
+        ...state,
+        tabKey: command.tabKey,
+        unassignedSide: command.tabKey === state.tabKey ? state.unassignedSide : null,
+      };
+      break;
+    case "set-unassigned":
+      next = { ...state, unassignedSide: command.side, changeIndex: 0 };
+      break;
+    case "select-side":
+      next = { ...state, side: command.side };
+      break;
+    case "jump-to-change":
+      next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) };
+      break;
+    case "toggle-group":
+      next = {
+        ...state,
+        expandedGroups: state.expandedGroups.includes(command.groupKey)
+          ? state.expandedGroups.filter((key) => key !== command.groupKey)
+          : [...state.expandedGroups, command.groupKey],
+      };
+      break;
+    case "set-only-interesting":
+      next = { ...state, onlyInteresting: command.enabled };
+      break;
+    case "set-debug":
+      next = { ...state, debug: command.enabled };
+      break;
+    case "set-search":
+      next = { ...state, search: command.search };
+      break;
     case "add-comparison-node":
       if (state.comparisonNodeRefs.length < 3 && !state.comparisonNodeRefs.includes(command.ref)) {
         next = { ...state, comparisonNodeRefs: [...state.comparisonNodeRefs, command.ref] };
       }
       break;
-    case "remove-comparison-node": next = { ...state, comparisonNodeRefs: state.comparisonNodeRefs.filter((ref) => ref !== command.ref) }; break;
-    case "clear-comparison-nodes": next = { ...state, comparisonNodeRefs: [] }; break;
+    case "remove-comparison-node":
+      next = {
+        ...state,
+        comparisonNodeRefs: state.comparisonNodeRefs.filter((ref) => ref !== command.ref),
+      };
+      break;
+    case "clear-comparison-nodes":
+      next = { ...state, comparisonNodeRefs: [] };
+      break;
   }
   return normalizeState(next);
 }
@@ -157,13 +210,23 @@ export function decodeBrowseState(search: string): BrowseState {
     submissionId: params.get("submissionId"),
     readOnly: params.get("readonly") === "1",
     operationId: params.get("operationId"),
-    operationKind: params.get("operationKind") === "history-compare" || params.get("operationKind") === "operation" ? params.get("operationKind") as "history-compare" | "operation" : null,
+    operationKind:
+      params.get("operationKind") === "history-compare" ||
+      params.get("operationKind") === "operation"
+        ? (params.get("operationKind") as "history-compare" | "operation")
+        : null,
     pairId: params.get("pair"),
     nodeKey: params.get("node"),
     workbenchNodeKey: params.get("workbenchNode"),
     tabKey: params.get("tab"),
-    side: params.get("side") === "before" || params.get("side") === "current" ? params.get("side") as "before" | "current" : null,
-    unassignedSide: params.get("unassigned") === "BEFORE" || params.get("unassigned") === "CURRENT" ? params.get("unassigned") as "BEFORE" | "CURRENT" : null,
+    side:
+      params.get("side") === "before" || params.get("side") === "current"
+        ? (params.get("side") as "before" | "current")
+        : null,
+    unassignedSide:
+      params.get("unassigned") === "BEFORE" || params.get("unassigned") === "CURRENT"
+        ? (params.get("unassigned") as "BEFORE" | "CURRENT")
+        : null,
     changeIndex: Number.isFinite(change) ? change : 0,
     expandedGroups: params.getAll("group"),
     onlyInteresting: params.get("changed") === "1",
@@ -179,7 +242,10 @@ export class BrowseCommandRuntime {
   private externalController: AbortController | null = null;
   private readonly listeners = new Set<(result: CommandResult) => void>();
 
-  constructor(initial = decodeBrowseState(window.location.search), private readonly browserWindow: Window = window) {
+  constructor(
+    initial = decodeBrowseState(window.location.search),
+    private readonly browserWindow: Window = window,
+  ) {
     this.state = initial;
   }
 

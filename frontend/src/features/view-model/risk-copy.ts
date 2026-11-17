@@ -50,14 +50,20 @@ const RISK_REASON_COPY: Readonly<Record<(typeof RISK_REASON_CODES)[number], stri
 };
 
 /** The side identifies the direction; interval positions are not individual changes. */
-function describeBlankInterval(code: string, evidence: ReadonlyArray<readonly [string, unknown]>): string | null {
+function describeBlankInterval(
+  code: string,
+  evidence: ReadonlyArray<readonly [string, unknown]>,
+): string | null {
   const side = evidence.find(([name]) => name === "side")?.[1];
   if (side !== "CURRENT" && side !== "BEFORE") return null;
   const action = side === "CURRENT" ? "新增了空点" : "删除了空点";
   return action + (code === "ORDERED_MIDDLE_BLANK_INTERVAL" ? "，需要复核。" : "。");
 }
 
-export function describeRiskReason(code: string, evidence: ReadonlyArray<readonly [string, unknown]> = []): string {
+export function describeRiskReason(
+  code: string,
+  evidence: ReadonlyArray<readonly [string, unknown]> = [],
+): string {
   if (code === "ORDERED_MIDDLE_BLANK_INTERVAL" || code === "ORDERED_TAIL_BLANK_INTERVAL") {
     const specific = describeBlankInterval(code, evidence);
     if (specific) return specific;

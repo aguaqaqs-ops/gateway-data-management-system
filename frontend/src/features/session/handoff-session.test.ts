@@ -83,13 +83,19 @@ describe("decodeHandoffFragment", () => {
     ["javascript return url", payload({ return_url: "javascript:alert(1)" })],
     ["relative return url", payload({ return_url: "/workbench" })],
   ])("rejects %s", (_name, value) => {
-    expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=${encodeBase64Url(value)}`).kind).toBe("invalid");
+    expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=${encodeBase64Url(value)}`).kind).toBe(
+      "invalid",
+    );
   });
 
   it("rejects malformed base64url and non-JSON payloads", () => {
     const invalidUtf8 = Buffer.from([0xff, 0xfe, 0xfd]).toString("base64url");
     expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=${invalidUtf8}`).kind).toBe("invalid");
-    expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=${Buffer.from("not json").toString("base64url")}`).kind).toBe("invalid");
+    expect(
+      decodeHandoffFragment(
+        `#${HANDOFF_FRAGMENT_KEY}=${Buffer.from("not json").toString("base64url")}`,
+      ).kind,
+    ).toBe("invalid");
     expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=abc=`).kind).toBe("invalid");
     expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=a`).kind).toBe("invalid");
     expect(decodeHandoffFragment(`#${HANDOFF_FRAGMENT_KEY}=ab$c`).kind).toBe("invalid");
@@ -101,8 +107,15 @@ describe("decodeHandoffFragment", () => {
 
 describe("handoff initialization priority", () => {
   it("prefers a valid fragment, stores the session, and clears the fragment", () => {
-    window.__gatewaySession = { businessProjectId: "preset", gatewayDeviceExternalKey: "preset-device", accessToken: "preset-token" };
-    window.sessionStorage.setItem(HANDOFF_SESSION_STORAGE_KEY, storedPayload({ token: "older-token" }));
+    window.__gatewaySession = {
+      businessProjectId: "preset",
+      gatewayDeviceExternalKey: "preset-device",
+      accessToken: "preset-token",
+    };
+    window.sessionStorage.setItem(
+      HANDOFF_SESSION_STORAGE_KEY,
+      storedPayload({ token: "older-token" }),
+    );
     const encoded = encodeBase64Url(payload());
     openWithFragment(encoded);
 
@@ -140,14 +153,21 @@ describe("handoff initialization priority", () => {
   });
 
   it("keeps an injected window.__gatewaySession untouched and never reads storage", () => {
-    const preset = { businessProjectId: "project-42", gatewayDeviceExternalKey: "gateway-17", accessToken: "dev-token-submitter" };
+    const preset = {
+      businessProjectId: "project-42",
+      gatewayDeviceExternalKey: "gateway-17",
+      accessToken: "dev-token-submitter",
+    };
     window.__gatewaySession = preset;
     window.sessionStorage.setItem(HANDOFF_SESSION_STORAGE_KEY, storedPayload());
     const getItem = vi.spyOn(Storage.prototype, "getItem");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     initializeGatewaySession();
 
-    expect(getGatewaySessionState()).toEqual({ kind: "preset", session: createGatewaySession(preset) });
+    expect(getGatewaySessionState()).toEqual({
+      kind: "preset",
+      session: createGatewaySession(preset),
+    });
     expect(getItem).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem(HANDOFF_SESSION_STORAGE_KEY)).toBe(storedPayload());
@@ -172,8 +192,12 @@ describe("handoff initialization priority", () => {
   });
 
   it("keeps the handoff session in memory when sessionStorage throws", () => {
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("privacy mode"); });
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("privacy mode"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("privacy mode");
+    });
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("privacy mode");
+    });
     openWithFragment(encodeBase64Url(payload()));
 
     const state = getGatewaySessionState();
@@ -187,25 +211,49 @@ describe("handoff initialization priority", () => {
 describe("expiry and dev identity", () => {
   it("expires a handoff session on 401 AUTHENTICATION_REQUIRED and keeps the return address", async () => {
     openWithFragment(encodeBase64Url(payload()));
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ code: "AUTHENTICATION_REQUIRED", message: "expired" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    }));
-    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", session: currentGatewaySession, fetcher });
+    const fetcher = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ code: "AUTHENTICATION_REQUIRED", message: "expired" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const request = createAuthenticatedFetch({
+      baseUrl: "http://gateway.example",
+      session: currentGatewaySession,
+      fetcher,
+    });
 
-    await expect(request("/v1/workspaces")).rejects.toMatchObject({ status: 401, code: "AUTHENTICATION_REQUIRED" });
+    await expect(request("/v1/workspaces")).rejects.toMatchObject({
+      status: 401,
+      code: "AUTHENTICATION_REQUIRED",
+    });
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(getGatewaySessionState()).toEqual({ kind: "expired", returnUrl: VALID.returnUrl, display: VALID.display });
+    expect(getGatewaySessionState()).toEqual({
+      kind: "expired",
+      returnUrl: VALID.returnUrl,
+      display: VALID.display,
+    });
     expect(window.sessionStorage.getItem(HANDOFF_SESSION_STORAGE_KEY)).toBeNull();
     expect(window.__gatewaySession).toBeUndefined();
     expect(isGatewaySessionBlocked(getGatewaySessionState())).toBe(true);
   });
 
   it("does not expire an injected preset on 401", async () => {
-    window.__gatewaySession = { businessProjectId: "project-42", gatewayDeviceExternalKey: "gateway-17", accessToken: "dev-token" };
+    window.__gatewaySession = {
+      businessProjectId: "project-42",
+      gatewayDeviceExternalKey: "gateway-17",
+      accessToken: "dev-token",
+    };
     initializeGatewaySession();
-    const request = createAuthenticatedFetch({ baseUrl: "http://gateway.example", session: currentGatewaySession,
-      fetcher: async () => new Response(JSON.stringify({ code: "AUTHENTICATION_REQUIRED", message: "no" }), { status: 401 }) });
+    const request = createAuthenticatedFetch({
+      baseUrl: "http://gateway.example",
+      session: currentGatewaySession,
+      fetcher: async () =>
+        new Response(JSON.stringify({ code: "AUTHENTICATION_REQUIRED", message: "no" }), {
+          status: 401,
+        }),
+    });
 
     await expect(request("/v1/workspaces")).rejects.toMatchObject({ status: 401 });
     expect(getGatewaySessionState().kind).toBe("preset");

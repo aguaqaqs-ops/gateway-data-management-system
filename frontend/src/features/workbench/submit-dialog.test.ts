@@ -7,7 +7,13 @@ const NO_CANONICAL_CHANGE_COPY =
 
 describe("submit NO_CANONICAL_CHANGE copy (F13)", () => {
   it("shows the exact agreed copy for NO_CANONICAL_CHANGE", () => {
-    const failure = describeSubmitError(new ApiError("preview canonical business digest equals current business base", 409, "NO_CANONICAL_CHANGE"));
+    const failure = describeSubmitError(
+      new ApiError(
+        "preview canonical business digest equals current business base",
+        409,
+        "NO_CANONICAL_CHANGE",
+      ),
+    );
     expect(failure.title).toBe(NO_CANONICAL_CHANGE_COPY);
     expect(failure.code).toBe("NO_CANONICAL_CHANGE");
     expect(failure.retryable).toBe(true);

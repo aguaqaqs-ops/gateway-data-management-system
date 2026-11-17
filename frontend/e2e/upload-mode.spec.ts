@@ -4,9 +4,21 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { components } from "../src/features/api/generated/openapi";
 import {
-  DISPOSITION_D5_NODE, DISPOSITION_HEAD, DISPOSITION_REVIEW_FACTS, DISPOSITION_SCENARIO_BASELINES, DISPOSITION_SCENARIO_NODES,
-  HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, SIMULATED_ERROR_RESPONSES, TEST_OPERATION_SUCCEEDED,
-  TEST_REVIEW_APPLIED, TEST_REVIEW_FACTS, TEST_SUBMIT_ATTEMPT_FINALIZED, WORKSPACE_ALREADY_EXISTS, testPreviewResult, testSubmissionResult,
+  DISPOSITION_D5_NODE,
+  DISPOSITION_HEAD,
+  DISPOSITION_REVIEW_FACTS,
+  DISPOSITION_SCENARIO_BASELINES,
+  DISPOSITION_SCENARIO_NODES,
+  HISTORY_PAGE_ONE,
+  HISTORY_PAGE_TWO,
+  SIMULATED_ERROR_RESPONSES,
+  TEST_OPERATION_SUCCEEDED,
+  TEST_REVIEW_APPLIED,
+  TEST_REVIEW_FACTS,
+  TEST_SUBMIT_ATTEMPT_FINALIZED,
+  WORKSPACE_ALREADY_EXISTS,
+  testPreviewResult,
+  testSubmissionResult,
 } from "../src/features/dev/simulated-api";
 
 type Schemas = components["schemas"];
@@ -23,8 +35,14 @@ async function loadBundle(name: string): Promise<FixtureBundle> {
   const cached = bundles.get(name);
   if (cached) return cached;
   const tar = await readFile("src/test/fixtures/generated/" + name + ".tar");
-  const manifestSize = Number.parseInt(tar.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8);
-  const manifest = JSON.parse(tar.subarray(512, 512 + manifestSize).toString("utf8")) as { bundle_digest: string; pairs: unknown[] };
+  const manifestSize = Number.parseInt(
+    tar.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(),
+    8,
+  );
+  const manifest = JSON.parse(tar.subarray(512, 512 + manifestSize).toString("utf8")) as {
+    bundle_digest: string;
+    pairs: unknown[];
+  };
   const result = { tar, manifest };
   bundles.set(name, result);
   return result;
@@ -32,7 +50,10 @@ async function loadBundle(name: string): Promise<FixtureBundle> {
 
 async function settleAfterResize(page: Page) {
   await page.evaluate(async () => {
-    const frames = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const frames = () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
     await frames();
     const frame = document.querySelector<HTMLElement>(".grid-frame");
     const canvas = frame?.querySelector("canvas");
@@ -45,22 +66,37 @@ async function settleAfterResize(page: Page) {
       await new Promise((resolve) => setTimeout(resolve, 16));
     }
   });
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
   const metrics = await page.evaluate(() => {
     // Report what actually sticks out so an overflow failure names the node.
-    const describe = (element: Element) => `${element.tagName.toLowerCase()}.${String(element.className || "").split(/\s+/).filter(Boolean).join(".")}`;
+    const describe = (element: Element) =>
+      `${element.tagName.toLowerCase()}.${String(element.className || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .join(".")}`;
     const nodes = [...document.querySelectorAll<HTMLElement>("body *")];
     const pastRight = nodes
       .filter((element) => element.getBoundingClientRect().right > window.innerWidth + 0.5)
       .slice(0, 5)
-      .map((element) => `${describe(element)} right=${Math.round(element.getBoundingClientRect().right)}`);
+      .map(
+        (element) =>
+          `${describe(element)} right=${Math.round(element.getBoundingClientRect().right)}`,
+      );
     const scrolling = nodes
       .filter((element) => element.scrollWidth > element.clientWidth + 1)
       .slice(0, 5)
-      .map((element) => `${describe(element)} scrollWidth=${element.scrollWidth} clientWidth=${element.clientWidth}`);
+      .map(
+        (element) =>
+          `${describe(element)} scrollWidth=${element.scrollWidth} clientWidth=${element.clientWidth}`,
+      );
     return {
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth: window.innerWidth,
@@ -68,10 +104,12 @@ async function expectNoHorizontalOverflow(page: Page) {
       pastRight,
       scrolling,
       statusChildren: [...(document.querySelector(".compare-status")?.children ?? [])].map(
-        (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} disp=${getComputedStyle(element).display}`,
+        (element) =>
+          `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} disp=${getComputedStyle(element).display}`,
       ),
       headerChildren: [...(document.querySelector(".compare-header__bar")?.children ?? [])].map(
-        (element) => `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
+        (element) =>
+          `${describe(element)} w=${Math.round(element.getBoundingClientRect().width)} sw=${element.scrollWidth} ml=${getComputedStyle(element).marginLeft}`,
       ),
     };
   });
@@ -90,7 +128,11 @@ async function screenshot(page: Page, name: string, width: number) {
     await expectNoHorizontalOverflow(page);
     if (!screenshotDirectory) continue;
     await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
-    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
+    await page.screenshot({
+      path: join(screenshotDirectory, String(current), `${name}.png`),
+      fullPage: false,
+      animations: "disabled",
+    });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
   await settleAfterResize(page);
@@ -152,26 +194,54 @@ async function installModeRoutes(page: Page, state: ModeState) {
   await page.route("**/v1/workspaces", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     workspaceReads += 1;
-    const next = state.workspaceSequence?.length ? state.workspaceSequence.shift()! : state.workspace;
+    const next = state.workspaceSequence?.length
+      ? state.workspaceSequence.shift()!
+      : state.workspace;
     return json(route, 200, next);
   });
-  await page.route(/\/v1\/submissions\/[^/]+\/result$/, (route) => json(route, 200,
-    testSubmissionResult(bundle.manifest, new URL(route.request().url()).pathname.split("/")[3])));
-  await page.route(/\/v1\/submissions\/[^/]+\/result\/bundle$/, (route) => route.fulfill({
-    status: 200,
-    headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
-    body: bundle.tar,
-  }));
-  await page.route("**/v1/history-compares?*", (route) => json(route, 200, { items: [], next_cursor: null } satisfies Schemas["HistoryCompareListResponse"]));
+  await page.route(/\/v1\/submissions\/[^/]+\/result$/, (route) =>
+    json(
+      route,
+      200,
+      testSubmissionResult(bundle.manifest, new URL(route.request().url()).pathname.split("/")[3]),
+    ),
+  );
+  await page.route(/\/v1\/submissions\/[^/]+\/result\/bundle$/, (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-tar",
+        "Content-Length": String(bundle.tar.length),
+        ETag: bundle.manifest.bundle_digest,
+      },
+      body: bundle.tar,
+    }),
+  );
+  await page.route("**/v1/history-compares?*", (route) =>
+    json(route, 200, {
+      items: [],
+      next_cursor: null,
+    } satisfies Schemas["HistoryCompareListResponse"]),
+  );
   await page.route("**/v1/history-compares", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
-    return json(route, 202, { operation_id: "history-compare-d", status: "QUEUED", replayed: false });
+    return json(route, 202, {
+      operation_id: "history-compare-d",
+      status: "QUEUED",
+      replayed: false,
+    });
   });
-  await page.route(/\/v1\/history-compares\/[^/]+\/bundle$/, (route) => route.fulfill({
-    status: 200,
-    headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
-    body: bundle.tar,
-  }));
+  await page.route(/\/v1\/history-compares\/[^/]+\/bundle$/, (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-tar",
+        "Content-Length": String(bundle.tar.length),
+        ETag: bundle.manifest.bundle_digest,
+      },
+      body: bundle.tar,
+    }),
+  );
   await page.route(/\/v1\/history-compares\/[^/]+$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     return json(route, 200, {
@@ -194,20 +264,37 @@ async function installModeRoutes(page: Page, state: ModeState) {
     };
     return json(route, 200, history);
   });
-  await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+$/, (route) => json(route, 200, {
-    ...testPreviewResult(bundle.manifest.bundle_digest), workspace_id: state.workspace.workspace_id,
-    preview_result_id: new URL(route.request().url()).pathname.split("/").at(-1),
-  }));
-  await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+\/bundle$/, (route) => route.fulfill({
-    status: 200,
-    headers: { "Content-Type": "application/x-tar", "Content-Length": String(bundle.tar.length), ETag: bundle.manifest.bundle_digest },
-    body: bundle.tar,
-  }));
+  await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+$/, (route) =>
+    json(route, 200, {
+      ...testPreviewResult(bundle.manifest.bundle_digest),
+      workspace_id: state.workspace.workspace_id,
+      preview_result_id: new URL(route.request().url()).pathname.split("/").at(-1),
+    }),
+  );
+  await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+\/bundle$/, (route) =>
+    route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "application/x-tar",
+        "Content-Length": String(bundle.tar.length),
+        ETag: bundle.manifest.bundle_digest,
+      },
+      body: bundle.tar,
+    }),
+  );
   await page.route(/\/v1\/submissions\/[^/]+\/review$/, async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     if (state.reviewStatus && state.reviewStatus !== 200) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review" && item.status === state.reviewStatus);
-      return json(route, state.reviewStatus, error?.body ?? { code: "SCOPE_FORBIDDEN", message: "forbidden" });
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/submissions/{submission_id}/review" &&
+          item.status === state.reviewStatus,
+      );
+      return json(
+        route,
+        state.reviewStatus,
+        error?.body ?? { code: "SCOPE_FORBIDDEN", message: "forbidden" },
+      );
     }
     const submissionId = new URL(route.request().url()).pathname.split("/")[3] ?? "";
     return json(route, 200, state.reviewBySubmission?.[submissionId] ?? state.review);
@@ -216,27 +303,59 @@ async function installModeRoutes(page: Page, state: ModeState) {
     if (route.request().method() !== "POST") return route.fallback();
     if (state.reviewEventsConflictOnce) {
       state.reviewEventsConflictOnce = false;
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review-events" && item.status === 409);
-      return json(route, 409, error?.body ?? { code: "REVIEW_VERSION_CONFLICT", message: "conflict" });
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/submissions/{submission_id}/review-events" && item.status === 409,
+      );
+      return json(
+        route,
+        409,
+        error?.body ?? { code: "REVIEW_VERSION_CONFLICT", message: "conflict" },
+      );
     }
-    state.workspace = workspace({ current_upload_revision_id: null, current_preview_result_id: null });
+    state.workspace = workspace({
+      current_upload_revision_id: null,
+      current_preview_result_id: null,
+    });
     return json(route, 200, TEST_REVIEW_APPLIED);
   });
   await page.route(/\/v1\/workspaces\/[^/]+\/submit-attempts\/[^/]+$/, async (route) => {
     if (state.attemptStatus && state.attemptStatus !== 200) {
-      return json(route, state.attemptStatus, { code: "SERVICE_NOT_READY", message: "unavailable" });
+      return json(route, state.attemptStatus, {
+        code: "SERVICE_NOT_READY",
+        message: "unavailable",
+      });
     }
-    return json(route, 200, state.attempt ?? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, workspace_id: "workspace-fe2b", preview_result_id: "preview-full" });
+    return json(
+      route,
+      200,
+      state.attempt ?? {
+        ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+        workspace_id: "workspace-fe2b",
+        preview_result_id: "preview-full",
+      },
+    );
   });
   await page.route(/\/v1\/operations\/[^/]+$/, (route) => {
     const operationId = route.request().url().split("/").at(-1) ?? "";
-    return json(route, 200, state.operationById?.[operationId] ?? state.operation ?? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId });
+    return json(
+      route,
+      200,
+      state.operationById?.[operationId] ??
+        state.operation ?? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    );
   });
   return { workspaceReadsOf };
 }
 
 function previewUrl(extra: Record<string, string> = {}) {
-  const params = new URLSearchParams({ page: "compare", mode: "PREVIEW", workspaceId: "workspace-fe2b", previewResultId: "preview-full", ...extra });
+  const params = new URLSearchParams({
+    page: "compare",
+    mode: "PREVIEW",
+    workspaceId: "workspace-fe2b",
+    previewResultId: "preview-full",
+    ...extra,
+  });
   return "/?" + params.toString();
 }
 
@@ -249,22 +368,36 @@ async function expectSidebarSticky(page: Page, label: string) {
       await expand.click();
       await page.waitForTimeout(300);
     }
-    const measure = () => page.evaluate(() => {
-      const rect = (selector: string) => {
-        const element = document.querySelector(selector);
-        if (!element) return null;
-        const box = element.getBoundingClientRect();
-        return { top: box.top, bottom: box.bottom };
-      };
-      return { header: rect(".compare-header"), sidebar: rect(".navigation-sidebar"), innerHeight: window.innerHeight };
-    });
+    const measure = () =>
+      page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const box = element.getBoundingClientRect();
+          return { top: box.top, bottom: box.bottom };
+        };
+        return {
+          header: rect(".compare-header"),
+          sidebar: rect(".navigation-sidebar"),
+          innerHeight: window.innerHeight,
+        };
+      });
     let metrics = await measure();
-    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 未滚动时侧栏底边超出视口`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    expect(
+      metrics.sidebar?.bottom ?? Number.NaN,
+      `${label} w=${width} 未滚动时侧栏底边超出视口`,
+    ).toBeLessThanOrEqual(metrics.innerHeight + 1);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(400);
     metrics = await measure();
-    expect(metrics.sidebar?.top ?? Number.NaN, `${label} w=${width} 滚到底后侧栏顶边盖住顶栏`).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
-    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 滚到底后侧栏底边超出视口`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    expect(
+      metrics.sidebar?.top ?? Number.NaN,
+      `${label} w=${width} 滚到底后侧栏顶边盖住顶栏`,
+    ).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
+    expect(
+      metrics.sidebar?.bottom ?? Number.NaN,
+      `${label} w=${width} 滚到底后侧栏底边超出视口`,
+    ).toBeLessThanOrEqual(metrics.innerHeight + 1);
   }
 }
 
@@ -272,7 +405,6 @@ async function waitForPreview(page: Page) {
   await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
   await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
 }
-
 
 const VALID_UPLOAD_DIRECTORY = [
   { path: "station.pmc", content: "pmc" },
@@ -290,7 +422,7 @@ async function openWorkspaceDetails(page: Page) {
 async function selectModifiedDirectory(page: Page) {
   await openWorkspaceDetails(page);
   const reupload = page.locator(".workspace-reupload");
-  if (await reupload.count() && await reupload.getAttribute("open") === null) {
+  if ((await reupload.count()) && (await reupload.getAttribute("open")) === null) {
     await reupload.locator(":scope > summary").click();
   }
   await expect(page.getByTestId("upload-modified-input")).toBeAttached({ timeout: 10000 });
@@ -299,7 +431,9 @@ async function selectModifiedDirectory(page: Page) {
     if (!input) throw new Error("missing upload-modified-input");
     const transfer = new DataTransfer();
     for (const spec of files) {
-      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", { type: "text/plain" });
+      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", {
+        type: "text/plain",
+      });
       Object.defineProperty(file, "webkitRelativePath", { value: `station_cfg_0921/${spec.path}` });
       transfer.items.add(file);
     }
@@ -316,7 +450,9 @@ async function chooseUploadDirectory(page: Page) {
     if (!input) throw new Error("missing upload-modified-input");
     const transfer = new DataTransfer();
     for (const spec of files) {
-      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", { type: "text/plain" });
+      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", {
+        type: "text/plain",
+      });
       Object.defineProperty(file, "webkitRelativePath", { value: `station_cfg_0921/${spec.path}` });
       transfer.items.add(file);
     }
@@ -347,7 +483,9 @@ test("W1/W2 撤回成功后回到上传步骤并恢复上传", async ({ page }) 
   await expect(page).toHaveURL(/page=workspace/);
   await expect(page.getByText("已撤回，可以重新上传")).toBeVisible();
   await chooseUploadDirectory(page);
-  await expect(page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
+  await expect(
+    page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" }),
+  ).toBeEnabled();
   await screenshot(page, "fe3b-upload-restored", 1280);
 });
 
@@ -374,7 +512,9 @@ test("W4 已通过提交不能撤回也不能上传", async ({ page }) => {
   await page.goto("/?page=workspace");
   await openWorkspaceDetails(page);
   await expect(page.locator(".upload-card")).toHaveCount(0);
-  await expect(page.getByText("该提交已通过审核，归档或关闭后才能重新上传", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("该提交已通过审核，归档或关闭后才能重新上传", { exact: false }),
+  ).toBeVisible();
   await screenshot(page, "fe3b-w4-approved-upload", 1280);
   await page.goto(previewUrl());
   await waitForPreview(page);
@@ -392,7 +532,9 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   await page.goto("/?page=workspace");
   await openWorkspaceDetails(page);
   await expect(page.locator(".upload-card")).toHaveCount(0);
-  await expect(page.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false }),
+  ).toBeVisible();
   await screenshot(page, "fe3b-w8-upload-disabled", 1280);
   state.workspace = workspace({});
   await page.reload();
@@ -400,7 +542,9 @@ test("W8 待审核提交禁用上传，撤回后恢复", async ({ page }) => {
   await openWorkspaceDetails(page);
   await page.locator(".workspace-reupload > summary").click();
   await selectModifiedDirectory(page);
-  await expect(page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
+  await expect(
+    page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" }),
+  ).toBeEnabled();
 });
 
 test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page }) => {
@@ -409,7 +553,13 @@ test("W10 陈旧指针遇到已处置提交时显示终局原因", async ({ page
     review: {
       ...TEST_REVIEW_FACTS,
       status: "APPROVED" as const,
-      submission_disposition: { submission_id: "submission-1", disposition: "ARCHIVED_BASELINE", source_kind: "ARCHIVE", result_id: "archive-result-1", closure: null },
+      submission_disposition: {
+        submission_id: "submission-1",
+        disposition: "ARCHIVED_BASELINE",
+        source_kind: "ARCHIVE",
+        result_id: "archive-result-1",
+        closure: null,
+      },
     },
   };
   await installModeRoutes(page, state);
@@ -436,7 +586,13 @@ test("W10 陈旧指针重读后恢复可用（一次性重读，B2）", async ({
     review: {
       ...TEST_REVIEW_FACTS,
       status: "APPROVED" as const,
-      submission_disposition: { submission_id: "submission-1", disposition: "ARCHIVED_BASELINE", source_kind: "ARCHIVE", result_id: "archive-result-1", closure: null },
+      submission_disposition: {
+        submission_id: "submission-1",
+        disposition: "ARCHIVED_BASELINE",
+        source_kind: "ARCHIVE",
+        result_id: "archive-result-1",
+        closure: null,
+      },
     },
   };
   const { workspaceReadsOf } = await installModeRoutes(page, state);
@@ -486,11 +642,16 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
 
   await page.locator("tr", { hasText: "提交 3" }).click();
   await expect(details.getByText("归档时选中了其他提交")).toBeVisible();
-  await expect(page.locator(".workspace-details__actions").getByText("该提交已关闭（未归档）")).toBeVisible();
+  await expect(
+    page.locator(".workspace-details__actions").getByText("该提交已关闭（未归档）"),
+  ).toBeVisible();
   await screenshot(page, "fe3b-d2-closed-at-archive", 1280);
 
   const d3Row = page.locator("tr", { hasText: "提交 4" });
-  await expect(d3Row.locator(".tree-status")).toHaveAttribute("title", "有理由关闭，详情见右侧面板");
+  await expect(d3Row.locator(".tree-status")).toHaveAttribute(
+    "title",
+    "有理由关闭，详情见右侧面板",
+  );
   await d3Row.click();
   await expect(details.getByText("关闭人")).toBeVisible();
   await expect(details.getByText("关闭理由")).toBeVisible();
@@ -500,8 +661,12 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await screenshot(page, "fe4a-d3-manual-close-collapsed", 1280);
   await details.getByRole("button", { name: "展开" }).click();
   await expect(details.getByText("第一行")).toBeVisible();
-  await expect(page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" })).toBeDisabled();
-  await expect(page.locator(".workspace-details__actions").getByText("该提交已关闭（未归档）")).toBeVisible();
+  await expect(
+    page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" }),
+  ).toBeDisabled();
+  await expect(
+    page.locator(".workspace-details__actions").getByText("该提交已关闭（未归档）"),
+  ).toBeVisible();
   await screenshot(page, "fe3b-d3-manual-close", 1280);
 
   const d4Row = page.locator("tr", { hasText: "提交 5" });
@@ -514,7 +679,9 @@ test("D1-D5 终局处置的组态树与详情显示", async ({ page }) => {
   await expect(d5Row).toBeVisible();
   await d5Row.click();
   await expect(d5Row.locator(".status-tag--warning")).toHaveText("基线已更新");
-  await expect(page.locator(".workspace-details__actions").getByText("该提交所基于的基线已不是当前基线")).toBeVisible();
+  await expect(
+    page.locator(".workspace-details__actions").getByText("该提交所基于的基线已不是当前基线"),
+  ).toBeVisible();
   await expect(page.getByText("不能归档")).toHaveCount(0);
   await screenshot(page, "fe3b-d5-flag", 1280);
 });
@@ -571,7 +738,9 @@ test("D2 审核模式顶栏显示归档时关闭的一行说明", async ({ page 
     const button = page.locator(".review-actions").getByRole("button", { name, exact: true });
     await expect(button).toBeDisabled();
   }
-  await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
+  await expect(
+    page.locator(".review-actions").getByText("该提交已关闭（未归档）").first(),
+  ).toBeVisible();
   // N1: wait for the bundle so the top bar is not shot over the skeleton.
   await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d2-review-topbar", 1280);
@@ -604,7 +773,9 @@ test("D3 审核模式顶栏显示关闭人与理由展开", async ({ page }) => 
     const button = page.locator(".review-actions").getByRole("button", { name, exact: true });
     await expect(button).toBeDisabled();
   }
-  await expect(page.locator(".review-actions").getByText("该提交已关闭（未归档）").first()).toBeVisible();
+  await expect(
+    page.locator(".review-actions").getByText("该提交已关闭（未归档）").first(),
+  ).toBeVisible();
   // N1: wait for the bundle so the top bar is not shot over the skeleton.
   await expect(page.locator(".grid-frame[data-rendered]").first()).toBeVisible({ timeout: 20000 });
   await screenshot(page, "fe3b-d3-review-topbar", 1280);
@@ -640,7 +811,8 @@ test("W5 撤回遇到审核版本冲突时重新读取且不自动重发", async
   };
   await installModeRoutes(page, state);
   page.on("request", (request) => {
-    if (request.method() === "POST" && request.url().endsWith("/review-events")) reviewEventCalls += 1;
+    if (request.method() === "POST" && request.url().endsWith("/review-events"))
+      reviewEventCalls += 1;
   });
   await page.goto(previewUrl());
   await waitForPreview(page);
@@ -658,7 +830,12 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   const state: ModeState = {
     workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
     review: TEST_REVIEW_FACTS,
-    attempt: { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "PREPARED" as const, workspace_id: "workspace-fe2b", preview_result_id: "preview-full" },
+    attempt: {
+      ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+      state: "PREPARED" as const,
+      workspace_id: "workspace-fe2b",
+      preview_result_id: "preview-full",
+    },
     operation: { ...TEST_OPERATION_SUCCEEDED, status: "RUNNING" as const, completed_at: null },
   };
   await installModeRoutes(page, state);
@@ -667,7 +844,9 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   await page.goto(previewUrl());
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
-  const statusOverflow = await page.locator(".compare-status").evaluate((element) => element.scrollWidth - element.clientWidth);
+  const statusOverflow = await page
+    .locator(".compare-status")
+    .evaluate((element) => element.scrollWidth - element.clientWidth);
   expect(statusOverflow, `compare-status 元素横向溢出：${statusOverflow}px`).toBeLessThanOrEqual(1);
   await expect(page.getByText("提交正在执行，完成后才能撤回")).toBeVisible();
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
@@ -685,8 +864,12 @@ test("W6 提交尝试未结束时撤回、提交与上传均禁用", async ({ pa
   // Each reason renders in its own span: exactly two reason spans, one per
   // button, so the texts cannot merge into a single sentence.
   await expect(actions.locator(".disabled-reason")).toHaveCount(2);
-  await expect(actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能撤回" })).toBeVisible();
-  await expect(actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能继续" })).toBeVisible();
+  await expect(
+    actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能撤回" }),
+  ).toBeVisible();
+  await expect(
+    actions.locator(".disabled-reason", { hasText: "提交正在执行，完成后才能继续" }),
+  ).toBeVisible();
   await screenshot(page, "fe3b-w6-withdraw-busy", 1280);
   await page.goto("/?page=workspace");
   await selectModifiedDirectory(page);
@@ -702,9 +885,21 @@ test("W6 刷新后找回操作卡片，终态未结束显示需要管理员处�
   const state: ModeState = {
     workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
     review: TEST_REVIEW_FACTS,
-    attempt: { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "PREPARED" as const, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", operation_id: "submit-op-1" },
+    attempt: {
+      ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+      state: "PREPARED" as const,
+      workspace_id: "workspace-fe2b",
+      preview_result_id: "preview-full",
+      operation_id: "submit-op-1",
+    },
     operationById: {
-      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+      "submit-op-1": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "submit-op-1",
+        job_kind: "backend-vnext/submit",
+        status: "RUNNING" as const,
+        completed_at: null,
+      },
     },
   };
   await installModeRoutes(page, state);
@@ -714,11 +909,15 @@ test("W6 刷新后找回操作卡片，终态未结束显示需要管理员处�
   await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible({ timeout: 15000 });
   // The frozen instant sits 8 seconds after the mock operation start.
   await expect(page.getByRole("region", { name: "操作状态" })).toContainText("已等待 8 秒");
-  await expect.poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 }).toBe("submit-op-1");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 })
+    .toBe("submit-op-1");
   await selectModifiedDirectory(page);
   const upload = page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
   await expect(upload).toBeDisabled();
-  await expect(page.locator(".upload-card").getByText("提交正在执行，完成后才能继续")).toBeVisible();
+  await expect(
+    page.locator(".upload-card").getByText("提交正在执行，完成后才能继续"),
+  ).toBeVisible();
   await screenshot(page, "fe3b-w6-resumed-card", 1280);
 });
 
@@ -728,9 +927,21 @@ test("W6 Preview 页刷新后找回操作卡片", async ({ page }) => {
   const state: ModeState = {
     workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
     review: TEST_REVIEW_FACTS,
-    attempt: { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "PREPARED" as const, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", operation_id: "submit-op-1" },
+    attempt: {
+      ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+      state: "PREPARED" as const,
+      workspace_id: "workspace-fe2b",
+      preview_result_id: "preview-full",
+      operation_id: "submit-op-1",
+    },
     operationById: {
-      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+      "submit-op-1": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "submit-op-1",
+        job_kind: "backend-vnext/submit",
+        status: "RUNNING" as const,
+        completed_at: null,
+      },
     },
   };
   await installModeRoutes(page, state);
@@ -739,7 +950,9 @@ test("W6 Preview 页刷新后找回操作卡片", async ({ page }) => {
   await page.goto(previewUrl());
   await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole("region", { name: "操作状态" })).toContainText("已等待 8 秒");
-  await expect.poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 }).toBe("submit-op-1");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 })
+    .toBe("submit-op-1");
   await waitForPreview(page);
   await expect(page.getByRole("button", { name: "提交", exact: true })).toBeDisabled();
   await expect(page.getByText("提交正在执行，完成后才能继续").first()).toBeVisible();
@@ -761,7 +974,9 @@ test("比较页侧栏随顶栏吸顶：已通过提交 Preview 设备栏与原�
     display: { region1: "华东", region2: "上海", project_name: "示例项目", station_code: "站-01" },
     return_url: "http://directory.example:8100/",
   };
-  await page.goto(`/?page=workspace#gdds-handoff=${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`);
+  await page.goto(
+    `/?page=workspace#gdds-handoff=${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`,
+  );
   await page.waitForTimeout(1500);
   await page.goto(previewUrl());
   await waitForPreview(page);
@@ -774,9 +989,21 @@ test("W6 操作终态而 attempt 未结束时显示需要管理员处理", async
   const state: ModeState = {
     workspace: workspace({ active_submit_attempt_id: "attempt-1" }),
     review: TEST_REVIEW_FACTS,
-    attempt: { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "PREPARED" as const, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", operation_id: "submit-op-1" },
+    attempt: {
+      ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+      state: "PREPARED" as const,
+      workspace_id: "workspace-fe2b",
+      preview_result_id: "preview-full",
+      operation_id: "submit-op-1",
+    },
     operationById: {
-      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "SUCCEEDED" as const, completed_at: "2026-11-03T09:00:02Z" },
+      "submit-op-1": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "submit-op-1",
+        job_kind: "backend-vnext/submit",
+        status: "SUCCEEDED" as const,
+        completed_at: "2026-11-03T09:00:02Z",
+      },
     },
   };
   await installModeRoutes(page, state);
@@ -786,13 +1013,18 @@ test("W6 操作终态而 attempt 未结束时显示需要管理员处理", async
   await selectModifiedDirectory(page);
   const upload = page.locator(".upload-card").getByRole("button", { name: "上传并生成预览" });
   await expect(upload).toBeDisabled({ timeout: 15000 });
-  await expect(page.locator(".upload-card").getByText("提交结果待确认，需要管理员处理")).toBeVisible();
+  await expect(
+    page.locator(".upload-card").getByText("提交结果待确认，需要管理员处理"),
+  ).toBeVisible();
   await expect(page.getByText("提交结果待确认，需要管理员处理").first()).toBeVisible();
   await screenshot(page, "fe3b-w6-recovery", 1280);
 });
 
 test("§6.1 没有待审核提交与状态无法确认时的撤回禁用原因", async ({ page }) => {
-  const state: ModeState = { workspace: workspace({}), review: { ...TEST_REVIEW_FACTS, status: "PENDING" as const } };
+  const state: ModeState = {
+    workspace: workspace({}),
+    review: { ...TEST_REVIEW_FACTS, status: "PENDING" as const },
+  };
   await installModeRoutes(page, state);
   await page.goto(previewUrl());
   await waitForPreview(page);
@@ -802,11 +1034,21 @@ test("§6.1 没有待审核提交与状态无法确认时的撤回禁用原因",
 });
 
 test("§6.1 工作区读取失败时撤回显示无法确认提交状态", async ({ page }) => {
-  const state: ModeState = { workspace: workspace({ active_submission_id: "submission-1" }), review: TEST_REVIEW_FACTS };
+  const state: ModeState = {
+    workspace: workspace({ active_submission_id: "submission-1" }),
+    review: TEST_REVIEW_FACTS,
+  };
   await installModeRoutes(page, state);
-  await page.route("**/v1/workspaces", (route) => route.request().method() === "POST"
-    ? route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "SERVICE_UNAVAILABLE", message: "unavailable" }), headers: { "Access-Control-Allow-Origin": "*" } })
-    : route.fallback());
+  await page.route("**/v1/workspaces", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "SERVICE_UNAVAILABLE", message: "unavailable" }),
+          headers: { "Access-Control-Allow-Origin": "*" },
+        })
+      : route.fallback(),
+  );
   await page.goto(previewUrl());
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeDisabled();
   await expect(page.getByText("无法确认提交状态").first()).toBeVisible();

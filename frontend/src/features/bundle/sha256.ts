@@ -16,8 +16,7 @@ function rotateRight(value: number, amount: number): number {
 /** Incremental SHA-256 so bundle downloads never need to be buffered in memory. */
 export class Sha256 {
   private readonly state = new Uint32Array([
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
   ]);
   private readonly block = new Uint8Array(64);
   private blockLength = 0;
@@ -63,7 +62,11 @@ export class Sha256 {
     const words = new Uint32Array(64);
     for (let i = 0; i < 16; i += 1) {
       const offset = i * 4;
-      words[i] = ((block[offset] ?? 0) << 24) | ((block[offset + 1] ?? 0) << 16) | ((block[offset + 2] ?? 0) << 8) | (block[offset + 3] ?? 0);
+      words[i] =
+        ((block[offset] ?? 0) << 24) |
+        ((block[offset + 1] ?? 0) << 16) |
+        ((block[offset + 2] ?? 0) << 8) |
+        (block[offset + 3] ?? 0);
     }
     for (let i = 16; i < 64; i += 1) {
       const x = words[i - 15] ?? 0;
@@ -103,9 +106,17 @@ export function canonicalJson(value: unknown): string {
   }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   const object = value as Record<string, unknown>;
-  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(",")}}`;
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`)
+    .join(",")}}`;
 }
 
 export function normalizeSha256(value: string): string {
-  return value.trim().replace(/^W\//, "").replace(/^"|"$/g, "").replace(/^sha256:/i, "").toLowerCase();
+  return value
+    .trim()
+    .replace(/^W\//, "")
+    .replace(/^"|"$/g, "")
+    .replace(/^sha256:/i, "")
+    .toLowerCase();
 }

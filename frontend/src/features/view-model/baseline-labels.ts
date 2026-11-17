@@ -14,8 +14,13 @@ export type BaselineHistory = Pick<Schemas["HistoryListResponse"], "nodes">;
 export function baselineDisplayLabel(history: BaselineHistory, node: HistoryNode): string {
   if (node.baseline_kind === "INITIAL") return "初始基线";
   const archived = history.nodes
-    .filter((item) => item.node_kind === "BASELINE_NODE" && item.baseline_kind === "ARCHIVED_SUBMISSION")
-    .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.ref_id.localeCompare(right.ref_id));
+    .filter(
+      (item) => item.node_kind === "BASELINE_NODE" && item.baseline_kind === "ARCHIVED_SUBMISSION",
+    )
+    .sort(
+      (left, right) =>
+        left.created_at.localeCompare(right.created_at) || left.ref_id.localeCompare(right.ref_id),
+    );
   const index = archived.findIndex((item) => item.ref_id === node.ref_id);
   return index === -1 ? "归档基线" : `归档基线 ${index + 1}`;
 }

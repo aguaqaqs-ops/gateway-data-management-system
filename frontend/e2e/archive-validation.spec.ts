@@ -47,7 +47,10 @@ async function expectNoHorizontalOverflow(page: Page) {
     scrollWidth: document.documentElement.scrollWidth,
     innerWidth: window.innerWidth,
   }));
-  expect(metrics.scrollWidth, `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`).toBeLessThanOrEqual(metrics.innerWidth);
+  expect(
+    metrics.scrollWidth,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`,
+  ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 
 async function screenshot(page: Page, name: string, width: number) {
@@ -57,12 +60,21 @@ async function screenshot(page: Page, name: string, width: number) {
     await expectNoHorizontalOverflow(page);
     if (!screenshotDirectory) continue;
     await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
-    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
+    await page.screenshot({
+      path: join(screenshotDirectory, String(current), `${name}.png`),
+      fullPage: false,
+      animations: "disabled",
+    });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
 }
 
-async function cardScreenshot(page: Page, name: string, width: number, locator: ReturnType<Page["locator"]>) {
+async function cardScreenshot(
+  page: Page,
+  name: string,
+  width: number,
+  locator: ReturnType<Page["locator"]>,
+) {
   for (const current of [width, width === 1280 ? 1920 : 1280]) {
     await page.setViewportSize({ width: current, height: current === 1280 ? 800 : 1080 });
     await locator.scrollIntoViewIfNeeded();
@@ -71,7 +83,11 @@ async function cardScreenshot(page: Page, name: string, width: number, locator: 
     await expectNoHorizontalOverflow(page);
     if (!screenshotDirectory) continue;
     await mkdir(join(screenshotDirectory, String(current)), { recursive: true });
-    await page.screenshot({ path: join(screenshotDirectory, String(current), `${name}.png`), fullPage: false, animations: "disabled" });
+    await page.screenshot({
+      path: join(screenshotDirectory, String(current), `${name}.png`),
+      fullPage: false,
+      animations: "disabled",
+    });
   }
   await page.setViewportSize({ width, height: width === 1280 ? 800 : 1080 });
 }
@@ -95,8 +111,19 @@ interface ArchiveScenario {
   holdPreview?: boolean;
 }
 
-function errorBody(route: string, status: number, code: string, method = "POST"): { code: string; message: string } {
-  const found = SIMULATED_ERROR_RESPONSES.find((item) => item.route === route && item.method === method && item.status === status && item.body.code === code);
+function errorBody(
+  route: string,
+  status: number,
+  code: string,
+  method = "POST",
+): { code: string; message: string } {
+  const found = SIMULATED_ERROR_RESPONSES.find(
+    (item) =>
+      item.route === route &&
+      item.method === method &&
+      item.status === status &&
+      item.body.code === code,
+  );
   if (!found) throw new Error(`simulated error missing: ${method} ${route} ${status} ${code}`);
   return found.body;
 }
@@ -111,21 +138,60 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
     });
     releasePreview = release;
   }
-  const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
+  const apiRequests: Array<{
+    method: string;
+    path: string;
+    token: string | null;
+    idempotencyKey: string | null;
+    body: string;
+  }> = [];
   const apiResponses: Array<{ method: string; path: string; status: number; body: string }> = [];
-  const record = (method: string, path: string, token: string | null, idempotencyKey: string | null, body: string, status: number, responseBody: string) => {
+  const record = (
+    method: string,
+    path: string,
+    token: string | null,
+    idempotencyKey: string | null,
+    body: string,
+    status: number,
+    responseBody: string,
+  ) => {
     apiRequests.push({ method, path, token, idempotencyKey, body });
     apiResponses.push({ method, path, status, body: responseBody });
   };
   const rejectInvalid = async (route: Route, request: PlaywrightRequest): Promise<boolean> => {
-    const invalid = validateSimulatedRequest({ method: request.method(), url: new URL(request.url()), headers: request.headers(), body: request.postData() ?? "" });
+    const invalid = validateSimulatedRequest({
+      method: request.method(),
+      url: new URL(request.url()),
+      headers: request.headers(),
+      body: request.postData() ?? "",
+    });
     if (!invalid) return false;
-    record(request.method(), new URL(request.url()).pathname, request.headers()["authorization"] ?? null, request.headers()["idempotency-key"] ?? null, request.postData() ?? "", 422, JSON.stringify(invalid));
-    await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(invalid) });
+    record(
+      request.method(),
+      new URL(request.url()).pathname,
+      request.headers()["authorization"] ?? null,
+      request.headers()["idempotency-key"] ?? null,
+      request.postData() ?? "",
+      422,
+      JSON.stringify(invalid),
+    );
+    await route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify(invalid),
+    });
     return true;
   };
   const json = (route: Route, request: PlaywrightRequest, status: number, body: unknown) => {
-    record(request.method(), new URL(request.url()).pathname, request.headers()["authorization"] ?? null, request.headers()["idempotency-key"] ?? null, request.postData() ?? "", status, JSON.stringify(body));
+    record(
+      request.method(),
+      new URL(request.url()).pathname,
+      request.headers()["authorization"] ?? null,
+      request.headers()["idempotency-key"] ?? null,
+      request.postData() ?? "",
+      status,
+      JSON.stringify(body),
+    );
     return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
   };
 
@@ -151,7 +217,9 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
     const submissionId = path.split("/")[3] ?? "";
     return json(route, route.request(), 200, vReviewFacts(submissionId));
   });
-  const candidatesScript = [...(scenario.candidatesList ?? (scenario.candidates ? [scenario.candidates] : [V_CANDIDATES]))];
+  const candidatesScript = [
+    ...(scenario.candidatesList ?? (scenario.candidates ? [scenario.candidates] : [V_CANDIDATES])),
+  ];
   let candidatesCalls = 0;
   await page.route("**/v1/archive-candidates", async (route) => {
     const request = route.request();
@@ -160,7 +228,12 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
       return json(route, request, 403, error);
     }
     candidatesCalls += 1;
-    return json(route, request, 200, candidatesScript[Math.min(candidatesCalls - 1, candidatesScript.length - 1)]!);
+    return json(
+      route,
+      request,
+      200,
+      candidatesScript[Math.min(candidatesCalls - 1, candidatesScript.length - 1)]!,
+    );
   });
   const previews = [...(scenario.previews ?? [vPreviewAllKinds()])];
   let previewCalls = 0;
@@ -189,7 +262,10 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
       return json(route, request, 409, error);
     }
     appendSequence += 1;
-    return json(route, request, 201, { event_id: `event-${appendSequence}`, sequence: appendSequence });
+    return json(route, request, 201, {
+      event_id: `event-${appendSequence}`,
+      sequence: appendSequence,
+    });
   });
   await page.route("**/v1/archive-anomaly-resolutions", async (route) => {
     const request = route.request();
@@ -199,7 +275,10 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
       return json(route, request, 409, error);
     }
     appendSequence += 1;
-    return json(route, request, 201, { event_id: `event-${appendSequence}`, sequence: appendSequence });
+    return json(route, request, 201, {
+      event_id: `event-${appendSequence}`,
+      sequence: appendSequence,
+    });
   });
   await page.route("**/v1/archives", async (route) => {
     const request = route.request();
@@ -208,14 +287,23 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
       const error = errorBody("/v1/archives", 409, scenario.startConflict);
       return json(route, request, 409, error);
     }
-    const selected = (JSON.parse(request.postData() ?? "{}") as { selected?: { submission_id?: string } }).selected;
-    return json(route, request, 201, { ...TEST_ARCHIVE_STARTED, selected_submission_id: selected?.submission_id ?? "v-s1" });
+    const selected = (
+      JSON.parse(request.postData() ?? "{}") as { selected?: { submission_id?: string } }
+    ).selected;
+    return json(route, request, 201, {
+      ...TEST_ARCHIVE_STARTED,
+      selected_submission_id: selected?.submission_id ?? "v-s1",
+    });
   });
   await page.route("**/v1/archives/*", async (route) => {
     const selected = previews[previews.length - 1]?.selected?.submission_id ?? "v-s1";
     const refs = (JSON.parse("{}") as { refs?: unknown }).refs;
     void refs;
-    return json(route, route.request(), 200, { ...TEST_ARCHIVE_RESULT, selected_submission_id: selected, dispositions: [{ submission_id: selected, disposition: "ARCHIVED_BASELINE" }] });
+    return json(route, route.request(), 200, {
+      ...TEST_ARCHIVE_RESULT,
+      selected_submission_id: selected,
+      dispositions: [{ submission_id: selected, disposition: "ARCHIVED_BASELINE" }],
+    });
   });
   let closureCalls = 0;
   let closureAborted = false;
@@ -225,7 +313,13 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
     const path = new URL(request.url()).pathname;
     if (scenario.closureAbortOnce && !closureAborted) {
       closureAborted = true;
-      apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+      apiRequests.push({
+        method: request.method(),
+        path,
+        token: request.headers()["authorization"] ?? null,
+        idempotencyKey: request.headers()["idempotency-key"] ?? null,
+        body: request.postData() ?? "",
+      });
       return route.abort("failed");
     }
     if (await rejectInvalid(route, request)) return;
@@ -243,9 +337,16 @@ async function installArchiveScenario(page: Page, scenario: ArchiveScenario = {}
     closureCalls += 1;
     if (step.status === 201 || step.status === 200) {
       const submissionId = path.split("/")[3] ?? "";
-      return json(route, request, step.status, { ...TEST_CLOSE_SUBMISSION, submission_id: submissionId });
+      return json(route, request, step.status, {
+        ...TEST_CLOSE_SUBMISSION,
+        submission_id: submissionId,
+      });
     }
-    const error = errorBody("/v1/submissions/{submission_id}/closure", step.status, step.code ?? "");
+    const error = errorBody(
+      "/v1/submissions/{submission_id}/closure",
+      step.status,
+      step.code ?? "",
+    );
     return json(route, request, step.status, error);
   });
   return { apiRequests, apiResponses, releasePreview };
@@ -263,7 +364,8 @@ const SIMULATED_WORKSPACE: Schemas["WorkspaceResponse"] = {
   current_upload_revision_id: null,
   current_preview_result_id: null,
   active_submission_id: null,
-  active_preview_operation_id: null, active_submit_attempt_id: null,
+  active_preview_operation_id: null,
+  active_submit_attempt_id: null,
 };
 
 async function openArchiveDialog(page: Page, submission: string) {
@@ -271,7 +373,10 @@ async function openArchiveDialog(page: Page, submission: string) {
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: submission, exact: true }).click();
-  await page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" }).click();
+  await page
+    .locator(".workspace-details__actions")
+    .getByRole("button", { name: "归档主线" })
+    .click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
   await expect(dialog.getByText("预检状态")).toBeVisible();
   return dialog;
@@ -283,7 +388,9 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await expect(dialog.locator("dt", { hasText: "当前基线" })).toBeVisible();
   await expect(dialog.getByText(/归档基线 1/)).toBeVisible();
   await expect(dialog.getByText("待处理项")).toBeVisible();
-  await expect(dialog.locator(".archive-overview").getByText("未解释", { exact: true })).toBeVisible();
+  await expect(
+    dialog.locator(".archive-overview").getByText("未解释", { exact: true }),
+  ).toBeVisible();
   await expect(dialog.getByText("缺少组态生成时间")).toBeVisible();
   await expect(dialog.getByText("生成时间中有无法识别的值")).toBeVisible();
   await expect(dialog.getByText("最后一个生成时间不是最大值")).toBeVisible();
@@ -294,27 +401,42 @@ test("V1 业务核验九类卡片与详情", async ({ page }) => {
   await expect(dialog.getByText("2 个值无法识别")).toBeVisible();
   await expect(dialog.getByText("归档后该已通过的提交将被关闭（不归档）")).toBeVisible();
   await expect(dialog.getByText("选中的提交有项目身份例外")).toBeVisible();
-  const lastNotMax = dialog.locator(".archive-anomaly", { hasText: "最后一个生成时间不是最大值" }).first();
+  const lastNotMax = dialog
+    .locator(".archive-anomaly", { hasText: "最后一个生成时间不是最大值" })
+    .first();
   await cardScreenshot(page, "fe3c-last-not-max-card", 1280, lastNotMax);
-  const regressed = dialog.locator(".archive-anomaly", { hasText: "本次归档组态的生成时间早于对照" }).first();
+  const regressed = dialog
+    .locator(".archive-anomaly", { hasText: "本次归档组态的生成时间早于对照" })
+    .first();
   await cardScreenshot(page, "fe3c-time-regression-card", 1280, regressed);
   // C6: the source detail tooltip carries the full raw digests, and the card
   // title carries the raw codes.
-  const unexplained = dialog.locator(".archive-anomaly", { hasText: "原始组态备份的来源无法解释" }).first();
-  const unexplainedDetail = unexplained.locator("p", { hasText: "与当前基线及本轮已通过的提交都对不上" });
+  const unexplained = dialog
+    .locator(".archive-anomaly", { hasText: "原始组态备份的来源无法解释" })
+    .first();
+  const unexplainedDetail = unexplained.locator("p", {
+    hasText: "与当前基线及本轮已通过的提交都对不上",
+  });
   await expect(unexplainedDetail).toHaveAttribute("title", /sha256:v-content-s1-initial/);
   await expect(unexplainedDetail).toHaveAttribute("title", /sha256:v-content-s1-modified/);
   await expect(unexplainedDetail).toHaveAttribute("title", /issue_code=INITIAL_SOURCE_UNEXPLAINED/);
   await expect(unexplainedDetail).toHaveAttribute("title", /subject_digest=sha256:v-source/);
-  await expect(unexplained.locator("strong").first()).toHaveAttribute("title", /subject_digest=sha256:v-source/);
-  await dialog.locator(".dialog__body").evaluate((node) => { node.scrollTop = 0; });
+  await expect(unexplained.locator("strong").first()).toHaveAttribute(
+    "title",
+    /subject_digest=sha256:v-source/,
+  );
+  await dialog.locator(".dialog__body").evaluate((node) => {
+    node.scrollTop = 0;
+  });
   await screenshot(page, "fe3c-validation-overview", 1920);
 });
 
 test("C6 长理由折叠为三行并可展开", async ({ page }) => {
   const longReason = `${"长理由内容".repeat(30)}尾`;
   expect(longReason.length).toBeGreaterThan(120);
-  await installArchiveScenario(page, { previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(longReason)] });
+  await installArchiveScenario(page, {
+    previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(longReason)],
+  });
   const dialog = await openArchiveDialog(page, "提交 1");
   await expandArchiveGroup(dialog, "生成时间");
   const card = () => dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).first();
@@ -340,7 +462,9 @@ test("C6 长理由折叠为三行并可展开", async ({ page }) => {
 
 test("C6 多行长理由折叠为三行并可展开收起", async ({ page }) => {
   const longReason = "第一行\n第二行\n第三行\n第四行";
-  await installArchiveScenario(page, { previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(longReason)] });
+  await installArchiveScenario(page, {
+    previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(longReason)],
+  });
   const dialog = await openArchiveDialog(page, "提交 1");
   await expandArchiveGroup(dialog, "生成时间");
   const card = () => dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).first();
@@ -363,7 +487,9 @@ test("C6 多行长理由折叠为三行并可展开收起", async ({ page }) => 
 
 test("C6 三行以内理由不显示展开", async ({ page }) => {
   const shortReason = "第一行\n第二行\n第三行";
-  await installArchiveScenario(page, { previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(shortReason)] });
+  await installArchiveScenario(page, {
+    previews: [vPreviewAllKinds(), vPreviewAllKindsMissingAccepted(shortReason)],
+  });
   const dialog = await openArchiveDialog(page, "提交 1");
   await expandArchiveGroup(dialog, "生成时间");
   const card = () => dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).first();
@@ -449,8 +575,18 @@ test("V2 两侧独立项分别接受与撤销", async ({ page }) => {
 
   const bodies = apiRequests
     .filter((request) => request.path === "/v1/archive-anomaly-resolutions")
-    .map((request) => JSON.parse(request.body) as { subject_digest: string; expected_sequence: number; action: string; reason: string });
-  expect(bodies.map((body) => [body.action, body.subject_digest, body.expected_sequence, body.reason])).toEqual([
+    .map(
+      (request) =>
+        JSON.parse(request.body) as {
+          subject_digest: string;
+          expected_sequence: number;
+          action: string;
+          reason: string;
+        },
+    );
+  expect(
+    bodies.map((body) => [body.action, body.subject_digest, body.expected_sequence, body.reason]),
+  ).toEqual([
     ["ACKNOWLEDGE_TIME_QUALITY", "sha256:v-twoside-initial", 0, "① 已核对"],
     ["ACKNOWLEDGE_TIME_QUALITY", "sha256:v-twoside-modified", 0, "② 已核对"],
     ["REVOKE", "sha256:v-twoside-initial", 4, "① 撤销理由"],
@@ -462,7 +598,9 @@ async function expandArchiveGroup(dialog: ReturnType<Page["getByRole"]>, title: 
   // C6: match the group by its full title plus the trailing count paren, so
   // "生成时间" never matches the "生成时间先后" group.
   const summary = dialog.locator("summary", { hasText: new RegExp(`^${title}（`) });
-  const open = await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement | null)?.open ?? false);
+  const open = await summary.evaluate(
+    (node) => (node.parentElement as HTMLDetailsElement | null)?.open ?? false,
+  );
   if (!open) await summary.click();
 }
 
@@ -503,7 +641,14 @@ test("V4 撤销后回到未处理且禁用确认归档", async ({ page }) => {
   await expect(dialog.getByText("还有 2 项异常未处理")).toBeVisible();
   const bodies = apiRequests
     .filter((request) => request.path === "/v1/archive-anomaly-resolutions")
-    .map((request) => JSON.parse(request.body) as { subject_digest: string; expected_sequence: number; action: string });
+    .map(
+      (request) =>
+        JSON.parse(request.body) as {
+          subject_digest: string;
+          expected_sequence: number;
+          action: string;
+        },
+    );
   expect(bodies).toHaveLength(1);
   expect(bodies[0]).toMatchObject({
     subject_digest: "sha256:v-source",
@@ -519,12 +664,17 @@ test("V5 审计冲突后提示并重新预检不重发", async ({ page }) => {
     resolutionConflict: "ARCHIVE_AUDIT_VERSION_CONFLICT",
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator(".archive-anomaly", { hasText: "①原始组态备份" }).getByRole("button", { name: "接受" }).click();
+  await dialog
+    .locator(".archive-anomaly", { hasText: "①原始组态备份" })
+    .getByRole("button", { name: "接受" })
+    .click();
   const accept = page.getByRole("dialog", { name: "接受异常" });
   await accept.getByLabel("接受理由").fill("① 已核对");
   await accept.getByRole("button", { name: "确认接受" }).click();
   await expect(dialog.getByText("归档候选或核验结果已变化，已重新预检")).toBeVisible();
-  const resolutionRequests = apiRequests.filter((request) => request.path === "/v1/archive-anomaly-resolutions");
+  const resolutionRequests = apiRequests.filter(
+    (request) => request.path === "/v1/archive-anomaly-resolutions",
+  );
   expect(resolutionRequests).toHaveLength(1);
 });
 
@@ -534,7 +684,10 @@ test("V5 候选集合变化显示提示", async ({ page }) => {
     previews: [vPreviewTwoSided(), vPreviewAfterClose()],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator(".archive-anomaly", { hasText: "①原始组态备份" }).getByRole("button", { name: "接受" }).click();
+  await dialog
+    .locator(".archive-anomaly", { hasText: "①原始组态备份" })
+    .getByRole("button", { name: "接受" })
+    .click();
   const accept = page.getByRole("dialog", { name: "接受异常" });
   await accept.getByLabel("接受理由").fill("① 已核对");
   await accept.getByRole("button", { name: "确认接受" }).click();
@@ -551,15 +704,23 @@ test("C8 关闭 409 后集合变化时两条提示都出现", async ({ page }) =
     closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .nth(1)
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("集合变化场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
   await close.getByRole("button", { name: "确认关闭" }).click();
   // C8: the 409 conflict text and the generic set-change text render in two
   // separate banners.
-  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toBeVisible();
-  await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toBeVisible();
+  await expect(
+    dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" }),
+  ).toBeVisible();
+  await expect(
+    dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" }),
+  ).toBeVisible();
   await screenshot(page, "fe4a-c8-both-notices", 1280);
 });
 
@@ -570,22 +731,36 @@ test("C8 集合未变的成功接受且重新预检完成后集合变化提示�
     closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .nth(1)
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("集合变化场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
   await close.getByRole("button", { name: "确认关闭" }).click();
-  await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toBeVisible();
-  await dialog.locator(".archive-anomaly", { hasText: "①原始组态备份" }).first().getByRole("button", { name: "接受" }).click();
+  await expect(
+    dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" }),
+  ).toBeVisible();
+  await dialog
+    .locator(".archive-anomaly", { hasText: "①原始组态备份" })
+    .first()
+    .getByRole("button", { name: "接受" })
+    .click();
   const accept = page.getByRole("dialog", { name: "接受异常" });
   await accept.getByLabel("接受理由").fill("集合未变后重新核对");
   await accept.getByRole("button", { name: "确认接受" }).click();
   // Wait until the accept succeeded, the archive dialog is back and the third preview has rendered.
   await expect(accept).toHaveCount(0);
-  await expect.poll(() => apiRequests.filter((request) => request.path === "/v1/archive-plan-preview").length).toBe(3);
+  await expect
+    .poll(() => apiRequests.filter((request) => request.path === "/v1/archive-plan-preview").length)
+    .toBe(3);
   await expect(dialog.getByText("正在读取归档候选并预检…")).toHaveCount(0);
   await expect(dialog.getByText("预检状态")).toBeVisible();
-  await expect(dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" })).toHaveCount(0);
+  await expect(
+    dialog.locator(".form-error", { hasText: "候选集合已变化，之前的接受不再适用，请重新核对" }),
+  ).toHaveCount(0);
 });
 
 test("C8 集合未变时后续加载不显示旧的冲突提示", async ({ page }) => {
@@ -596,16 +771,26 @@ test("C8 集合未变时后续加载不显示旧的冲突提示", async ({ page 
     closure: [{ status: 409, code: "BASELINE_VERSION_CONFLICT" }],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .first()
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("集合未变场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
   await close.getByRole("button", { name: "确认关闭" }).click();
-  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toBeVisible();
-  await expect(dialog.locator(".form-error", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
+  await expect(
+    dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" }),
+  ).toBeVisible();
+  await expect(
+    dialog.locator(".form-error", { hasText: "提交或基线已变化，已重新预检" }),
+  ).toHaveCount(0);
   await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
   await expect(dialog.getByText("待处理项")).toBeVisible();
-  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
+  await expect(
+    dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" }),
+  ).toHaveCount(0);
 });
 
 test("C8 409 后的重新预检失败时不保留待处理的冲突提示", async ({ page }) => {
@@ -615,7 +800,11 @@ test("C8 409 后的重新预检失败时不保留待处理的冲突提示", asyn
   };
   await installArchiveScenario(page, scenario);
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .first()
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("加载失败场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
@@ -626,7 +815,9 @@ test("C8 409 后的重新预检失败时不保留待处理的冲突提示", asyn
   scenario.previewForbidden = false;
   await dialog.locator("footer").getByRole("button", { name: "重新预检" }).click();
   await expect(dialog.getByText("待处理项")).toBeVisible();
-  await expect(dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" })).toHaveCount(0);
+  await expect(
+    dialog.locator(".form-warning", { hasText: "提交或基线已变化，已重新预检" }),
+  ).toHaveCount(0);
 });
 
 test("V6 全部引用进入开始归档请求", async ({ page }) => {
@@ -640,15 +831,23 @@ test("V6 全部引用进入开始归档请求", async ({ page }) => {
   await dialog.getByRole("checkbox", { name: /确认把/ }).check();
   await dialog.getByRole("button", { name: "确认归档" }).click();
   await expect(dialog.getByText("归档完成")).toBeVisible({ timeout: 30000 });
-  const starts = apiRequests.filter((request) => request.path === "/v1/archives" && request.method === "POST");
+  const starts = apiRequests.filter(
+    (request) => request.path === "/v1/archives" && request.method === "POST",
+  );
   expect(starts).toHaveLength(1);
-  const body = JSON.parse(starts[0]!.body) as { anomaly_resolution_refs: unknown[]; confirmation_refs: unknown[] };
+  const body = JSON.parse(starts[0]!.body) as {
+    anomaly_resolution_refs: unknown[];
+    confirmation_refs: unknown[];
+  };
   expect(body.anomaly_resolution_refs).toHaveLength(399);
   expect(body.confirmation_refs).toHaveLength(1);
   for (const request of apiRequests) {
     if (!request.path.startsWith("/v1/archive") || request.method !== "POST") continue;
     const parsed = JSON.parse(request.body) as { selected?: Record<string, unknown> };
-    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual(["expected_candidate_digest", "submission_id"]);
+    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual([
+      "expected_candidate_digest",
+      "submission_id",
+    ]);
   }
   await screenshot(page, "fe3c-many-first", 1920);
 });
@@ -658,7 +857,11 @@ test("V7 阻断项只有文字与重新预检", async ({ page }) => {
   const dialog = await openArchiveDialog(page, "提交 1");
   await expect(dialog.getByText("归档被阻止")).toBeVisible();
   await expect(dialog.getByText("归档数据完整性校验未通过，不能继续，请联系管理员")).toBeVisible();
-  await expect(dialog.locator(".archive-blockers code").getByText("ARCHIVE_INTEGRITY_FAILURE", { exact: true })).toBeVisible();
+  await expect(
+    dialog
+      .locator(".archive-blockers code")
+      .getByText("ARCHIVE_INTEGRITY_FAILURE", { exact: true }),
+  ).toBeVisible();
   await expect(dialog.getByText("当前预检存在阻断项")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "接受", exact: true })).toBeHidden();
   await expect(dialog.getByRole("button", { name: "确认归档" })).toBeDisabled();
@@ -668,7 +871,9 @@ test("V7 阻断项只有文字与重新预检", async ({ page }) => {
   await page.goto("/");
   const reloaded = await openArchiveDialog(page, "提交 1");
   await expect(reloaded.getByText("已有提交正在处理，完成后才能归档")).toBeVisible();
-  await expect(reloaded.locator(".archive-blockers code").getByText("ACTIVE_SUBMIT_ATTEMPT", { exact: true })).toBeVisible();
+  await expect(
+    reloaded.locator(".archive-blockers code").getByText("ACTIVE_SUBMIT_ATTEMPT", { exact: true }),
+  ).toBeVisible();
   await expect(reloaded.getByRole("button", { name: "确认归档" })).toBeDisabled();
 });
 
@@ -707,10 +912,18 @@ test("V9 关闭中断后同 key 重试并显示首次关闭人", async ({ page }
   });
   let reviewGets = 0;
   page.on("request", (request) => {
-    if (request.method() === "GET" && /\/v1\/submissions\/[^/]+\/review$/.test(new URL(request.url()).pathname)) reviewGets += 1;
+    if (
+      request.method() === "GET" &&
+      /\/v1\/submissions\/[^/]+\/review$/.test(new URL(request.url()).pathname)
+    )
+      reviewGets += 1;
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .nth(1)
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   // C9: the body uses the display name directly without duplicating it.
   await expect(close.getByText(/关闭提交 \d+（不归档）。/)).toBeVisible();
@@ -750,7 +963,9 @@ test("V9 关闭中断后同 key 重试并显示首次关闭人", async ({ page }
 test("V9 版本冲突后重新打开取新加载的审核版本", async ({ page }) => {
   const refreshed = {
     ...V_CANDIDATES_AFTER_CLOSE,
-    candidates: V_CANDIDATES_AFTER_CLOSE.candidates.map((candidate) => candidate.submission_id === "v-s2" ? { ...candidate, review_version: 22 } : candidate),
+    candidates: V_CANDIDATES_AFTER_CLOSE.candidates.map((candidate) =>
+      candidate.submission_id === "v-s2" ? { ...candidate, review_version: 22 } : candidate,
+    ),
   };
   const { apiRequests } = await installArchiveScenario(page, {
     candidatesList: [V_CANDIDATES, refreshed],
@@ -758,21 +973,33 @@ test("V9 版本冲突后重新打开取新加载的审核版本", async ({ page 
     closure: [{ status: 409, code: "REVIEW_VERSION_CONFLICT" }, { status: 200 }],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .nth(1)
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("版本冲突场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
   await close.getByRole("button", { name: "确认关闭" }).click();
   await expect(dialog.getByText("提交或基线已变化，已重新预检")).toBeVisible();
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .nth(1)
+    .click();
   const reopened = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await reopened.getByLabel("关闭理由").fill("版本冲突后重开");
   await reopened.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
   await reopened.getByRole("button", { name: "确认关闭" }).click();
   const requests = apiRequests.filter((request) => request.path.endsWith("/closure"));
   expect(requests).toHaveLength(2);
-  expect((JSON.parse(requests[0]!.body) as { expected_review_version: number }).expected_review_version).toBe(12);
-  expect((JSON.parse(requests[1]!.body) as { expected_review_version: number }).expected_review_version).toBe(22);
+  expect(
+    (JSON.parse(requests[0]!.body) as { expected_review_version: number }).expected_review_version,
+  ).toBe(12);
+  expect(
+    (JSON.parse(requests[1]!.body) as { expected_review_version: number }).expected_review_version,
+  ).toBe(22);
 });
 
 test("V9 关闭 404 与 422 显示 kickoff 文案", async ({ page }) => {
@@ -784,7 +1011,11 @@ test("V9 关闭 404 与 422 显示 kickoff 文案", async ({ page }) => {
     ],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .first()
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("404 场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
@@ -799,10 +1030,17 @@ test("V9 关闭 404 与 422 显示 kickoff 文案", async ({ page }) => {
 test("V9 关闭 403 与 413 显示关闭未完成", async ({ page }) => {
   await installArchiveScenario(page, {
     previews: [vPreviewAllKinds()],
-    closure: [{ status: 403, code: "SCOPE_FORBIDDEN" }, { status: 413, code: "REQUEST_TOO_LARGE" }],
+    closure: [
+      { status: 403, code: "SCOPE_FORBIDDEN" },
+      { status: 413, code: "REQUEST_TOO_LARGE" },
+    ],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .first()
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("权限场景");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
@@ -816,7 +1054,11 @@ test("V9 关闭 403 与 413 显示关闭未完成", async ({ page }) => {
 test("V9 关闭理由 4096 可用且 4097 禁用", async ({ page }) => {
   await installArchiveScenario(page, { previews: [vPreviewAllKinds()] });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).first().click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .first()
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   const boundary = "多".repeat(1365) + "x";
   await close.getByLabel("关闭理由").fill(boundary);
@@ -834,7 +1076,11 @@ test("V10 关闭后自动重新预检且全部回到未处理", async ({ page })
     previews: [vPreviewTwoSided(), vPreviewAfterClose()],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator("section[aria-label='候选提交']").getByRole("button", { name: "关闭（不归档）" }).nth(1).click();
+  await dialog
+    .locator("section[aria-label='候选提交']")
+    .getByRole("button", { name: "关闭（不归档）" })
+    .nth(1)
+    .click();
   const close = page.getByRole("dialog", { name: "关闭提交（不归档）" });
   await close.getByLabel("关闭理由").fill("v-s2 的口径已变化，先关闭");
   await close.getByRole("checkbox", { name: /我已了解关闭不可撤销/ }).check();
@@ -890,10 +1136,14 @@ test("B4 候选读取与预检不一致时重读候选与预检一次", async ({
   const dialog = await openArchiveDialog(page, "提交 1");
   await expect(dialog.getByText("待处理项")).toBeVisible();
   await expect(dialog.getByText("归档候选集合已变化，请重新预检")).toBeHidden();
-  expect(apiRequests.filter((request) => request.path === "/v1/archive-candidates")).toHaveLength(2);
+  expect(apiRequests.filter((request) => request.path === "/v1/archive-candidates")).toHaveLength(
+    2,
+  );
   const previews = apiRequests.filter((request) => request.path === "/v1/archive-plan-preview");
   expect(previews).toHaveLength(2);
-  const second = JSON.parse(previews[1]!.body) as { selected: { expected_candidate_digest: string } };
+  const second = JSON.parse(previews[1]!.body) as {
+    selected: { expected_candidate_digest: string };
+  };
   expect(second.selected.expected_candidate_digest).toBe("sha256:v-candidate-v-s1-refreshed");
 });
 
@@ -903,7 +1153,13 @@ test("B4b 重读候选与预检后显示第二次预检的方案", async ({ page
   // second preview, not the first.
   await installArchiveScenario(page, {
     candidatesList: [V_CANDIDATES, V_CANDIDATES_RECHANGED],
-    previews: [{ ...vPreviewBlocked("ACTIVE_SUBMIT_ATTEMPT"), candidate_set_digest: "sha256:v-candidates-after-close" }, vPreviewRechanged()],
+    previews: [
+      {
+        ...vPreviewBlocked("ACTIVE_SUBMIT_ATTEMPT"),
+        candidate_set_digest: "sha256:v-candidates-after-close",
+      },
+      vPreviewRechanged(),
+    ],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
   await expect(dialog.getByText("待处理项")).toBeVisible();
@@ -915,35 +1171,54 @@ test("V14 全部归档请求的选择引用恰好两个键", async ({ page }) =>
     previews: [vPreviewAcceptedSource(), vPreviewAcceptedSource(), vPreviewAcceptedSource()],
   });
   const dialog = await openArchiveDialog(page, "提交 1");
-  await dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).getByRole("button", { name: "接受" }).click();
+  await dialog
+    .locator(".archive-anomaly", { hasText: "缺少组态生成时间" })
+    .getByRole("button", { name: "接受" })
+    .click();
   const accept = page.getByRole("dialog", { name: "接受异常" });
   await accept.getByLabel("接受理由").fill("② 已核对");
   await accept.getByRole("button", { name: "确认接受" }).click();
   await expandArchiveGroup(dialog, "原始组态来源");
-  await dialog.locator(".archive-anomaly", { hasText: "原始组态备份的来源无法解释" }).getByRole("button", { name: "撤销接受" }).click();
+  await dialog
+    .locator(".archive-anomaly", { hasText: "原始组态备份的来源无法解释" })
+    .getByRole("button", { name: "撤销接受" })
+    .click();
   const revoke = page.getByRole("dialog", { name: "撤销接受" });
   await revoke.getByLabel("撤销理由").fill("重新核对");
   await revoke.getByRole("button", { name: "确认撤销" }).click();
   await dialog.getByRole("checkbox", { name: /确认把/ }).check();
-  const checkedCount = await dialog.locator(".archive-anomaly", { hasText: "缺少组态生成时间" }).count();
+  const checkedCount = await dialog
+    .locator(".archive-anomaly", { hasText: "缺少组态生成时间" })
+    .count();
   expect(checkedCount).toBeGreaterThan(0);
   for (const request of apiRequests) {
     if (!request.path.startsWith("/v1/archive") || request.method !== "POST") continue;
     if (request.path === "/v1/archive-audit-events") continue;
     const parsed = JSON.parse(request.body) as { selected?: Record<string, unknown> };
-    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual(["expected_candidate_digest", "submission_id"]);
+    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual([
+      "expected_candidate_digest",
+      "submission_id",
+    ]);
     expect(parsed.selected?.submission_id, request.path).toBe("v-s1");
   }
   expect(apiRequests.some((request) => request.path === "/v1/archive-plan-preview")).toBe(true);
-  expect(apiRequests.some((request) => request.path === "/v1/archive-anomaly-resolutions")).toBe(true);
+  expect(apiRequests.some((request) => request.path === "/v1/archive-anomaly-resolutions")).toBe(
+    true,
+  );
 });
 
 test("B7 确认归档禁用原因截图", async ({ page }) => {
-  const { releasePreview } = await installArchiveScenario(page, { previews: [vPreviewTwoSidedAccepted()], holdPreview: true });
+  const { releasePreview } = await installArchiveScenario(page, {
+    previews: [vPreviewTwoSidedAccepted()],
+    holdPreview: true,
+  });
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
-  await page.locator(".workspace-details__actions").getByRole("button", { name: "归档主线" }).click();
+  await page
+    .locator(".workspace-details__actions")
+    .getByRole("button", { name: "归档主线" })
+    .click();
   const loading = page.getByRole("dialog", { name: "归档主基线" });
   await expect(loading.getByText("正在预检").first()).toBeVisible();
   await screenshot(page, "fe3c-confirm-disabled-loading", 1280);

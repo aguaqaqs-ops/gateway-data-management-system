@@ -1,22 +1,35 @@
-import { expect, type Browser, type BrowserContext, type Locator, type Page, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { resultsDir, type JourneyIdentity } from "./env";
 
 /** One browser context per identity: OPFS and storage stay identity-scoped. */
-export async function contextForIdentity(browser: Browser, identity: JourneyIdentity): Promise<BrowserContext> {
+export async function contextForIdentity(
+  browser: Browser,
+  identity: JourneyIdentity,
+): Promise<BrowserContext> {
   const context = await browser.newContext({
     baseURL: process.env.GATEWAY_FE_PREVIEW_URL ?? "http://127.0.0.1:4173",
     viewport: { width: 1280, height: 900 },
   });
-  await context.addInitScript((session) => {
-    (window as unknown as { __gatewaySession: unknown }).__gatewaySession = session;
-  }, {
-    businessProjectId: identity.businessProjectId,
-    gatewayDeviceExternalKey: identity.gatewayDeviceExternalKey,
-    accessToken: identity.token,
-  });
+  await context.addInitScript(
+    (session) => {
+      (window as unknown as { __gatewaySession: unknown }).__gatewaySession = session;
+    },
+    {
+      businessProjectId: identity.businessProjectId,
+      gatewayDeviceExternalKey: identity.gatewayDeviceExternalKey,
+      accessToken: identity.token,
+    },
+  );
   return context;
 }
 
@@ -33,16 +46,29 @@ export interface UploadDirs {
 
 export async function selectUploadDirs(page: Page, dirs: UploadDirs): Promise<void> {
   const reupload = page.locator("details.workspace-reupload");
-  if ((await reupload.count()) > 0 && !(await reupload.evaluate((el) => (el as HTMLDetailsElement).open))) {
+  if (
+    (await reupload.count()) > 0 &&
+    !(await reupload.evaluate((el) => (el as HTMLDetailsElement).open))
+  ) {
     await page.locator("details.workspace-reupload > summary").click();
   }
   if (dirs.initial) {
     await page.getByTestId("upload-initial-input").setInputFiles(dirs.initial);
     await page.getByTestId("upload-modified-input").setInputFiles(dirs.modified);
-    await expect(page.locator(".upload-card").getByText(/原始备份 \+ 本次归档/).first()).toBeVisible();
+    await expect(
+      page
+        .locator(".upload-card")
+        .getByText(/原始备份 \+ 本次归档/)
+        .first(),
+    ).toBeVisible();
   } else {
     await page.getByTestId("upload-modified-input").setInputFiles(dirs.modified);
-    await expect(page.locator(".upload-card").getByText(/仅本次归档/).first()).toBeVisible();
+    await expect(
+      page
+        .locator(".upload-card")
+        .getByText(/仅本次归档/)
+        .first(),
+    ).toBeVisible();
   }
 }
 
@@ -52,23 +78,36 @@ export async function startUpload(page: Page): Promise<void> {
 
 export type PreviewOutcome = "compare" | "error";
 
-export async function waitForPreviewOutcome(page: Page, timeout = 300_000): Promise<PreviewOutcome> {
+export async function waitForPreviewOutcome(
+  page: Page,
+  timeout = 300_000,
+): Promise<PreviewOutcome> {
   const compare = page.locator("section.comparison-content");
   const error = page.locator(".upload-error, section.compare-error");
   await expect(compare.or(error).first()).toBeVisible({ timeout });
-  return (await page.locator(".upload-error, section.compare-error").first().isVisible()) ? "error" : "compare";
+  return (await page.locator(".upload-error, section.compare-error").first().isVisible())
+    ? "error"
+    : "compare";
 }
 
 /** Wait until the diff workspace renders a grid (FE3b §4.7: no early assertions). */
 export async function waitForDiffBrowsing(page: Page): Promise<void> {
   await expect(page.locator("section.comparison-content")).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator('div.grid-frame[aria-label="比较表格"]')).toHaveAttribute("data-rendered", "true", {
-    timeout: 120_000,
-  });
+  await expect(page.locator('div.grid-frame[aria-label="比较表格"]')).toHaveAttribute(
+    "data-rendered",
+    "true",
+    {
+      timeout: 120_000,
+    },
+  );
 }
 
 /** Poll until the bundle digest directory carries `.complete.json` (installed). */
-export async function waitForInstalledBundle(page: Page, digestHex: string, timeout = 600_000): Promise<void> {
+export async function waitForInstalledBundle(
+  page: Page,
+  digestHex: string,
+  timeout = 600_000,
+): Promise<void> {
   await expect(async () => {
     const state = await opfsBundleState(page, digestHex);
     expect(state.hasCompleteMarker, `bundle ${digestHex} installed to OPFS`).toBe(true);
@@ -87,7 +126,9 @@ export async function selectTreeRow(page: Page, text: string | RegExp): Promise<
 }
 
 export function workshopAction(page: Page, label: string): Locator {
-  return page.locator(".workspace-details__actions").getByRole("button", { name: label, exact: true });
+  return page
+    .locator(".workspace-details__actions")
+    .getByRole("button", { name: label, exact: true });
 }
 
 export async function checkCompareRow(page: Page, text: string | RegExp): Promise<void> {
@@ -141,7 +182,9 @@ export async function expectDisabledWithReason(button: Locator, reason: string):
     expect(matched, `aria-describedby points to visible reason "${reason}"`).toBe(true);
     return;
   }
-  const siblingReason = button.locator('xpath=following-sibling::*[contains(@class, "disabled-reason")]');
+  const siblingReason = button.locator(
+    'xpath=following-sibling::*[contains(@class, "disabled-reason")]',
+  );
   await expect(siblingReason).toHaveText(reason);
   await expect(siblingReason).toBeVisible();
 }
@@ -172,9 +215,16 @@ export interface OpfsBundleState {
  */
 export async function opfsBundleState(page: Page, digestHex: string): Promise<OpfsBundleState> {
   return page.evaluate(async (digest) => {
-    const storage = navigator.storage as unknown as { getDirectory(): Promise<FileSystemDirectoryHandle> };
+    const storage = navigator.storage as unknown as {
+      getDirectory(): Promise<FileSystemDirectoryHandle>;
+    };
     const root = await storage.getDirectory();
-    const empty: OpfsBundleState = { bundleDirs: [], hasDigestDir: false, hasCompleteMarker: false, hasManifest: false };
+    const empty: OpfsBundleState = {
+      bundleDirs: [],
+      hasDigestDir: false,
+      hasCompleteMarker: false,
+      hasManifest: false,
+    };
     let bundles: FileSystemDirectoryHandle;
     try {
       bundles = await root.getDirectoryHandle("gateway-comparison-bundles-v1");
@@ -187,7 +237,8 @@ export async function opfsBundleState(page: Page, digestHex: string): Promise<Op
     if (!bundleDirs.includes(digest)) return { ...empty, bundleDirs };
     const dir = await bundles.getDirectoryHandle(digest);
     const names: string[] = [];
-    for await (const name of (dir as unknown as { keys(): AsyncIterableIterator<string> }).keys()) names.push(name);
+    for await (const name of (dir as unknown as { keys(): AsyncIterableIterator<string> }).keys())
+      names.push(name);
     return {
       bundleDirs,
       hasDigestDir: true,
@@ -211,7 +262,10 @@ export function collectPageDiagnostics(page: Page): PageDiagnostics {
   return diagnostics;
 }
 
-export async function expectNoPageErrors(diagnostics: PageDiagnostics, phase: string): Promise<void> {
+export async function expectNoPageErrors(
+  diagnostics: PageDiagnostics,
+  phase: string,
+): Promise<void> {
   expect(diagnostics.pageErrors, `未捕获的页面错误（${phase}）`).toEqual([]);
 }
 
@@ -220,7 +274,10 @@ export function evidenceDir(): string {
 }
 
 function evidenceName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  return value
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
 }
 
 /** Reference screenshot per key page (FE3b §4.7; not acceptance evidence). */
@@ -235,5 +292,9 @@ export async function saveEvidence(page: Page, testInfo: TestInfo, label: string
 export async function appendCaseLog(line: string): Promise<void> {
   const directory = evidenceDir();
   await mkdir(directory, { recursive: true });
-  await writeFile(path.join(directory, "journey-cases.log"), `${new Date().toISOString()} ${line}\n`, { flag: "a" });
+  await writeFile(
+    path.join(directory, "journey-cases.log"),
+    `${new Date().toISOString()} ${line}\n`,
+    { flag: "a" },
+  );
 }

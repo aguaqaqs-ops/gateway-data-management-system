@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
-import { connectionStatusLabel, getConnectionStatus, reportConnectionStatus } from "./connection-status";
+import {
+  connectionStatusLabel,
+  getConnectionStatus,
+  reportConnectionStatus,
+} from "./connection-status";
 import { ConnectionStatusIndicator } from "../../design-system/ConnectionStatusIndicator";
 
 describe("API connection status copy", () => {
@@ -13,7 +17,9 @@ describe("API connection status copy", () => {
   });
 
   it("renders no request, connected, and interrupted states and hides connected on an error page", async () => {
-    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    (
+      globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -22,7 +28,9 @@ describe("API connection status copy", () => {
       expect(container.querySelector('[role="status"]')).toBeNull();
       await act(async () => reportConnectionStatus("connected"));
       expect(container.textContent).toBe("已连接");
-      await act(async () => root.render(createElement(ConnectionStatusIndicator, { hideConnected: true })));
+      await act(async () =>
+        root.render(createElement(ConnectionStatusIndicator, { hideConnected: true })),
+      );
       expect(container.querySelector('[role="status"]')).toBeNull();
       await act(async () => reportConnectionStatus("interrupted"));
       expect(container.textContent).toBe("连接中断");

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { changeClassByKind, createTableTheme, riskClassByLevel, type CssTokenReader } from "./theme";
+import {
+  changeClassByKind,
+  createTableTheme,
+  riskClassByLevel,
+  type CssTokenReader,
+} from "./theme";
 
 describe("shared table and semantic themes", () => {
   it("uses the application font, sizing and neutral change versus risk classes", () => {
     const tokens: Record<string, string> = {
-      "--font-family-ui": "'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif",
+      "--font-family-ui":
+        "'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif",
       "--font-size-xs": "12px",
       "--font-size-sm": "13px",
       "--font-size-md": "14px",

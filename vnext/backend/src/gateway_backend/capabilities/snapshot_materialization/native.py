@@ -234,6 +234,18 @@ def catalog_from_arrow_result(
     return catalog
 
 
+def _arrow_int(value: object, label: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{label} must be int")
+    return value
+
+
+def _arrow_str(value: object, label: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be str")
+    return value
+
+
 def _convert_catalog_from_arrow_result(
     result: KernelResult,
     *,
@@ -266,8 +278,12 @@ def _convert_catalog_from_arrow_result(
     for metadata in output["tables"]:
         reader = metadata["arrow_stream"]
         assert isinstance(reader, pa.RecordBatchReader)
+        canonical_name = _arrow_str(metadata["canonical_name"], "canonical_name")
         columns = metadata["columns"]
-        indexes = {column["canonical_name"]: index for index, column in enumerate(columns)}
+        column_names = tuple(
+            _arrow_str(column["canonical_name"], "column canonical_name") for column in columns
+        )
+        indexes = {name: index for index, name in enumerate(column_names)}
         try:
             for batch in reader:
                 checkpoint()
@@ -279,7 +295,7 @@ def _convert_catalog_from_arrow_result(
                 # Unicode and escaping); row/cell terms cover tuples, dataclass
                 # fields, encoded_rows and digest/list headers. Arrow backing
                 # and the later columnar conversion have separate reservations.
-                names = sum(len(column["canonical_name"]) for column in columns)
+                names = sum(len(name) for name in column_names)
                 extra = batch.nbytes * 64 + batch.num_rows * (
                     names * 256 + len(columns) * 1024 + 4096
                 )
@@ -289,19 +305,24 @@ def _convert_catalog_from_arrow_result(
                 reserve(extra)
                 for row in range(batch.num_rows):
                     checkpoint()
-                    if metadata["canonical_name"] == DEVICE_TABLE:
+                    if canonical_name == DEVICE_TABLE:
                         devices.append(
                             SpecialDevice(
-                                gid=batch.column(indexes["gid"])[row].as_py(),
-                                dev_addr=batch.column(indexes["dev_addr"])[row].as_py(),
-                                description=batch.column(indexes["description"])[row].as_py(),
+                                gid=_arrow_int(batch.column(indexes["gid"])[row].as_py(), "gid"),
+                                dev_addr=_arrow_int(
+                                    batch.column(indexes["dev_addr"])[row].as_py(), "dev_addr"
+                                ),
+                                description=_arrow_str(
+                                    batch.column(indexes["description"])[row].as_py(),
+                                    "description",
+                                ),
                             )
                         )
                     else:
                         payload = tuple(
                             sorted(
                                 (
-                                    column["canonical_name"],
+                                    column_names[index],
                                     _payload_value(column, batch.column(index)[row].as_py()),
                                 )
                                 for index, column in enumerate(columns)
@@ -309,10 +330,16 @@ def _convert_catalog_from_arrow_result(
                         )
                         points.append(
                             SpecialPointFact(
-                                source_table=metadata["canonical_name"],
-                                point_gid=batch.column(indexes["gid"])[row].as_py(),
-                                dev_addr=batch.column(indexes["dev_addr"])[row].as_py(),
-                                point_name=batch.column(indexes["name"])[row].as_py(),
+                                source_table=canonical_name,
+                                point_gid=_arrow_int(
+                                    batch.column(indexes["gid"])[row].as_py(), "point_gid"
+                                ),
+                                dev_addr=_arrow_int(
+                                    batch.column(indexes["dev_addr"])[row].as_py(), "dev_addr"
+                                ),
+                                point_name=_arrow_str(
+                                    batch.column(indexes["name"])[row].as_py(), "point_name"
+                                ),
                                 payload=payload,
                             )
                         )
@@ -322,5 +349,7 @@ def _convert_catalog_from_arrow_result(
     return SpecialDeviceCatalog(
         devices=tuple(devices),
         points=tuple(points),
-        source_device_row_count=output["source_device_row_count"],
+        source_device_row_count=_arrow_int(
+            output["source_device_row_count"], "source_device_row_count"
+        ),
     ), live

@@ -78,17 +78,13 @@ class CompositeLogicSource:
     document_content_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
-        if type(self.empty) is not bool:
-            raise ValueError("empty must be bool")
-        if type(self.composite_logic_source_digest) is not DigestRef:
-            raise ValueError("composite_logic_source_digest must be DigestRef")
         if self.empty:
             if self.document_content_digest is not None:
                 raise ValueError("EMPTY source forbids document_content_digest")
             if self.composite_logic_source_digest != EMPTY_COMPOSITE_LOGIC_DIGEST:
                 raise ValueError("EMPTY source must use the stable EMPTY digest")
             return
-        if type(self.document_content_digest) is not DigestRef:
+        if self.document_content_digest is None:
             raise ValueError("non-empty source requires document_content_digest")
         if self.composite_logic_source_digest != self.document_content_digest:
             raise ValueError("non-empty source digest must equal document_content_digest")
@@ -102,8 +98,6 @@ def empty_composite_logic_source() -> CompositeLogicSource:
 
 
 def present_composite_logic_source(document_utf8: bytes) -> CompositeLogicSource:
-    if type(document_utf8) is not bytes:
-        raise ValueError("document_utf8 must be bytes")
     digest = raw_blob_digest(document_utf8)
     return CompositeLogicSource(
         empty=False,
@@ -116,18 +110,10 @@ def present_composite_logic_source(document_utf8: bytes) -> CompositeLogicSource
 class PointNode:
     name: str
 
-    def __post_init__(self) -> None:
-        if type(self.name) is not str:
-            raise ValueError("name must be a string")
-
 
 @dataclass(frozen=True, slots=True)
 class DigitalNode:
     value: str
-
-    def __post_init__(self) -> None:
-        if type(self.value) is not str:
-            raise ValueError("value must be a string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,17 +121,6 @@ class ExpressNode:
     operator: str
     children: tuple[AstNode, ...]
     name: str | None = None
-
-    def __post_init__(self) -> None:
-        if type(self.operator) is not str:
-            raise ValueError("operator must be a string")
-        if self.name is not None and type(self.name) is not str:
-            raise ValueError("name must be a string or None")
-        if type(self.children) is not tuple:
-            raise ValueError("children must be a tuple")
-        for child in self.children:
-            if not isinstance(child, (ExpressNode, PointNode, DigitalNode)):
-                raise ValueError("children must contain AST nodes")
 
 
 AstNode = ExpressNode | PointNode | DigitalNode
@@ -159,13 +134,9 @@ class NamedFormula:
     formula_ast_json: str
 
     def __post_init__(self) -> None:
-        if type(self.name) is not str or self.name == "":
+        if not self.name:
             raise ValueError("name must be a non-empty string")
-        if type(self.ast) is not ExpressNode:
-            raise ValueError("ast must be ExpressNode")
-        if type(self.formula_digest) is not DigestRef:
-            raise ValueError("formula_digest must be DigestRef")
-        if type(self.formula_ast_json) is not str or self.formula_ast_json == "":
+        if not self.formula_ast_json:
             raise ValueError("formula_ast_json must be a non-empty string")
 
 
@@ -174,14 +145,6 @@ class SpecialDevice:
     gid: int
     dev_addr: int
     description: str
-
-    def __post_init__(self) -> None:
-        if type(self.gid) is not int:
-            raise ValueError("gid must be int")
-        if type(self.dev_addr) is not int:
-            raise ValueError("dev_addr must be int")
-        if type(self.description) is not str:
-            raise ValueError("description must be a string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,22 +156,11 @@ class SpecialPointFact:
     payload: tuple[tuple[str, Any], ...]
 
     def __post_init__(self) -> None:
-        if type(self.source_table) is not str or self.source_table == "":
+        if not self.source_table:
             raise ValueError("source_table must be a non-empty string")
-        if type(self.point_gid) is not int:
-            raise ValueError("point_gid must be int")
-        if type(self.dev_addr) is not int:
-            raise ValueError("dev_addr must be int")
-        if type(self.point_name) is not str:
-            raise ValueError("point_name must be a string")
-        if type(self.payload) is not tuple:
-            raise ValueError("payload must be a tuple")
         seen: set[str] = set()
-        for item in self.payload:
-            if type(item) is not tuple or len(item) != 2:
-                raise ValueError("payload must contain (name, value) pairs")
-            name, _value = item
-            if type(name) is not str or name == "":
+        for name, _value in self.payload:
+            if not name:
                 raise ValueError("payload names must be non-empty strings")
             if name in seen:
                 raise ValueError("payload names must be unique")
@@ -222,20 +174,10 @@ class SpecialDeviceCatalog:
     source_device_row_count: int
 
     def __post_init__(self) -> None:
-        if type(self.source_device_row_count) is not int or self.source_device_row_count < 0:
+        if self.source_device_row_count < 0:
             raise ValueError("source_device_row_count must be a non-negative int")
-        if type(self.devices) is not tuple:
-            raise ValueError("devices must be a tuple")
         if len(self.devices) > self.source_device_row_count:
             raise ValueError("devices cannot exceed source_device_row_count")
-        for device in self.devices:
-            if type(device) is not SpecialDevice:
-                raise ValueError("devices must contain SpecialDevice")
-        if type(self.points) is not tuple:
-            raise ValueError("points must be a tuple")
-        for point in self.points:
-            if type(point) is not SpecialPointFact:
-                raise ValueError("points must contain SpecialPointFact")
 
 
 def empty_special_device_catalog() -> SpecialDeviceCatalog:
@@ -254,25 +196,13 @@ class CompositeSignalPointRow:
     formula_ast_json: str | None
 
     def __post_init__(self) -> None:
-        if type(self.source_table) is not str or self.source_table == "":
+        if not self.source_table:
             raise ValueError("source_table must be a non-empty string")
-        if type(self.point_gid) is not int:
-            raise ValueError("point_gid must be int")
-        if type(self.dev_addr) is not int:
-            raise ValueError("dev_addr must be int")
-        if type(self.device_gid) is not int:
-            raise ValueError("device_gid must be int")
-        if type(self.point_name) is not str:
-            raise ValueError("point_name must be a string")
-        if type(self.point_payload_json) is not str or self.point_payload_json == "":
+        if not self.point_payload_json:
             raise ValueError("point_payload_json must be a non-empty string")
-        if self.formula_digest is not None and (
-            type(self.formula_digest) is not str or self.formula_digest == ""
-        ):
+        if self.formula_digest is not None and not self.formula_digest:
             raise ValueError("formula_digest must be a non-empty string or None")
-        if self.formula_ast_json is not None and (
-            type(self.formula_ast_json) is not str or self.formula_ast_json == ""
-        ):
+        if self.formula_ast_json is not None and not self.formula_ast_json:
             raise ValueError("formula_ast_json must be a non-empty string or None")
         if (self.formula_digest is None) != (self.formula_ast_json is None):
             raise ValueError("formula_digest and formula_ast_json must be both set or both None")
@@ -286,15 +216,11 @@ class CompositeDiagnostic:
     table: str | None = None
 
     def __post_init__(self) -> None:
-        if type(self.code) is not CompositeDiagnosticCode:
-            raise ValueError("code must be CompositeDiagnosticCode")
-        if type(self.severity) is not CompositeDiagnosticSeverity:
-            raise ValueError("severity must be CompositeDiagnosticSeverity")
-        if type(self.message) is not str or self.message == "":
+        if not self.message:
             raise ValueError("message must be a non-empty string")
         if len(self.message.encode(_UTF8)) > RESOURCE_BUDGETS.max_diagnostic_message_bytes:
             raise ValueError("message exceeds max diagnostic bytes")
-        if self.table is not None and (type(self.table) is not str or self.table == ""):
+        if self.table is not None and not self.table:
             raise ValueError("table must be a non-empty string or None")
 
 
@@ -306,17 +232,11 @@ class CompositeSignalRequest:
     xml: XmlParseResult | None = None
 
     def __post_init__(self) -> None:
-        if type(self.logic) is not CompositeLogicSource:
-            raise ValueError("logic must be CompositeLogicSource")
-        if type(self.catalog) is not SpecialDeviceCatalog:
-            raise ValueError("catalog must be SpecialDeviceCatalog")
-        if type(self.context) is not ParserInvocationContext:
-            raise ValueError("context must be ParserInvocationContext")
         if self.logic.empty:
             if self.xml is not None:
                 raise ValueError("EMPTY source forbids an XML document result")
             return
-        if type(self.xml) is not XmlParseResult:
+        if self.xml is None:
             raise ValueError("non-empty source requires an XML document result")
 
 
@@ -328,25 +248,8 @@ class CompositeSignalResult:
     formulas: tuple[NamedFormula, ...] = ()
 
     def __post_init__(self) -> None:
-        if type(self.status) is not CompositeSignalStatus:
-            raise ValueError("status must be CompositeSignalStatus")
-        if type(self.diagnostics) is not tuple:
-            raise ValueError("diagnostics must be a tuple")
         if len(self.diagnostics) > RESOURCE_BUDGETS.max_diagnostics:
             raise ValueError("diagnostics exceed max_diagnostics")
-        for diagnostic in self.diagnostics:
-            if type(diagnostic) is not CompositeDiagnostic:
-                raise ValueError("diagnostics must contain CompositeDiagnostic")
-        if type(self.rows) is not tuple:
-            raise ValueError("rows must be a tuple")
-        for row in self.rows:
-            if type(row) is not CompositeSignalPointRow:
-                raise ValueError("rows must contain CompositeSignalPointRow")
-        if type(self.formulas) is not tuple:
-            raise ValueError("formulas must be a tuple")
-        for formula in self.formulas:
-            if type(formula) is not NamedFormula:
-                raise ValueError("formulas must contain NamedFormula")
         if self.status is CompositeSignalStatus.FAILED:
             if self.rows or self.formulas:
                 raise ValueError("FAILED must not publish derived rows or formulas")

@@ -17,8 +17,6 @@ from gateway_backend.capabilities.table_access.contracts import ParseStatus
 
 
 def materialize_composite_signal(request: CompositeSignalRequest) -> CompositeSignalResult:
-    if type(request) is not CompositeSignalRequest:
-        raise ValueError("request must be CompositeSignalRequest")
     try:
         formulas: tuple[ExpressNode, ...] = ()
         if not request.logic.empty:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gateway_shared_kernel import DigestRef
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from gateway_backend.capabilities.comparison.contracts import ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules.contracts import (
@@ -11,7 +12,33 @@ from gateway_backend.capabilities.table_rules.contracts import (
     OrderedPolicy,
     StorageRuleView,
 )
-from gateway_backend.document_fields import document_string, document_string_tuple
+
+
+class _StrictDocument(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class _DroppedColumnDocument(_StrictDocument):
+    name: str
+    reason: str
+
+
+class _StorageFactDocument(_StrictDocument):
+    canonical_table: str
+    source_schema_digest: str
+    canonical_schema_digest: str | None
+    raw_content_digest: str | None
+    storage_projection_version: str | None
+    canonical_key_policy: str
+    ordered_policy: str
+    dropped_columns: list[_DroppedColumnDocument]
+    structural_columns: list[str]
+    retained_columns: list[str]
+    canonical_key_columns: list[str]
+    storage_rule_digest: str | None
+
+
+_STORAGE_FACTS_ADAPTER = TypeAdapter(list[_StorageFactDocument])
 
 
 def storage_facts_to_documents(
@@ -50,80 +77,32 @@ def storage_facts_to_documents(
 
 
 def storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, ...]:
-    if type(raw) is not list:
-        raise ValueError("storage_facts must be a list")
-    facts: list[ComparisonStorageFacts] = []
-    expected_keys = {
-        "canonical_table",
-        "source_schema_digest",
-        "canonical_schema_digest",
-        "raw_content_digest",
-        "storage_projection_version",
-        "canonical_key_policy",
-        "ordered_policy",
-        "dropped_columns",
-        "structural_columns",
-        "retained_columns",
-        "canonical_key_columns",
-        "storage_rule_digest",
-    }
-    for item in raw:
-        if type(item) is not dict or set(item) != expected_keys:
-            raise ValueError("storage fact document fields are invalid")
-        dropped_raw = item["dropped_columns"]
-        if type(dropped_raw) is not list:
-            raise ValueError("dropped_columns must be a list")
-        dropped: list[DroppedColumn] = []
-        for dropped_item in dropped_raw:
-            if type(dropped_item) is not dict or set(dropped_item) != {"name", "reason"}:
-                raise ValueError("dropped column fields are invalid")
-            dropped.append(
-                DroppedColumn(
-                    name=document_string(dropped_item, "name"),
-                    reason=document_string(dropped_item, "reason"),
-                )
-            )
-        canonical_table = document_string(item, "canonical_table")
-        key_policy = CanonicalKeyPolicy(document_string(item, "canonical_key_policy"))
-        ordered_policy = OrderedPolicy(document_string(item, "ordered_policy"))
-        storage_rule_digest_raw = item["storage_rule_digest"]
-        if storage_rule_digest_raw is not None and type(storage_rule_digest_raw) is not str:
-            raise ValueError("storage_rule_digest must be a string or null")
-        view = StorageRuleView(
-            canonical_table=canonical_table,
-            canonical_key_policy=key_policy,
-            ordered_policy=ordered_policy,
-            dropped_columns=tuple(dropped),
-            structural_columns=document_string_tuple(item, "structural_columns"),
-            retained_columns=document_string_tuple(item, "retained_columns"),
-            canonical_key_columns=document_string_tuple(item, "canonical_key_columns"),
-            storage_rule_digest=(
-                None if storage_rule_digest_raw is None else DigestRef(storage_rule_digest_raw)
+    docs = _STORAGE_FACTS_ADAPTER.validate_python(raw, strict=True)
+    return tuple(
+        ComparisonStorageFacts(
+            storage_rule_view=StorageRuleView(
+                canonical_table=d.canonical_table,
+                canonical_key_policy=CanonicalKeyPolicy(d.canonical_key_policy),
+                ordered_policy=OrderedPolicy(d.ordered_policy),
+                dropped_columns=tuple(DroppedColumn(c.name, c.reason) for c in d.dropped_columns),
+                structural_columns=tuple(d.structural_columns),
+                retained_columns=tuple(d.retained_columns),
+                canonical_key_columns=tuple(d.canonical_key_columns),
+                storage_rule_digest=(
+                    None if d.storage_rule_digest is None else DigestRef(d.storage_rule_digest)
+                ),
             ),
+            source_schema_digest=DigestRef(d.source_schema_digest),
+            canonical_schema_digest=(
+                None if d.canonical_schema_digest is None else DigestRef(d.canonical_schema_digest)
+            ),
+            raw_content_digest=(
+                None if d.raw_content_digest is None else DigestRef(d.raw_content_digest)
+            ),
+            storage_projection_version=d.storage_projection_version,
         )
-        canonical_schema_raw = item["canonical_schema_digest"]
-        if canonical_schema_raw is not None and type(canonical_schema_raw) is not str:
-            raise ValueError("canonical_schema_digest must be a string or null")
-        raw_content_digest = item["raw_content_digest"]
-        if raw_content_digest is not None and type(raw_content_digest) is not str:
-            raise ValueError("raw_content_digest must be a string or null")
-        storage_projection_raw = item["storage_projection_version"]
-        if storage_projection_raw is not None and type(storage_projection_raw) is not str:
-            raise ValueError("storage_projection_version must be a string or null")
-        facts.append(
-            ComparisonStorageFacts(
-                storage_rule_view=view,
-                source_schema_digest=DigestRef(document_string(item, "source_schema_digest")),
-                canonical_schema_digest=(
-                    None if canonical_schema_raw is None else DigestRef(canonical_schema_raw)
-                ),
-                raw_content_digest=(
-                    None if raw_content_digest is None else DigestRef(raw_content_digest)
-                ),
-                storage_projection_version=storage_projection_raw,
-            )
-        )
-    return tuple(facts)
+        for d in docs
+    )
 
 
 __all__ = [

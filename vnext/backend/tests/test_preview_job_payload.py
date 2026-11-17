@@ -42,10 +42,6 @@ def _base_payload(**overrides: object) -> dict[str, object]:
             SourceArtifactRole.INITIAL.value: _BINDING,
             SourceArtifactRole.MODIFIED.value: _BINDING,
         },
-        "source_digests": {
-            SourceArtifactRole.INITIAL.value: _BINDING["raw_sha256"],
-            SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"],
-        },
         "input_digest": "fp-preview",
         "ruleset_version": "v5",
         "comparison_ruleset_digest": _runtime_comparison_ruleset_digest(),
@@ -73,7 +69,6 @@ def test_decode_preview_payload_accepts_modified_only_closure() -> None:
     payload = _base_payload(
         input_completeness=InputCompleteness.MODIFIED_ONLY.value,
         source_artifacts={SourceArtifactRole.MODIFIED.value: _BINDING},
-        source_digests={SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"]},
     )
     decoded = decode_preview_payload(payload)
     assert decoded.input_completeness is InputCompleteness.MODIFIED_ONLY
@@ -107,7 +102,6 @@ PAYLOAD_SHAPE_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
         "full_missing_initial",
         {
             "source_artifacts": {SourceArtifactRole.MODIFIED.value: _BINDING},
-            "source_digests": {SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"]},
         },
         "FULL preview requires INITIAL",
     ),
@@ -118,10 +112,6 @@ PAYLOAD_SHAPE_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
             "source_artifacts": {
                 SourceArtifactRole.INITIAL.value: _BINDING,
                 SourceArtifactRole.MODIFIED.value: _BINDING,
-            },
-            "source_digests": {
-                SourceArtifactRole.INITIAL.value: _BINDING["raw_sha256"],
-                SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"],
             },
         },
         "MODIFIED_ONLY preview forbids INITIAL",

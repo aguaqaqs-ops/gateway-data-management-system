@@ -129,9 +129,6 @@ SourcePackageInput:
 ```text
 SourcePackageStagingResult:
   source_package_id
-  source_package_digest
-  package_manifest_digest
-  required_entries_manifest_digest optional
   entries
   artifact_ref
   required_sql_document_ref optional
@@ -190,7 +187,6 @@ SourceDocumentRef:
   document_content_digest
   size_bytes
   encoding_hint optional
-  entry_manifest_digest
   diagnostics
 ```
 
@@ -436,7 +432,6 @@ RepositoryTableCatalog:
       row_count optional
       repository_table_version optional
       table_root_hash optional
-      schema_facts_digest optional
 ```
 
 避免重复 list/describe 规则：
@@ -541,7 +536,6 @@ Key 输入：
 
 ```text
 sql_source_digest
-required_entries_manifest_digest
 parser_input_contract_version
 parser_version
 scalar_encoding_version

@@ -8,7 +8,7 @@
 
 - 接收并持久化用户上传或系统导入的完整源包。
 - 安全解包或索引 package 目录树。
-- 计算 package、entry 和 required entry digest。
+- 计算文档 `document_content_digest` 并校验可选 `expected_required_sql_digest`。
 - 校验当前阶段必须存在唯一的 `/sql/dbcfg.sql`。
 - 为后续解析流程提供 `SourceDocumentRef`。
 
@@ -27,9 +27,6 @@ SourcePackage:
   source_package_id
   source_origin optional: USER_PROVIDED | SYSTEM_IMPORTED | TEST_FIXTURE
   package_kind: ZIP | TAR_GZ | DIRECTORY | SQL_FILE | SQL_GZ
-  source_package_digest
-  package_manifest_digest
-  required_entries_manifest_digest optional
   entries:
     - SourcePackageEntry
   artifact_ref
@@ -45,7 +42,7 @@ SourcePackage:
 
 - `SourcePackage` 是 L1 staged durable。
 - 业务流程决定何时必须等待 SourcePackage durable；capability 本身不理解 upload、submit 或 history compare。
-- 同一完整 package 内容重复上传可以得到不同 `source_package_id`，但应得到相同 `source_package_digest`、`package_manifest_digest` 和 required entry digest。
+- 同一完整 package 内容重复上传可以得到不同 `source_package_id`，但应得到相同 `entries` 元数据与 `document_content_digest`。
 - `artifact_ref` 是内部 artifact 引用，不是 host path。
 - `SQL_FILE` 仅用于测试或 benchmark 裸 SQL 输入；正式业务输入仍以完整 package 为准。
 - `SQL_GZ` 表示单个 gzip 压缩 SQL 文件输入，解压后映射为 `/sql/dbcfg.sql`。
@@ -71,7 +68,7 @@ SourcePackage:
   - 只允许清理 L0 临时态、scratch files、server session workdir 和其他可恢复的 transient resources；
   - 不能因为 flow cleanup 自动删除已经提交或已经固化的业务事实。
 - 如果某条流程需要更短生命周期，应通过显式 retention job 或 TTL 过期策略处理，而不是把删除行为隐藏进 capability cleanup。
-- `retention_policy` 不参与 `source_package_digest`、`package_manifest_digest`、`required_entries_manifest_digest` 或 SQL materialization 结果计算。
+- `retention_policy` 不参与 `document_content_digest` 或 SQL materialization 结果计算。
 
 ## SourcePackageEntry
 
@@ -106,7 +103,6 @@ SourceDocumentRef:
   document_content_digest
   size_bytes
   encoding_hint optional
-  entry_manifest_digest
 ```
 
 规则：
@@ -172,9 +168,6 @@ SqlDumpSource:
 
 | Digest | 覆盖内容 | 用途 |
 | --- | --- | --- |
-| `source_package_digest` | package 容器规范身份 | source artifact 审计、重复输入诊断。 |
-| `package_manifest_digest` | 完整 entry 清单和 entry digest | 证明系统收到的目录树。 |
-| `required_entries_manifest_digest` | 调用方指定的 required entries | 外部 binding、replay validation 和快速复现。 |
 | `document_content_digest` | 单个 entry 内容 | document parser 输入校验。 |
 | `sql_source_digest` | SQL dump parser 输入 | Snapshot materialization cache key。 |
 | `composite_logic_source_digest` | XML entry 内容或稳定 EMPTY marker | 业务 Snapshot materialization identity。 |
@@ -221,7 +214,7 @@ SQL 级 failure 或表级降级不属于 `SourcePackage`：
 
 ## 验收标准
 
-- 同一 package 内容重复 staging，entry manifest digest 稳定。
+- 同一 package 内容重复 staging，`entries` 与文档 `document_content_digest` 稳定。
 - 改变 zip 物理元数据但不改变 `/sql/dbcfg.sql` 内容时，SQL Snapshot 不应变化。
 - 缺少或重复 `/sql/dbcfg.sql` 时，SourcePackage staging 明确失败。
 - 缺失 composite XML 时业务 Snapshot 可正常生成；XML 内容变化必须改变业务 Snapshot identity。

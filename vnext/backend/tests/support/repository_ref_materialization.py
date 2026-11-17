@@ -426,7 +426,6 @@ def catalog_without_tables(
         repository_server_contract_version=catalog.repository_server_contract_version,
         tables=remaining,
         repository_engine_version=catalog.repository_engine_version,
-        catalog_digest=catalog.catalog_digest,
         cache_hit=catalog.cache_hit,
     )
 
@@ -598,7 +597,6 @@ def _catalog_at_commit(catalog: RepositoryTableCatalog, commit_id: str) -> Repos
         repository_server_contract_version=catalog.repository_server_contract_version,
         tables=catalog.tables,
         repository_engine_version=catalog.repository_engine_version,
-        catalog_digest=catalog.catalog_digest,
         cache_hit=catalog.cache_hit,
     )
 

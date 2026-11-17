@@ -104,7 +104,7 @@ DIGEST_FIELDS = frozenset(
 )
 
 # A few documents store digest values in a map instead of a *_digest field.
-DIGEST_MAP_FIELDS = frozenset({"source_digests"})
+DIGEST_MAP_FIELDS: frozenset[str] = frozenset()
 
 # These are the runtime identities present in the S1a DTO/artifact formats.
 # Deliberately absent are business_project_id, gateway_device_external_key,

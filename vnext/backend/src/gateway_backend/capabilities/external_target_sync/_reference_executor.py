@@ -8,7 +8,6 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.capabilities.external_target_sync._ledger_digest import (
     ReferenceTargetLedger,
-    compute_ledger_digest,
     key_bytes_for_ordering,
     ledger_row_from_image,
 )
@@ -47,7 +46,6 @@ class ReferenceExecutorState:
     transaction_id: str | None = None
     pending_change_set_digest: DigestRef | None = None
     ledger_snapshot: ReferenceTargetLedger | None = None
-    snapshot_ledger_digest: DigestRef | None = None
 
 
 def empty_executor_state(registration: TargetRegistration) -> ReferenceExecutorState:
@@ -92,7 +90,6 @@ def apply_change_set_reference(
 
     state.phase = ExternalApplyPhase.PREPARE
     state.ledger_snapshot = state.ledger.copy()
-    state.snapshot_ledger_digest = compute_ledger_digest(state.ledger_snapshot)
     state.pending_change_set_digest = change_set_digest
     state.transaction_id = _transaction_id(
         state.registration.target_id,
@@ -145,7 +142,6 @@ def apply_change_set_reference(
     state.pending_change_set_digest = None
     state.transaction_id = None
     state.ledger_snapshot = None
-    state.snapshot_ledger_digest = None
     state.phase = ExternalApplyPhase.VERIFYING
     return _success_result(change_set_digest, ExternalApplyPhase.VERIFYING), state
 
@@ -173,7 +169,6 @@ def reconcile_unknown_outcome(
     state.pending_change_set_digest = None
     state.transaction_id = None
     state.ledger_snapshot = None
-    state.snapshot_ledger_digest = None
     state.phase = ExternalApplyPhase.PREPARE
 
     return ExternalApplyResult(
@@ -194,7 +189,6 @@ def export_reference_checkpoint(state: ReferenceExecutorState) -> ReferenceExecu
         phase=state.phase,
         change_set_digest=state.pending_change_set_digest,
         applied_change_set_digest=state.registration.applied_change_set_digest,
-        ledger_digest=compute_ledger_digest(state.ledger),
         transaction_id=state.transaction_id,
     )
 
@@ -218,7 +212,6 @@ def restore_reference_checkpoint(
         transaction_id=checkpoint.transaction_id,
         pending_change_set_digest=checkpoint.change_set_digest,
         ledger_snapshot=None,
-        snapshot_ledger_digest=None,
     )
 
 
@@ -357,7 +350,6 @@ def _rollback_state(state: ReferenceExecutorState) -> None:
     state.pending_change_set_digest = None
     state.transaction_id = None
     state.ledger_snapshot = None
-    state.snapshot_ledger_digest = None
     state.phase = ExternalApplyPhase.PREPARE
 
 

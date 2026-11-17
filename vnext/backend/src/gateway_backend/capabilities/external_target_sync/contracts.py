@@ -30,7 +30,6 @@ _CHECKPOINT_DOCUMENT_KEYS = frozenset(
         "applied_change_set_digest",
         "change_set_digest",
         "checkpoint_contract_version",
-        "ledger_digest",
         "phase",
         "target_id",
         "transaction_id",
@@ -205,7 +204,6 @@ class ReferenceExecutorCheckpoint:
     phase: ExternalApplyPhase
     change_set_digest: DigestRef
     applied_change_set_digest: DigestRef | None
-    ledger_digest: DigestRef
     transaction_id: str
 
     def __post_init__(self) -> None:
@@ -222,8 +220,6 @@ class ReferenceExecutorCheckpoint:
             and type(self.applied_change_set_digest) is not DigestRef
         ):
             raise ValueError("applied_change_set_digest must be DigestRef or None")
-        if type(self.ledger_digest) is not DigestRef:
-            raise ValueError("ledger_digest must be DigestRef")
         if type(self.transaction_id) is not str or self.transaction_id == "":
             raise ValueError("transaction_id must be a non-empty string")
 
@@ -234,7 +230,6 @@ class ReferenceExecutorCheckpoint:
             else self.applied_change_set_digest.value,
             "change_set_digest": self.change_set_digest.value,
             "checkpoint_contract_version": self.checkpoint_contract_version,
-            "ledger_digest": self.ledger_digest.value,
             "phase": self.phase.value,
             "target_id": self.target_id,
             "transaction_id": self.transaction_id,
@@ -257,7 +252,6 @@ def reference_executor_checkpoint_from_document(
         phase=ExternalApplyPhase(_require_string(document.get("phase"))),
         change_set_digest=DigestRef(_require_string(document.get("change_set_digest"))),
         applied_change_set_digest=applied_digest,
-        ledger_digest=DigestRef(_require_string(document.get("ledger_digest"))),
         transaction_id=_require_string(document.get("transaction_id")),
     )
 

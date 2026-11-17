@@ -241,7 +241,6 @@ def build_preview_job_payload(
     options: Mapping[str, object] | None = None,
 ) -> bytes:
     source_artifacts: dict[str, dict[str, object]] = {}
-    source_digests: dict[str, str] = {}
     for role, binding in sorted(
         upload_revision.source_artifacts.items(), key=lambda item: item[0].value
     ):
@@ -251,7 +250,6 @@ def build_preview_job_payload(
             "size_bytes": binding.size_bytes,
             "raw_sha256": binding.raw_sha256,
         }
-        source_digests[role.value] = binding.raw_sha256
     payload = {
         "workspace_id": workspace_id,
         "upload_revision_id": upload_revision.upload_revision_id,
@@ -262,7 +260,6 @@ def build_preview_job_payload(
         "baseline_head_version": baseline_head_version,
         "input_completeness": upload_revision.input_completeness.value,
         "source_artifacts": source_artifacts,
-        "source_digests": source_digests,
         "input_digest": upload_revision.request_fingerprint,
         "ruleset_version": PREVIEW_FROZEN_RULESET_VERSION,
         "comparison_ruleset_digest": comparison_ruleset_digest,

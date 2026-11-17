@@ -257,7 +257,7 @@
 | 术语 | 推荐中文 | 说明 |
 | --- | --- | --- |
 | Business ID | 业务 ID | 一等业务对象身份，例如 `workspace_id`、`submission_id`、`operation_id`。 |
-| Content digest | 内容 digest | 内容完整性校验，例如 `source_package_digest`、`sql_source_digest`、`snapshot_digest`、`comparison_digest`。 |
+| Content digest | 内容 digest | 内容完整性校验，例如 `document_content_digest`、`sql_source_digest`、`snapshot_digest`、`comparison_digest`。 |
 | Ref | 引用 / ref | 指向 repository、artifact 或 storage 对象的内部引用。 |
 | Repository ref | Repository ref | repository/Dolt 中的 commit、tag、branch 或其他 ref。 |
 | Snapshot digest | Snapshot digest | Snapshot 内容或业务等价内容的摘要。 |

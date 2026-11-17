@@ -190,7 +190,6 @@ def _fixture() -> MetadataFixture:
         1,
         InputCompleteness.MODIFIED_ONLY,
         {SourceArtifactRole.MODIFIED: source},
-        {"MODIFIED": source.raw_sha256},
         dummy_digest().value,
         "v1",
         dummy_digest().value,

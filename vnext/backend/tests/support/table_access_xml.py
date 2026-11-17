@@ -29,7 +29,6 @@ def xml_request(
     return XmlParseRequest(
         source=XmlSourceInput(
             document_content_digest=_ZERO_DIGEST,
-            xml_source_digest=_ZERO_DIGEST,
             parser_input_contract_version=1,
             encoding="utf-8",
             source_size_bytes=len(data),

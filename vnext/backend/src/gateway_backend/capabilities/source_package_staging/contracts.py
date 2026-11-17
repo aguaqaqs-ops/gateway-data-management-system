@@ -190,7 +190,6 @@ class SourceDocumentRef:
     document_kind: DocumentKind
     document_content_digest: DigestRef
     size_bytes: int
-    entry_manifest_digest: DigestRef
     artifact_ref: ArtifactRef
     encoding_hint: str | None = None
 
@@ -202,8 +201,6 @@ class SourceDocumentRef:
         if type(self.document_content_digest) is not DigestRef:
             raise ValueError("document_content_digest must be DigestRef")
         _require_non_negative_int(self.size_bytes, "size_bytes")
-        if type(self.entry_manifest_digest) is not DigestRef:
-            raise ValueError("entry_manifest_digest must be DigestRef")
         if type(self.artifact_ref) is not ArtifactRef:
             raise ValueError("artifact_ref must be ArtifactRef")
         if self.encoding_hint is not None and self.encoding_hint != _UTF8:
@@ -283,9 +280,6 @@ class SourcePackageStagingResult:
     compression: CompressionAlgorithm
     diagnostics: tuple[StagingDiagnostic, ...]
     source_package_id: str | None = None
-    source_package_digest: DigestRef | None = None
-    package_manifest_digest: DigestRef | None = None
-    required_entries_manifest_digest: DigestRef | None = None
     entries: tuple[SourcePackageEntry, ...] = ()
     artifact_ref: ArtifactRef | None = None
     required_sql_document_ref: SourceDocumentRef | None = None
@@ -364,12 +358,6 @@ def _require_directory_entries(entries: tuple[tuple[str, bytes], ...]) -> None:
 def _require_failed_result(result: SourcePackageStagingResult) -> None:
     if result.source_package_id is not None:
         raise ValueError("FAILED must not publish source_package_id")
-    if result.source_package_digest is not None:
-        raise ValueError("FAILED must not publish source_package_digest")
-    if result.package_manifest_digest is not None:
-        raise ValueError("FAILED must not publish package_manifest_digest")
-    if result.required_entries_manifest_digest is not None:
-        raise ValueError("FAILED must not publish required_entries_manifest_digest")
     if result.entries != ():
         raise ValueError("FAILED must not publish entries")
     if result.artifact_ref is not None:
@@ -388,12 +376,6 @@ def _require_complete_result(result: SourcePackageStagingResult) -> None:
     if result.source_package_id is None:
         raise ValueError("COMPLETE requires source_package_id")
     _require_opaque_id(result.source_package_id, "source_package_id")
-    if type(result.source_package_digest) is not DigestRef:
-        raise ValueError("COMPLETE requires source_package_digest")
-    if type(result.package_manifest_digest) is not DigestRef:
-        raise ValueError("COMPLETE requires package_manifest_digest")
-    if type(result.required_entries_manifest_digest) is not DigestRef:
-        raise ValueError("COMPLETE requires required_entries_manifest_digest")
     if type(result.artifact_ref) is not ArtifactRef:
         raise ValueError("COMPLETE requires artifact_ref")
     if type(result.required_sql_document_ref) is not SourceDocumentRef:

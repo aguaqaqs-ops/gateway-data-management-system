@@ -200,14 +200,12 @@ class SqlSourceInput:
 @dataclass(frozen=True, slots=True)
 class XmlSourceInput:
     document_content_digest: DigestRef
-    xml_source_digest: DigestRef
     parser_input_contract_version: int
     encoding: str
     source_size_bytes: int
 
     def __post_init__(self) -> None:
         _require_digest(self.document_content_digest, "document_content_digest")
-        _require_digest(self.xml_source_digest, "xml_source_digest")
         if self.parser_input_contract_version != PARSER_INPUT_CONTRACT_VERSION:
             raise ValueError("parser_input_contract_version must be 1")
         if self.encoding != _UTF8_ENCODING:

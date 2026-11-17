@@ -125,7 +125,7 @@ def materialize(sql: bytes, xml: bytes, store: InMemoryArtifactStore) -> Materia
         sql_utf8=sql, context=invocation,
     ))
     xml_parsed = parse_xml(XmlParseRequest(
-        source=XmlSourceInput(xml_digest, xml_digest, PARSER_INPUT_CONTRACT_VERSION, "utf-8", len(xml)),
+        source=XmlSourceInput(xml_digest, PARSER_INPUT_CONTRACT_VERSION, "utf-8", len(xml)),
         xml_utf8=xml, context=invocation,
     ))
     rules = migrated_table_ruleset_snapshot()

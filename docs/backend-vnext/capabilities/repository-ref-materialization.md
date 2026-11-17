@@ -286,7 +286,6 @@ RepositoryTableCatalog:
   resolved_commit_hash
   repository_server_contract_version
   dolt_version optional
-  catalog_digest optional
   tables:
     - table_name
       display_table_name optional
@@ -301,7 +300,6 @@ RepositoryTableCatalog:
       row_count optional
       repository_table_version optional
       table_root_hash optional
-      schema_facts_digest optional
 ```
 
 规则：
@@ -430,8 +428,6 @@ repository server 可提供：
 ```text
 table_root_hash
 repository_table_version
-schema_facts_digest
-catalog_digest
 ```
 
 这些是技术事实。

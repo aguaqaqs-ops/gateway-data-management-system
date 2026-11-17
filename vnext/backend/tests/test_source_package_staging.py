@@ -118,8 +118,7 @@ def test_gzip_mtime_does_not_change_content_digests() -> None:
     second, _ = _stage(PackageKind.TAR_GZ, pack_tar_gz(_MEMBERS, mtime=1))
     assert first.status is StagingStatus.COMPLETE
     assert second.status is StagingStatus.COMPLETE
-    assert first.source_package_digest == second.source_package_digest
-    assert first.package_manifest_digest == second.package_manifest_digest
+    assert first.entries == second.entries
     assert first.required_sql_document_ref is not None
     assert second.required_sql_document_ref is not None
     assert (
@@ -146,7 +145,13 @@ def test_retention_policy_does_not_change_digest() -> None:
     payload = pack_tar_gz({"sql/dbcfg.sql": _SQL})
     first, _ = _stage(PackageKind.TAR_GZ, payload)
     second, _ = _stage(PackageKind.TAR_GZ, payload, retention_policy="SHORT")
-    assert first.source_package_digest == second.source_package_digest
+    assert first.required_sql_document_ref is not None
+    assert second.required_sql_document_ref is not None
+    assert (
+        first.required_sql_document_ref.document_content_digest
+        == second.required_sql_document_ref.document_content_digest
+    )
+    assert first.entries == second.entries
     assert first.source_package_id != second.source_package_id
 
 

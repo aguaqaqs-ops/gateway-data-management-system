@@ -781,7 +781,6 @@ def _materialize_uploaded_side(
                 xml_request = XmlParseRequest(
                     source=XmlSourceInput(
                         document_content_digest=xml_digest,
-                        xml_source_digest=xml_digest,
                         parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
                         encoding="utf-8",
                         source_size_bytes=len(xml_bytes),

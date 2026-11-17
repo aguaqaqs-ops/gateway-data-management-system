@@ -10,7 +10,7 @@ from gateway_backend.artifacts.location import ArtifactLocation
 import secrets
 import time
 
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import (
@@ -155,15 +155,6 @@ def _complete(
 
     package_id = "source-package-" + secrets.token_hex(8)
     entries = tuple(_to_entry(member) for member in members)
-    manifest_digest = _manifest_digest(entries)
-    source_package_digest = _source_package_digest(source.package_kind, manifest_digest)
-    required_entries = tuple(
-        entry
-        for entry in entries
-        if entry.normalized_path == REQUIRED_SQL_PATH
-        or (xml_member is not None and entry.normalized_path == OPTIONAL_XML_PATH)
-    )
-    required_digest = _manifest_digest(required_entries)
     _check_deadline(source)
     package_ref = put_with_built_ref(
         store,
@@ -182,9 +173,6 @@ def _complete(
         compression=compression,
         diagnostics=(),
         source_package_id=package_id,
-        source_package_digest=source_package_digest,
-        package_manifest_digest=manifest_digest,
-        required_entries_manifest_digest=required_digest,
         entries=entries,
         artifact_ref=package_ref,
         required_sql_document_ref=sql_ref,
@@ -201,8 +189,6 @@ def _document_ref(
 ) -> SourceDocumentRef:
     assert member.content is not None
     content_digest = raw_blob_digest(member.content)
-    entry = _to_entry(member)
-    entry_manifest_digest = _manifest_digest((entry,))
     artifact_ref = put_with_built_ref(
         store,
         member.content,
@@ -215,7 +201,6 @@ def _document_ref(
         document_kind=kind,
         document_content_digest=content_digest,
         size_bytes=member.size_bytes,
-        entry_manifest_digest=entry_manifest_digest,
         artifact_ref=artifact_ref,
         encoding_hint="utf-8",
     )
@@ -230,37 +215,6 @@ def _to_entry(member: ArchiveMember) -> SourcePackageEntry:
         content_digest=content_digest,
         original_path=member.original_path,
     )
-
-
-def _manifest_digest(entries: tuple[SourcePackageEntry, ...]) -> DigestRef:
-    payload = {
-        "contract_version": SOURCE_PACKAGE_CONTRACT_VERSION,
-        "entries": [
-            _entry_payload(entry)
-            for entry in sorted(entries, key=lambda item: item.normalized_path)
-        ],
-    }
-    return raw_blob_digest(canonicalize_json_value(payload))
-
-
-def _source_package_digest(kind: PackageKind, manifest_digest: DigestRef) -> DigestRef:
-    payload = {
-        "contract_version": SOURCE_PACKAGE_CONTRACT_VERSION,
-        "package_kind": kind.value,
-        "package_manifest_digest": manifest_digest.value,
-    }
-    return raw_blob_digest(canonicalize_json_value(payload))
-
-
-def _entry_payload(entry: SourcePackageEntry) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "normalized_path": entry.normalized_path,
-        "entry_kind": entry.entry_kind.value,
-        "size_bytes": entry.size_bytes,
-    }
-    if entry.content_digest is not None:
-        payload["content_digest"] = entry.content_digest.value
-    return payload
 
 
 def _directory_package_bytes(members: tuple[ArchiveMember, ...]) -> bytes:

@@ -71,7 +71,7 @@ def main() -> int:
         assert digest is not None
         context = ParserInvocationContext(NeverCancel())
         xml = parse_xml(XmlParseRequest(
-            source=XmlSourceInput(document_content_digest=digest, xml_source_digest=digest,
+            source=XmlSourceInput(document_content_digest=digest,
                 parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION, encoding="utf-8", source_size_bytes=len(xml_bytes)),
             xml_utf8=xml_bytes, context=context,
         ))

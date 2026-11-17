@@ -54,7 +54,6 @@ MALFORMED_CHECKPOINT_SHAPES: tuple[tuple[dict[str, object], str], ...] = (
             "applied_change_set_digest": None,
             "change_set_digest": digest("cc").value,
             "checkpoint_contract_version": REFERENCE_EXECUTOR_CHECKPOINT_CONTRACT_VERSION,
-            "ledger_digest": digest("dd").value,
             "phase": ExternalApplyPhase.PREPARE.value,
             "target_id": "target-a",
             "transaction_id": "txn-1",
@@ -139,7 +138,6 @@ def test_reference_executor_checkpoint_round_trip_and_digest() -> None:
         phase=ExternalApplyPhase.APPLYING,
         change_set_digest=digest("cc"),
         applied_change_set_digest=None,
-        ledger_digest=digest("dd"),
         transaction_id="txn-1",
     )
     document = checkpoint.to_document()

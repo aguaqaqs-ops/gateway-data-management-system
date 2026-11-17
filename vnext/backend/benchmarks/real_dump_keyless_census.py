@@ -217,7 +217,6 @@ def _parse_xml(xml_bytes: bytes | None, dataset_id: str) -> Any:
         XmlParseRequest(
             source=XmlSourceInput(
                 document_content_digest=_ZERO_DIGEST,
-                xml_source_digest=raw_blob_digest(xml_bytes),
                 parser_input_contract_version=1,
                 encoding="utf-8",
                 source_size_bytes=len(xml_bytes),

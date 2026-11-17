@@ -140,7 +140,6 @@ class PreviewJobPayload:
     baseline_head_version: int
     input_completeness: InputCompleteness
     source_artifacts: Mapping[SourceArtifactRole, SourceArtifactBinding]
-    source_digests: Mapping[str, str]
     input_digest: str
     ruleset_version: str
     comparison_ruleset_digest: str
@@ -212,9 +211,6 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
     input_completeness = _decode_input_completeness(payload_object.get("input_completeness"))
     source_artifacts = _decode_source_artifacts(payload_object.get("source_artifacts"))
-    source_digests = _decode_string_map(
-        payload_object.get("source_digests"), label="source_digests"
-    )
     input_digest = require_non_empty_str(payload_object, "input_digest")
     ruleset_version = require_non_empty_str(payload_object, "ruleset_version")
     comparison_ruleset_digest = require_non_empty_str(payload_object, "comparison_ruleset_digest")
@@ -249,7 +245,6 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
         baseline_head_version=baseline_head_version,
         input_completeness=input_completeness,
         source_artifacts=source_artifacts,
-        source_digests=source_digests,
         input_digest=input_digest,
         ruleset_version=ruleset_version,
         comparison_ruleset_digest=comparison_ruleset_digest,
@@ -308,7 +303,6 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
         "baseline_head_version",
         "input_completeness",
         "source_artifacts",
-        "source_digests",
         "input_digest",
         "ruleset_version",
         "comparison_ruleset_digest",

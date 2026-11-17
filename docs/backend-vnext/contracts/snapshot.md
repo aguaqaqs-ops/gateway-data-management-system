@@ -65,7 +65,6 @@ SnapshotSummary:
   missing_or_unsupported_tables optional
   source_context:
     source_kind
-    source_package_digest optional
     sql_source_digest optional
     composite_logic_source_digest optional
     source_document_ref optional

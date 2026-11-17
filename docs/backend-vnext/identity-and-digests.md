@@ -38,9 +38,6 @@ Source digest 分为 package 容器层和 document/parser 输入层。
 
 | Digest | 覆盖内容 | 用途 |
 | --- | --- | --- |
-| `source_package_digest` | SourcePackage 容器规范身份 | source artifact 审计、重复输入诊断。 |
-| `package_manifest_digest` | 完整 package entry 集合、normalized path、entry digest、size/type | 证明系统收到的目录树。 |
-| `required_entries_manifest_digest` | 当前流程关心的 required entries | preview/submit binding 和快速复现。 |
 | `document_content_digest` | 单个 package entry 内容 | document parser 输入校验。 |
 | `sql_source_digest` | SqlDumpSource 的 SQL parser 输入 | SQL Snapshot materialization cache key；当前业务默认由 `/sql/dbcfg.sql` 派生。 |
 | `composite_logic_source_digest` | `/comps/logic/logics.xml` 内容或稳定 EMPTY marker | 正式业务 Snapshot identity。 |

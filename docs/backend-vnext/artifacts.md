@@ -443,7 +443,6 @@ CacheEntry:
     READ_ONLY
   validation_status
   producer_operation_id
-  source_package_digest optional
   sql_source_digest optional
   snapshot_digest optional
   repository_id optional

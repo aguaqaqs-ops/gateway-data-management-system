@@ -1206,7 +1206,6 @@ class RepositoryCatalogTable:
     row_count: int | None = None
     repository_table_version: str | None = None
     table_root_hash: str | None = None
-    schema_facts_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
         _require_non_empty(self.table_name, "table_name")
@@ -1233,8 +1232,6 @@ class RepositoryCatalogTable:
             _require_non_empty(self.repository_table_version, "repository_table_version")
         if self.table_root_hash is not None:
             _require_non_empty(self.table_root_hash, "table_root_hash")
-        if self.schema_facts_digest is not None and type(self.schema_facts_digest) is not DigestRef:
-            raise ValueError("schema_facts_digest must be DigestRef or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1245,7 +1242,6 @@ class RepositoryTableCatalog:
     repository_server_contract_version: int
     tables: tuple[RepositoryCatalogTable, ...]
     repository_engine_version: str | None = None
-    catalog_digest: DigestRef | None = None
     cache_hit: bool = False
 
     def __post_init__(self) -> None:
@@ -1268,8 +1264,6 @@ class RepositoryTableCatalog:
             seen.add(table.table_name)
         if self.repository_engine_version is not None:
             _require_non_empty(self.repository_engine_version, "repository_engine_version")
-        if self.catalog_digest is not None and type(self.catalog_digest) is not DigestRef:
-            raise ValueError("catalog_digest must be DigestRef or None")
         if type(self.cache_hit) is not bool:
             raise ValueError("cache_hit must be bool")
 

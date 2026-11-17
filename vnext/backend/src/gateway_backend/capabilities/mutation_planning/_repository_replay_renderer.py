@@ -52,7 +52,6 @@ class ReplayRenderOutcome:
     status: ReplayRenderStatus
     sql_bytes: bytes | None = None
     failure_code: MutationFailureCode | None = None
-    sql_digest: DigestRef | None = None
 
 
 def repository_replay_capability_payload() -> dict[str, object]:
@@ -186,5 +185,4 @@ def render_change_set_replay(
     return ReplayRenderOutcome(
         status="READY",
         sql_bytes=sql_bytes,
-        sql_digest=raw_blob_digest(sql_bytes),
     )

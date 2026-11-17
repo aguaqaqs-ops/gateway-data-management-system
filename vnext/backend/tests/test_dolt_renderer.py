@@ -79,7 +79,6 @@ def test_renderer_golden_cases(
     outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "READY", case_id
     assert outcome.sql_bytes == expected
-    assert outcome.sql_digest == raw_blob_digest(expected)
 
 
 def test_renderer_is_deterministic_for_golden_closure(
@@ -90,7 +89,6 @@ def test_renderer_is_deterministic_for_golden_closure(
     second = render_change_set_replay(closure, context=operation_kernel_context)
     assert first == second
     assert first.sql_bytes is not None
-    assert first.sql_digest == raw_blob_digest(first.sql_bytes)
 
 
 def test_planner_ready_closure_renders_successfully(

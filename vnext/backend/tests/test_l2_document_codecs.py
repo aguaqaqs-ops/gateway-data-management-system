@@ -1,4 +1,4 @@
-"""Strict Pydantic document decoding and Arrow boundary tests for L2."""
+"""Strict document decoding and Arrow boundary tests for L2."""
 
 from __future__ import annotations
 

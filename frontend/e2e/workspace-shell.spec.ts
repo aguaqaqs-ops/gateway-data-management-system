@@ -2708,7 +2708,7 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   // A blank delete interval is one summary row with its own interval risk.
   await open("preview-full", { pair: "baseline_to_initial", node: "table:b1_n1_iec104_syx_list", tab: "table" });
   await page.getByRole("button", { name: /^风险原因/ }).click();
-  await expect(page.getByRole("dialog", { name: /^风险原因/ })).toContainText("有序表中间的空点区间净减 1 个空点");
+  await expect(page.getByRole("dialog", { name: /^风险原因/ })).toContainText("删除了空点，需要复核。");
   await page.keyboard.press("Escape");
   await shot("p3-blank-interval");
 

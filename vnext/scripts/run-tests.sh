@@ -365,6 +365,21 @@ run_serial_batches() {
 }
 
 test_exit=0
+if [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
+    echo "==> backend (ruff format)"
+    format_start=${SECONDS}
+    format_status=0
+    if ! (
+        cd "${VNEXT_ROOT}/backend"
+        "${UV_CONSUME}" -C . run ruff format --check src tests
+    ); then
+        test_exit=1
+        format_status=1
+        PACKAGE_STATUS[backend]=failed
+    fi
+    echo "==> backend (ruff format) elapsed_seconds=$((SECONDS - format_start)) status=${format_status}"
+fi
+
 if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" ]]; then
     echo "==> rust"
     rust_start=${SECONDS}

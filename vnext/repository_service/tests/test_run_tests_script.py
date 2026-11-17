@@ -239,6 +239,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         ),
     )
     calls_log = tmp_path / "pytest-invocations.log"
+    style_log = tmp_path / "style-invocations.log"
     sync_log = tmp_path / "environment-syncs.log"
     build_log = tmp_path / "extension-builds.log"
     installed_build_input = tmp_path / "installed-build-input"
@@ -263,6 +264,10 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
             if [[ "$*" == "-C . run --no-sync python -I -c "* ]]; then
               printf '%s\\n' "${RUNNER_INSTALLED_BUILD_INPUT_OVERRIDE-$(cat "${RUNNER_INSTALLED_BUILD_INPUT}")}"
               exit 0
+            fi
+            if [[ "$*" == "-C . run ruff format --check src tests" ]]; then
+              printf '%s\\t%s\\n' "$PWD" "$*" >>"${RUNNER_STYLE_LOG}"
+              exit "${RUNNER_RUFF_FORMAT_STATUS:-0}"
             fi
             if [[ "$*" == *"python -VV"* ]]; then
               printf 'Python 3.14.6 (fixture)\\n'
@@ -310,6 +315,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["GATEWAY_UV_CONSUME"] = str(fake_uv_consume)
     env["RUNNER_CALLS_LOG"] = str(calls_log)
+    env["RUNNER_STYLE_LOG"] = str(style_log)
     env["RUNNER_SYNC_LOG"] = str(sync_log)
     env["RUNNER_BUILD_LOG"] = str(build_log)
     env["RUNNER_INSTALLED_BUILD_INPUT"] = str(installed_build_input)
@@ -771,3 +777,55 @@ def test_run_tests_rejects_invalid_test_scope(tmp_path: Path) -> None:
     assert completed.returncode == 2
     assert "GATEWAY_TEST_SCOPE" in completed.stderr
     assert not calls_log.exists()
+
+
+@pytest.mark.unit
+def test_run_tests_runs_backend_ruff_format_check_before_rust_only_when_selected(
+    tmp_path: Path,
+) -> None:
+    repo_root, _calls_log, env = _runner_fixture(tmp_path)
+    completed = _run_runner(repo_root, env, packages="rust,backend")
+    assert completed.returncode == 0, completed.stderr
+    style_calls = Path(env["RUNNER_STYLE_LOG"]).read_text().splitlines()
+    assert style_calls == [
+        f"{repo_root / 'vnext' / 'backend'}\t-C . run ruff format --check src tests"
+    ]
+    assert completed.stdout.index("==> backend (ruff format)") < completed.stdout.index(
+        "==> rust\n"
+    )
+    assert completed.stdout.index("==> backend (ruff format)") < completed.stdout.index(
+        "==> rust (fmt)"
+    )
+
+    unselected_root, _unselected_calls, unselected_env = _runner_fixture(tmp_path / "no-backend")
+    unselected = _run_runner(unselected_root, unselected_env, packages="rust,shared_kernel")
+    assert unselected.returncode == 0, unselected.stderr
+    assert not Path(unselected_env["RUNNER_STYLE_LOG"]).exists()
+    assert "==> backend (ruff format)" not in unselected.stdout
+
+
+@pytest.mark.unit
+def test_run_tests_backend_ruff_format_failure_propagates_and_skips_serial(
+    tmp_path: Path,
+) -> None:
+    repo_root, calls_log, env = _runner_fixture(tmp_path)
+    env["RUNNER_RUFF_FORMAT_STATUS"] = "1"
+    completed = _run_runner(repo_root, env)
+    assert completed.returncode == 1, completed.stderr
+    assert "==> backend (ruff format) elapsed_seconds=" in completed.stdout
+    assert "status=1" in completed.stdout
+    assert "==> skipping serial batches because an earlier step failed" in completed.stdout
+    assert "==> backend (serial)" not in completed.stdout
+    assert "==> repository_service (serial)" not in completed.stdout
+    assert "==> backend status=failed" in completed.stdout
+    assert "==> repository_service status=not_run" in completed.stdout
+    assert "==> rust status=passed" in completed.stdout
+    called = [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
+    assert called == [
+        "shared_kernel",
+        "repository_contracts",
+        "repository_client",
+        "backend",
+        "repository_service",
+    ]
+

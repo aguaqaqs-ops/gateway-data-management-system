@@ -8,7 +8,7 @@ import stat
 from pathlib import Path
 from uuid import uuid4
 
-from gateway_backend.deployment_config import DeploymentConfig, _document
+from gateway_backend.deployment_config import DeploymentConfig, decode_deployment_document
 from gateway_backend.runtime_preflight import DeploymentIdentityChanged, check_configured_root
 from gateway_backend.infrastructure.artifact_store.layout import descriptor_mount_id
 
@@ -38,7 +38,7 @@ def _read(directory: int) -> dict[str, object]:
         raw = os.read(descriptor, 4097)
         if len(raw) > 4096:
             raise ValueError("configuration record exceeds its bound")
-        document = _document(raw)
+        document = decode_deployment_document(raw)
         if type(document.get("schema_version")) is not int:
             raise ValueError("configuration record has invalid schema")
         return document

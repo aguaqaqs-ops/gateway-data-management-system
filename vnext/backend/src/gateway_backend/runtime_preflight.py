@@ -17,7 +17,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-from .deployment_config import DeploymentConfig, StorageLayoutConfig, _document
+from .deployment_config import (
+    DeploymentConfig,
+    StorageLayoutConfig,
+    decode_deployment_document,
+)
 
 MARKER = ".gateway-storage.json"
 
@@ -89,7 +93,7 @@ def check_marker(config: StorageLayoutConfig, slot: str, path: Path) -> None:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ValueError("storage marker must be an ordinary file")
         raw = os.read(descriptor, 4097)
-        document = _document(raw)
+        document = decode_deployment_document(raw)
         if (
             len(raw) > 4096
             or type(document.get("schema_version")) is not int

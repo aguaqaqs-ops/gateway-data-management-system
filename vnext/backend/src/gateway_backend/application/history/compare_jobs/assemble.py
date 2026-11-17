@@ -47,9 +47,9 @@ from gateway_backend.application.pair_pipeline import (
     PairPipelineCancelled,
     PairPipelineError,
     HistoryPairPipelineResult as _PairPipelineResult,
-    _same_complete_table_identity,
     declare_pair_comparison_session,
     run_history_pair_pipeline,
+    same_complete_table_identity,
 )
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.preview_jobs.assemble import surface_artifact_closure
@@ -655,7 +655,7 @@ def _ensure_history_demands_once(
             raise HistoryCompareJobError("history comparison planning failed")
         for table in (
             *comparison_row_demands(plan, session),
-            *navigation_row_demands(plan, _same_complete_table_identity),
+            *navigation_row_demands(plan, same_complete_table_identity),
         ):
             demands[table_commit[id(table)]].add(table.descriptor.table_name)
     exports: dict[str, dict[str, ArtifactRef]] = {}

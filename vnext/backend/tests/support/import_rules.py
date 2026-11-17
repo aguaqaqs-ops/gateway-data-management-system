@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -182,7 +182,11 @@ class Violation:
         return (self.rule, self.source, self.target)
 
     def describe(self) -> str:
-        location = f"{self.path.relative_to(BACKEND_SRC.parent)}:{self.line}"
+        try:
+            display_path = self.path.relative_to(BACKEND_SRC.parent)
+        except ValueError:
+            display_path = self.path
+        location = f"{display_path}:{self.line}"
         return f"[{self.rule}] {self.source} -> {self.target}  ({location})"
 
 
@@ -216,6 +220,7 @@ class _ImportVisitor(ast.NodeVisitor):
         self._function_scope: str | None = None
         self._type_checking_depth = 0
         self.edges: list[ImportEdge] = []
+        self.reexports: dict[str, tuple[str, str | None]] = {}
 
     def _context(self) -> str:
         if self._type_checking_depth:
@@ -258,14 +263,21 @@ class _ImportVisitor(ast.NodeVisitor):
         self._function_scope = previous_scope
 
     def visit_Import(self, node: ast.Import) -> None:
+        in_reexport_scope = self._context() in {"module", "type_checking"}
         for alias in node.names:
             self._add(alias.name, (), node.lineno)
+            if in_reexport_scope:
+                if alias.asname is not None:
+                    self.reexports[alias.asname] = (alias.name, None)
+                else:
+                    top_name = alias.name.split(".", 1)[0]
+                    self.reexports[top_name] = (top_name, None)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        names = tuple(alias.name for alias in node.names)
+        aliases = tuple((alias.name, alias.asname) for alias in node.names)
         if node.level == 0:
             assert node.module is not None
-            self._add_from(node.module, names, node.lineno)
+            self._add_from(node.module, aliases, node.lineno)
             return
         parts = self._source.split(".")
         if not self._is_init:
@@ -273,18 +285,28 @@ class _ImportVisitor(ast.NodeVisitor):
         if node.level > 1:
             parts = parts[: -(node.level - 1)]
         base = ".".join([*parts, *node.module.split(".")]) if node.module else ".".join(parts)
-        self._add_from(base, names, node.lineno)
+        self._add_from(base, aliases, node.lineno)
 
-    def _add_from(self, base: str, names: tuple[str, ...], line: int) -> None:
+    def _add_from(
+        self,
+        base: str,
+        aliases: tuple[tuple[str, str | None], ...],
+        line: int,
+    ) -> None:
         # ``from pkg import submodule`` targets the submodule; remaining names target ``pkg``.
+        in_reexport_scope = self._context() in {"module", "type_checking"}
         attribute_names: list[str] = []
-        for name in names:
+        for name, asname in aliases:
             candidate = f"{base}.{name}"
             if candidate in self._modules:
                 self._add(candidate, (), line)
+                if in_reexport_scope:
+                    self.reexports[asname or name] = (candidate, None)
             else:
                 attribute_names.append(name)
-        if attribute_names or not names:
+                if in_reexport_scope and name != "*":
+                    self.reexports[asname or name] = (base, name)
+        if attribute_names or not aliases:
             self._add(base, tuple(attribute_names), line)
 
     def _add(self, target: str, names: tuple[str, ...], line: int) -> None:
@@ -303,15 +325,32 @@ class _ImportVisitor(ast.NodeVisitor):
         )
 
 
-def collect_edges(modules: dict[str, Path] | None = None) -> list[ImportEdge]:
+def _collect_edges_and_reexports(
+    modules: dict[str, Path] | None = None,
+) -> tuple[list[ImportEdge], dict[str, dict[str, tuple[str, str | None]]]]:
     known = modules if modules is not None else backend_modules()
     edges: list[ImportEdge] = []
-    for path in backend_sources():
-        source, is_init = module_name(path)
+    reexports: dict[str, dict[str, tuple[str, str | None]]] = {}
+    for source, path in sorted(known.items(), key=lambda item: item[1]):
+        is_init = path.name == "__init__.py"
         visitor = _ImportVisitor(source, is_init, path, known)
         visitor.visit(ast.parse(path.read_text(encoding="utf-8")))
         edges.extend(visitor.edges)
+        if visitor.reexports:
+            reexports[source] = visitor.reexports
+    return edges, reexports
+
+
+def collect_edges(modules: dict[str, Path] | None = None) -> list[ImportEdge]:
+    edges, _reexports = _collect_edges_and_reexports(modules)
     return edges
+
+
+def collect_reexports(
+    modules: dict[str, Path] | None = None,
+) -> dict[str, dict[str, tuple[str, str | None]]]:
+    _edges, reexports = _collect_edges_and_reexports(modules)
+    return reexports
 
 
 def package_names(modules: dict[str, Path]) -> frozenset[str]:
@@ -375,7 +414,44 @@ def _within(source: str, package: str) -> bool:
     return source == package or source.startswith(f"{package}.")
 
 
-def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str] | None:
+def _package_dir(module: str, packages: frozenset[str]) -> str:
+    if module in packages:
+        return module
+    return module.rsplit(".", 1)[0] if "." in module else module
+
+
+def _resolve_symbol_origin(
+    target: str,
+    name: str,
+    modules: Mapping[str, Path],
+    reexports: Mapping[str, Mapping[str, tuple[str, str | None]]],
+) -> tuple[str, str | None]:
+    current_module = target
+    current_name: str | None = name
+    seen: set[tuple[str, str | None]] = set()
+    while (current_module, current_name) not in seen:
+        seen.add((current_module, current_name))
+        if current_name is None:
+            break
+        submodule = f"{current_module}.{current_name}"
+        if submodule in modules:
+            current_module = submodule
+            current_name = None
+            continue
+        binding = reexports.get(current_module, {}).get(current_name)
+        if binding is None:
+            break
+        current_module, current_name = binding
+    return current_module, current_name
+
+
+def classify_edge(
+    edge: ImportEdge,
+    packages: frozenset[str],
+    *,
+    modules: Mapping[str, Path] | None = None,
+    reexports: Mapping[str, Mapping[str, tuple[str, str | None]]] | None = None,
+) -> tuple[str, str] | None:
     """Return the first rule an edge breaks, as ``(rule, target)``.
 
     Precedence: an edge that must not exist at all (layer) is reported once; otherwise private
@@ -461,15 +537,41 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         ):
             return (RULE_LAYER, edge.target)
 
-    if edge.target.startswith(f"{BACKEND_PACKAGE}."):
+    if _within(edge.target, BACKEND_PACKAGE):
+        source_dir = _package_dir(edge.source, packages)
+        target_dir = _package_dir(edge.target, packages)
         private_owner = _private_owner(edge.target)
-        if private_owner is not None and not _within(edge.source, private_owner):
+        if private_owner is not None and source_dir != target_dir:
             return (RULE_PRIVATE, edge.target)
-        name_owner = edge.target if edge.target in packages else edge.target.rsplit(".", 1)[0]
-        if not _within(edge.source, name_owner):
-            private_names = sorted(name for name in edge.names if _is_private_name(name))
-            if private_names:
-                return (RULE_PRIVATE, f"{edge.target}:{','.join(private_names)}")
+        violating_names: list[str] = []
+        for name in edge.names:
+            origin_module, origin_name = _resolve_symbol_origin(
+                edge.target,
+                name,
+                modules or {},
+                reexports or {},
+            )
+            origin_in_backend = _within(origin_module, BACKEND_PACKAGE)
+            origin_dir = _package_dir(origin_module, packages)
+            if _is_private_name(name):
+                if source_dir != target_dir or (origin_in_backend and source_dir != origin_dir):
+                    violating_names.append(
+                        name
+                        if origin_module == edge.target
+                        else f"{name} (defined in {origin_module})"
+                    )
+            elif (
+                origin_in_backend
+                and source_dir != origin_dir
+                and (
+                    (origin_name is None and _private_owner(origin_module) is not None)
+                    or (origin_name is not None and _is_private_name(origin_name))
+                )
+            ):
+                label = origin_name if origin_name is not None else origin_module
+                violating_names.append(f"{name} -> {origin_module}:{label}")
+        if violating_names:
+            return (RULE_PRIVATE, f"{edge.target}:{','.join(sorted(set(violating_names)))}")
 
     if target_zone is not None and target_zone.startswith("capability:"):
         owner_package = ".".join(edge.target.split(".")[:3])
@@ -491,13 +593,14 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
 
 def find_violations(edges: Iterable[ImportEdge], modules: dict[str, Path]) -> list[Violation]:
     packages = package_names(modules)
+    reexports = collect_reexports(modules)
     violations = [
         Violation(RULE_UNOWNED_ROOT, module, "", path, 1)
         for module, path in modules.items()
         if zone(module, packages) == "root"
     ]
     for edge in edges:
-        found = classify_edge(edge, packages)
+        found = classify_edge(edge, packages, modules=modules, reexports=reexports)
         if found is not None:
             rule, target = found
             violations.append(Violation(rule, edge.source, target, edge.path, edge.line))

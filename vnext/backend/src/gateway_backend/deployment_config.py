@@ -94,7 +94,7 @@ def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-def _document(raw: bytes) -> dict[str, object]:
+def decode_deployment_document(raw: bytes) -> dict[str, object]:
     if type(raw) is not bytes or len(raw) > MAX_CONFIG_BYTES:
         raise ValueError("configuration exceeds 256 KiB")
 
@@ -190,12 +190,13 @@ class StorageLayoutConfig:
 
     @property
     def digest(self) -> str:
-        return _configuration_digest(_document(self._source_document))
+        return _configuration_digest(decode_deployment_document(self._source_document))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> StorageLayoutConfig:
         doc = _object(
-            _document(raw), {"schema_version", "environment_id", "group_id", "filesystems", "roots"}
+            decode_deployment_document(raw),
+            {"schema_version", "environment_id", "group_id", "filesystems", "roots"},
         )
         _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
@@ -322,12 +323,12 @@ class ResourceProfile:
 
     @property
     def digest(self) -> str:
-        return _configuration_digest(_document(self._source_document))
+        return _configuration_digest(decode_deployment_document(self._source_document))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ResourceProfile:
         doc = _object(
-            _document(raw),
+            decode_deployment_document(raw),
             {
                 "schema_version",
                 "environment_id",

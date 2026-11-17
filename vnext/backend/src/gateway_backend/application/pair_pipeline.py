@@ -554,7 +554,7 @@ def _finish_comparison_risk_surface(
         risk_report=risk.risk_report,
         before_presentation=before_presentation,
         current_presentation=current_presentation,
-        same_complete=_same_complete_table_identity,
+        same_complete=same_complete_table_identity,
         initial_baseline=initial_baseline,
     )
     with reserve_surface(8 * 16 * 1024**2):
@@ -838,7 +838,7 @@ def _surface_table_artifacts(
     aliases: set[str] = set()
     for table in request.before.table_set.tables:
         name = table.descriptor.table_name
-        same = name in current and _same_complete_table_identity(
+        same = name in current and same_complete_table_identity(
             request.before, request.current, name
         )
         if same:
@@ -898,7 +898,7 @@ def _surface_table_artifacts(
     )
 
 
-def _same_complete_table_identity(
+def same_complete_table_identity(
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
     table_name: str,

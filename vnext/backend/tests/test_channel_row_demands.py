@@ -16,8 +16,8 @@ from gateway_backend.application.history.compare_jobs import definitions as comp
 from gateway_backend.application.history.compare_jobs import payload as compare_payload
 from gateway_backend.application.history.compare_jobs.payload import history_compare_step_id
 from gateway_backend.application.pair_pipeline import (
-    _same_complete_table_identity,
     run_history_pair_pipeline,
+    same_complete_table_identity,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
 from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
@@ -144,7 +144,7 @@ def test_history_loads_serial_registry_rows_for_navigation_on_metadata_and_cache
         for side in sides.values():
             assert side.table_set is not None
             assert all(table.reader is None for table in side.table_set.tables)
-        assert _same_complete_table_identity(sides[before_commit], sides[current_commit], "com_cfg")
+        assert same_complete_table_identity(sides[before_commit], sides[current_commit], "com_cfg")
         pair_comparison_metrics.clear()
         run_through_step(harness, compare_payload.HISTORY_COMPARE_ASSEMBLE_HANDLER)
         run_through_step(harness, compare_payload.HISTORY_COMPARE_PUBLISH_HANDLER)

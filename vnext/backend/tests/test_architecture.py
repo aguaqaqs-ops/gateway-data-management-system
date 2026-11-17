@@ -1233,6 +1233,30 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
         None,
     ),
     (
+        "gateway_backend.application.history.compare_jobs.assemble",
+        "gateway_backend.application.pair_pipeline",
+        ("_same_complete_table_identity",),
+        RULE_PRIVATE,
+    ),
+    (
+        "gateway_backend.bootstrap.deployment_identity",
+        "gateway_backend.deployment_config",
+        ("_document",),
+        RULE_PRIVATE,
+    ),
+    (
+        "gateway_backend.application.history.queries",
+        "gateway_backend.application.history.projection",
+        ("_decode_cursor",),
+        None,
+    ),
+    (
+        "gateway_backend.runtime_preflight",
+        "gateway_backend.deployment_config",
+        ("_helper",),
+        None,
+    ),
+    (
         "gateway_backend.bootstrap.operation_worker",
         "gateway_backend.infrastructure.control_db",
         (),
@@ -1249,3 +1273,84 @@ def test_import_rule_engine_classifies_edge_shapes(
     edge = ImportEdge(source, target, names, "module", BACKEND_SRC / "gateway_backend", 1)
     found = classify_edge(edge, package_names(backend_modules()))
     assert (None if found is None else found[0]) == expected
+
+
+def test_private_import_rule_enforces_defining_package_directory_boundary(tmp_path: Path) -> None:
+    root = tmp_path / "gateway_backend"
+    app = root / "application"
+    sub = app / "sub"
+    boot = root / "bootstrap"
+    for directory in (root, app, sub, boot):
+        directory.mkdir(parents=True)
+
+    files = {
+        "gateway_backend": root / "__init__.py",
+        "gateway_backend.deployment_config": root / "deployment_config.py",
+        "gateway_backend.runtime_preflight": root / "runtime_preflight.py",
+        "gateway_backend.application": app / "__init__.py",
+        "gateway_backend.application.owner": app / "owner.py",
+        "gateway_backend.application.same_dir_ok": app / "same_dir_ok.py",
+        "gateway_backend.application.reexporter": app / "reexporter.py",
+        "gateway_backend.application.sub": sub / "__init__.py",
+        "gateway_backend.application.sub.cross_dir_bad": sub / "cross_dir_bad.py",
+        "gateway_backend.bootstrap": boot / "__init__.py",
+        "gateway_backend.bootstrap.cross_dir_bad": boot / "cross_dir_bad.py",
+    }
+    for path in files.values():
+        path.write_text("", encoding="utf-8")
+
+    (app / "owner.py").write_text("def _secret() -> int:\n    return 1\n", encoding="utf-8")
+    (root / "deployment_config.py").write_text(
+        "def _root_secret() -> int:\n    return 2\n", encoding="utf-8"
+    )
+    (root / "runtime_preflight.py").write_text(
+        "from .deployment_config import _root_secret\n", encoding="utf-8"
+    )
+    (app / "same_dir_ok.py").write_text(
+        "from typing import TYPE_CHECKING\n"
+        "from .owner import _secret\n"
+        "from gateway_backend.application.owner import _secret as _alias\n"
+        "if TYPE_CHECKING:\n"
+        "    from .owner import _secret as _tc_secret\n",
+        encoding="utf-8",
+    )
+    (app / "reexporter.py").write_text(
+        "from .owner import _secret as exposed_secret\n"
+        "from .owner import _secret as _reexported_secret\n",
+        encoding="utf-8",
+    )
+    (sub / "cross_dir_bad.py").write_text(
+        "from typing import TYPE_CHECKING\n"
+        "from ..owner import _secret as public_alias\n"
+        "from gateway_backend.application.reexporter import _reexported_secret\n"
+        "if TYPE_CHECKING:\n"
+        "    from gateway_backend.application.reexporter import exposed_secret\n",
+        encoding="utf-8",
+    )
+    (boot / "cross_dir_bad.py").write_text(
+        "from gateway_backend.deployment_config import _root_secret as alias_name\n",
+        encoding="utf-8",
+    )
+
+    edges = collect_edges(files)
+    violations = [v for v in find_violations(edges, files) if v.rule == RULE_PRIVATE]
+    described = [v.describe() for v in violations]
+
+    assert not any("same_dir_ok" in text or "runtime_preflight" in text for text in described)
+    assert len(violations) == 4
+    assert any(
+        "cross_dir_bad.py:2" in text and "[private]" in text and "_secret" in text
+        for text in described
+    )
+    assert any(
+        "cross_dir_bad.py:3" in text and "[private]" in text and "_reexported_secret" in text
+        for text in described
+    )
+    assert any(
+        "cross_dir_bad.py:5" in text and "[private]" in text and "exposed_secret" in text
+        for text in described
+    )
+    assert any(
+        "bootstrap/cross_dir_bad.py:1" in text and "[private]" in text and "_root_secret" in text
+        for text in described
+    )

@@ -46,38 +46,6 @@ OPERATION_ID = UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c21")
 OTHER_OPERATION_ID = UUID("018f0f3e-7b0a-7c18-8a9e-2e4b9f4d2c21")
 ARTIFACT_PAYLOAD = b"artifact-cleanup-contract-payload"
 
-
-def _validate_leftover_generation(generation: str) -> None:
-    if not generation:
-        raise ValueError("generation must be non-empty")
-    if "-" in generation:
-        raise ValueError("generation must not contain '-'")
-
-
-def quarantine_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
-    """Test-only leftover ``.deleting-*`` name matching inventory parsers."""
-
-    _validate_leftover_generation(generation)
-    return f".deleting-{inode}-{generation}-{artifact_id.hex}"
-
-
-def detach_name_for(*, inode: int, artifact_id: UUID, generation: str) -> str:
-    """Test-only leftover ``.detach-*`` name matching inventory parsers."""
-
-    _validate_leftover_generation(generation)
-    return f".detach-{inode}-{generation}-{artifact_id.hex}"
-
-
-def unlink_stage_dir_name(*, artifact_id: UUID, token: str) -> str:
-    """Test-only leftover ``.unlink-stage-*`` name matching inventory parsers."""
-
-    if not token:
-        raise ValueError("token must be non-empty")
-    if "-" in token:
-        raise ValueError("token must not contain '-'")
-    return f".unlink-stage-{artifact_id.hex}-{token}"
-
-
 SHA256 = hashlib.sha256(ARTIFACT_PAYLOAD).hexdigest()
 MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 CREATED_AT = "2026-08-01T00:00:00+00:00"
@@ -337,79 +305,6 @@ def seed_bytes_delete_intent(
             raise RuntimeError("failed to seed delete intent")
         mutation_store._connection.commit()
     return token
-
-
-def seed_artifact_residual(
-    mutation_store: MutationStore,
-    *,
-    artifact_id: UUID = ARTIFACT_ID,
-    repository_id: UUID = REPOSITORY_ID,
-    kind: str,
-    name: str,
-    parent_name: str = "",
-    dev: int,
-    ino: int,
-    generation: str | None,
-    created_at: str = CREATED_AT,
-) -> None:
-    with mutation_store._lock:
-        mutation_store._connection.execute(
-            """
-            INSERT INTO artifact_residual (
-                artifact_id, repository_scope, kind, name, parent_name,
-                dev, ino, generation, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                str(artifact_id),
-                repository_id.hex,
-                kind,
-                name,
-                parent_name,
-                int(dev),
-                int(ino),
-                generation,
-                created_at,
-            ),
-        )
-        mutation_store._connection.commit()
-
-
-def seed_bytes_deleted_receipt(
-    mutation_store: MutationStore,
-    *,
-    artifact_id: UUID = ARTIFACT_ID,
-    repository_id: UUID = REPOSITORY_ID,
-    dev: int = 1,
-    ino: int = 1,
-    generation: str,
-    deleted_at: str = CREATED_AT,
-) -> None:
-    with mutation_store._lock:
-        cursor = mutation_store._connection.execute(
-            """
-            UPDATE artifact_lifecycle
-            SET bytes_deleted_at = ?,
-                bytes_deleted_receipt_dev = ?,
-                bytes_deleted_receipt_ino = ?,
-                bytes_deleted_receipt_generation = ?,
-                updated_at = ?
-            WHERE artifact_id = ?
-              AND repository_scope = ?
-            """,
-            (
-                deleted_at,
-                int(dev),
-                int(ino),
-                generation,
-                deleted_at,
-                str(artifact_id),
-                repository_id.hex,
-            ),
-        )
-        if cursor.rowcount != 1:
-            raise RuntimeError("failed to seed deleted receipt")
-        mutation_store._connection.commit()
 
 
 def binding(*, artifact_id: UUID = ARTIFACT_ID) -> ImportRequestBinding:

@@ -24,7 +24,6 @@ from gateway_repository_contracts import (
 from gateway_repository_service.mutation_store import (
     IdempotencyKeyHash,
     MutationStore,
-    ResidualPage,
 )
 from gateway_repository_service.versioned_import.models import (
     ArtifactOperationReference,
@@ -1065,70 +1064,6 @@ class ImportOperationStore:
                 artifact_id,
                 deleted_at=deleted_at or utc_now_iso(),
                 repository_id=scope,
-                expected_dev=expected_dev,
-                expected_ino=expected_ino,
-                expected_generation=expected_generation,
-            )
-
-    def clear_artifact_residual(
-        self,
-        *,
-        residual_id: int,
-        expected_dev: int,
-        expected_ino: int,
-    ) -> None:
-        with self._transaction():
-            self._mutation_store.clear_artifact_residual(
-                residual_id=residual_id,
-                expected_dev=expected_dev,
-                expected_ino=expected_ino,
-            )
-
-    def list_artifact_residuals(
-        self,
-        *,
-        artifact_id: UUID | None = None,
-        limit: int = 256,
-        after_residual_id: int | None = None,
-    ) -> ResidualPage:
-        with self._transaction():
-            return self._mutation_store.list_artifact_residuals(
-                artifact_id=artifact_id,
-                limit=limit,
-                after_residual_id=after_residual_id,
-            )
-
-    def clear_artifact_bytes_delete_intent(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        expected_dev: int,
-        expected_ino: int,
-        expected_generation: str,
-    ) -> None:
-        with self._transaction():
-            self._mutation_store.clear_artifact_bytes_delete_intent(
-                artifact_id,
-                repository_id=repository_id,
-                expected_dev=expected_dev,
-                expected_ino=expected_ino,
-                expected_generation=expected_generation,
-            )
-
-    def clear_artifact_bytes_deleted_receipt(
-        self,
-        artifact_id: UUID,
-        *,
-        repository_id: UUID,
-        expected_dev: int,
-        expected_ino: int,
-        expected_generation: str,
-    ) -> None:
-        with self._transaction():
-            self._mutation_store.clear_artifact_bytes_deleted_receipt(
-                artifact_id,
-                repository_id=repository_id,
                 expected_dev=expected_dev,
                 expected_ino=expected_ino,
                 expected_generation=expected_generation,

@@ -58,13 +58,13 @@ class HttpRepositoryWriteClient:
         response = cast(
             UploadArtifactResponse,
             _run(
-            self._client().upload_artifact(
-                repository_id=_as_uuid(repository_id),
-                idempotency_key=_as_idempotency_key(idempotency_key),
-                media_type=_as_media_type(media_type),
-                raw_sha256=_wire_sha256(raw_sha256),
-                body=body,
-            )
+                self._client().upload_artifact(
+                    repository_id=_as_uuid(repository_id),
+                    idempotency_key=_as_idempotency_key(idempotency_key),
+                    media_type=_as_media_type(media_type),
+                    raw_sha256=_wire_sha256(raw_sha256),
+                    body=body,
+                )
             ),
         )
         artifact_ref = _artifact_ref_from_response(response)

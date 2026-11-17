@@ -80,9 +80,7 @@ def test_close_failure_does_not_change_digest() -> None:
     provider, _rows = minimal_fixture()
     provider.close_error = True
     first = materialize_ref(
-        FakeRepositoryTableAccessProvider(
-            catalog=provider.catalog, rows=provider.rows
-        )
+        FakeRepositoryTableAccessProvider(catalog=provider.catalog, rows=provider.rows)
     )
     second = materialize_ref(provider)
     assert first.status is SnapshotMaterializationStatus.COMPLETE
@@ -97,9 +95,7 @@ def test_close_failure_does_not_change_digest() -> None:
 
 def test_catalog_is_memoized_within_session() -> None:
     provider, _rows = minimal_fixture()
-    session = provider.open_ref(
-        RepositoryRef(repository_id="repo-s4", ref=DEFAULT_REF), None
-    )
+    session = provider.open_ref(RepositoryRef(repository_id="repo-s4", ref=DEFAULT_REF), None)
     first = session.get_catalog()
     second = session.get_catalog()
     assert first is second
@@ -195,8 +191,11 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
     catalog = make_catalog((target, selected))
     rows = {target.table_name: target_rows, selected.table_name: ((9,),)}
     full_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
-    binding = canonical_binding_for_catalog(catalog, ruleset=ruleset,
-        table_comments={target.table_name: "引用表"} if case == "ordered" else None)
+    binding = canonical_binding_for_catalog(
+        catalog,
+        ruleset=ruleset,
+        table_comments={target.table_name: "引用表"} if case == "ordered" else None,
+    )
     full = materialize_ref(
         full_provider,
         policy=MaterializationPolicy.READERS_REQUIRED,
@@ -236,8 +235,7 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
     assert rowless_descriptors[target.table_name] == full_descriptors[target.table_name]
     assert rowless_provider.last_session is not None
     assert tuple(
-        reader.catalog_table().table_name
-        for reader in rowless_provider.last_session.table_readers
+        reader.catalog_table().table_name for reader in rowless_provider.last_session.table_readers
     ) == ("selected_items",)
     if case == "ordered":
         ordered_view = next(
@@ -279,18 +277,14 @@ def test_initial_binding_rejects_repository_user_tables() -> None:
 
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.snapshot is None
-    assert result.diagnostics[0].code is (
-        MaterializationDiagnosticCode.INITIAL_BASELINE_NOT_EMPTY
-    )
+    assert result.diagnostics[0].code is (MaterializationDiagnosticCode.INITIAL_BASELINE_NOT_EMPTY)
     assert provider.last_session is not None
     assert provider.last_session.table_readers == []
 
 
 def test_session_stays_pinned_after_ref_moves() -> None:
     provider, _rows = minimal_fixture()
-    session = provider.open_ref(
-        RepositoryRef(repository_id="repo-s4", ref=DEFAULT_REF), None
-    )
+    session = provider.open_ref(RepositoryRef(repository_id="repo-s4", ref=DEFAULT_REF), None)
     provider.current_commit = "ffffffffffffffffffffffffffffffff"
     catalog = session.get_catalog()
     assert session.pinned_commit_hash() == DEFAULT_REF
@@ -311,9 +305,7 @@ def test_artifacts_required_fails_closed() -> None:
     result = materialize_ref(provider, policy=MaterializationPolicy.ARTIFACTS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.snapshot is None
-    assert result.diagnostics[0].code is (
-        MaterializationDiagnosticCode.ARTIFACT_STORE_REQUIRED
-    )
+    assert result.diagnostics[0].code is (MaterializationDiagnosticCode.ARTIFACT_STORE_REQUIRED)
 
 
 def test_cancel_fails_closed_and_closes_session() -> None:
@@ -341,8 +333,9 @@ def test_retryable_open_ref_timeout_reaches_operation_recovery() -> None:
 def test_deadline_fails_closed() -> None:
     provider, _rows = minimal_fixture()
     with pytest.raises(TimeoutError):
-        materialize_ref(provider,
-            context=ParserInvocationContext(CountCancel(10_000), time.monotonic() - 1.0))
+        materialize_ref(
+            provider, context=ParserInvocationContext(CountCancel(10_000), time.monotonic() - 1.0)
+        )
 
 
 def test_catalog_load_failure_is_failed() -> None:
@@ -351,6 +344,8 @@ def test_catalog_load_failure_is_failed() -> None:
     result = materialize_ref(provider)
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.snapshot is None
-    assert result.diagnostics[0].code is MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED
+    assert (
+        result.diagnostics[0].code is MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED
+    )
     assert provider.last_session is not None
     assert provider.last_session.close_count == 1

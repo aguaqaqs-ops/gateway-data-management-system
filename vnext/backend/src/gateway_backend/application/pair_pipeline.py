@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
 from gateway_backend.application.comparison_audit import publish_structure_audit
-from gateway_backend.application.business_presentation import RiskAttribution, publish_business_presentation
+from gateway_backend.application.business_presentation import (
+    RiskAttribution,
+    publish_business_presentation,
+)
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
@@ -76,7 +79,10 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceRefScope,
     assemble_surface,
 )
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules import (
+    comparison_rule_set,
+    migrated_table_ruleset_snapshot,
+)
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
@@ -143,9 +149,11 @@ def preview_identity_assessment(
 
 
 def declare_pair_comparison_session(
-    requests: tuple[ComparisonRequest, ...], *,
+    requests: tuple[ComparisonRequest, ...],
+    *,
     computation_cache: ComputationCachePort | None = None,
-    cache_owner: CacheOperationOwner | None = None, repository_id: str | None = None,
+    cache_owner: CacheOperationOwner | None = None,
+    repository_id: str | None = None,
 ) -> ComparisonTaskSession | None:
     """Declare exactly the comparison tasks reachable in this operation."""
     plans: list[ComparisonPlan] = []
@@ -156,11 +164,21 @@ def declare_pair_comparison_session(
         plans.append(plan)
     try:
         context = current_kernel_context()
-        risk_persistence = (PersistentRiskCandidates(computation_cache, cache_owner, repository_id, context)
-            if computation_cache is not None and cache_owner is not None
-            and repository_id is not None and context is not None else None)
-        return ComparisonTaskSession(tuple(plans), persistent_cache=computation_cache,
-            persistent_owner=cache_owner, repository_id=repository_id, risk_persistence=risk_persistence)
+        risk_persistence = (
+            PersistentRiskCandidates(computation_cache, cache_owner, repository_id, context)
+            if computation_cache is not None
+            and cache_owner is not None
+            and repository_id is not None
+            and context is not None
+            else None
+        )
+        return ComparisonTaskSession(
+            tuple(plans),
+            persistent_cache=computation_cache,
+            persistent_owner=cache_owner,
+            repository_id=repository_id,
+            risk_persistence=risk_persistence,
+        )
     except MemoryError:
         # The optional reuse index may be denied by the same M budget. The
         # pair still executes normally with no retained comparison cache.
@@ -179,7 +197,8 @@ def run_preview_pair_pipeline(
     rule_set: ComparisonRuleSet | None = None,
     assess_identity: bool = True,
     identity_before_table_set: SnapshotTableSet | None = None,
-    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata,
@@ -200,7 +219,9 @@ def run_preview_pair_pipeline(
         assessment_ref = put_with_built_ref(
             store,
             assessment_bytes,
-            artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "project-identity", assessment.assessment_digest.value),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.COMPARISON, "project-identity", assessment.assessment_digest.value
+            ),
             media_type="application/json",
         )
     active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())
@@ -211,7 +232,8 @@ def run_preview_pair_pipeline(
         rule_set=active_rules,
         mode=(
             ComparisonMode.DATASET_REPLACEMENT
-            if assessment is not None and assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
+            if assessment is not None
+            and assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
             else ComparisonMode.DETAILED
         ),
     )
@@ -227,9 +249,13 @@ def run_preview_pair_pipeline(
             assessment_ref=assessment_ref,
         ),
         show_keyless_fallback_hint=True,
-        include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
-        dedup_session=dedup_session, table_exports=table_exports,
-        before_presentation=before_presentation, current_presentation=current_presentation,
+        include_all_before_tables=False,
+        repository_id=repository_id,
+        export_cache=export_cache,
+        dedup_session=dedup_session,
+        table_exports=table_exports,
+        before_presentation=before_presentation,
+        current_presentation=current_presentation,
         initial_baseline=initial_baseline,
     )
     records_closure = surface.published.records_closure
@@ -240,7 +266,8 @@ def run_preview_pair_pipeline(
         raise PairPipelineError("records closure is missing")
     return PreviewPairPipelineResult(
         pair_id=pair_id,
-        before_presentation=before_presentation, current_presentation=current_presentation,
+        before_presentation=before_presentation,
+        current_presentation=current_presentation,
         comparison_digest=surface.comparison_digest,
         risk_digest=surface.risk_digest,
         surface_digest=surface.surface_digest,
@@ -261,7 +288,8 @@ def run_history_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
-    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata,
@@ -280,9 +308,13 @@ def run_history_pair_pipeline(
         store=store,
         control=control,
         on_cancel=on_cancel,
-        include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
-        dedup_session=dedup_session, table_exports=table_exports,
-        before_presentation=before_presentation, current_presentation=current_presentation,
+        include_all_before_tables=True,
+        repository_id=repository_id,
+        export_cache=export_cache,
+        dedup_session=dedup_session,
+        table_exports=table_exports,
+        before_presentation=before_presentation,
+        current_presentation=current_presentation,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -296,7 +328,8 @@ def run_history_pair_pipeline(
         raise PairPipelineError("risk evaluation digest is missing")
     return HistoryPairPipelineResult(
         pair_id=pair_id,
-        before_presentation=before_presentation, current_presentation=current_presentation,
+        before_presentation=before_presentation,
+        current_presentation=current_presentation,
         comparison_digest=surface.comparison_digest,
         risk_digest=surface.risk_evaluation.risk_evaluation_digest.value,
         surface_digest=surface.surface_digest,
@@ -329,7 +362,8 @@ def _run_comparison_risk_surface(
     identity_annotation: SurfaceIdentityAnnotation | None = None,
     show_keyless_fallback_hint: bool = False,
     include_all_before_tables: bool = False,
-    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
     before_presentation: PresentationMetadata,
@@ -349,14 +383,21 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("pair computation requires an operation kernel context")
     with closing(compare_plan_native(plan, session=dedup_session)) as native_comparison:
         return _finish_comparison_risk_surface(
-            native_comparison=native_comparison, request=request, plan=plan,
-            view_id=view_id, store=store, control=control,
-            on_cancel=on_cancel, identity_annotation=identity_annotation,
+            native_comparison=native_comparison,
+            request=request,
+            plan=plan,
+            view_id=view_id,
+            store=store,
+            control=control,
+            on_cancel=on_cancel,
+            identity_annotation=identity_annotation,
             show_keyless_fallback_hint=show_keyless_fallback_hint,
             include_all_before_tables=include_all_before_tables,
-            repository_id=repository_id, export_cache=export_cache,
+            repository_id=repository_id,
+            export_cache=export_cache,
             table_exports=table_exports,
-            before_presentation=before_presentation, current_presentation=current_presentation,
+            before_presentation=before_presentation,
+            current_presentation=current_presentation,
             initial_baseline=initial_baseline,
         )
 
@@ -385,7 +426,9 @@ def _finish_comparison_risk_surface(
         raise PairPipelineError("operation kernel context was lost")
     checkpoint = context.checkpoint
     if native_comparison.session is not None:
-        native_comparison.session.optional_comparison_evictor = native_comparison.discard_optional_views
+        native_comparison.session.optional_comparison_evictor = (
+            native_comparison.discard_optional_views
+        )
     compared = native_comparison.result
     checkpoint()
     if isinstance(compared, FailedResult):
@@ -401,27 +444,28 @@ def _finish_comparison_risk_surface(
         if native_comparison.session is not None:
             limits = RecordsPublicationPolicy()
             closure_upper = (
-                4 * limits.max_closure_json_bytes
-                + len(compared.facts.tables) * 4096 + 1024 * 1024
+                4 * limits.max_closure_json_bytes + len(compared.facts.tables) * 4096 + 1024 * 1024
             )
             # C retains at most MAX_NATIVE_RECORD_BYTES of Arrow records per
             # family. The writer reserves its largest family scratch after
             # prior family puts, so shed optional Risk retention before any
             # publication side effect when the conservative peak is tight.
             family_upper = (
-                2 * limits.max_records_artifact_bytes
-                + 2 * MAX_NATIVE_RECORD_BYTES + 1024 * 1024
+                2 * limits.max_records_artifact_bytes + 2 * MAX_NATIVE_RECORD_BYTES + 1024 * 1024
             )
             if context.memory.available_bytes < closure_upper + family_upper:
                 native_comparison.session.risk_evict_for_output()
                 checkpoint()
         detail_policy_value = dict(request.options).get(
-            "row_diff_detail_policy", RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES.value,
+            "row_diff_detail_policy",
+            RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES.value,
         )
         if not isinstance(detail_policy_value, str):
             raise ValueError("row_diff_detail_policy is invalid")
         closure_result = publish_records_closure_arrow(
-            compared, native_comparison.handles, store,
+            compared,
+            native_comparison.handles,
+            store,
             detail_policy=RecordsDetailPolicy(detail_policy_value),
             context=RecordsPublicationContext(checkpoint=checkpoint, timings=record_timings),
         )
@@ -451,7 +495,9 @@ def _finish_comparison_risk_surface(
             risk_options=RiskOptions(empty_baseline=not plan.before.summary.tables),
             record_views=native_comparison.risk_handles,
             ordered_record_views=native_comparison.handles,
-            ordered_tail_bounds=_ordered_tail_bounds(plan, comparison_facts, native_comparison.handles),
+            ordered_tail_bounds=_ordered_tail_bounds(
+                plan, comparison_facts, native_comparison.handles
+            ),
             record_view_metrics=risk_conversion,
             risk_cache_session=native_comparison.session,
             risk_task_keys=native_comparison.task_keys,
@@ -465,8 +511,12 @@ def _finish_comparison_risk_surface(
         ),
     )
     checkpoint()
-    if risk.status not in {RiskEvaluationStatus.READY, RiskEvaluationStatus.DEGRADED} or risk.risk_report is None:
+    if (
+        risk.status not in {RiskEvaluationStatus.READY, RiskEvaluationStatus.DEGRADED}
+        or risk.risk_report is None
+    ):
         raise PairPipelineError("risk evaluation failed")
+
     # Surface holds only small facts/refs; its JSON construction and retained
     # result still consume the same operation M after native records seal.
     def reserve_surface(size: int) -> Reservation:
@@ -479,62 +529,90 @@ def _finish_comparison_risk_surface(
             context.checkpoint()
             return context.memory.reserve(size)
 
-    context.resources.enter_context(reserve_surface(
-        16 * 1024**2 + len(comparison_facts.tables) * 65536,
-    ))
+    context.resources.enter_context(
+        reserve_surface(
+            16 * 1024**2 + len(comparison_facts.tables) * 65536,
+        )
+    )
     table_artifacts = _surface_table_artifacts(
-        request, store=store, repository_id=repository_id, export_cache=export_cache,
+        request,
+        store=store,
+        repository_id=repository_id,
+        export_cache=export_cache,
         table_exports=table_exports,
-        include_all_before=include_all_before_tables or request.mode is ComparisonMode.DATASET_REPLACEMENT,
+        include_all_before=include_all_before_tables
+        or request.mode is ComparisonMode.DATASET_REPLACEMENT,
     )
     table_artifacts, navigation_projection, _presentation_metrics = publish_business_presentation(
-        plan, comparison_facts, published.records_closure, native_comparison.handles,
-        table_artifacts, attribution, store, risk_report=risk.risk_report, before_presentation=before_presentation,
-        current_presentation=current_presentation, same_complete=_same_complete_table_identity,
+        plan,
+        comparison_facts,
+        published.records_closure,
+        native_comparison.handles,
+        table_artifacts,
+        attribution,
+        store,
+        risk_report=risk.risk_report,
+        before_presentation=before_presentation,
+        current_presentation=current_presentation,
+        same_complete=_same_complete_table_identity,
         initial_baseline=initial_baseline,
     )
     with reserve_surface(8 * 16 * 1024**2):
         surface = assemble_surface(
-        SurfaceAssemblyInput(
-            comparison_facts=comparison_facts,
-            before_presentation=before_presentation, current_presentation=current_presentation,
-            surface_id=f"surface-{request.pair_id}",
-            view_id=view_id,
-            before_role="before",
-            current_role="current",
-            records_closure=published.records_closure,
-            risk_report=risk.risk_report,
-            risk_annotation_closure=risk.risk_closure,
-            table_artifacts=table_artifacts,
-            projections=(navigation_projection,),
-            keyless_fallback_tables=(
-                _keyless_fallback_table_names(request)
-                if show_keyless_fallback_hint
-                else ()
+            SurfaceAssemblyInput(
+                comparison_facts=comparison_facts,
+                before_presentation=before_presentation,
+                current_presentation=current_presentation,
+                surface_id=f"surface-{request.pair_id}",
+                view_id=view_id,
+                before_role="before",
+                current_role="current",
+                records_closure=published.records_closure,
+                risk_report=risk.risk_report,
+                risk_annotation_closure=risk.risk_closure,
+                table_artifacts=table_artifacts,
+                projections=(navigation_projection,),
+                keyless_fallback_tables=(
+                    _keyless_fallback_table_names(request) if show_keyless_fallback_hint else ()
+                ),
+                ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
+                identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
             ),
-            ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
-            identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
-        ),
-        context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
+            context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
         )
     checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
     native_comparison.commit_cache()
     summary = comparison_facts.summary
-    pair_totals(changed_tables=summary.changed_table_count,
-        changed_rows=summary.row_added_count + summary.row_deleted_count + summary.row_modified_count,
-        complete=not summary.degraded_table_count)
-    ordered_input_table(request.current.snapshot.snapshot_digest.value, complete=not summary.degraded_table_count)
+    pair_totals(
+        changed_tables=summary.changed_table_count,
+        changed_rows=summary.row_added_count
+        + summary.row_deleted_count
+        + summary.row_modified_count,
+        complete=not summary.degraded_table_count,
+    )
+    ordered_input_table(
+        request.current.snapshot.snapshot_digest.value, complete=not summary.degraded_table_count
+    )
     for fact in comparison_facts.tables:
         if fact.ordered_extension is not None and fact.current_descriptor is not None:
-            ordered_input_table(request.current.snapshot.snapshot_digest.value, fact.table_name, fact.current_descriptor.row_count)
-        pair_table(request.pair_id, fact.table_name, request.mode.value,
-            fact.row_count_before, fact.row_count_current,
-            None if fact.diagnostics else fact.row_added_count + fact.row_deleted_count + fact.row_modified_count)
-    risk_digest = (
-        risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
-    )
+            ordered_input_table(
+                request.current.snapshot.snapshot_digest.value,
+                fact.table_name,
+                fact.current_descriptor.row_count,
+            )
+        pair_table(
+            request.pair_id,
+            fact.table_name,
+            request.mode.value,
+            fact.row_count_before,
+            fact.row_count_current,
+            None
+            if fact.diagnostics
+            else fact.row_added_count + fact.row_deleted_count + fact.row_modified_count,
+        )
+    risk_digest = risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
     return _ComparisonRiskSurfaceResult(
         comparison_digest=comparison_facts.comparison_digest.value,
         risk_digest=risk_digest,
@@ -548,7 +626,9 @@ def _finish_comparison_risk_surface(
 
 
 def _ordered_tail_bounds(
-    plan: ComparisonPlan, facts: ComparisonFacts, handles: Mapping[str, object],
+    plan: ComparisonPlan,
+    facts: ComparisonFacts,
+    handles: Mapping[str, object],
 ) -> dict[str, OrderedTailBounds]:
     """Scan both sides once, excluding actual added/deleted positions from anchors."""
     context = current_kernel_context()
@@ -562,51 +642,97 @@ def _ordered_tail_bounds(
             continue
         ordered = fact.ordered_extension
         blank = fact.blank_extension
-        if not (ordered.ordered_summary.row_added_count or ordered.ordered_summary.row_deleted_count
-                or (blank is not None and blank.blank_summary.blank_changed_count)):
+        if not (
+            ordered.ordered_summary.row_added_count
+            or ordered.ordered_summary.row_deleted_count
+            or (blank is not None and blank.blank_summary.blank_changed_count)
+        ):
             continue
-        complete = (ordered.status is not OrderedStatus.DEGRADED and
-                    (blank is None or blank.status is not OrderedStatus.DEGRADED))
+        complete = ordered.status is not OrderedStatus.DEGRADED and (
+            blank is None or blank.status is not OrderedStatus.DEGRADED
+        )
         positions: tuple[set[int], set[int]] = (set(), set())
         with ExitStack() as reservations:
             summary = ordered.ordered_summary
-            reservations.enter_context(context.memory.reserve(256 * (summary.row_deleted_count + summary.row_added_count)))
+            reservations.enter_context(
+                context.memory.reserve(256 * (summary.row_deleted_count + summary.row_added_count))
+            )
             handle = handles.get(task.table_name)
             if handle is None:
                 if not ordered.records:
                     complete = False
-                records = ((r.record_kind.value, r.before_position, r.current_position)
-                           for r in ordered.records)
+                records = (
+                    (r.record_kind.value, r.before_position, r.current_position)
+                    for r in ordered.records
+                )
+
                 def collect(rows: Iterable[tuple[str, int | None, int | None]]) -> None:
                     nonlocal complete
                     for kind, before, current in rows:
-                        side = 0 if kind == "ORDERED_ROW_DELETED" else 1 if kind == "ORDERED_ROW_ADDED" else -1
+                        side = (
+                            0
+                            if kind == "ORDERED_ROW_DELETED"
+                            else 1
+                            if kind == "ORDERED_ROW_ADDED"
+                            else -1
+                        )
                         if side < 0:
                             continue
                         position = before if side == 0 else current
-                        if type(position) is not int or position < 1 or position in positions[side] or len(positions[side]) >= (summary.row_deleted_count if side == 0 else summary.row_added_count):
+                        if (
+                            type(position) is not int
+                            or position < 1
+                            or position in positions[side]
+                            or len(positions[side])
+                            >= (summary.row_deleted_count if side == 0 else summary.row_added_count)
+                        ):
                             complete = False
                         else:
                             positions[side].add(position)
+
                 collect(records)
             else:
                 with closing(getattr(handle, "risk_record_batches")("ORDERED")) as reader:
                     for batch in reader:
                         context.checkpoint()
-                        with context.memory.reserve(8192 + batch.nbytes * 16 + batch.num_rows * 512):
+                        with context.memory.reserve(
+                            8192 + batch.nbytes * 16 + batch.num_rows * 512
+                        ):
                             names = ("record_kind", "before_position", "current_position")
-                            columns = [batch.column(batch.schema.get_field_index(name)).to_pylist() for name in names]
+                            columns = [
+                                batch.column(batch.schema.get_field_index(name)).to_pylist()
+                                for name in names
+                            ]
                             # Collection only retains the two position sets.
                             for kind, before, current in zip(*columns, strict=True):
-                                side = 0 if kind == "ORDERED_ROW_DELETED" else 1 if kind == "ORDERED_ROW_ADDED" else -1
+                                side = (
+                                    0
+                                    if kind == "ORDERED_ROW_DELETED"
+                                    else 1
+                                    if kind == "ORDERED_ROW_ADDED"
+                                    else -1
+                                )
                                 if side < 0:
                                     continue
                                 position = before if side == 0 else current
-                                if type(position) is not int or position < 1 or position in positions[side] or len(positions[side]) >= (summary.row_deleted_count if side == 0 else summary.row_added_count):
+                                if (
+                                    type(position) is not int
+                                    or position < 1
+                                    or position in positions[side]
+                                    or len(positions[side])
+                                    >= (
+                                        summary.row_deleted_count
+                                        if side == 0
+                                        else summary.row_added_count
+                                    )
+                                ):
                                     complete = False
                                 else:
                                     positions[side].add(position)
-            if len(positions[0]) != summary.row_deleted_count or len(positions[1]) != summary.row_added_count:
+            if (
+                len(positions[0]) != summary.row_deleted_count
+                or len(positions[1]) != summary.row_added_count
+            ):
                 complete = False
             maxima_available = True
             maxima: list[int | None] = []
@@ -619,8 +745,11 @@ def _ordered_tail_bounds(
                     complete = False
                     maxima_available = False
                 else:
-                    provenance = (BlankRowProvenance.NONE if table.ordered_metadata is None
-                                  else table.ordered_metadata.blank_provenance)
+                    provenance = (
+                        BlankRowProvenance.NONE
+                        if table.ordered_metadata is None
+                        else table.ordered_metadata.blank_provenance
+                    )
                     if provenance is BlankRowProvenance.NONE:
                         complete = False
                     stream, owner = comparison_input_stream(table)
@@ -638,12 +767,20 @@ def _ordered_tail_bounds(
                                     complete = False
                                     maxima_available = False
                                     continue
-                                with context.memory.reserve(8192 + batch.nbytes * 16 + batch.num_rows * 128):
-                                    for position, gid in zip(batch.column(no_index).to_pylist(), batch.column(gid_index).to_pylist(), strict=True):
+                                with context.memory.reserve(
+                                    8192 + batch.nbytes * 16 + batch.num_rows * 128
+                                ):
+                                    for position, gid in zip(
+                                        batch.column(no_index).to_pylist(),
+                                        batch.column(gid_index).to_pylist(),
+                                        strict=True,
+                                    ):
                                         if type(position) is not int or position < 1:
                                             complete = False
                                             continue
-                                        maximum = position if maximum is None else max(maximum, position)
+                                        maximum = (
+                                            position if maximum is None else max(maximum, position)
+                                        )
                                         is_blank = ordered_blank_identity(gid, provenance)
                                         if is_blank is None:
                                             complete = False
@@ -660,7 +797,9 @@ def _ordered_tail_bounds(
                 maxima.append(maximum)
                 retained.append(last)
             if maxima_available:
-                result[task.table_name] = OrderedTailBounds(maxima[0], maxima[1], retained[0], retained[1], complete)
+                result[task.table_name] = OrderedTailBounds(
+                    maxima[0], maxima[1], retained[0], retained[1], complete
+                )
     return result
 
 
@@ -669,7 +808,8 @@ def _surface_table_artifacts(
     request: ComparisonRequest,
     *,
     include_all_before: bool,
-    store: ArtifactStorePort | None = None, repository_id: str | None = None,
+    store: ArtifactStorePort | None = None,
+    repository_id: str | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> tuple[SurfaceArtifactIndexEntry, ...]:
@@ -680,12 +820,15 @@ def _surface_table_artifacts(
             validated_artifacts = dict(table_exports.get(bound.snapshot.snapshot_id, {}))
             expected = {table.descriptor.table_name for table in bound.table_set.tables}
             if set(validated_artifacts) != expected:
-                raise PairPipelineError("prevalidated table exports do not cover the complete snapshot")
+                raise PairPipelineError(
+                    "prevalidated table exports do not cover the complete snapshot"
+                )
             return validated_artifacts
         artifacts: dict[str, ArtifactRef] = {}
         for table in bound.table_set.tables:
-            artifacts[table.descriptor.table_name] = export_snapshot_table_parquet(table, store=store,
-                repository_id=repository_id, export_cache=export_cache)
+            artifacts[table.descriptor.table_name] = export_snapshot_table_parquet(
+                table, store=store, repository_id=repository_id, export_cache=export_cache
+            )
         return artifacts
 
     current = table_map(request.current)
@@ -695,19 +838,33 @@ def _surface_table_artifacts(
     aliases: set[str] = set()
     for table in request.before.table_set.tables:
         name = table.descriptor.table_name
-        same = name in current and _same_complete_table_identity(request.before, request.current, name)
+        same = name in current and _same_complete_table_identity(
+            request.before, request.current, name
+        )
         if same:
             aliases.add(name)
-        elif include_all_before or name not in current or name in {"device", "composite_signal_point"}:
-            before[name] = (table_exports[request.before.snapshot.snapshot_id][name]
-                if table_exports is not None else export_snapshot_table_parquet(
-                    table, store=store, repository_id=repository_id, export_cache=export_cache))
+        elif (
+            include_all_before
+            or name not in current
+            or name in {"device", "composite_signal_point"}
+        ):
+            before[name] = (
+                table_exports[request.before.snapshot.snapshot_id][name]
+                if table_exports is not None
+                else export_snapshot_table_parquet(
+                    table, store=store, repository_id=repository_id, export_cache=export_cache
+                )
+            )
+
     def binding(bound: BoundSnapshotInput, name: str) -> TableContentBinding:
         descriptor = next(t for t in bound.summary.tables if t.table_name == name)
         facts = next(t for t in bound.storage_facts if t.storage_rule_view.canonical_table == name)
-        if (descriptor.raw_content_digest is None or facts.canonical_schema_digest is None
-                or facts.storage_projection_version is None
-                or facts.raw_content_digest != descriptor.raw_content_digest):
+        if (
+            descriptor.raw_content_digest is None
+            or facts.canonical_schema_digest is None
+            or facts.storage_projection_version is None
+            or facts.raw_content_digest != descriptor.raw_content_digest
+        ):
             raise PairPipelineError("table content binding is incomplete")
         return TableContentBinding(
             business_schema_digest=descriptor.business_schema_digest,
@@ -718,18 +875,27 @@ def _surface_table_artifacts(
             storage_rule_digest=compute_storage_rule_digest(facts.storage_rule_view),
             storage_projection_version=facts.storage_projection_version,
         )
-    return tuple(SurfaceArtifactIndexEntry(
-        table_name=name,
-        table_refs=SurfaceTableRefs(
-            before_table_ref=current[name] if name in aliases else before.get(name),
-            current_table_ref=current.get(name),
-        ),
-        table_content_bindings=SurfaceTableContentBindings(
-            before=(binding(request.current, name) if name in aliases else
-                    binding(request.before, name) if name in before else None),
-            current=binding(request.current, name) if name in current else None,
-        ),
-    ) for name in sorted(before.keys() | current.keys()))
+
+    return tuple(
+        SurfaceArtifactIndexEntry(
+            table_name=name,
+            table_refs=SurfaceTableRefs(
+                before_table_ref=current[name] if name in aliases else before.get(name),
+                current_table_ref=current.get(name),
+            ),
+            table_content_bindings=SurfaceTableContentBindings(
+                before=(
+                    binding(request.current, name)
+                    if name in aliases
+                    else binding(request.before, name)
+                    if name in before
+                    else None
+                ),
+                current=binding(request.current, name) if name in current else None,
+            ),
+        )
+        for name in sorted(before.keys() | current.keys())
+    )
 
 
 def _same_complete_table_identity(
@@ -746,11 +912,19 @@ def _same_complete_table_identity(
         None,
     )
     before_facts = next(
-        (item for item in before.storage_facts if item.storage_rule_view.canonical_table == table_name),
+        (
+            item
+            for item in before.storage_facts
+            if item.storage_rule_view.canonical_table == table_name
+        ),
         None,
     )
     current_facts = next(
-        (item for item in current.storage_facts if item.storage_rule_view.canonical_table == table_name),
+        (
+            item
+            for item in current.storage_facts
+            if item.storage_rule_view.canonical_table == table_name
+        ),
         None,
     )
     return (
@@ -787,6 +961,4 @@ def _keyless_fallback_table_names(request: ComparisonRequest) -> tuple[str, ...]
                 and not descriptor.primary_key_columns
             ):
                 names.add(table_name)
-    return tuple(
-        sorted(names)
-    )
+    return tuple(sorted(names))

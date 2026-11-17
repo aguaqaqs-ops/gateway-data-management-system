@@ -1,4 +1,5 @@
 """Single owner for neutral identity, codec and current records restoration."""
+
 from __future__ import annotations
 
 from tests.support.artifact_layout import open_test_store
@@ -15,15 +16,23 @@ from gateway_shared_kernel import raw_blob_digest
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.cache_codec import ComparisonCacheCodec
 from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonPlan, ComparisonStorageFacts, DetailedFactsResult, RecordsArtifactFamily,
+    ComparisonPlan,
+    ComparisonStorageFacts,
+    DetailedFactsResult,
+    RecordsArtifactFamily,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
 from gateway_backend.capabilities.comparison.task_input import (
-    NotCacheable, TableTaskIdentity, build_table_task_identity,
+    NotCacheable,
+    TableTaskIdentity,
+    build_table_task_identity,
 )
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationPolicy, _schema_for, write_arrow_parquet,
+    RecordsPublicationContext,
+    RecordsPublicationPolicy,
+    _schema_for,
+    write_arrow_parquet,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
 from tests.support.comparison_s3_c_inputs import plan
@@ -47,19 +56,33 @@ _ORDERED = (
 
 def _planned(ordered: bool = False) -> ComparisonPlan:
     source = _ORDERED if ordered else _STANDARD
-    return plan(complete_canonical_bound(canonical_bound(source[0]), ordered=ordered),
-                complete_canonical_bound(canonical_bound(source[1]), ordered=ordered), ordered=ordered)
+    return plan(
+        complete_canonical_bound(canonical_bound(source[0]), ordered=ordered),
+        complete_canonical_bound(canonical_bound(source[1]), ordered=ordered),
+        ordered=ordered,
+    )
 
 
 def _identity(planned: ComparisonPlan) -> TableTaskIdentity:
-    identity = build_table_task_identity(planned, planned.tasks[0], repository_id="replacement-fixture", artifact_scope="scope")
+    identity = build_table_task_identity(
+        planned, planned.tasks[0], repository_id="replacement-fixture", artifact_scope="scope"
+    )
     assert isinstance(identity, TableTaskIdentity)
     return identity
 
 
 IDENTITY_MUTATIONS = (
-    "direction", "row_count", "content", "schema", "compare_key", "policy", "scope",
-    "repository", "detail", "diagnostics", "storage",
+    "direction",
+    "row_count",
+    "content",
+    "schema",
+    "compare_key",
+    "policy",
+    "scope",
+    "repository",
+    "detail",
+    "diagnostics",
+    "storage",
 )
 
 
@@ -73,8 +96,13 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
     reference = _identity(planned)
     repository, scope = "replacement-fixture", "scope"
     if change == "direction":
-        task = replace(task, before_descriptor=task.current_descriptor, current_descriptor=task.before_descriptor,
-                       before_table=task.current_table, current_table=task.before_table)
+        task = replace(
+            task,
+            before_descriptor=task.current_descriptor,
+            current_descriptor=task.before_descriptor,
+            before_table=task.current_table,
+            current_table=task.before_table,
+        )
     elif change in {"row_count", "content", "schema", "compare_key"}:
         if change == "row_count":
             updated = replace(current, row_count=current.row_count + 1)
@@ -98,27 +126,54 @@ def test_complete_task_identity_changes_for_every_semantic_input(change: str) ->
     elif change == "storage":
         facts = policy.storage_facts_current
         assert facts is not None
-        task = replace(task, policy=replace(policy, storage_facts_current=replace(
-            facts, storage_projection_version="another-actual-projection-version")))
-    actual = build_table_task_identity(planned, task, repository_id=repository, artifact_scope=scope)
+        task = replace(
+            task,
+            policy=replace(
+                policy,
+                storage_facts_current=replace(
+                    facts, storage_projection_version="another-actual-projection-version"
+                ),
+            ),
+        )
+    actual = build_table_task_identity(
+        planned, task, repository_id=repository, artifact_scope=scope
+    )
     assert isinstance(actual, NotCacheable) or actual.task_digest != reference.task_digest
 
 
 def test_task_identity_ignores_only_outer_binding_and_reader_authority() -> None:
     planned = _planned()
     original = _identity(planned)
-    rebound = replace(planned, pair_id="another-current-pair", tasks=(replace(
-        planned.tasks[0], before_table=None, current_table=None,
-    ),))
+    rebound = replace(
+        planned,
+        pair_id="another-current-pair",
+        tasks=(
+            replace(
+                planned.tasks[0],
+                before_table=None,
+                current_table=None,
+            ),
+        ),
+    )
     assert _identity(rebound).task_digest == original.task_digest
     task = planned.tasks[0]
     assert task.before_table is not None and task.current_table is not None
     # Keep descriptor/provenance semantics while dropping only resource owners.
-    resources_released = replace(planned, pair_id="another-current-pair", tasks=(replace(
-        task,
-        before_table=replace(task.before_table, reader=None, artifact=None, batch_reader=None),
-        current_table=replace(task.current_table, reader=None, artifact=None, batch_reader=None),
-    ),))
+    resources_released = replace(
+        planned,
+        pair_id="another-current-pair",
+        tasks=(
+            replace(
+                task,
+                before_table=replace(
+                    task.before_table, reader=None, artifact=None, batch_reader=None
+                ),
+                current_table=replace(
+                    task.current_table, reader=None, artifact=None, batch_reader=None
+                ),
+            ),
+        ),
+    )
     assert _identity(resources_released).task_digest == original.task_digest
     assert original.task_digest.value.startswith("sha256:")
     assert original.task_input.native_policy_jcs == original.task_input.native_policy().encode()
@@ -132,20 +187,27 @@ def test_neutral_round_trip_matches_independent_facts_and_parquet(ordered: bool)
     assert context is not None
     product = compare_plan_native(planned, retain_cache_candidates=True)
     assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
-    cold_fact, = product.result.facts.tables
+    (cold_fact,) = product.result.facts.tables
     payload = product.encode_cache_candidate("t", identity, context)
     product.close()
-    operation = native.begin_records_operation(native_budget_bytes=context.memory.available_bytes // 2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=context.memory.available_bytes // 2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     handle = None
     try:
-        fact, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        fact, handle = ComparisonCacheCodec.restore(
+            payload, identity, planned.tasks[0], operation, context
+        )
         assert handle is not None
         metadata = _table_digest_payload(fact)
         digest = handle.table_fact_digest(json.dumps(metadata, separators=(",", ":")), 8 * 1024**2)
         nodeid = "tests/test_comparison_s3_c_arrow.py::" + (
-            "test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python" if ordered
-            else "test_native_standard_arrow_and_complete_facts_match_pre_c_source")
+            "test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python"
+            if ordered
+            else "test_native_standard_arrow_and_complete_facts_match_pre_c_source"
+        )
         expected: dict[str, Any] = frozen_case(nodeid)
         assert digest == expected["tables"][0]["table_fact_digest"]
         assert cold_fact.table_fact_digest is not None
@@ -155,11 +217,18 @@ def test_neutral_round_trip_matches_independent_facts_and_parquet(ordered: bool)
         for family in payload.families:
             with closing(handle.record_batches(family)) as reader:
                 batches = tuple(reader)
-                raw = write_arrow_parquet(batches,
-                    _schema_for(RecordsArtifactFamily(family), None, identity.task_input.detail_policy),
-                    RecordsPublicationPolicy(), RecordsPublicationContext())
+                raw = write_arrow_parquet(
+                    batches,
+                    _schema_for(
+                        RecordsArtifactFamily(family), None, identity.task_input.detail_policy
+                    ),
+                    RecordsPublicationPolicy(),
+                    RecordsPublicationContext(),
+                )
             if family in frozen_records:
-                assert raw_blob_digest(raw).value == "sha256:" + frozen_records[family]["raw_sha256"]
+                assert (
+                    raw_blob_digest(raw).value == "sha256:" + frozen_records[family]["raw_sha256"]
+                )
                 assert handle.family_summary(family)[1] == frozen_records[family]["content_digest"]
         assert context.memory.high_water_bytes <= context.memory.limit_bytes
     finally:
@@ -178,19 +247,37 @@ def test_cache_restore_rejects_other_scope_before_native_work() -> None:
     assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
     payload = product.encode_cache_candidate("t", identity, context)
     product.close()
-    operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=64 * 1024**2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     try:
         with pytest.raises(ValueError, match="scope"):
-            ComparisonCacheCodec.restore(payload, replace(identity, artifact_scope="another"),
-                planned.tasks[0], operation, context)
+            ComparisonCacheCodec.restore(
+                payload,
+                replace(identity, artifact_scope="another"),
+                planned.tasks[0],
+                operation,
+                context,
+            )
     finally:
         operation.close()
         payload.close()
 
 
-STORAGE_MUTATIONS = ("missing", "source_schema", "canonical_schema", "content", "projection",
-                     "view", "effective_key", "partial_schema", "partial_projection", "partial_content")
+STORAGE_MUTATIONS = (
+    "missing",
+    "source_schema",
+    "canonical_schema",
+    "content",
+    "projection",
+    "view",
+    "effective_key",
+    "partial_schema",
+    "partial_projection",
+    "partial_content",
+)
 
 
 @pytest.mark.parametrize("side", ("before", "current"))
@@ -207,15 +294,22 @@ def test_both_canonical_sides_require_complete_bound_storage_facts(side: str, ch
     if change == "missing":
         updated = None
     elif change == "effective_key":
-        policy = (replace(policy, effective_key_before=("note",)) if side == "before"
-                  else replace(policy, effective_key_current=("note",)))
+        policy = (
+            replace(policy, effective_key_before=("note",))
+            if side == "before"
+            else replace(policy, effective_key_current=("note",))
+        )
         updated = facts
     elif change == "view":
         from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
+
         descriptor = task.before_descriptor if side == "before" else task.current_descriptor
         assert descriptor is not None
-        view = replace(facts.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
-                       canonical_key_columns=descriptor.primary_key_columns)
+        view = replace(
+            facts.storage_rule_view,
+            canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+            canonical_key_columns=descriptor.primary_key_columns,
+        )
         updated = replace(facts, storage_rule_view=view)
     elif change == "source_schema":
         updated = replace(facts, source_schema_digest=raw_blob_digest(b"other-source-schema"))
@@ -231,9 +325,20 @@ def test_both_canonical_sides_require_complete_bound_storage_facts(side: str, ch
         updated = replace(facts, storage_projection_version=None)
     else:
         updated = replace(facts, raw_content_digest=None)
-    task = replace(task, policy=(replace(policy, storage_facts_before=updated) if side == "before"
-                                else replace(policy, storage_facts_current=updated)))
-    result = build_table_task_identity(planned, task, repository_id=reference.repository_id, artifact_scope=reference.artifact_scope)
+    task = replace(
+        task,
+        policy=(
+            replace(policy, storage_facts_before=updated)
+            if side == "before"
+            else replace(policy, storage_facts_current=updated)
+        ),
+    )
+    result = build_table_task_identity(
+        planned,
+        task,
+        repository_id=reference.repository_id,
+        artifact_scope=reference.artifact_scope,
+    )
     assert isinstance(result, NotCacheable) or result.task_digest != reference.task_digest
 
 
@@ -253,6 +358,7 @@ def _encoded(ordered: bool = False) -> tuple[ComparisonPlan, TableTaskIdentity, 
 def _changed_view(payload: Any, name: str, update: Any) -> None:
     import io
     import pyarrow as pa
+
     views = []
     for view in payload.views:
         if view.name != name:
@@ -271,19 +377,32 @@ def _changed_view(payload: Any, name: str, update: Any) -> None:
     payload.views = tuple(views)
 
 
-CACHE_FORMAT_FAULTS = ("missing_rows", "missing_count", "count_type", "count_mismatch",
-                       "outcome_count", "empty_schema", "risk_kind", "risk_column", "ordinal")
+CACHE_FORMAT_FAULTS = (
+    "missing_rows",
+    "missing_count",
+    "count_type",
+    "count_mismatch",
+    "outcome_count",
+    "empty_schema",
+    "risk_kind",
+    "risk_column",
+    "ordinal",
+)
 
 
 @pytest.mark.parametrize("fault", CACHE_FORMAT_FAULTS)
 def test_neutral_format_faults_are_rejected_before_publication(fault: str) -> None:
     import pyarrow as pa
     from gateway_shared_kernel.jcs import canonicalize_json_value
+
     planned, identity, payload = _encoded(ordered=fault == "empty_schema")
     context = current_kernel_context()
     assert context is not None
-    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     retained = context.memory.used_bytes
     try:
         if fault == "missing_rows":
@@ -304,9 +423,14 @@ def test_neutral_format_faults_are_rejected_before_publication(fault: str) -> No
         elif fault == "empty_schema":
             target = next(view for view in payload.views if view.name == "artifact/STANDARD")
             assert target.batch_rows == () and target.raw == b""
-            payload.views = tuple(replace(view, schema=pa.schema([("wrong", pa.string())]))
-                                  if view is target else view for view in payload.views)
+            payload.views = tuple(
+                replace(view, schema=pa.schema([("wrong", pa.string())]))
+                if view is target
+                else view
+                for view in payload.views
+            )
         elif fault in {"risk_kind", "risk_column"}:
+
             def change_risk(batch: Any) -> Any:
                 columns = list(batch.columns)
                 if fault == "risk_kind":
@@ -314,10 +438,16 @@ def test_neutral_format_faults_are_rejected_before_publication(fault: str) -> No
                 else:
                     columns[2] = pa.array([[None]], type=batch.schema.field(2).type)
                 return pa.RecordBatch.from_arrays(columns, schema=batch.schema)
+
             _changed_view(payload, "risk/STANDARD", change_risk)
         else:
-            _changed_view(payload, "facts/STANDARD", lambda batch: pa.RecordBatch.from_arrays(
-                [pa.array([1], type=pa.uint32()), batch.column(1)], schema=batch.schema))
+            _changed_view(
+                payload,
+                "facts/STANDARD",
+                lambda batch: pa.RecordBatch.from_arrays(
+                    [pa.array([1], type=pa.uint32()), batch.column(1)], schema=batch.schema
+                ),
+            )
         with pytest.raises(ValueError):
             ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
         assert context.memory.used_bytes == retained
@@ -330,13 +460,21 @@ def test_zero_standard_family_keeps_its_schema_and_empty_risk_projection() -> No
     planned, identity, payload = _encoded(ordered=True)
     context = current_kernel_context()
     assert context is not None
-    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     handle = None
     try:
-        _, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        _, handle = ComparisonCacheCodec.restore(
+            payload, identity, planned.tasks[0], operation, context
+        )
         assert handle is not None and handle.family_summary("STANDARD")[0] == 0
-        with closing(handle.record_batches("STANDARD")) as records, closing(handle.risk_record_batches()) as risk:
+        with (
+            closing(handle.record_batches("STANDARD")) as records,
+            closing(handle.risk_record_batches()) as risk,
+        ):
             assert records.schema.field(0).name == "table_name"
             assert risk.schema.field(0).name == "record_kind"
             assert list(records) == list(risk) == []
@@ -349,6 +487,7 @@ def test_zero_standard_family_keeps_its_schema_and_empty_risk_projection() -> No
 
 def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> None:
     import pyarrow as pa
+
     source = (
         "CREATE TABLE t (id BIGINT PRIMARY KEY, flags SET('a','b'), note TEXT);"
         "INSERT INTO t VALUES (1,'a,b',NULL);",
@@ -364,8 +503,11 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
     fact = product.result.facts.tables[0]
     payload = product.encode_cache_candidate("t", identity, context)
     product.close()
-    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     handle = None
     try:
         view = next(item for item in payload.views if item.name == "facts/STANDARD")
@@ -375,9 +517,14 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
         # emits modified values only for changed columns; note is NULL -> 'x'.
         assert row["before_values"] == [["flags", "020320016103200162"], ["note", "0000"]]
         assert row["current_values"] == [["flags", "00"], ["note", "200178"]]
-        restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        restored, handle = ComparisonCacheCodec.restore(
+            payload, identity, planned.tasks[0], operation, context
+        )
         assert handle is not None and fact.table_fact_digest is not None
-        assert handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2) == fact.table_fact_digest.value
+        assert (
+            handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2)
+            == fact.table_fact_digest.value
+        )
     finally:
         if handle is not None:
             handle.close()
@@ -387,26 +534,41 @@ def test_set_cache_round_trip_uses_frozen_sequence_frames_and_null_scalar() -> N
 
 @pytest.mark.parametrize("stop", ("foreign", "cancel", "deadline", "budget"))
 def test_restore_uses_only_the_active_operation_budget_and_control(
-    stop: str, monkeypatch: pytest.MonkeyPatch,
+    stop: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from threading import Event
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        kernel_execution_scope,
     )
+
     planned, identity, payload = _encoded()
     source_context = current_kernel_context()
     assert source_context is not None
-    source_operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
-        cancel_probe=source_context.cancel_probe, deadline_monotonic=source_context.deadline_monotonic)
+    source_operation = native.begin_records_operation(
+        native_budget_bytes=64 * 1024**2,
+        cancel_probe=source_context.cancel_probe,
+        deadline_monotonic=source_context.deadline_monotonic,
+    )
     source_used = source_context.memory.used_bytes
     cancel = Event()
     import time
+
     deadline = time.monotonic() + 3600.0 if stop == "deadline" else None
     context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), cancel, 1, deadline)
     try:
         with kernel_execution_scope(context, new_operation=True):
-            operation = source_operation if stop == "foreign" else native.begin_records_operation(
-                native_budget_bytes=64 * 1024**2, cancel_probe=cancel, deadline_monotonic=deadline)
+            operation = (
+                source_operation
+                if stop == "foreign"
+                else native.begin_records_operation(
+                    native_budget_bytes=64 * 1024**2,
+                    cancel_probe=cancel,
+                    deadline_monotonic=deadline,
+                )
+            )
             filler = None
             if stop == "cancel":
                 cancel.set()
@@ -418,9 +580,16 @@ def test_restore_uses_only_the_active_operation_budget_and_control(
                 filler = context.memory.reserve(context.memory.available_bytes - 1)
             retained = context.memory.used_bytes
             try:
-                error = {"foreign": ValueError, "cancel": InterruptedError, "deadline": TimeoutError, "budget": MemoryError}[stop]
+                error = {
+                    "foreign": ValueError,
+                    "cancel": InterruptedError,
+                    "deadline": TimeoutError,
+                    "budget": MemoryError,
+                }[stop]
                 with pytest.raises(error):
-                    ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+                    ComparisonCacheCodec.restore(
+                        payload, identity, planned.tasks[0], operation, context
+                    )
                 assert context.memory.used_bytes == retained
                 assert source_context.memory.used_bytes == source_used
             finally:
@@ -436,15 +605,24 @@ def test_restore_uses_only_the_active_operation_budget_and_control(
 
 def test_restored_arrow_keeps_its_charge_until_the_last_consumer() -> None:
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        NeverCancel,
+        kernel_execution_scope,
     )
+
     planned, identity, payload = _encoded()
     context = KernelExecutionContext(OperationMemoryBudget(128 * 1024**2), NeverCancel(), 1)
     try:
         with kernel_execution_scope(context, new_operation=True):
-            operation = native.begin_records_operation(native_budget_bytes=64 * 1024**2,
-                cancel_probe=context.cancel_probe, deadline_monotonic=None)
-            _, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+            operation = native.begin_records_operation(
+                native_budget_bytes=64 * 1024**2,
+                cancel_probe=context.cancel_probe,
+                deadline_monotonic=None,
+            )
+            _, handle = ComparisonCacheCodec.restore(
+                payload, identity, planned.tasks[0], operation, context
+            )
             assert handle is not None
             with closing(handle.record_batches("STANDARD")) as reader:
                 retained_table = reader.read_all()
@@ -464,38 +642,61 @@ def test_cache_identity_rejects_a_reader_without_canonical_owner_verification() 
     task = planned.tasks[0]
     unverified = canonical_bound(_STANDARD[0])
     assert unverified.table_set is not None and task.before_table is not None
-    invalid = replace(task, before_table=replace(task.before_table,
-        reader=unverified.table_set.tables[0].reader))
-    result = build_table_task_identity(planned, invalid,
-        repository_id="replacement-fixture", artifact_scope="scope")
+    invalid = replace(
+        task, before_table=replace(task.before_table, reader=unverified.table_set.tables[0].reader)
+    )
+    result = build_table_task_identity(
+        planned, invalid, repository_id="replacement-fixture", artifact_scope="scope"
+    )
     assert isinstance(result, NotCacheable)
 
 
 def test_optional_cache_row_bound_keeps_the_completed_business_result() -> None:
-    from gateway_backend.capabilities.comparison.production import _InputCharge, comparison_input_stream
+    from gateway_backend.capabilities.comparison.production import (
+        _InputCharge,
+        comparison_input_stream,
+    )
     from gateway_backend.capabilities.comparison.row_encoding import _schema_view
+
     planned = _planned()
     identity = _identity(planned)
     task = planned.tasks[0]
-    assert task.before_table is not None and task.current_table is not None and task.policy is not None
+    assert (
+        task.before_table is not None and task.current_table is not None and task.policy is not None
+    )
     assert task.before_descriptor is not None and task.current_descriptor is not None
     context = current_kernel_context()
     assert context is not None
-    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     before, before_owner = comparison_input_stream(task.before_table)
     current, current_owner = comparison_input_stream(task.current_table)
     handle = None
     try:
-        handle = native.compare_records_batches(operation, kind=identity.task_input.native_kind,
-            table_name="t", before=before, current=current, policy_json=identity.task_input.native_policy(),
+        handle = native.compare_records_batches(
+            operation,
+            kind=identity.task_input.native_kind,
+            table_name="t",
+            before=before,
+            current=current,
+            policy_json=identity.task_input.native_policy(),
             detail_policy=identity.task_input.detail_policy.value,
-            input_owner_charge=_InputCharge((before_owner, current_owner)), max_records=2_000_000,
-            max_sort_bytes=128 * 1024**2, max_output_bytes=128 * 1024**2,
-            max_input_bytes=context.memory.limit_bytes)
-        fact = native.table_fact(task, handle, _schema_view(task.before_descriptor, task.current_descriptor, task.policy))
+            input_owner_charge=_InputCharge((before_owner, current_owner)),
+            max_records=2_000_000,
+            max_sort_bytes=128 * 1024**2,
+            max_output_bytes=128 * 1024**2,
+            max_input_bytes=context.memory.limit_bytes,
+        )
+        fact = native.table_fact(
+            task, handle, _schema_view(task.before_descriptor, task.current_descriptor, task.policy)
+        )
         metadata = json.dumps(_table_digest_payload(fact))
-        expected = frozen_case("tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source")["tables"][0]["table_fact_digest"]
+        expected = frozen_case(
+            "tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source"
+        )["tables"][0]["table_fact_digest"]
         assert handle.table_fact_digest(metadata, 8 * 1024**2) == expected
         retained = context.memory.used_bytes
         with pytest.raises(MemoryError, match="budget exceeded"):
@@ -517,16 +718,36 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
     from gateway_backend.capabilities.snapshot_materialization.contracts import DegradedReason
     from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
     from tests.support.table_rules import comparison_ruleset_for, fallback_record
+
     sides = []
     for insert_rows in ("('a'),('a'),('b')", "('a'),('b'),('b'),('b')"):
-        source = complete_canonical_bound(canonical_bound(
-            "CREATE TABLE t (value TEXT); INSERT INTO t VALUES " + insert_rows + ";"))
-        facts, = source.storage_facts
-        source = replace(source, storage_facts=(replace(facts, storage_rule_view=replace(
-            facts.storage_rule_view, canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS)),))
+        source = complete_canonical_bound(
+            canonical_bound(
+                "CREATE TABLE t (value TEXT); INSERT INTO t VALUES " + insert_rows + ";"
+            )
+        )
+        (facts,) = source.storage_facts
+        source = replace(
+            source,
+            storage_facts=(
+                replace(
+                    facts,
+                    storage_rule_view=replace(
+                        facts.storage_rule_view,
+                        canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+                    ),
+                ),
+            ),
+        )
         sides.append(source)
-    planned = plan_comparison(ComparisonRequest(pair_id="keyless-cache", before=sides[0], current=sides[1],
-        rule_set=comparison_ruleset_for(fallback_record())))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="keyless-cache",
+            before=sides[0],
+            current=sides[1],
+            rule_set=comparison_ruleset_for(fallback_record()),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     assert planned.tasks[0].current_descriptor is not None
     assert planned.tasks[0].current_descriptor.degraded_reason is DegradedReason.KEYLESS
@@ -535,12 +756,15 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
     assert context is not None
     product = compare_plan_native(planned, retain_cache_candidates=True)
     assert isinstance(product.result, DetailedFactsResult) and product.result.facts is not None
-    fact, = product.result.facts.tables
+    (fact,) = product.result.facts.tables
     assert (fact.row_added_count, fact.row_deleted_count, fact.row_modified_count) == (2, 1, 0)
     payload = product.encode_cache_candidate("t", identity, context)
     product.close()
-    operation = native.begin_records_operation(native_budget_bytes=128 * 1024**2,
-        cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)
+    operation = native.begin_records_operation(
+        native_budget_bytes=128 * 1024**2,
+        cancel_probe=context.cancel_probe,
+        deadline_monotonic=context.deadline_monotonic,
+    )
     handle = None
     try:
         view = next(item for item in payload.views if item.name == "facts/STANDARD")
@@ -550,12 +774,19 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
         assert len({row["row_identity"] for row in fact_rows}) == 3
         # Pre-E a9da0c59277e3179f34d646eabcd9c185917ae05 standard.py:647-663
         # keyless records carry occurrence identities and empty default values.
-        assert [(row["before_values"], row["current_values"]) for row in fact_rows] == [([], [])] * 3
-        restored, handle = ComparisonCacheCodec.restore(payload, identity, planned.tasks[0], operation, context)
+        assert [(row["before_values"], row["current_values"]) for row in fact_rows] == [
+            ([], [])
+        ] * 3
+        restored, handle = ComparisonCacheCodec.restore(
+            payload, identity, planned.tasks[0], operation, context
+        )
         assert handle is not None and handle.family_summary("STANDARD")[0] == 3
         assert payload.families == ("STANDARD",)
         assert fact.table_fact_digest is not None
-        assert handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2) == fact.table_fact_digest.value
+        assert (
+            handle.table_fact_digest(json.dumps(_table_digest_payload(restored)), 8 * 1024**2)
+            == fact.table_fact_digest.value
+        )
     finally:
         if handle is not None:
             handle.close()
@@ -566,52 +797,96 @@ def test_keyless_duplicate_multiset_survives_cache_restore() -> None:
 @pytest.mark.parametrize("ordered", (False, True))
 @pytest.mark.parametrize("deny_admission", (False, True))
 def test_single_use_persistent_task_restores_in_a_new_operation_without_input_readers(
-    tmp_path: Path, db_path: Path, ordered: bool, deny_admission: bool, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    db_path: Path,
+    ordered: bool,
+    deny_admission: bool,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gateway_backend.artifacts.computation_cache import CacheOperationOwner
     from gateway_backend.capabilities.comparison.production import ComparisonTaskSession
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+        KernelExecutionContext,
+        NeverCancel,
+        OperationMemoryBudget,
+        kernel_execution_scope,
     )
-    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+    from gateway_backend.infrastructure.control_db.computation_cache import (
+        ControlDbComputationCache,
+    )
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
     store = open_test_store(tmp_path / "persistent-comparison")
+
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(db_path)
+
     cache = ControlDbComputationCache(transaction, store)
     planned: ComparisonPlan | None = None
     nodeid = "tests/test_comparison_s3_c_arrow.py::" + (
-        "test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python" if ordered
-        else "test_native_standard_arrow_and_complete_facts_match_pre_c_source")
+        "test_ordered_and_blank_arrow_and_complete_fact_replay_match_frozen_python"
+        if ordered
+        else "test_native_standard_arrow_and_complete_facts_match_pre_c_source"
+    )
     expected: dict[str, Any] = frozen_case(nodeid)
     for run in ("cold", "warm"):
-        with kernel_execution_scope(KernelExecutionContext(
-            OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1,
-        ), new_operation=True) as context:
+        with kernel_execution_scope(
+            KernelExecutionContext(
+                OperationMemoryBudget(8 * 1024**3),
+                NeverCancel(),
+                1,
+            ),
+            new_operation=True,
+        ) as context:
             if planned is None:
                 planned = _planned(ordered)
             else:
-                planned = replace(planned, pair_id="new-operation-current-pair",
-                    tasks=tuple(replace(task,
-                        before_table=None if task.before_table is None else replace(task.before_table, reader=None, batch_reader=None, artifact=None),
-                        current_table=None if task.current_table is None else replace(task.current_table, reader=None, batch_reader=None, artifact=None),
-                    ) for task in planned.tasks))
+                planned = replace(
+                    planned,
+                    pair_id="new-operation-current-pair",
+                    tasks=tuple(
+                        replace(
+                            task,
+                            before_table=None
+                            if task.before_table is None
+                            else replace(
+                                task.before_table, reader=None, batch_reader=None, artifact=None
+                            ),
+                            current_table=None
+                            if task.current_table is None
+                            else replace(
+                                task.current_table, reader=None, batch_reader=None, artifact=None
+                            ),
+                        )
+                        for task in planned.tasks
+                    ),
+                )
             owner = CacheOperationOwner("history-compare-operation", "operation-" + run)
-            session = ComparisonTaskSession((planned,), persistent_cache=cache,
-                persistent_owner=owner, repository_id="replacement-fixture")
+            session = ComparisonTaskSession(
+                (planned,),
+                persistent_cache=cache,
+                persistent_owner=owner,
+                repository_id="replacement-fixture",
+            )
             try:
                 assert not session.remaining_uses
                 session.prepare_persistent(planned)
                 original_reserve = context.memory.reserve
                 refused = False
+
                 def reserve(size: int, *, backing: object | None = None) -> Any:
                     nonlocal refused
-                    if (deny_admission and run == "warm" and session.persistent_identity_charges and context.memory.stage_admissions
-                            and context.memory.stage_admissions[-1]["stage"] == "comparison-metadata"):
+                    if (
+                        deny_admission
+                        and run == "warm"
+                        and session.persistent_identity_charges
+                        and context.memory.stage_admissions
+                        and context.memory.stage_admissions[-1]["stage"] == "comparison-metadata"
+                    ):
                         refused = True
                         raise MemoryError("single-use optional retention must yield")
                     return original_reserve(size, backing=backing)
+
                 monkeypatch.setattr(context.memory, "reserve", reserve)
                 with closing(compare_plan_native(planned, session=session)) as product:
                     assert refused is (deny_admission and run == "warm")
@@ -621,12 +896,19 @@ def test_single_use_persistent_task_restores_in_a_new_operation_without_input_re
                         assert not product.cache_identities
                     assert product.result.facts is not None and product.metrics is not None
                     assert product.result.facts.tables[0].table_fact_digest is not None
-                    assert product.result.facts.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+                    assert (
+                        product.result.facts.tables[0].table_fact_digest.value
+                        == expected["tables"][0]["table_fact_digest"]
+                    )
                     assert product.metrics.native_calls == (1 if run == "cold" else 0)
                     assert product.metrics.cache_hits == (0 if run == "cold" else 1)
                     assert product.metrics.input_reads == (2 if run == "cold" else 0)
                     if run == "warm":
-                        with closing(product.handles["t"].record_batches("ORDERED" if ordered else "STANDARD")) as reader:
+                        with closing(
+                            product.handles["t"].record_batches(
+                                "ORDERED" if ordered else "STANDARD"
+                            )
+                        ) as reader:
                             retained_arrow = reader.read_all()
                         assert retained_arrow.num_rows > 0
                     product.commit_cache()
@@ -644,34 +926,51 @@ def test_single_use_persistent_task_restores_in_a_new_operation_without_input_re
 
 
 def test_single_use_cold_identity_yields_before_necessary_native_admission(
-    tmp_path: Path, db_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gateway_backend.artifacts.computation_cache import CacheOperationOwner
     from gateway_backend.capabilities.comparison.production import ComparisonTaskSession
-    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+    from gateway_backend.infrastructure.control_db.computation_cache import (
+        ControlDbComputationCache,
+    )
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
     context = current_kernel_context()
     assert context is not None
     planned = _planned()
+
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(db_path)
-    cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "cold-admission-cache"))
+
+    cache = ControlDbComputationCache(
+        transaction, open_test_store(tmp_path / "cold-admission-cache")
+    )
     owner = CacheOperationOwner("history-compare-operation", "single-cold-admission")
-    session = ComparisonTaskSession((planned,), persistent_cache=cache,
-        persistent_owner=owner, repository_id="replacement-fixture")
+    session = ComparisonTaskSession(
+        (planned,),
+        persistent_cache=cache,
+        persistent_owner=owner,
+        repository_id="replacement-fixture",
+    )
     session.prepare_persistent(planned)
     assert session.persistent_identity_charges and not session.persistent_ready
     assert not session.remaining_uses and not session.key_charges and not session.cached
     original = context.memory.reserve
     denied = 0
+
     def reserve(size: int, *, backing: object | None = None) -> Any:
         nonlocal denied
-        if (session.persistent_identity_charges and context.memory.stage_admissions
-                and context.memory.stage_admissions[-1]["stage"] == "comparison-metadata"):
+        if (
+            session.persistent_identity_charges
+            and context.memory.stage_admissions
+            and context.memory.stage_admissions[-1]["stage"] == "comparison-metadata"
+        ):
             denied += 1
             raise MemoryError("optional cold identity still holds its reservation")
         return original(size, backing=backing)
+
     monkeypatch.setattr(context.memory, "reserve", reserve)
     try:
         with closing(compare_plan_native(planned, session=session)) as product:
@@ -681,8 +980,10 @@ def test_single_use_cold_identity_yields_before_necessary_native_admission(
             assert not product.cache_identities and not product.persistent_keys
             assert product.metrics is not None and product.result.facts is not None
             assert product.metrics.native_calls == 1 and product.metrics.input_reads == 2
-            expected = frozen_case("tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source")
-            fact, = product.result.facts.tables
+            expected = frozen_case(
+                "tests/test_comparison_s3_c_arrow.py::test_native_standard_arrow_and_complete_facts_match_pre_c_source"
+            )
+            (fact,) = product.result.facts.tables
             assert fact.table_fact_digest is not None
             assert fact.table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
     finally:

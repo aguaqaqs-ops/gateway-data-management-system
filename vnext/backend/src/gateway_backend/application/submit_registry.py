@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from gateway_backend.application.job_definitions import JobDefinition, JobDefinitionRegistry, NormalPublicationCapability
+from gateway_backend.application.job_definitions import (
+    JobDefinition,
+    JobDefinitionRegistry,
+    NormalPublicationCapability,
+)
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.operations.recovery import RecoveryCapabilityValue
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION

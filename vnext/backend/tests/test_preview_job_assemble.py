@@ -22,7 +22,10 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleAssemblyStatus,
 )
 from gateway_backend.capabilities.comparison import (
-    ComparisonMode, ComparisonPlan, ComparisonRequest, ComparisonTaskSession,
+    ComparisonMode,
+    ComparisonPlan,
+    ComparisonRequest,
+    ComparisonTaskSession,
     NativeComparison,
 )
 
@@ -85,16 +88,22 @@ from tests.test_submit_transactions import RecordingMainResolvePort
 pytestmark = [pytest.mark.unit, pytest.mark.integration]
 
 
-@pytest.mark.parametrize(("is_initial", "completeness", "pair_id", "expected"), (
-    (True, InputCompleteness.MODIFIED_ONLY, "initial_to_modified", True),
-    (True, InputCompleteness.FULL, "baseline_to_initial", True),
-    (True, InputCompleteness.FULL, "initial_to_modified", False),
-    (False, InputCompleteness.MODIFIED_ONLY, "initial_to_modified", False),
-    (False, InputCompleteness.FULL, "baseline_to_initial", False),
-    (True, InputCompleteness.MODIFIED_ONLY, "baseline_to_initial", False),
-))
+@pytest.mark.parametrize(
+    ("is_initial", "completeness", "pair_id", "expected"),
+    (
+        (True, InputCompleteness.MODIFIED_ONLY, "initial_to_modified", True),
+        (True, InputCompleteness.FULL, "baseline_to_initial", True),
+        (True, InputCompleteness.FULL, "initial_to_modified", False),
+        (False, InputCompleteness.MODIFIED_ONLY, "initial_to_modified", False),
+        (False, InputCompleteness.FULL, "baseline_to_initial", False),
+        (True, InputCompleteness.MODIFIED_ONLY, "baseline_to_initial", False),
+    ),
+)
 def test_initial_baseline_is_bound_to_the_actual_before_side(
-    is_initial: bool, completeness: InputCompleteness, pair_id: str, expected: bool,
+    is_initial: bool,
+    completeness: InputCompleteness,
+    pair_id: str,
+    expected: bool,
 ) -> None:
     assert preview_jobs._initial_baseline_pair(is_initial, completeness, pair_id) is expected
 
@@ -127,7 +136,7 @@ def _replace_materialized_sides_document(
     ref = put_checkpoint_state_artifact(
         harness.artifact_store,
         document,
-        artifact_id_prefix='preview-materialized-sides',
+        artifact_id_prefix="preview-materialized-sides",
     )
     job_state["materialized_sides_ref"] = artifact_ref_to_dict(ref)
 
@@ -191,8 +200,12 @@ def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> 
     run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
-        publish_step = unit_of_work.operations.get_step(step_id_for(operation_id, PREVIEW_STEP_PUBLISH))
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "assemble_preview")
+        )
+        publish_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, PREVIEW_STEP_PUBLISH)
+        )
     assert assemble_step.status is StepStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     assert publish_step.status is StepStatus.PENDING
@@ -280,7 +293,9 @@ def test_modified_only_assemble_checkpoint_contains_single_pair(tmp_path: Path) 
     run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "assemble_preview")
+        )
     checkpoint_ref = assemble_step.checkpoint_ref
     assert checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, checkpoint_ref)
@@ -335,7 +350,9 @@ def test_full_preview_checkpoint_persists_canonical_state_bindings(tmp_path: Pat
     run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "assemble_preview")
+        )
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
     assemble_state = _preview_assemble_state(harness, envelope.job_state)
@@ -368,7 +385,9 @@ def test_assemble_resumes_from_checkpoint_when_repository_is_unavailable(tmp_pat
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "assemble_preview")
+        )
     assert assemble_step.status is StepStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
 
@@ -383,12 +402,20 @@ def test_assemble_resumes_from_checkpoint_when_repository_is_unavailable(tmp_pat
         ),
         (
             "null_tables",
-            {"contract_version": PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION, "tables": None, "snapshot": {}},
+            {
+                "contract_version": PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
+                "tables": None,
+                "snapshot": {},
+            },
             "table refs must be a list",
         ),
         (
             "invalid_tables_type",
-            {"contract_version": PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION, "tables": "bad", "snapshot": {}},
+            {
+                "contract_version": PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
+                "tables": "bad",
+                "snapshot": {},
+            },
             "table refs must be a list",
         ),
     ),
@@ -400,7 +427,10 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
 ) -> None:
     del case_id
     from gateway_backend.application.payloads import CheckpointDecodeError
-    from gateway_backend.application.preview_jobs import _materialized_preview_inputs_from_checkpoint
+    from gateway_backend.application.preview_jobs import (
+        _materialized_preview_inputs_from_checkpoint,
+    )
+
     store = InMemoryArtifactStore()
     sides_ref = put_checkpoint_state_artifact(
         store,
@@ -414,7 +444,7 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
                 "initial_reuses_baseline": False,
             },
         },
-        artifact_id_prefix='preview-materialized-sides',
+        artifact_id_prefix="preview-materialized-sides",
     )
 
     with pytest.raises(CheckpointDecodeError, match=match):
@@ -423,13 +453,18 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
                 "materialized_sides_ref": artifact_ref_to_dict(sides_ref),
                 "canonical_preview": {},
             },
-            store, repository_id=REPOSITORY_ID,
+            store,
+            repository_id=REPOSITORY_ID,
         )
 
 
-def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp_path: Path) -> None:
+def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(
+    tmp_path: Path,
+) -> None:
     from gateway_backend.application.payloads import CheckpointDecodeError
-    from gateway_backend.application.preview_jobs import _materialized_preview_inputs_from_checkpoint
+    from gateway_backend.application.preview_jobs import (
+        _materialized_preview_inputs_from_checkpoint,
+    )
 
     harness = build_preview_harness(
         tmp_path,
@@ -438,7 +473,9 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     operation_id = "op-materialize-tamper"
     _run_materialize(harness, operation_id)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
+        materialize_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
     job_state = dict(copy.deepcopy(envelope.job_state))
@@ -451,19 +488,30 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     baseline_side["tables"] = []
     _replace_materialized_sides_document(job_state, sides_document, harness)
 
-    with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
-        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID, dependencies=harness.deps)
+    with pytest.raises(
+        CheckpointDecodeError, match="summary does not match its snapshot and tables"
+    ):
+        _materialized_preview_inputs_from_checkpoint(
+            job_state,
+            harness.artifact_store,
+            repository_id=REPOSITORY_ID,
+            dependencies=harness.deps,
+        )
 
 
 def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
     from gateway_backend.application.payloads import CheckpointDecodeError
-    from gateway_backend.application.preview_jobs import _materialized_preview_inputs_from_checkpoint
+    from gateway_backend.application.preview_jobs import (
+        _materialized_preview_inputs_from_checkpoint,
+    )
 
     harness = build_preview_harness(tmp_path)
     operation_id = "op-materialize-missing-summary"
     _run_materialize(harness, operation_id)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
+        materialize_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
     job_state = dict(copy.deepcopy(envelope.job_state))
@@ -475,8 +523,15 @@ def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
     baseline_side.pop("summary", None)
     _replace_materialized_sides_document(job_state, sides_document, harness)
 
-    with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
-        _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store, repository_id=REPOSITORY_ID, dependencies=harness.deps)
+    with pytest.raises(
+        CheckpointDecodeError, match="summary does not match its snapshot and tables"
+    ):
+        _materialized_preview_inputs_from_checkpoint(
+            job_state,
+            harness.artifact_store,
+            repository_id=REPOSITORY_ID,
+            dependencies=harness.deps,
+        )
 
 
 def _run_through_publish(harness: PreviewJobHarness, operation_id: str) -> None:
@@ -511,6 +566,7 @@ def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
         )
     assert preview_result is not None
     from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION
+
     assert preview_result.contract_version == PREVIEW_JOB_CONTRACT_VERSION
     assert [
         (item.applicability.value, item.status.value, item.mode.value)
@@ -523,16 +579,23 @@ def test_full_different_project_declares_replacement_for_matching_pair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     harness = build_preview_harness(
-        tmp_path, input_completeness=InputCompleteness.FULL,
-        include_identity_table=True, identity_project_id="project-a",
+        tmp_path,
+        input_completeness=InputCompleteness.FULL,
+        include_identity_table=True,
+        identity_project_id="project-a",
     )
     modified_identity_sql = (
         "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"
         "INSERT INTO version_manager VALUES ('project-b');\n"
     )
     modified_binding = store_source_package(
-        harness.artifact_store, (MODIFIED_SQL + modified_identity_sql).encode("utf-8"),
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ae5f90059b8c3d63c6a5c8ee811fde0af18b5e258f48c06b29989454dad9eecc"),
+        harness.artifact_store,
+        (MODIFIED_SQL + modified_identity_sql).encode("utf-8"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "ae5f90059b8c3d63c6a5c8ee811fde0af18b5e258f48c06b29989454dad9eecc",
+        ),
     )
     initial_binding = harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL]
     harness.upload_revision = build_upload_revision(
@@ -557,16 +620,24 @@ def test_full_different_project_declares_replacement_for_matching_pair(
     original_native = pair_pipeline.compare_plan_native
 
     def capture_declaration(
-        requests: tuple[ComparisonRequest, ...], *,
+        requests: tuple[ComparisonRequest, ...],
+        *,
         computation_cache: ComputationCachePort | None = None,
-        cache_owner: CacheOperationOwner | None = None, repository_id: str | None = None,
+        cache_owner: CacheOperationOwner | None = None,
+        repository_id: str | None = None,
     ) -> ComparisonTaskSession | None:
         declared_modes.append(tuple(request.mode for request in requests))
-        return original(requests, computation_cache=computation_cache, cache_owner=cache_owner,
-            repository_id=repository_id)
+        return original(
+            requests,
+            computation_cache=computation_cache,
+            cache_owner=cache_owner,
+            repository_id=repository_id,
+        )
 
     def capture_native(
-        plan: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+        plan: ComparisonPlan,
+        *,
+        session: ComparisonTaskSession | None = None,
     ) -> NativeComparison:
         result = original_native(plan, session=session)
         assert result.metrics is not None
@@ -585,11 +656,11 @@ def test_full_different_project_declares_replacement_for_matching_pair(
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
         assert workspace is not None and workspace.current_preview_result_id is not None
-        preview_result = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
+        preview_result = unit_of_work.workspace.get_preview_result(
+            workspace.current_preview_result_id
+        )
     assert preview_result is not None
-    assert [
-        (pair.status.value, pair.mode.value) for pair in preview_result.identity_pairs
-    ] == [
+    assert [(pair.status.value, pair.mode.value) for pair in preview_result.identity_pairs] == [
         ("SAME_PROJECT", "DETAILED"),
         ("DIFFERENT_PROJECT", "DATASET_REPLACEMENT"),
     ]
@@ -635,7 +706,9 @@ def test_empty_baseline_assemble_produces_ready_closure_and_canonical_bindings(
     run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "assemble_preview")
+        )
     assert assemble_step.status is StepStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
@@ -686,7 +759,9 @@ def test_empty_baseline_assemble_produces_ready_closure_for_table_addition(
     run_claimed_handler(harness, PREVIEW_ASSEMBLE_HANDLER, session, control, operation, step)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "assemble_preview")
+        )
     assert assemble_step.status is StepStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
@@ -728,12 +803,20 @@ def test_empty_baseline_submit_accepts_table_addition(
         initial_binding = store_source_package(
             harness.artifact_store,
             (INITIAL_SQL + identity_metadata).encode("utf-8"),
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e188889b8b4bafeca70541a9f1a1a2b150fb4c38a0e90c9c3ffa60ff2d13f0e"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "7e188889b8b4bafeca70541a9f1a1a2b150fb4c38a0e90c9c3ffa60ff2d13f0e",
+            ),
         )
         modified_binding = store_source_package(
             harness.artifact_store,
             (MODIFIED_SQL + identity_metadata).encode("utf-8"),
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba98a29a79e5dd9d253714bc027e975ce56fb717fd1f721715d63bf4b70a355e"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "ba98a29a79e5dd9d253714bc027e975ce56fb717fd1f721715d63bf4b70a355e",
+            ),
         )
         harness.upload_revision = build_upload_revision(
             input_completeness=input_completeness,
@@ -763,17 +846,17 @@ def test_empty_baseline_submit_accepts_table_addition(
         workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
         assert workspace is not None
         assert workspace.current_preview_result_id is not None
-        preview_result = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
+        preview_result = unit_of_work.workspace.get_preview_result(
+            workspace.current_preview_result_id
+        )
     assert preview_result is not None
     if input_completeness is InputCompleteness.FULL:
         assert [
-            (pair.applicability.value, pair.status.value)
-            for pair in preview_result.identity_pairs
+            (pair.applicability.value, pair.status.value) for pair in preview_result.identity_pairs
         ] == [("NOT_APPLICABLE", "NOT_APPLICABLE"), ("APPLICABLE", "SAME_PROJECT")]
     else:
         assert [
-            (pair.applicability.value, pair.status.value)
-            for pair in preview_result.identity_pairs
+            (pair.applicability.value, pair.status.value) for pair in preview_result.identity_pairs
         ] == [("NOT_APPLICABLE", "NOT_APPLICABLE")]
     command = AcceptSubmitCommand(
         context=make_identity(
@@ -801,7 +884,9 @@ def test_empty_baseline_submit_accepts_table_addition(
         unit_of_work_factory=uow_factory,
         preview_result=preview_result,
         upload_revision=harness.upload_revision,
-        artifact_ref_lookup=cast(ArtifactRefLookupPort, _HarnessArtifactRefLookup(harness.artifact_store)),
+        artifact_ref_lookup=cast(
+            ArtifactRefLookupPort, _HarnessArtifactRefLookup(harness.artifact_store)
+        ),
         artifact_store=cast(
             BoundedArtifactStorePort,
             _HarnessBoundedArtifactStore(harness.artifact_store),
@@ -823,7 +908,12 @@ def test_empty_baseline_submit_accepts_table_addition(
     assert result.replay is False
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 @pytest.mark.parametrize("ordered_identity", (False, True))
@@ -831,60 +921,114 @@ def test_pair_memory_admission_rejects_before_native_row_comparison(
     ordered_identity: bool,
 ) -> None:
     from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
-    from gateway_backend.capabilities.table_rules import CanonicalKeyPolicy, OrderedPolicy, StorageRuleView
+    from gateway_backend.capabilities.table_rules import (
+        CanonicalKeyPolicy,
+        OrderedPolicy,
+        StorageRuleView,
+    )
     from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope, KernelMemoryLimit,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        NeverCancel,
+        kernel_execution_scope,
+        KernelMemoryLimit,
     )
     from gateway_backend.capabilities.snapshot_materialization import MaterializationPolicy
     from tests.support.snapshot_materialization import materialize_arrow_sql
-    from tests.support.table_rules import comparison_ruleset_for, standard_rule_record, ordered_record
+    from tests.support.table_rules import (
+        comparison_ruleset_for,
+        standard_rule_record,
+        ordered_record,
+    )
+
     sides = []
     presentations = []
-    for value in (("a", "a") if ordered_identity else ("a", "b")):
-        sql = ("CREATE TABLE t(gid BIGINT NOT NULL PRIMARY KEY,no INT NOT NULL,v TEXT); INSERT INTO t VALUES (10,1,'a'),(11,2,'b');"
-            if ordered_identity else f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');")
-        result = materialize_arrow_sql(sql,
-            policy=MaterializationPolicy.READERS_REQUIRED)
-        assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+    for value in ("a", "a") if ordered_identity else ("a", "b"):
+        sql = (
+            "CREATE TABLE t(gid BIGINT NOT NULL PRIMARY KEY,no INT NOT NULL,v TEXT); INSERT INTO t VALUES (10,1,'a'),(11,2,'b');"
+            if ordered_identity
+            else f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');"
+        )
+        result = materialize_arrow_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
+        assert (
+            result.snapshot is not None
+            and result.summary is not None
+            and result.table_set is not None
+        )
         bound = BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
         if ordered_identity:
             descriptor = bound.summary.tables[0]
             assert descriptor.raw_content_digest is not None
-            view = StorageRuleView(canonical_table="t", canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
-                ordered_policy=OrderedPolicy.GID_NO_V1, structural_columns=("no",),
-                retained_columns=tuple(column.name for column in descriptor.columns), canonical_key_columns=("gid",))
-            bound = replace(bound, storage_facts=(ComparisonStorageFacts(storage_rule_view=view,
-                source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
-                raw_content_digest=descriptor.raw_content_digest, storage_projection_version=STORAGE_PROJECTION_VERSION),))
+            view = StorageRuleView(
+                canonical_table="t",
+                canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+                ordered_policy=OrderedPolicy.GID_NO_V1,
+                structural_columns=("no",),
+                retained_columns=tuple(column.name for column in descriptor.columns),
+                canonical_key_columns=("gid",),
+            )
+            bound = replace(
+                bound,
+                storage_facts=(
+                    ComparisonStorageFacts(
+                        storage_rule_view=view,
+                        source_schema_digest=descriptor.business_schema_digest,
+                        canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
+                        raw_content_digest=descriptor.raw_content_digest,
+                        storage_projection_version=STORAGE_PROJECTION_VERSION,
+                    ),
+                ),
+            )
         sides.append(bound)
         presentations.append(result.presentation)
     memory = OperationMemoryBudget(80 * 1024)
-    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
+    with kernel_execution_scope(
+        KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True
+    ):
         with pytest.raises(KernelMemoryLimit):
-            pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
-                before_presentation=presentations[0], current_presentation=presentations[1],
-                store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
-                rule_set=comparison_ruleset_for(ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")), assess_identity=False)
+            pair_pipeline.run_preview_pair_pipeline(
+                pair_id="pair-budget",
+                before=sides[0],
+                current=sides[1],
+                before_presentation=presentations[0],
+                current_presentation=presentations[1],
+                store=InMemoryArtifactStore(),
+                control=ExecutionControl(),
+                on_cancel=lambda: None,
+                rule_set=comparison_ruleset_for(
+                    ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")
+                ),
+                assess_identity=False,
+            )
     assert memory.stage_admissions[-1]["stage"] == "comparison-metadata"
 
 
 def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
-    tmp_path: Path, pair_comparison_metrics: list[dict[str, Any]], execution_statistics: Any,
+    tmp_path: Path,
+    pair_comparison_metrics: list[dict[str, Any]],
+    execution_statistics: Any,
 ) -> None:
     from gateway_backend.infrastructure.statistics.collection import bounded_metrics
-    from gateway_backend.infrastructure.control_db.computation_cache import ControlDbComputationCache
+    from gateway_backend.infrastructure.control_db.computation_cache import (
+        ControlDbComputationCache,
+    )
 
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
+
     def transaction() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(harness.db_path)
+
     cache = ControlDbComputationCache(transaction, open_test_store(tmp_path / "derived-cache"))
     deps = replace(harness.deps, computation_cache=cache)
     _, handlers, _ = preview_jobs.preview_composition_bundle(deps)
     harness.handlers = dict(handlers)
     _run_through_publish(harness, "op-persistent-full-cold")
     cold_metrics = list(pair_comparison_metrics)
-    assert [item["pair_id"] for item in cold_metrics] == ["baseline_to_initial", "initial_to_modified"]
+    assert [item["pair_id"] for item in cold_metrics] == [
+        "baseline_to_initial",
+        "initial_to_modified",
+    ]
     assert sum(item["comparison"]["native_calls"] for item in cold_metrics) > 0
     collected = bounded_metrics(execution_statistics)
     assert collected.input_shape.table_count is not None
@@ -895,10 +1039,14 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     assert collected.stage_duration_ms.risk is not None
     assert collected.stage_duration_ms.export is not None
     assert collected.stage_duration_ms.bundle is not None
-    assert {table.pair_id for table in collected.tables} == {"baseline_to_initial", "initial_to_modified"}
+    assert {table.pair_id for table in collected.tables} == {
+        "baseline_to_initial",
+        "initial_to_modified",
+    }
     pair_comparison_metrics.clear()
     harness.job_payload = build_preview_job_payload(
-        workspace_id=harness.upload_revision.workspace_id, upload_revision=harness.upload_revision,
+        workspace_id=harness.upload_revision.workspace_id,
+        upload_revision=harness.upload_revision,
         repository_id=REPOSITORY_ID,
         business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
@@ -908,62 +1056,110 @@ def test_preview_forms_cache_for_a_new_operation_without_adding_full_pairs(
     )
     _run_through_publish(harness, "op-persistent-full-warm")
     warm_metrics = pair_comparison_metrics
-    assert [item["pair_id"] for item in warm_metrics] == ["baseline_to_initial", "initial_to_modified"]
+    assert [item["pair_id"] for item in warm_metrics] == [
+        "baseline_to_initial",
+        "initial_to_modified",
+    ]
     assert sum(item["comparison"]["native_calls"] for item in warm_metrics) == 0
     assert sum(item["comparison"]["cache_hits"] for item in warm_metrics) > 0
     with transaction() as uow:
-        producers = {row[0] for row in uow.connection.execute("SELECT DISTINCT producer_operation_id FROM computation_cache_uses")}
+        producers = {
+            row[0]
+            for row in uow.connection.execute(
+                "SELECT DISTINCT producer_operation_id FROM computation_cache_uses"
+            )
+        }
         assert producers == {"op-persistent-full-cold", "op-persistent-full-warm"}
-        assert uow.connection.execute("SELECT COUNT(*) FROM artifact_protection_intents WHERE intent='active-computation-cache'").fetchone()[0] == 0
+        assert (
+            uow.connection.execute(
+                "SELECT COUNT(*) FROM artifact_protection_intents WHERE intent='active-computation-cache'"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 @pytest.mark.parametrize("field_name", ["ready_closure_artifact_id", "bundle_artifact_id"])
-@pytest.mark.parametrize("artifact_id", ["old-closure", "a1:unknown:" + "a" * 64,
-    "00000000-0000-4000-8000-000000000001"])
-def test_preview_assemble_checkpoint_rejects_unsupported_bare_refs(field_name: str, artifact_id: str) -> None:
+@pytest.mark.parametrize(
+    "artifact_id", ["old-closure", "a1:unknown:" + "a" * 64, "00000000-0000-4000-8000-000000000001"]
+)
+def test_preview_assemble_checkpoint_rejects_unsupported_bare_refs(
+    field_name: str, artifact_id: str
+) -> None:
     from gateway_backend.application.preview_jobs import _preview_ready_ref
     from gateway_backend.application.payloads import CheckpointDecodeError
+
     ready_id = "a1:durable:" + "0" * 64
-    state: dict[str, object] = {"ready_closure_artifact_id": ready_id,
+    state: dict[str, object] = {
+        "ready_closure_artifact_id": ready_id,
         "bundle_artifact_id": "a1:export:" + "1" * 64,
-        "ready_closure_ref": {"artifact_id": ready_id, "media_type": "application/jcs",
-            "size_bytes": 0, "raw_sha256": "sha256:" + "0" * 64}}
+        "ready_closure_ref": {
+            "artifact_id": ready_id,
+            "media_type": "application/jcs",
+            "size_bytes": 0,
+            "raw_sha256": "sha256:" + "0" * 64,
+        },
+    }
     state[field_name] = artifact_id
     with pytest.raises(CheckpointDecodeError, match="invalid artifact bindings"):
         _preview_ready_ref(state)
 
 
-@pytest.mark.parametrize("input_completeness", (InputCompleteness.FULL, InputCompleteness.MODIFIED_ONLY))
+@pytest.mark.parametrize(
+    "input_completeness", (InputCompleteness.FULL, InputCompleteness.MODIFIED_ONLY)
+)
 def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, input_completeness: InputCompleteness,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    input_completeness: InputCompleteness,
 ) -> None:
     from gateway_backend.application.submission.errors import NoCanonicalChange
     from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata
     from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
     from tests.support.preview_job_harness import BASELINE_SQL
-    harness = build_preview_harness(tmp_path, input_completeness=input_completeness, canonical_noop=True)
+
+    harness = build_preview_harness(
+        tmp_path, input_completeness=input_completeness, canonical_noop=True
+    )
+
     def upload(label: str) -> Any:
-        sql = BASELINE_SQL.replace("PRIMARY KEY)", f"PRIMARY KEY COMMENT '{label}-column') COMMENT='{label}'")
-        return store_source_package(harness.artifact_store, sql.encode(), artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", label))
-    harness.upload_revision = build_upload_revision(input_completeness=input_completeness,
+        sql = BASELINE_SQL.replace(
+            "PRIMARY KEY)", f"PRIMARY KEY COMMENT '{label}-column') COMMENT='{label}'"
+        )
+        return store_source_package(
+            harness.artifact_store,
+            sql.encode(),
+            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", label),
+        )
+
+    harness.upload_revision = build_upload_revision(
+        input_completeness=input_completeness,
         initial_binding=upload("initial") if input_completeness is InputCompleteness.FULL else None,
-        modified_binding=upload("modified"))
-    harness.job_payload = build_preview_job_payload(workspace_id=harness.upload_revision.workspace_id,
-        upload_revision=harness.upload_revision, repository_id=REPOSITORY_ID,
+        modified_binding=upload("modified"),
+    )
+    harness.job_payload = build_preview_job_payload(
+        workspace_id=harness.upload_revision.workspace_id,
+        upload_revision=harness.upload_revision,
+        repository_id=REPOSITORY_ID,
         business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-        baseline_head_version=BASELINE_HEAD.baseline_head_version, idempotency_key=IDEMPOTENCY_KEY,
-        comparison_ruleset_digest=_runtime_comparison_ruleset_digest())
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
+    )
     seen: list[tuple[PresentationMetadata, PresentationMetadata]] = []
     original = pair_pipeline.run_preview_pair_pipeline
+
     def capture(**kwargs: Any) -> Any:
         seen.append((kwargs["before_presentation"], kwargs["current_presentation"]))
         return original(**kwargs)
+
     monkeypatch.setattr(preview_jobs, "run_preview_pair_pipeline", capture)
     _run_through_publish(harness, "op-comment-only")
     expected_before = "initial" if input_completeness is InputCompleteness.FULL else None
+
     def table_comment(metadata: PresentationMetadata) -> str | None:
         return next(t.comment for t in metadata.tables if t.table_name == "t")
+
     assert table_comment(seen[-1][0]) == expected_before
     assert table_comment(seen[-1][1]) == "modified"
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
@@ -971,60 +1167,118 @@ def test_comment_only_preview_restores_frozen_sides_and_submit_has_no_writes(
         assert workspace is not None and workspace.current_preview_result_id is not None
         preview = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
         assert preview is not None and preview.canonical is not None
-        assert preview.canonical.baseline_canonical_state_digest == preview.canonical.modified_canonical_state_digest
-    command = AcceptSubmitCommand(context=make_identity(actor_id=workspace.owner_actor_id,
-        device_key=workspace.gateway_device_external_key, project_id=workspace.business_project_id,
-        permissions=frozenset({"upload_submit_workspace", "workspace_read"})), workspace_id=workspace.workspace_id,
-        expected_workspace_version=workspace.optimistic_version, upload_revision_id=harness.upload_revision.upload_revision_id,
-        preview_result_id=preview.preview_result_id, generation=preview.generation,
+        assert (
+            preview.canonical.baseline_canonical_state_digest
+            == preview.canonical.modified_canonical_state_digest
+        )
+    command = AcceptSubmitCommand(
+        context=make_identity(
+            actor_id=workspace.owner_actor_id,
+            device_key=workspace.gateway_device_external_key,
+            project_id=workspace.business_project_id,
+            permissions=frozenset({"upload_submit_workspace", "workspace_read"}),
+        ),
+        workspace_id=workspace.workspace_id,
+        expected_workspace_version=workspace.optimistic_version,
+        upload_revision_id=harness.upload_revision.upload_revision_id,
+        preview_result_id=preview.preview_result_id,
+        generation=preview.generation,
         expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version, idempotency_key="comment-only-submit", options={})
+        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        idempotency_key="comment-only-submit",
+        options={},
+    )
+
     def uow_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(harness.db_path, read_only=read_only)
-    preflight = load_accept_submit_preflight(command=command, unit_of_work_factory=uow_factory,
-        preview_result=preview, upload_revision=harness.upload_revision,
-        artifact_ref_lookup=cast(ArtifactRefLookupPort, _HarnessArtifactRefLookup(harness.artifact_store)),
-        artifact_store=cast(BoundedArtifactStorePort, _HarnessBoundedArtifactStore(harness.artifact_store)),
-        current_storage_projection_ruleset_digest=_runtime_comparison_ruleset_digest())
+
+    preflight = load_accept_submit_preflight(
+        command=command,
+        unit_of_work_factory=uow_factory,
+        preview_result=preview,
+        upload_revision=harness.upload_revision,
+        artifact_ref_lookup=cast(
+            ArtifactRefLookupPort, _HarnessArtifactRefLookup(harness.artifact_store)
+        ),
+        artifact_store=cast(
+            BoundedArtifactStorePort, _HarnessBoundedArtifactStore(harness.artifact_store)
+        ),
+        current_storage_projection_ruleset_digest=_runtime_comparison_ruleset_digest(),
+    )
     main_resolve = RecordingMainResolvePort()
     with pytest.raises(NoCanonicalChange):
-        accept_submit_transaction(command=command, scope_resolution=FixedScopeResolutionPort(repository_id=REPOSITORY_ID,
-            baseline_head=BASELINE_HEAD), unit_of_work_factory=uow_factory, job_registry=submit_job_registry(),
-            main_resolve=main_resolve, preflight=preflight, now=harness.upload_revision.created_at)
+        accept_submit_transaction(
+            command=command,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=REPOSITORY_ID, baseline_head=BASELINE_HEAD
+            ),
+            unit_of_work_factory=uow_factory,
+            job_registry=submit_job_registry(),
+            main_resolve=main_resolve,
+            preflight=preflight,
+            now=harness.upload_revision.created_at,
+        )
     assert main_resolve.calls == 0
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submission_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            unit_of_work.connection.execute("SELECT COUNT(*) FROM submission_records").fetchone()[0]
+            == 0
+        )
 
 
 @pytest.mark.parametrize("restore_step", ("materialize_inputs", "assemble_preview"))
-@pytest.mark.parametrize("metadata_code", ("COMMIT_CANONICAL_METADATA_MISSING", "COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH"))
+@pytest.mark.parametrize(
+    "metadata_code",
+    ("COMMIT_CANONICAL_METADATA_MISSING", "COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH"),
+)
 def test_checkpoint_restoration_preserves_baseline_metadata_failure_code(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore_step: str, metadata_code: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    restore_step: str,
+    metadata_code: str,
 ) -> None:
-    from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataCode, CommitCanonicalMetadataError
+    from gateway_backend.application.canonical_metadata.ports import (
+        CommitCanonicalMetadataCode,
+        CommitCanonicalMetadataError,
+    )
     from gateway_backend.operations.lease_session import LeaseSession
     from gateway_backend.operations.worker import WriteUnitOfWorkFactory
+
     harness = build_preview_harness(tmp_path)
     operation_id = "op-baseline-metadata-unavailable"
     insert_preview_operation(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
     if restore_step == "materialize_inputs":
+
         def stop_after_checkpoint(*args: Any, **kwargs: Any) -> Any:
             raise RuntimeError("stopped after durable materialize checkpoint")
+
         with monkeypatch.context() as fault:
             fault.setattr(type(session), "publish_successor", stop_after_checkpoint)
             with pytest.raises(RuntimeError, match="after durable materialize checkpoint"):
-                run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+                run_claimed_handler(
+                    harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step
+                )
         with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
             operation = unit_of_work.operations.get_operation(operation_id)
             step = unit_of_work.operations.get_step(step.step_id)
         assert step.checkpoint_ref is not None
         assert step.worker_id is not None and step.lease_token is not None
-        session = LeaseSession(worker_id=step.worker_id, lease_token=step.lease_token,
-            operation_id=operation.operation_id, step_id=step.step_id,
+        session = LeaseSession(
+            worker_id=step.worker_id,
+            lease_token=step.lease_token,
+            operation_id=operation.operation_id,
+            step_id=step.step_id,
             write_uow_factory=cast(WriteUnitOfWorkFactory, harness.control_transaction_factory),
-            control=control, observer=lambda _event: None)
+            control=control,
+            observer=lambda _event: None,
+        )
         handler = PREVIEW_MATERIALIZE_HANDLER
     else:
         run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
@@ -1032,9 +1286,13 @@ def test_checkpoint_restoration_preserves_baseline_metadata_failure_code(
         handler = PREVIEW_ASSEMBLE_HANDLER
     with harness.deps.control_transaction_factory() as metadata_uow:
         metadata_port = metadata_uow.commit_canonical_metadata
+
     def unavailable_metadata(**kwargs: Any) -> Any:
         assert kwargs["commit_id"] == BASELINE_HEAD.business_baseline_commit_id
-        raise CommitCanonicalMetadataError(CommitCanonicalMetadataCode(metadata_code), "baseline manifest is unavailable")
+        raise CommitCanonicalMetadataError(
+            CommitCanonicalMetadataCode(metadata_code), "baseline manifest is unavailable"
+        )
+
     monkeypatch.setattr(metadata_port, "resolve", unavailable_metadata)
     acknowledgment = run_claimed_handler(harness, handler, session, control, operation, step)
     assert acknowledgment is ExecutorAcknowledgment.PUBLISHED

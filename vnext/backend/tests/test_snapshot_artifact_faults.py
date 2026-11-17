@@ -41,7 +41,9 @@ from tests.support.snapshot_materialization import materialize_sql, parse_fixtur
 _WRONG_DIGEST = "sha256:" + ("0" * 64)
 
 
-def _put_manifest(store: InMemoryArtifactStore, payload: dict[str, object], artifact_id: str) -> ArtifactRef:
+def _put_manifest(
+    store: InMemoryArtifactStore, payload: dict[str, object], artifact_id: str
+) -> ArtifactRef:
     return put_with_built_ref(
         store,
         canonicalize_json_value(payload),
@@ -98,11 +100,27 @@ ARTIFACT_OPEN_FAULTS: tuple[
     tuple[str, Callable[[InMemoryArtifactStore], ArtifactRef], MaterializationDiagnosticCode],
     ...,
 ] = (
-    ("corrupt_manifest", _fault_corrupt_manifest, MaterializationDiagnosticCode.ARTIFACT_MANIFEST_CORRUPT),
+    (
+        "corrupt_manifest",
+        _fault_corrupt_manifest,
+        MaterializationDiagnosticCode.ARTIFACT_MANIFEST_CORRUPT,
+    ),
     ("missing_row_file", _fault_missing_row_file, MaterializationDiagnosticCode.ARTIFACT_TRUNCATED),
-    ("truncated_parquet", _fault_truncated_parquet, MaterializationDiagnosticCode.ARTIFACT_TRUNCATED),
-    ("digest_mismatch", _fault_digest_mismatch, MaterializationDiagnosticCode.ARTIFACT_DIGEST_MISMATCH),
-    ("schema_mismatch", _fault_schema_mismatch, MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH),
+    (
+        "truncated_parquet",
+        _fault_truncated_parquet,
+        MaterializationDiagnosticCode.ARTIFACT_TRUNCATED,
+    ),
+    (
+        "digest_mismatch",
+        _fault_digest_mismatch,
+        MaterializationDiagnosticCode.ARTIFACT_DIGEST_MISMATCH,
+    ),
+    (
+        "schema_mismatch",
+        _fault_schema_mismatch,
+        MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
+    ),
 )
 
 
@@ -203,19 +221,27 @@ def test_local_store_tmp_cleanup_and_no_path_in_refs(tmp_path: Path) -> None:
     assert artifact is not None
     payload = artifact_ref_to_dict(artifact.manifest_ref)
     assert set(payload) == {"artifact_id", "media_type", "size_bytes", "raw_sha256"}
-    leftover = [path for path in root.rglob("*") if path.suffix == ".tmp" or path.name.endswith(".tmp")]
+    leftover = [
+        path for path in root.rglob("*") if path.suffix == ".tmp" or path.name.endswith(".tmp")
+    ]
     assert leftover == []
     opened = open_snapshot_table_artifact(store, artifact.manifest_ref)
     assert opened.descriptor.raw_content_digest == result.summary.tables[0].raw_content_digest
 
 
-def test_local_oversize_object_is_rejected_before_body_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_local_oversize_object_is_rejected_before_body_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import io
     from typing import Any
 
-
     store = open_test_store(tmp_path / "objects")
-    ref = put_with_built_ref(store, b"small", artifact_id="a1:durable:4e6cd69eb33a2b12f384dbd0dd2c36f9eecfabf9c80fa7e79fd41132dcb86cd2", media_type="application/octet-stream")
+    ref = put_with_built_ref(
+        store,
+        b"small",
+        artifact_id="a1:durable:4e6cd69eb33a2b12f384dbd0dd2c36f9eecfabf9c80fa7e79fd41132dcb86cd2",
+        media_type="application/octet-stream",
+    )
     target = store.payload_path(ref.artifact_id)
     target.write_bytes(b"oversize")
     original = Path.open

@@ -96,14 +96,24 @@ class ReviewControlTransaction(ControlTransaction, Protocol):
 
 
 class ReviewApplySubmissionRepository(Protocol):
-    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
-        repository_id: str | None = None) -> SubmitAttempt | None: ...
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None: ...
 
     def get_submission_access_binding(self, submission_id: str) -> SubmissionAccessBinding | None:
         """Read only durable authorization columns, before decoding the body."""
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                       repository_id: str | None = None) -> Submission | None:
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None:
         """Load one Submission."""
 
     def get_workspace_occupancy(self, workspace_id: str) -> WorkspaceSubmitOccupancy | None:
@@ -124,7 +134,9 @@ class ReviewApplyTransaction(ReviewControlTransaction, ArchiveClosureReadPort, P
     @property
     def operations(self) -> OperationStore: ...
 
-    def list_artifact_protection_for_owner(self, *, owner_kind: str, owner_id: str) -> frozenset[str]: ...
+    def list_artifact_protection_for_owner(
+        self, *, owner_kind: str, owner_id: str
+    ) -> frozenset[str]: ...
 
     @property
     def submission(self) -> ReviewApplySubmissionRepository: ...
@@ -157,7 +169,10 @@ class SubmitFinalizeControlTransaction(
     """Submit transaction surface required to atomically seed Review at finalize."""
 
     def touch_computation_cache_producer(
-        self, *, producer_operation_id: str, repository_id: str,
+        self,
+        *,
+        producer_operation_id: str,
+        repository_id: str,
     ) -> None:
         """Touch bounded optional cache uses inside an isolated SQL savepoint."""
 

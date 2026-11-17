@@ -21,7 +21,7 @@ BIND_FAILURES = (
     ),
     (
         (
-            '<Logic_Set>'
+            "<Logic_Set>"
             '<Express Name="top" Operator_Type="+"><Point Name="top"/></Express>'
             '<Express Name="top" Operator_Type="*"><Point Name="top"/></Express>'
             "</Logic_Set>"
@@ -44,7 +44,9 @@ def test_point_without_formula_is_legal() -> None:
 
 
 def test_matching_is_exact_and_case_sensitive() -> None:
-    xml = '<Logic_Set><Express Name="Top" Operator_Type="+"><Point Name="Top"/></Express></Logic_Set>'
+    xml = (
+        '<Logic_Set><Express Name="Top" Operator_Type="+"><Point Name="Top"/></Express></Logic_Set>'
+    )
     result = materialize_logic(xml, catalog=special_catalog(point_names=("top",)))
     assert result.status is CompositeSignalStatus.FAILED
     assert result.diagnostics[0].code is CompositeDiagnosticCode.ORPHAN_FORMULA

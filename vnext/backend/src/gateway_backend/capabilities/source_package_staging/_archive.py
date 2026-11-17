@@ -14,7 +14,10 @@ from typing import BinaryIO, Any, cast
 
 import compression.zstd
 
-from gateway_backend.capabilities.source_package_staging._paths import PathFault, normalize_package_path
+from gateway_backend.capabilities.source_package_staging._paths import (
+    PathFault,
+    normalize_package_path,
+)
 from gateway_backend.capabilities.source_package_staging.contracts import (
     OPTIONAL_XML_PATH,
     REQUIRED_SQL_PATH,
@@ -134,7 +137,9 @@ def iter_members(
                 StagingDiagnosticCode.SOURCE_PACKAGE_INVALID,
                 "package payload bytes are required",
             )
-        sql_bytes = _gzip_decompress(bytes(payload), budgets, counter, limit=budgets.max_sql_document_bytes)
+        sql_bytes = _gzip_decompress(
+            bytes(payload), budgets, counter, limit=budgets.max_sql_document_bytes
+        )
         yield _single_sql_member(
             sql_bytes,
             budgets,
@@ -214,7 +219,6 @@ def _iter_directory(
         )
 
 
-
 class _ArchiveMetadataBudget:
     """Live archive metadata and conservative stdlib parsing work, not file bytes."""
 
@@ -224,9 +228,11 @@ class _ArchiveMetadataBudget:
 
     def reserve(self, size: int) -> None:
         if size < 0 or self.used + size > self.limit:
-            raise StagingFault(StagingDiagnosticCode.RESOURCE_LIMIT_EXCEEDED,
-                               "archive metadata memory budget exceeded",
-                               budget_name="max_archive_metadata_bytes")
+            raise StagingFault(
+                StagingDiagnosticCode.RESOURCE_LIMIT_EXCEEDED,
+                "archive metadata memory budget exceeded",
+                budget_name="max_archive_metadata_bytes",
+            )
         self.used += size
 
     def copied_dict(self, value: Mapping[str, str]) -> None:
@@ -297,6 +303,7 @@ def _bounded_tar_info(budget: _ArchiveMetadataBudget) -> type[tarfile.TarInfo]:
 
     return BoundedTarInfo
 
+
 def _iter_tar_gz(
     payload: bytes | BinaryIO,
     budgets: ResourceBudgets,
@@ -319,8 +326,11 @@ def _iter_tar_gz(
             )
         fileobj = payload
     try:
-        with tarfile.open(fileobj=fileobj, mode="r|gz", tarinfo=_bounded_tar_info(
-            _ArchiveMetadataBudget(budgets.max_archive_metadata_bytes))) as archive:
+        with tarfile.open(
+            fileobj=fileobj,
+            mode="r|gz",
+            tarinfo=_bounded_tar_info(_ArchiveMetadataBudget(budgets.max_archive_metadata_bytes)),
+        ) as archive:
             while True:
                 member = archive.next()
                 if member is None:
@@ -587,7 +597,9 @@ def _account_expanded(counter: ExpansionCounter, budgets: ResourceBudgets, size:
         )
 
 
-def _enforce_document_budget(normalized_path: str, content: bytes, budgets: ResourceBudgets) -> None:
+def _enforce_document_budget(
+    normalized_path: str, content: bytes, budgets: ResourceBudgets
+) -> None:
     if normalized_path == REQUIRED_SQL_PATH and len(content) > budgets.max_sql_document_bytes:
         raise StagingFault(
             StagingDiagnosticCode.RESOURCE_LIMIT_EXCEEDED,

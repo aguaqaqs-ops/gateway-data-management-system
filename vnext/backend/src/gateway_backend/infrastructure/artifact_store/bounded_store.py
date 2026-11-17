@@ -52,15 +52,23 @@ class BoundedArtifactStore:
         return published
 
     def restore_canonical_from_exact_commit(
-        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+        self,
+        raw_bytes: bytes,
+        ref: ArtifactRef,
+        *,
+        checkpoint: Callable[[], None],
     ) -> ArtifactRef:
-        return self._local_store.restore_canonical_from_exact_commit(raw_bytes, ref, checkpoint=checkpoint)
+        return self._local_store.restore_canonical_from_exact_commit(
+            raw_bytes, ref, checkpoint=checkpoint
+        )
 
     def locate(self, ref: ArtifactRef) -> bytes:
         return self._local_store.locate(ref)
 
     @contextmanager
-    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
+    def open_buffer(
+        self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None
+    ) -> Iterator[pa.Buffer]:
         with self._local_store.open_buffer(ref, checkpoint=checkpoint) as buffer:
             yield buffer
 
@@ -85,8 +93,12 @@ class BoundedArtifactStore:
             raise ValueError("media_type must be a non-empty string")
         artifact_id = build_artifact_id(location, kind, secrets.token_hex(16))
         validate_artifact_id(artifact_id)
-        ref = ArtifactRef(artifact_id=artifact_id, media_type=media_type,
-            size_bytes=declared_size, raw_sha256=declared_raw_sha256)
+        ref = ArtifactRef(
+            artifact_id=artifact_id,
+            media_type=media_type,
+            size_bytes=declared_size,
+            raw_sha256=declared_raw_sha256,
+        )
         published = self._local_store.put_chunks(stream, ref)
         self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
         return published
@@ -130,19 +142,33 @@ class BoundedArtifactStore:
             raise RuntimeError("protection store is not configured")
         when = recorded_at or datetime.now(UTC)
         with self.read_session(), self._protection_uow() as uow:
-            return uow.protection.set_protection(tuple(refs), owner_kind=owner_kind,
-                owner_id=owner_id, intent=intent, recorded_at=when)
+            return uow.protection.set_protection(
+                tuple(refs),
+                owner_kind=owner_kind,
+                owner_id=owner_id,
+                intent=intent,
+                recorded_at=when,
+            )
 
     def put_from_path(
-        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+        self,
+        source: ArtifactFileSourcePort,
+        ref: ArtifactRef,
+        *,
+        checkpoint: Callable[[], None],
+        byte_limit: int,
     ) -> ArtifactRef:
-        published = self._local_store.put_from_path(source, ref, checkpoint=checkpoint, byte_limit=byte_limit)
+        published = self._local_store.put_from_path(
+            source, ref, checkpoint=checkpoint, byte_limit=byte_limit
+        )
         self._published_at_by_artifact_id[published.artifact_id] = datetime.now(UTC)
         return published
 
     def classify_cleanup(self, ref: ArtifactRef, now: datetime) -> CleanupDecision:
         with self.read_session():
-            with nullcontext(None) if self._protection_uow is None else self._protection_uow() as uow:
+            with (
+                nullcontext(None) if self._protection_uow is None else self._protection_uow() as uow
+            ):
                 protected = uow is not None and uow.protection.is_protected(ref.artifact_id)
             return self._classify(ref, now, protected=protected)
 
@@ -156,11 +182,19 @@ class BoundedArtifactStore:
         except FileNotFoundError:
             return CleanupDecision(classification=CleanupClassification.ELIGIBLE_AFTER)
         eligible_after = published_at + self._unpinned_ttl
-        return CleanupDecision(classification=CleanupClassification.ELIGIBLE_AFTER if now >= eligible_after
-            else CleanupClassification.MANUAL_REVIEW, eligible_after=eligible_after)
+        return CleanupDecision(
+            classification=CleanupClassification.ELIGIBLE_AFTER
+            if now >= eligible_after
+            else CleanupClassification.MANUAL_REVIEW,
+            eligible_after=eligible_after,
+        )
 
     def delete_eligible(
-        self, ref: ArtifactRef, *, expected_classification: CleanupClassification, now: datetime,
+        self,
+        ref: ArtifactRef,
+        *,
+        expected_classification: CleanupClassification,
+        now: datetime,
     ) -> DeleteDisposition:
         try:
             with self._local_store.cleanup_session(ref.artifact_id) as acquired:
@@ -168,16 +202,23 @@ class BoundedArtifactStore:
                     return DeleteDisposition.RETRYABLE_FAILURE
                 # This factory deliberately opens only the short DB transaction.
                 # A protection UoW would acquire SH after EX and invert the order.
-                with nullcontext(None) if self._protection_uow is None else self._protection_uow() as uow:
+                with (
+                    nullcontext(None)
+                    if self._protection_uow is None
+                    else self._protection_uow() as uow
+                ):
                     protected = uow is not None and uow.protection.is_protected(ref.artifact_id)
                     decision = self._classify(ref, now, protected=protected)
-                    if decision.classification is not expected_classification or decision.classification is not CleanupClassification.ELIGIBLE_AFTER:
+                    if (
+                        decision.classification is not expected_classification
+                        or decision.classification is not CleanupClassification.ELIGIBLE_AFTER
+                    ):
                         return DeleteDisposition.RETRYABLE_FAILURE
                     deleted = self._local_store.delete_object(ref)
                 if deleted:
                     self._published_at_by_artifact_id.pop(ref.artifact_id, None)
                 return DeleteDisposition.DELETED if deleted else DeleteDisposition.ABSENT
-        except (OSError, ManifestVerificationError):
+        except OSError, ManifestVerificationError:
             return DeleteDisposition.RETRYABLE_FAILURE
 
 

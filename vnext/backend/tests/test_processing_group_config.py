@@ -1,4 +1,5 @@
 """Pure processing-group wire/configuration boundary; no runtime or Dolt fixture."""
+
 from __future__ import annotations
 
 import json
@@ -9,10 +10,16 @@ from typing import Any, cast
 import pytest
 
 from gateway_backend.device_identity import (
-    device_create_key, device_initial_node_id, device_route_key, validate_scope_identity,
+    device_create_key,
+    device_initial_node_id,
+    device_route_key,
+    validate_scope_identity,
 )
 from gateway_backend.domain.workspace.models import IdentityContext
-from gateway_backend.http.schemas.device_registration import DeviceRegistrationQuery, RegisterDeviceRequest
+from gateway_backend.http.schemas.device_registration import (
+    DeviceRegistrationQuery,
+    RegisterDeviceRequest,
+)
 from gateway_backend.http.schemas.workspace import CreateWorkspaceRequest
 from gateway_backend.processing_group_config import DeviceDirectory, ProcessingGroupsConfig
 
@@ -37,7 +44,11 @@ def _parse_directory(doc: dict[str, Any]) -> DeviceDirectory:
 
 @pytest.mark.parametrize("case", VECTORS)
 def test_shared_identity_vectors(case: dict[str, str]) -> None:
-    env, group, device = case["environment_id"], case["group_id"], case["gateway_device_external_key"]
+    env, group, device = (
+        case["environment_id"],
+        case["group_id"],
+        case["gateway_device_external_key"],
+    )
     assert device_route_key(device) == case["route_key"]
     assert device_create_key(env, group, device) == case["create_key"]
     assert device_initial_node_id(env, group, device) == case["initial_node_id"]
@@ -61,15 +72,24 @@ def test_identity_boundary_shared_by_directory_dto_and_session_context(value: An
 def test_scope_uses_unicode_scalars_and_exact_bytes(value: str) -> None:
     assert validate_scope_identity(value) == value
     assert len(value.encode()) <= 1020
-    assert CreateWorkspaceRequest(gateway_device_external_key=value, business_project_id=value).business_project_id == value
+    assert (
+        CreateWorkspaceRequest(
+            gateway_device_external_key=value, business_project_id=value
+        ).business_project_id
+        == value
+    )
 
 
 def test_typed_configuration_roundtrips_without_changing_per_group_deployment() -> None:
     config = ProcessingGroupsConfig.from_bytes((FIXTURES / "groups.json").read_bytes())
-    directory = DeviceDirectory.from_bytes((FIXTURES / "device-directory.json").read_bytes(), known_groups=config.group_ids)
+    directory = DeviceDirectory.from_bytes(
+        (FIXTURES / "device-directory.json").read_bytes(), known_groups=config.group_ids
+    )
     config.require_directory(directory)
     assert ProcessingGroupsConfig.from_bytes(config.to_bytes()) == config
-    assert DeviceDirectory.from_bytes(directory.to_bytes(), known_groups=config.group_ids) == directory
+    assert (
+        DeviceDirectory.from_bytes(directory.to_bytes(), known_groups=config.group_ids) == directory
+    )
     assert config.groups[0].backend_endpoint == "http://127.0.0.1:8100"
     assert directory.require_reservation("设备一", "group-a").enabled is False
     # Global routing is deliberately absent from each group's deployment identity.
@@ -77,19 +97,27 @@ def test_typed_configuration_roundtrips_without_changing_per_group_deployment() 
 
 
 CONFIG_FAULTS = [
-    (["schema_version"], True), (["environment_id"], "../bad"),
-    (["host", "cpu_count"], True), (["host", "shared_cpu_reserve"], float("inf")),
-    (["entry", "listen_address"], "127.0.0.1; include x"), (["entry", "listen_port"], 0),
-    (["entry", "management_port"], 8080), (["entry", "image"], "nginx:latest"),
-    (["groups", 0, "project"], "foo\nbar"), (["groups", 0, "backend_port"], True),
+    (["schema_version"], True),
+    (["environment_id"], "../bad"),
+    (["host", "cpu_count"], True),
+    (["host", "shared_cpu_reserve"], float("inf")),
+    (["entry", "listen_address"], "127.0.0.1; include x"),
+    (["entry", "listen_port"], 0),
+    (["entry", "management_port"], 8080),
+    (["entry", "image"], "nginx:latest"),
+    (["groups", 0, "project"], "foo\nbar"),
+    (["groups", 0, "backend_port"], True),
     (["groups", 0, "storage_config"], "/etc/../secret"),
     (["groups", 0, "session_directory"], "/etc/secret\n"),
     (["groups", 0, "images", "backend"], "https://other/image:1"),
     (["groups", 0, "images", "revision"], "main"),
-    (["groups", 1, "group_id"], "group-a"), (["groups", 1, "project"], "gateway-group-a"),
+    (["groups", 1, "group_id"], "group-a"),
+    (["groups", 1, "project"], "gateway-group-a"),
     (["groups", 1, "backend_port"], 8100),
     (["groups", 1, "internal_token_file"], "/etc/gateway/group-a/internal.token"),
-    (["groups"], []), (["groups"], [{}] * 33), (["unknown"], 1),
+    (["groups"], []),
+    (["groups"], [{}] * 33),
+    (["unknown"], 1),
 ]
 
 
@@ -104,7 +132,10 @@ def test_deployment_configuration_rejects_invalid_fields(path: list[Any], value:
         ProcessingGroupsConfig.from_bytes(json.dumps(doc).encode())
 
 
-@pytest.mark.parametrize("raw", [b'{}', b'[]', b'{"schema_version":1,"schema_version":1}', b'\xff', b' ' * (1024 * 1024 + 1)])
+@pytest.mark.parametrize(
+    "raw",
+    [b"{}", b"[]", b'{"schema_version":1,"schema_version":1}', b"\xff", b" " * (1024 * 1024 + 1)],
+)
 def test_groups_reject_invalid_document(raw: bytes) -> None:
     with pytest.raises(ValueError):
         ProcessingGroupsConfig.from_bytes(raw)
@@ -147,12 +178,19 @@ def test_append_can_enable_reserved_and_add_new_devices() -> None:
     old = _parse_directory(_directory())
     doc = _directory()
     doc["devices"][0]["enabled"] = True
-    doc["devices"].append(dict(gateway_device_external_key="new", group_id="group-b", enabled=False))
+    doc["devices"].append(
+        dict(gateway_device_external_key="new", group_id="group-b", enabled=False)
+    )
     _parse_directory(doc).require_append_only(old)
 
 
 def test_registration_dto_has_exact_fields_and_bounded_query() -> None:
-    request = dict(environment_id="test-env", group_id="group-a", gateway_device_external_key="设备一", business_project_id="project")
+    request = dict(
+        environment_id="test-env",
+        group_id="group-a",
+        gateway_device_external_key="设备一",
+        business_project_id="project",
+    )
     assert RegisterDeviceRequest(**request).gateway_device_external_key == "设备一"
     with pytest.raises(ValueError):
         RegisterDeviceRequest.model_validate({**request, "repository_id": "caller-chosen"})
@@ -160,7 +198,10 @@ def test_registration_dto_has_exact_fields_and_bounded_query() -> None:
         DeviceRegistrationQuery(device="x" * 256)
 
 
-@pytest.mark.parametrize("raw", [b'[]', b'{"schema_version":1,"schema_version":1}', b'\xff', b' ' * (8 * 1024 * 1024 + 1)])
+@pytest.mark.parametrize(
+    "raw",
+    [b"[]", b'{"schema_version":1,"schema_version":1}', b"\xff", b" " * (8 * 1024 * 1024 + 1)],
+)
 def test_directory_rejects_invalid_or_oversized_document(raw: bytes) -> None:
     with pytest.raises(ValueError):
         DeviceDirectory.from_bytes(raw, known_groups={"group-a"})
@@ -169,18 +210,32 @@ def test_directory_rejects_invalid_or_oversized_document(raw: bytes) -> None:
 def test_registration_openapi_schema_defines_required_and_unknown_fields() -> None:
     schema = RegisterDeviceRequest.model_json_schema()
     assert schema["additionalProperties"] is False
-    assert set(schema["required"]) == {"environment_id", "group_id", "gateway_device_external_key", "business_project_id"}
+    assert set(schema["required"]) == {
+        "environment_id",
+        "group_id",
+        "gateway_device_external_key",
+        "business_project_id",
+    }
     assert schema["properties"]["gateway_device_external_key"]["maxLength"] == 255
 
 
 @pytest.mark.parametrize("identity", ["设" * 86, "😀" * 255])
-def test_manual_close_uses_scope_character_domain_without_widening_opaque_ids(identity: str) -> None:
+def test_manual_close_uses_scope_character_domain_without_widening_opaque_ids(
+    identity: str,
+) -> None:
     from gateway_backend.application.archive.contracts import compute_close_request_fingerprint
     from gateway_backend.application.archive.errors import ArchiveRequestValidation
 
-    request: dict[str, Any] = dict(repository_id="repository", gateway_device_external_key=identity,
-        business_project_id=identity, submission_id="submission", expected_review_version=0,
-        expected_baseline_node_id="node", expected_baseline_head_version=0, reason="closed")
+    request: dict[str, Any] = dict(
+        repository_id="repository",
+        gateway_device_external_key=identity,
+        business_project_id=identity,
+        submission_id="submission",
+        expected_review_version=0,
+        expected_baseline_node_id="node",
+        expected_baseline_head_version=0,
+        reason="closed",
+    )
     assert compute_close_request_fingerprint(**request).startswith("sha256:")
     with pytest.raises(ArchiveRequestValidation):
         compute_close_request_fingerprint(**{**request, "repository_id": "库" * 86})
@@ -202,12 +257,16 @@ def test_scope_accepts_adjacent_canonical_unicode_scalars(point: str) -> None:
 
 
 @pytest.mark.parametrize("field", ["gateway_device_external_key", "business_project_id"])
-def test_noncharacter_is_rejected_at_scope_inputs_before_business_digest(field: str, tmp_path: Path) -> None:
+def test_noncharacter_is_rejected_at_scope_inputs_before_business_digest(
+    field: str, tmp_path: Path
+) -> None:
     from gateway_backend.application.archive.contracts import compute_close_request_fingerprint
     from gateway_backend.application.workspace.contracts import compute_upload_request_fingerprint
     from gateway_backend.domain.workspace.models import InputCompleteness
     from gateway_backend.http.auth import load_session_entries
-    from gateway_backend.infrastructure.control_db.sqlite_mapping import load_provisioned_mapping_file
+    from gateway_backend.infrastructure.control_db.sqlite_mapping import (
+        load_provisioned_mapping_file,
+    )
 
     scope = dict(gateway_device_external_key="device", business_project_id="project")
     scope[field] = "bad\uffffscope"
@@ -218,25 +277,60 @@ def test_noncharacter_is_rejected_at_scope_inputs_before_business_digest(field: 
         with pytest.raises(ValueError, match="noncharacter"):
             model.model_validate(document)
     with pytest.raises(ValueError, match="noncharacter"):
-        IdentityContext("actor", scope["gateway_device_external_key"], scope["business_project_id"], frozenset({"read"}))
+        IdentityContext(
+            "actor",
+            scope["gateway_device_external_key"],
+            scope["business_project_id"],
+            frozenset({"read"}),
+        )
     session_file = tmp_path / "sessions.json"
-    session_file.write_text(json.dumps(dict(sessions=[dict(token="test-token", actor_id="actor", permissions=["read"], **scope)])))
+    session_file.write_text(
+        json.dumps(
+            dict(
+                sessions=[dict(token="test-token", actor_id="actor", permissions=["read"], **scope)]
+            )
+        )
+    )
     with pytest.raises(ValueError, match="noncharacter"):
         load_session_entries(session_file)
     seed_file = tmp_path / "seed.json"
-    seed_file.write_text(json.dumps(dict(mappings=[dict(repository_id="repo", business_baseline_node_id="initial",
-        business_baseline_commit_id="commit", baseline_head_version=0, enabled=True, **scope)])))
+    seed_file.write_text(
+        json.dumps(
+            dict(
+                mappings=[
+                    dict(
+                        repository_id="repo",
+                        business_baseline_node_id="initial",
+                        business_baseline_commit_id="commit",
+                        baseline_head_version=0,
+                        enabled=True,
+                        **scope,
+                    )
+                ]
+            )
+        )
+    )
     with pytest.raises(ValueError, match="noncharacter"):
         load_provisioned_mapping_file(seed_file)
     with pytest.raises(ValueError, match="noncharacter"):
-        compute_upload_request_fingerprint(scope_owner_actor_id="actor",
+        compute_upload_request_fingerprint(
+            scope_owner_actor_id="actor",
             scope_gateway_device_external_key=scope["gateway_device_external_key"],
-            scope_business_project_id=scope["business_project_id"], expected_workspace_version=0,
-            input_completeness=InputCompleteness.FULL, source_artifacts={})
+            scope_business_project_id=scope["business_project_id"],
+            expected_workspace_version=0,
+            input_completeness=InputCompleteness.FULL,
+            source_artifacts={},
+        )
     with pytest.raises(ValueError, match="noncharacter"):
-        compute_close_request_fingerprint(repository_id="repo", submission_id="submission",
-            expected_review_version=0, expected_baseline_node_id="initial", expected_baseline_head_version=0,
-            reason="close", **scope)
+        compute_close_request_fingerprint(
+            repository_id="repo",
+            submission_id="submission",
+            expected_review_version=0,
+            expected_baseline_node_id="initial",
+            expected_baseline_head_version=0,
+            reason="close",
+            **scope,
+        )
     if field == "gateway_device_external_key":
         directory_document = _directory()
         directory_document["devices"][0][field] = scope[field]
@@ -244,9 +338,11 @@ def test_noncharacter_is_rejected_at_scope_inputs_before_business_digest(field: 
             _parse_directory(directory_document)
         with pytest.raises(ValueError, match="noncharacter"):
             DeviceRegistrationQuery(device=scope[field])
-        generators: tuple[Callable[[str], str], ...] = (device_route_key,
+        generators: tuple[Callable[[str], str], ...] = (
+            device_route_key,
             lambda value: device_create_key("test-env", "group-a", value),
-            lambda value: device_initial_node_id("test-env", "group-a", value))
+            lambda value: device_initial_node_id("test-env", "group-a", value),
+        )
         for generate in generators:
             with pytest.raises(ValueError, match="noncharacter"):
                 generate(scope[field])

@@ -1,4 +1,5 @@
 """Feed real comparison, location and Risk evidence to the navigation owner."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
@@ -13,28 +14,58 @@ from gateway_backend.artifacts import ArtifactStorePort
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.artifacts.store import put_with_built_ref
 from gateway_backend.capabilities.business_navigation import (
-    NavigationChangeKind, NavigationEvidence, NavigationRow, NavigationSide, NavigationTable, build_navigation,
-    identity_excluded_sides, reduce_table_risks,
+    NavigationChangeKind,
+    NavigationEvidence,
+    NavigationRow,
+    NavigationSide,
+    NavigationTable,
+    build_navigation,
+    identity_excluded_sides,
+    reduce_table_risks,
 )
-from gateway_backend.capabilities.business_navigation.contracts import FILTER_IDENTITY_COLUMNS, Scalar
+from gateway_backend.capabilities.business_navigation.contracts import (
+    FILTER_IDENTITY_COLUMNS,
+    Scalar,
+)
 from gateway_backend.capabilities.business_navigation import maximum_risk
 from gateway_backend.capabilities.comparison import ComparisonRecordsHandle
 from gateway_backend.capabilities.comparison.contracts import (
-    BoundSnapshotInput, ComparisonFacts, ComparisonMode, ComparisonPlan, ComparisonRecordsClosure,
-    ComparisonTableStatus, RecordsArtifactFamily,
+    BoundSnapshotInput,
+    ComparisonFacts,
+    ComparisonMode,
+    ComparisonPlan,
+    ComparisonRecordsClosure,
+    ComparisonTableStatus,
+    RecordsArtifactFamily,
 )
-from gateway_backend.capabilities.risk_evaluation.contracts import RiskAnnotation, RiskLevel, RiskTargetType, RiskReport
+from gateway_backend.capabilities.risk_evaluation.contracts import (
+    RiskAnnotation,
+    RiskLevel,
+    RiskTargetType,
+    RiskReport,
+)
 from gateway_backend.capabilities.row_location import (
-    RowLocationResult, prepare_row_locations, publish_row_locations, identity_batches,
+    RowLocationResult,
+    prepare_row_locations,
+    publish_row_locations,
+    identity_batches,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTable
 from gateway_backend.capabilities.surface_assembly import table_change_kind
-from gateway_backend.capabilities.surface_assembly.contracts import SurfaceArtifactIndexEntry, SurfaceProjectionRef
+from gateway_backend.capabilities.surface_assembly.contracts import (
+    SurfaceArtifactIndexEntry,
+    SurfaceProjectionRef,
+)
 from gateway_backend.capabilities.table_access import current_kernel_context
-from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
+from gateway_backend.capabilities.table_presentation.contracts import (
+    PresentationMetadata,
+    TablePresentation,
+)
 from gateway_backend.capabilities.table_presentation import table_display_name
 
-NAVIGATION_ROW_TABLES = frozenset({"net_cfg", "com_cfg", "device", "app_cfg", *FILTER_IDENTITY_COLUMNS})
+NAVIGATION_ROW_TABLES = frozenset(
+    {"net_cfg", "com_cfg", "device", "app_cfg", *FILTER_IDENTITY_COLUMNS}
+)
 _REGISTRY_COLUMNS = {
     "net_cfg": ("board", "link_no", "exe", "channel_desc", "protocol_name"),
     "com_cfg": ("board", "com_no", "exe", "channel_desc", "protocol_name"),
@@ -45,6 +76,7 @@ _REGISTRY_COLUMNS = {
 
 class RiskAttribution:
     """Reduce typed transient outcomes while their owning evaluation is live."""
+
     def __init__(self) -> None:
         self.table_levels: dict[str, RiskLevel | None] = {}
         self.global_level: RiskLevel | None = None
@@ -90,24 +122,46 @@ class RiskAttribution:
             shared = name in FILTER_IDENTITY_COLUMNS
             reason_codes = {reason.reason_code.value for reason in annotation.reasons}
             row_coverage = {"ROW_COUNTS", "ROW_RECORDS_SUPPRESSED", "ROW_RECORDS_UNAVAILABLE"}
-            structural_reasons = {"TABLE_ADDED", "TABLE_DELETED", "SCHEMA_CHANGED", "KEY_DEGRADED",
-                                  "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED", "COMPARISON_FAILED"}
+            structural_reasons = {
+                "TABLE_ADDED",
+                "TABLE_DELETED",
+                "SCHEMA_CHANGED",
+                "KEY_DEGRADED",
+                "ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED",
+                "COMPARISON_FAILED",
+            }
             # Risk's budget fallback uses KEY_DEGRADED for an incomplete evaluation,
             # not as evidence that Comparison's table or key actually degraded.
             risk_budget_fallback = (
-                len(annotation.reasons) == 1 and reason_codes == {"KEY_DEGRADED"}
-                and dict(annotation.reasons[0].evidence).get("diagnostic") in {
-                    "RISK_TABLE_BUDGET_EXCEEDED", "RISK_ANNOTATION_LIMIT_EXCEEDED",
+                len(annotation.reasons) == 1
+                and reason_codes == {"KEY_DEGRADED"}
+                and dict(annotation.reasons[0].evidence).get("diagnostic")
+                in {
+                    "RISK_TABLE_BUDGET_EXCEEDED",
+                    "RISK_ANNOTATION_LIMIT_EXCEEDED",
                     "RISK_DIAGNOSTICS_TRUNCATED",
                 }
             )
-            unknown_table = (target.target_type is RiskTargetType.TABLE
-                and (target.coverage not in row_coverage and
-                     (risk_budget_fallback or target.coverage is not None
-                      or not reason_codes <= structural_reasons)))
-            if shared and (target.target_type is RiskTargetType.TABLE and target.coverage in row_coverage
-                    or unknown_table or target.target_type not in {RiskTargetType.TABLE, RiskTargetType.COMPARISON,
-                                                                    RiskTargetType.ROW, RiskTargetType.ROW_PAIR}):
+            unknown_table = target.target_type is RiskTargetType.TABLE and (
+                target.coverage not in row_coverage
+                and (
+                    risk_budget_fallback
+                    or target.coverage is not None
+                    or not reason_codes <= structural_reasons
+                )
+            )
+            if shared and (
+                target.target_type is RiskTargetType.TABLE
+                and target.coverage in row_coverage
+                or unknown_table
+                or target.target_type
+                not in {
+                    RiskTargetType.TABLE,
+                    RiskTargetType.COMPARISON,
+                    RiskTargetType.ROW,
+                    RiskTargetType.ROW_PAIR,
+                }
+            ):
                 unlocated = maximum_risk(unlocated, annotation.risk_level)
                 reasons.update(reason_codes)
                 if target.coverage not in row_coverage:
@@ -117,15 +171,22 @@ class RiskAttribution:
                 # its full reasons/evidence would keep arbitrary payload bytes
                 # after Risk's admission closes; navigation needs only levels.
                 if target.table_name is not None:
-                    table_level = reduce_table_risks((target.table_name,), (annotation,))[target.table_name]
+                    table_level = reduce_table_risks((target.table_name,), (annotation,))[
+                        target.table_name
+                    ]
                     self.table_levels[target.table_name] = maximum_risk(
-                        self.table_levels.get(target.table_name), table_level)
+                        self.table_levels.get(target.table_name), table_level
+                    )
                 elif target.target_type is RiskTargetType.COMPARISON:
                     global_level = reduce_table_risks((name,), (annotation,))[name]
                     self.global_level = maximum_risk(self.global_level, global_level)
             else:
                 found = False
-                for identity in (target.row_identity, target.before_row_identity, target.current_row_identity):
+                for identity in (
+                    target.row_identity,
+                    target.before_row_identity,
+                    target.current_row_identity,
+                ):
                     if identity is not None:
                         found = True
                         row_reasons.setdefault(identity.value, set()).update(reason_codes)
@@ -143,7 +204,8 @@ class RiskAttribution:
 
 
 def navigation_row_demands(
-    plan: ComparisonPlan, same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],
+    plan: ComparisonPlan,
+    same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],
 ) -> tuple[SnapshotTable, ...]:
     """Canonical row demands are separate from export/cache/comparison demands."""
     if plan.before.table_set is None or plan.current.table_set is None:
@@ -160,17 +222,29 @@ def navigation_row_demands(
     return tuple(demands)
 
 
-def _side(table: SnapshotTable | None, presentation: TablePresentation | None) -> NavigationSide | None:
+def _side(
+    table: SnapshotTable | None, presentation: TablePresentation | None
+) -> NavigationSide | None:
     if table is None:
         return None
     descriptor = table.descriptor
     names = tuple(column.name for column in descriptor.columns)
     # Keyed whole-row frames request only the shared codec and no occurrence
     # state. They establish canonical whole-row representative ordering.
-    policy = canonicalize_json_value({"mode": "keyed", "selected_columns": list(names),
-        "effective_key_before": list(names), "effective_key_current": list(names)}).decode()
-    wanted = _REGISTRY_COLUMNS.get(descriptor.table_name,
-        (FILTER_IDENTITY_COLUMNS[descriptor.table_name],) if descriptor.table_name in FILTER_IDENTITY_COLUMNS else ())
+    policy = canonicalize_json_value(
+        {
+            "mode": "keyed",
+            "selected_columns": list(names),
+            "effective_key_before": list(names),
+            "effective_key_current": list(names),
+        }
+    ).decode()
+    wanted = _REGISTRY_COLUMNS.get(
+        descriptor.table_name,
+        (FILTER_IDENTITY_COLUMNS[descriptor.table_name],)
+        if descriptor.table_name in FILTER_IDENTITY_COLUMNS
+        else (),
+    )
 
     def rows() -> Iterator[NavigationRow]:
         with_rows = identity_batches(table, policy)
@@ -178,23 +252,37 @@ def _side(table: SnapshotTable | None, presentation: TablePresentation | None) -
             for batch, _, order_keys in with_rows:
                 positions = {name: batch.schema.get_field_index(name) for name in wanted}
                 for index, key in enumerate(order_keys):
-                    values = {name: cast(Scalar, batch.column(position)[index].as_py())
-                        for name, position in positions.items() if position >= 0}
+                    values = {
+                        name: cast(Scalar, batch.column(position)[index].as_py())
+                        for name, position in positions.items()
+                        if position >= 0
+                    }
                     yield NavigationRow(values, key)
                 del batch, _, order_keys
         finally:
             with_rows.close()
 
-    return NavigationSide({c.name: c.scalar_type for c in descriptor.columns}, rows,
-        descriptor.row_count, table_display_name(descriptor.table_name, None, presentation),
-        None if presentation is None else presentation.comment)
+    return NavigationSide(
+        {c.name: c.scalar_type for c in descriptor.columns},
+        rows,
+        descriptor.row_count,
+        table_display_name(descriptor.table_name, None, presentation),
+        None if presentation is None else presentation.comment,
+    )
 
 
 def publish_business_presentation(
-    plan: ComparisonPlan, facts: ComparisonFacts, closure: ComparisonRecordsClosure | None,
-    handles: dict[str, ComparisonRecordsHandle], table_artifacts: tuple[SurfaceArtifactIndexEntry, ...],
-    attribution: RiskAttribution, store: ArtifactStorePort, *,
-    risk_report: RiskReport, before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
+    plan: ComparisonPlan,
+    facts: ComparisonFacts,
+    closure: ComparisonRecordsClosure | None,
+    handles: dict[str, ComparisonRecordsHandle],
+    table_artifacts: tuple[SurfaceArtifactIndexEntry, ...],
+    attribution: RiskAttribution,
+    store: ArtifactStorePort,
+    *,
+    risk_report: RiskReport,
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
     same_complete: Callable[[BoundSnapshotInput, BoundSnapshotInput, str], bool],
     initial_baseline: bool = False,
 ) -> tuple[tuple[SurfaceArtifactIndexEntry, ...], SurfaceProjectionRef, dict[str, int | float]]:
@@ -215,9 +303,19 @@ def publish_business_presentation(
     current_labels = {t.table_name: t for t in current_presentation.tables}
     tasks = {t.table_name: t for t in plan.tasks}
     artifacts = {t.table_name: t for t in table_artifacts}
-    entries = {} if closure is None else {e.table_name: e for e in closure.records if e.family is RecordsArtifactFamily.STANDARD}
-    table_risks = {t.table_name: maximum_risk(attribution.table_levels.get(t.table_name), attribution.global_level)
-        for t in facts.tables}
+    entries = (
+        {}
+        if closure is None
+        else {
+            e.table_name: e for e in closure.records if e.family is RecordsArtifactFamily.STANDARD
+        }
+    )
+    table_risks = {
+        t.table_name: maximum_risk(
+            attribution.table_levels.get(t.table_name), attribution.global_level
+        )
+        for t in facts.tables
+    }
     risk_levels = {table.table_name: table.risk_level for table in risk_report.tables}
     risk_diagnostics = {table.table_name: table.diagnostics for table in risk_report.tables}
     tables = []
@@ -232,21 +330,49 @@ def publish_business_presentation(
         context.checkpoint()
         name = fact.table_name
         task = tasks[name]
-        excluded = (identity_excluded_sides(task, original_fact, FILTER_IDENTITY_COLUMNS[name])
-            if not replacement and name in FILTER_IDENTITY_COLUMNS else frozenset())
-        if (entries.get(name) is not None and handles.get(name) is None
-                and any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
-                and fact.status not in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE}):
+        excluded = (
+            identity_excluded_sides(task, original_fact, FILTER_IDENTITY_COLUMNS[name])
+            if not replacement and name in FILTER_IDENTITY_COLUMNS
+            else frozenset()
+        )
+        if (
+            entries.get(name) is not None
+            and handles.get(name) is None
+            and any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
+            and fact.status
+            not in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE}
+        ):
             raise ValueError("published ordinary row records have no native owner")
         locator_started = perf_counter()
-        located = prepare_row_locations(task, entries.get(name), handles.get(name), artifacts[name].table_refs,
-            store, filter_column=("dev_addr" if name == "device" else FILTER_IDENTITY_COLUMNS.get(name)) if not excluded else None)
+        located = prepare_row_locations(
+            task,
+            entries.get(name),
+            handles.get(name),
+            artifacts[name].table_refs,
+            store,
+            filter_column=("dev_addr" if name == "device" else FILTER_IDENTITY_COLUMNS.get(name))
+            if not excluded
+            else None,
+        )
         locator_seconds += perf_counter() - locator_started
         scanned_rows += located.scanned_rows
-        records = tuple(replace(r, risk_level=attribution.rows.get(name, {}).get(r.row_identity),
-            risk_reasons=tuple(sorted(attribution.row_reasons.get(name, {}).get(r.row_identity, set()))))
-            for r in located.records) if name in FILTER_IDENTITY_COLUMNS or name == "device" else ()
-        locator_complete = located.batch is not None or not any((fact.row_added_count, fact.row_deleted_count, fact.row_modified_count))
+        records = (
+            tuple(
+                replace(
+                    r,
+                    risk_level=attribution.rows.get(name, {}).get(r.row_identity),
+                    risk_reasons=tuple(
+                        sorted(attribution.row_reasons.get(name, {}).get(r.row_identity, set()))
+                    ),
+                )
+                for r in located.records
+            )
+            if name in FILTER_IDENTITY_COLUMNS or name == "device"
+            else ()
+        )
+        locator_complete = located.batch is not None or not any(
+            (fact.row_added_count, fact.row_deleted_count, fact.row_modified_count)
+        )
         if name in FILTER_IDENTITY_COLUMNS or name == "device":
             locations[name] = located
         else:
@@ -260,8 +386,12 @@ def publish_business_presentation(
         unlocated = attribution.unlocated.get(name)
         unlocated_reasons = set(attribution.unlocated_reasons.get(name, set()))
         if not attribution.complete.get(name, False):
-            known_diagnostics = {"RISK_ANNOTATION_LIMIT_EXCEEDED", "RISK_TABLE_BUDGET_EXCEEDED",
-                                 "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED", "RISK_DIAGNOSTICS_TRUNCATED"}
+            known_diagnostics = {
+                "RISK_ANNOTATION_LIMIT_EXCEEDED",
+                "RISK_TABLE_BUDGET_EXCEEDED",
+                "RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED",
+                "RISK_DIAGNOSTICS_TRUNCATED",
+            }
             unlocated_reasons.update(known_diagnostics.intersection(risk_diagnostics.get(name, ())))
             unlocated_reasons.update(known_diagnostics.intersection(risk_report.diagnostics))
         if name in FILTER_IDENTITY_COLUMNS:
@@ -272,41 +402,90 @@ def publish_business_presentation(
             comparison_succeeded=fact.status is not ComparisonTableStatus.DEGRADED,
             schema_only=fact.status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
             degraded=fact.status is ComparisonTableStatus.DEGRADED,
-            expected_record_counts=(fact.row_added_count, fact.row_deleted_count, fact.row_modified_count),
+            expected_record_counts=(
+                fact.row_added_count,
+                fact.row_deleted_count,
+                fact.row_modified_count,
+            ),
             suppressed_added_count=fact.suppressed_added_count,
             suppressed_deleted_count=fact.suppressed_deleted_count,
             locator_complete=locator_complete,
-            risk_attribution_complete=(attribution.complete.get(name, False)
-                and not (name in FILTER_IDENTITY_COLUMNS and bool(unmatched))),
-            records=records, table_risk=table_risks[name], any_table_risk=attribution.any_risk.get(name, False),
-            unlocated_risk=unlocated, unlocated_reasons=tuple(sorted(unlocated_reasons)),
+            risk_attribution_complete=(
+                attribution.complete.get(name, False)
+                and not (name in FILTER_IDENTITY_COLUMNS and bool(unmatched))
+            ),
+            records=records,
+            table_risk=table_risks[name],
+            any_table_risk=attribution.any_risk.get(name, False),
+            unlocated_risk=unlocated,
+            unlocated_reasons=tuple(sorted(unlocated_reasons)),
         )
-        tables.append(NavigationTable(name, name, _side(before_tables.get(name), before_labels.get(name)),
-            _side(current_tables.get(name), current_labels.get(name)), evidence=evidence,
-            table_change=fact.status in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE,
-                ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
-                ComparisonTableStatus.DEGRADED, ComparisonTableStatus.REPLACED}
+        tables.append(
+            NavigationTable(
+                name,
+                name,
+                _side(before_tables.get(name), before_labels.get(name)),
+                _side(current_tables.get(name), current_labels.get(name)),
+                evidence=evidence,
+                table_change=fact.status
+                in {
+                    ComparisonTableStatus.ADDED_TABLE,
+                    ComparisonTableStatus.DELETED_TABLE,
+                    ComparisonTableStatus.SCHEMA_CHANGED,
+                    ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+                    ComparisonTableStatus.DEGRADED,
+                    ComparisonTableStatus.REPLACED,
+                }
                 or fact.schema_changes.change_source is not None,
-            structure_changed=(original_fact.before_descriptor is not None
-                and original_fact.current_descriptor is not None
-                and (original_fact.status in {ComparisonTableStatus.SCHEMA_CHANGED, ComparisonTableStatus.SCHEMA_ONLY_CHANGED}
-                    or original_fact.schema_changes.change_source is not None
-                    or original_fact.before_descriptor.business_schema_digest != original_fact.current_descriptor.business_schema_digest)),
-            change_kind=NavigationChangeKind(table_change_kind(original_fact, replacement=replacement).value),
-            risk_level=risk_levels.get(name),
-            unchanged=same_complete(plan.before, plan.current, name), identity_excluded_sides=excluded))
+                structure_changed=(
+                    original_fact.before_descriptor is not None
+                    and original_fact.current_descriptor is not None
+                    and (
+                        original_fact.status
+                        in {
+                            ComparisonTableStatus.SCHEMA_CHANGED,
+                            ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+                        }
+                        or original_fact.schema_changes.change_source is not None
+                        or original_fact.before_descriptor.business_schema_digest
+                        != original_fact.current_descriptor.business_schema_digest
+                    )
+                ),
+                change_kind=NavigationChangeKind(
+                    table_change_kind(original_fact, replacement=replacement).value
+                ),
+                risk_level=risk_levels.get(name),
+                unchanged=same_complete(plan.before, plan.current, name),
+                identity_excluded_sides=excluded,
+            )
+        )
     navigation_started = perf_counter()
-    navigation = build_navigation(tuple(tables), replacement=replacement, initial_baseline=initial_baseline,
-        check=context.checkpoint, reserve=context.memory.reserve, resources=context.resources)
+    navigation = build_navigation(
+        tuple(tables),
+        replacement=replacement,
+        initial_baseline=initial_baseline,
+        check=context.checkpoint,
+        reserve=context.memory.reserve,
+        resources=context.resources,
+    )
     navigation_seconds = perf_counter() - navigation_started
     tables.clear()
     if facts.tables:
         del records, evidence
     attribution.close()
-    namespaces = (navigation.document["replacement_sides"].values() if replacement else
-        (navigation.document["groups"],))
-    filtered_tables = {tab["table_id"] for groups in namespaces for group in groups
-        for item in group["items"] for tab in item["tabs"] if tab["row_filter"] is not None}
+    namespaces = (
+        navigation.document["replacement_sides"].values()
+        if replacement
+        else (navigation.document["groups"],)
+    )
+    filtered_tables = {
+        tab["table_id"]
+        for groups in namespaces
+        for group in groups
+        for item in group["items"]
+        for tab in item["tabs"]
+        if tab["row_filter"] is not None
+    }
     for name, located in locations.items():
         locator_started = perf_counter()
         locator_ref = publish_row_locations(located, store, filtered=name in filtered_tables)
@@ -317,23 +496,43 @@ def publish_business_presentation(
     navigation_started = perf_counter()
     payload = navigation.to_bytes()
     digest = raw_blob_digest(payload)
-    ref = put_with_built_ref(store, payload,
-        artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "business-navigation", digest.value),
-        media_type="application/json")
+    ref = put_with_built_ref(
+        store,
+        payload,
+        artifact_id=build_artifact_id(
+            ArtifactLocation.COMPARISON, "business-navigation", digest.value
+        ),
+        media_type="application/json",
+    )
     diagnostic_ref = None
     if navigation.diagnostics is not None:
         data = canonicalize_json_value(navigation.diagnostics)
-        diagnostic_ref = put_with_built_ref(store, data,
-            artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "navigation-diagnostics", raw_blob_digest(data).value),
-            media_type="application/json")
-    projection = SurfaceProjectionRef("business_navigation", "BUSINESS_NAVIGATION", ref, digest,
-        diagnostics_ref=diagnostic_ref)
+        diagnostic_ref = put_with_built_ref(
+            store,
+            data,
+            artifact_id=build_artifact_id(
+                ArtifactLocation.COMPARISON, "navigation-diagnostics", raw_blob_digest(data).value
+            ),
+            media_type="application/json",
+        )
+    projection = SurfaceProjectionRef(
+        "business_navigation", "BUSINESS_NAVIGATION", ref, digest, diagnostics_ref=diagnostic_ref
+    )
     navigation_seconds += perf_counter() - navigation_started
-    return tuple(artifacts[name] for name in sorted(artifacts)), projection, {
-        # Disjoint child spans of business_presentation_seconds, which itself is
-        # contained in surface_and_table_export_seconds. Never sum the parents.
-        "locator_seconds": locator_seconds, "navigation_and_diagnostics_seconds": navigation_seconds,
-        "locator_scanned_rows": scanned_rows, "locator_bytes": locator_bytes,
-        "navigation_scanned_rows": navigation.scanned_rows, "navigation_bytes": len(payload),
-        "navigation_diagnostic_bytes": 0 if diagnostic_ref is None else diagnostic_ref.size_bytes,
-    }
+    return (
+        tuple(artifacts[name] for name in sorted(artifacts)),
+        projection,
+        {
+            # Disjoint child spans of business_presentation_seconds, which itself is
+            # contained in surface_and_table_export_seconds. Never sum the parents.
+            "locator_seconds": locator_seconds,
+            "navigation_and_diagnostics_seconds": navigation_seconds,
+            "locator_scanned_rows": scanned_rows,
+            "locator_bytes": locator_bytes,
+            "navigation_scanned_rows": navigation.scanned_rows,
+            "navigation_bytes": len(payload),
+            "navigation_diagnostic_bytes": 0
+            if diagnostic_ref is None
+            else diagnostic_ref.size_bytes,
+        },
+    )

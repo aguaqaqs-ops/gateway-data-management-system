@@ -37,7 +37,10 @@ from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.artifacts.computation_cache import ComputationCachePort
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.application.history.compare import build_history_compare_job_payload
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationRecord,
@@ -50,11 +53,19 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
-from gateway_backend.operations.worker import ClaimedExecutor, ExecutionControl, ExecutorAcknowledgment, WriteUnitOfWorkFactory
+from gateway_backend.operations.worker import (
+    ClaimedExecutor,
+    ExecutionControl,
+    ExecutorAcknowledgment,
+    WriteUnitOfWorkFactory,
+)
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.preview_job_harness import BASE_TIME
-from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryCatalogTable, RepositoryColumn
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    RepositoryCatalogTable,
+    RepositoryColumn,
+)
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     RepositoryRows,
@@ -63,7 +74,11 @@ from tests.support.repository_ref_materialization import (
     int_id_column,
     make_catalog,
 )
-from tests.support.canonical_metadata import MetadataControlDbUnitOfWork, metadata_for_catalog, CatalogCommitCanonicalMetadataPort
+from tests.support.canonical_metadata import (
+    MetadataControlDbUnitOfWork,
+    metadata_for_catalog,
+    CatalogCommitCanonicalMetadataPort,
+)
 from tests.support.workspace_fixtures import make_identity
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
@@ -72,6 +87,8 @@ DEVICE_KEY = "device-1"
 PROJECT_ID = "project-1"
 IDEMPOTENCY_KEY = "history-compare-idem-1"
 ORDERED_SYX_TABLE = "b1_n1_iec104_syx_list"
+
+
 def ordered_syx_catalog_table() -> RepositoryCatalogTable:
     return catalog_table(
         ORDERED_SYX_TABLE,
@@ -233,7 +250,9 @@ class HistoryCompareJobHarness:
     publication_uow_factory: Callable[[], AbstractContextManager[HistoryCompareControlTransaction]]
 
     @property
-    def control_transaction_factory(self) -> Callable[[], AbstractContextManager[HistoryCompareControlTransaction]]:
+    def control_transaction_factory(
+        self,
+    ) -> Callable[[], AbstractContextManager[HistoryCompareControlTransaction]]:
         return self.publication_uow_factory
 
     def executor(self, handler_identity: str) -> ClaimedExecutor:
@@ -307,7 +326,8 @@ def build_history_compare_harness(
             HistoryCompareControlTransactionFactory,
             control_transaction_factory,
         ),
-        snapshot_export_cache=snapshot_export_cache, computation_cache=computation_cache,
+        snapshot_export_cache=snapshot_export_cache,
+        computation_cache=computation_cache,
     )
     definitions, handlers, decoders, bound_deps = history_compare_composition_bundle(deps)
     publication_uow_factory = bound_deps.control_transaction_factory
@@ -394,7 +414,9 @@ def _rows_matching_catalog_counts(
             result[table.table_name] = rows
             continue
         if not rows and expected:
-            raise AssertionError("history fixture metadata requires at least one row for a count mismatch")
+            raise AssertionError(
+                "history fixture metadata requires at least one row for a count mismatch"
+            )
         if len(rows) > expected:
             result[table.table_name] = rows[:expected]
         else:

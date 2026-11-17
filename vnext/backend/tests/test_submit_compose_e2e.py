@@ -127,7 +127,9 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                 "GATEWAY_REPOSITORY_SERVICE_IMAGE",
                 "gateway-repository-service:local",
             ),
-            "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix="gateway-submit-s8"),
+            "COMPOSE_PROJECT_NAME": compose_project_name(
+                tmp_path, default_prefix="gateway-submit-s8"
+            ),
         }
     )
     return env
@@ -175,8 +177,10 @@ def _archive_single_submission(client: httpx.Client, submission_id: str) -> dict
     candidate = next(
         item for item in candidates.json()["candidates"] if item["submission_id"] == submission_id
     )
-    selected = {"submission_id": candidate["submission_id"],
-        "expected_candidate_digest": candidate["expected_candidate_digest"]}
+    selected = {
+        "submission_id": candidate["submission_id"],
+        "expected_candidate_digest": candidate["expected_candidate_digest"],
+    }
     preview = client.post("/v1/archive-plan-preview", json={"selected": selected})
     assert preview.status_code == 200, preview.text
     preview_body = cast(dict[str, Any], preview.json())
@@ -184,7 +188,9 @@ def _archive_single_submission(client: httpx.Client, submission_id: str) -> dict
     head = cast(dict[str, Any], preview_body["head"])
     confirmation = client.post(
         "/v1/archive-confirmations",
-        headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key="removed-tables-confirm"),
+        headers=compose_auth_headers(
+            token=ARCHIVER_TOKEN, idempotency_key="removed-tables-confirm"
+        ),
         json={
             "expected_baseline_node_id": head["business_baseline_node_id"],
             "expected_baseline_head_version": head["baseline_head_version"],
@@ -292,12 +298,18 @@ def test_compose_accept_upload_import_poll_t3_read_journey(tmp_path: Path) -> No
             "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
             "/v1/history-compares/{operation_id}/bundle",
         ):
-            assert set(schema.json()["paths"][route]["get"]["responses"]["200"]["content"]) == {"application/x-tar"}
+            assert set(schema.json()["paths"][route]["get"]["responses"]["200"]["content"]) == {
+                "application/x-tar"
+            }
         schema_path = tmp_path / "production-openapi.json"
         schema_path.write_bytes(schema.content)
-        print(f"production OpenAPI {schema_path} sha256={hashlib.sha256(schema.content).hexdigest()}")
+        print(
+            f"production OpenAPI {schema_path} sha256={hashlib.sha256(schema.content).hexdigest()}"
+        )
         provenance = capture_running_container_provenance(env)
-        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
+        print(
+            f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}"
+        )
     finally:
         down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:
@@ -408,6 +420,8 @@ def test_compose_submit_removes_deleted_user_and_sibling_tables(tmp_path: Path) 
             "composite_signal_point",
         }
         provenance = capture_running_container_provenance(env)
-        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
+        print(
+            f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}"
+        )
     finally:
         cleanup_compose_project_artifacts(env)

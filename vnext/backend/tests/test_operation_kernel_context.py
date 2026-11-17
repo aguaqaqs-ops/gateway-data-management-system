@@ -6,12 +6,19 @@ import pyarrow as pa
 import pytest
 
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, KernelMemoryLimit, KernelStopped, NeverCancel,
-    OperationMemoryBudget, kernel_execution_scope, parse_arrow_sql,
+    KernelExecutionContext,
+    KernelMemoryLimit,
+    KernelStopped,
+    NeverCancel,
+    OperationMemoryBudget,
+    kernel_execution_scope,
+    parse_arrow_sql,
 )
 from gateway_backend.capabilities.snapshot_materialization import materialize_sql_snapshot
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    MaterializationPolicy, MaterializationStage, SnapshotMaterializationStatus,
+    MaterializationPolicy,
+    MaterializationStage,
+    SnapshotMaterializationStatus,
     SqlSnapshotMaterializationRequest,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
@@ -37,14 +44,21 @@ def test_shared_arrow_views_count_backing_once_and_release_at_last_owner() -> No
 def test_parser_and_materializer_share_the_operation_budget_and_stream_lifetime() -> None:
     context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), NeverCancel(), 1)
     with kernel_execution_scope(context, new_operation=True):
-        request = sql_request("CREATE TABLE t (id INT PRIMARY KEY, name TEXT); INSERT INTO t VALUES (1,'a'),(2,'b');")
+        request = sql_request(
+            "CREATE TABLE t (id INT PRIMARY KEY, name TEXT); INSERT INTO t VALUES (1,'a'),(2,'b');"
+        )
         parsed = parse_arrow_sql(request)
-        result = materialize_sql_snapshot(SqlSnapshotMaterializationRequest(
-            parse_result=parsed, sql_source_digest=request.source.sql_source_digest,
-            ruleset=migrated_table_ruleset_snapshot(), table_ruleset_version=TABLE_RULESET_VERSION,
-            materialization_stage=MaterializationStage.FINAL,
-            policy=MaterializationPolicy.READERS_REQUIRED, context=ParserInvocationContext(context.cancel_probe),
-        ))
+        result = materialize_sql_snapshot(
+            SqlSnapshotMaterializationRequest(
+                parse_result=parsed,
+                sql_source_digest=request.source.sql_source_digest,
+                ruleset=migrated_table_ruleset_snapshot(),
+                table_ruleset_version=TABLE_RULESET_VERSION,
+                materialization_stage=MaterializationStage.FINAL,
+                policy=MaterializationPolicy.READERS_REQUIRED,
+                context=ParserInvocationContext(context.cancel_probe),
+            )
+        )
         assert result.status is SnapshotMaterializationStatus.COMPLETE
         assert result.table_set is not None
         table = result.table_set.tables[0]
@@ -93,10 +107,19 @@ def test_caller_finite_deadline_survives_an_operation_without_a_deadline() -> No
     context = KernelExecutionContext(OperationMemoryBudget(1024**2), NeverCancel(), 1)
     with kernel_execution_scope(context, new_operation=True):
         with pytest.raises(TimeoutError):
-            parse_arrow_sql(sql_request("CREATE TABLE t (id INT);", ParserInvocationContext(NeverCancel(), 0.0)))
+            parse_arrow_sql(
+                sql_request("CREATE TABLE t (id INT);", ParserInvocationContext(NeverCancel(), 0.0))
+            )
         with pytest.raises(TimeoutError):
-            call_arrow_kernel(lambda *args: {}, [], {}, cancel_probe=NeverCancel(),
-                              budgets={"max_live_bytes": 1024**2}, deadline_monotonic=0.0, pool_threads=1)
+            call_arrow_kernel(
+                lambda *args: {},
+                [],
+                {},
+                cancel_probe=NeverCancel(),
+                budgets={"max_live_bytes": 1024**2},
+                deadline_monotonic=0.0,
+                pool_threads=1,
+            )
 
 
 def test_reader_keeps_the_callers_stop_probe_after_parser_completion() -> None:
@@ -105,8 +128,12 @@ def test_reader_keeps_the_callers_stop_probe_after_parser_completion() -> None:
     caller_stop = threading.Event()
     context = KernelExecutionContext(OperationMemoryBudget(1024**2), NeverCancel(), 1)
     with kernel_execution_scope(context, new_operation=True):
-        result = parse_arrow_sql(sql_request("CREATE TABLE t (id INT); INSERT INTO t VALUES (1);",
-                                            ParserInvocationContext(caller_stop)))
+        result = parse_arrow_sql(
+            sql_request(
+                "CREATE TABLE t (id INT); INSERT INTO t VALUES (1);",
+                ParserInvocationContext(caller_stop),
+            )
+        )
         reader = result.tables[0].reader
         assert reader is not None
         caller_stop.set()

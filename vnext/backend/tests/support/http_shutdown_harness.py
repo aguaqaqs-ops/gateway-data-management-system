@@ -70,7 +70,13 @@ def start_repository_ready_stub(
 ) -> RepositoryReadyStub:
     port_file = tmp_path / "repository-ready-stub.json"
     process = subprocess.Popen(
-        [sys.executable, str(REPOSITORY_READY_STUB_SCRIPT), bearer_token, str(port_file), str(storage_layout_file)],
+        [
+            sys.executable,
+            str(REPOSITORY_READY_STUB_SCRIPT),
+            bearer_token,
+            str(port_file),
+            str(storage_layout_file),
+        ],
         env={"PYTHONPATH": _pythonpath_environment(), **os.environ},
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -89,7 +95,9 @@ def start_repository_ready_stub(
                     timeout=1.0,
                 )
                 if response.status_code == 200:
-                    return RepositoryReadyStub(process=process, base_url=base_url, port_file=port_file)
+                    return RepositoryReadyStub(
+                        process=process, base_url=base_url, port_file=port_file
+                    )
             except httpx.HTTPError:
                 pass
         time.sleep(0.05)
@@ -105,7 +113,9 @@ def repository_ready_stub_context(
     storage_layout_file: Path,
     bearer_token: str = TEST_REPOSITORY_TOKEN,
 ) -> Iterator[RepositoryReadyStub]:
-    stub = start_repository_ready_stub(tmp_path, storage_layout_file=storage_layout_file, bearer_token=bearer_token)
+    stub = start_repository_ready_stub(
+        tmp_path, storage_layout_file=storage_layout_file, bearer_token=bearer_token
+    )
     try:
         yield stub
     finally:
@@ -199,7 +209,9 @@ def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
     )
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-prod-history"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-prod-history"
+        ),
     )
 
     baseline_head = read_authoritative_baseline_head(db_path, TEST_MAPPING_REPOSITORY_ID)
@@ -230,7 +242,9 @@ def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
                 HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, node_b),
             ),
         ),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
@@ -352,7 +366,9 @@ def http_server_subprocess_environment(
     )
 
 
-def http_server_unreachable_repository_environment(tmp_path: Path, *, port_file: Path) -> dict[str, str]:
+def http_server_unreachable_repository_environment(
+    tmp_path: Path, *, port_file: Path
+) -> dict[str, str]:
     return _base_http_server_environment(
         tmp_path,
         repository_base_url=UNREACHABLE_REPOSITORY_BASE_URL,

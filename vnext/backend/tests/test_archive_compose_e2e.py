@@ -169,7 +169,9 @@ def _approve_submission(
     assert response.status_code == 201, response.text
 
 
-def _candidate_for_submission(candidates_body: dict[str, Any], submission_id: str) -> dict[str, Any]:
+def _candidate_for_submission(
+    candidates_body: dict[str, Any], submission_id: str
+) -> dict[str, Any]:
     for candidate in candidates_body["candidates"]:
         if candidate["submission_id"] == submission_id:
             return {
@@ -250,9 +252,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             journey_key_prefix="compose-b",
             token=ACTOR2_TOKEN,
         )
-        assert any(
-            pair["status"] == "UNVERIFIABLE" for pair in journey_b["identity_pairs"]
-        )
+        assert any(pair["status"] == "UNVERIFIABLE" for pair in journey_b["identity_pairs"])
         assert len(journey_b["identity_confirmations"]) == 1
         unverifiable_confirmation = journey_b["identity_confirmations"][0]
         assert unverifiable_confirmation["action"] == "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"
@@ -268,21 +268,34 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             pending = reviewer.get("/v1/archive-candidates")
             assert pending.status_code == 200, pending.text
             pending_body = pending.json()
-            assert set(pending_body["pending_submission_ids"]) == {journey_a["submission_id"], journey_b["submission_id"]}
+            assert set(pending_body["pending_submission_ids"]) == {
+                journey_a["submission_id"],
+                journey_b["submission_id"],
+            }
             assert pending_body["pending_submission_count"] == 2
             blocked_preview = reviewer.post("/v1/archive-plan-preview", json={"selected": None})
             assert blocked_preview.status_code == 200, blocked_preview.text
             assert "ARCHIVE_PENDING_REVIEW" in blocked_preview.json()["blockers"]
-            blocked_start = reviewer.post("/v1/archives", headers=_auth_headers(idempotency_key="pending-blocked-start"), json={
-                "expected_baseline_node_id": pending_body["head"]["business_baseline_node_id"],
-                "expected_baseline_head_version": pending_body["head"]["baseline_head_version"],
-                "candidate_set_digest": pending_body["candidate_set_digest"],
-                "selected": {"submission_id": journey_a["submission_id"], "expected_candidate_digest": "sha256:" + "0" * 64},
-                "confirmation_refs": [], "anomaly_resolution_refs": [],
-            })
+            blocked_start = reviewer.post(
+                "/v1/archives",
+                headers=_auth_headers(idempotency_key="pending-blocked-start"),
+                json={
+                    "expected_baseline_node_id": pending_body["head"]["business_baseline_node_id"],
+                    "expected_baseline_head_version": pending_body["head"]["baseline_head_version"],
+                    "candidate_set_digest": pending_body["candidate_set_digest"],
+                    "selected": {
+                        "submission_id": journey_a["submission_id"],
+                        "expected_candidate_digest": "sha256:" + "0" * 64,
+                    },
+                    "confirmation_refs": [],
+                    "anomaly_resolution_refs": [],
+                },
+            )
             assert blocked_start.status_code == 409, blocked_start.text
             assert blocked_start.json()["code"] == "ARCHIVE_PENDING_REVIEW"
-            _approve_submission(reviewer, str(journey_a["submission_id"]), idempotency_key="compose-review-a")
+            _approve_submission(
+                reviewer, str(journey_a["submission_id"]), idempotency_key="compose-review-a"
+            )
             _approve_submission(
                 reviewer,
                 str(journey_b["submission_id"]),
@@ -316,10 +329,18 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             assert preview.status_code == 200, preview.text
             preview_body = cast(dict[str, Any], preview.json())
             assert preview_body["can_start"] is False
-            assert len([item for item in preview_body["anomalies"] if item["subject_kind"] in {"APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"}]) == 2
-            anomaly_by_kind = {
-                item["subject_kind"]: item for item in preview_body["anomalies"]
-            }
+            assert (
+                len(
+                    [
+                        item
+                        for item in preview_body["anomalies"]
+                        if item["subject_kind"]
+                        in {"APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"}
+                    ]
+                )
+                == 2
+            )
+            anomaly_by_kind = {item["subject_kind"]: item for item in preview_body["anomalies"]}
             anomaly = anomaly_by_kind["APPROVED_SIBLING_EXCLUDED"]
             identity_anomaly = anomaly_by_kind["PROJECT_IDENTITY_EXCEPTION"]
             assert anomaly["issue_code"] == "APPROVED_SIBLING_EXCLUDED"
@@ -382,11 +403,21 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             )
             assert identity_resolve.status_code == 201, identity_resolve.text
 
-            business_refs = resolve_archive_preview_anomalies(archiver,
-                preview_body={**preview_body, "anomalies": [item for item in preview_body["anomalies"]
-                    if item["subject_kind"].startswith("CONFIGURATION_")]}, selected=selected, token=ARCHIVER_TOKEN,
+            business_refs = resolve_archive_preview_anomalies(
+                archiver,
+                preview_body={
+                    **preview_body,
+                    "anomalies": [
+                        item
+                        for item in preview_body["anomalies"]
+                        if item["subject_kind"].startswith("CONFIGURATION_")
+                    ],
+                },
+                selected=selected,
+                token=ARCHIVER_TOKEN,
                 idempotency_key_prefix="compose-business-resolution",
-                reason="the synthetic fixture intentionally omits generation time; accept this bounded business diagnostic")
+                reason="the synthetic fixture intentionally omits generation time; accept this bounded business diagnostic",
+            )
             ready_preview = archiver.post(
                 "/v1/archive-plan-preview",
                 json={"selected": selected},
@@ -438,7 +469,9 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             started = cast(dict[str, Any], start.json())
             assert started["selected_submission_id"] == journey_a["submission_id"]
             assert started["baseline_commit_id"] == main_after_a
-            assert started["baseline_head_version"] == ready_body["head"]["baseline_head_version"] + 1
+            assert (
+                started["baseline_head_version"] == ready_body["head"]["baseline_head_version"] + 1
+            )
             disposition_map = {
                 item["submission_id"]: item["disposition"] for item in started["dispositions"]
             }
@@ -472,9 +505,10 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
 
             new_base_preview = archiver.post("/v1/archive-plan-preview", json={"selected": None})
             assert new_base_preview.status_code == 200, new_base_preview.text
-            assert new_base_preview.json()["head"]["baseline_head_version"] == post_head[
-                "baseline_head_version"
-            ]
+            assert (
+                new_base_preview.json()["head"]["baseline_head_version"]
+                == post_head["baseline_head_version"]
+            )
 
             result = archiver.get(f"/v1/archives/{started['archive_result_id']}")
             assert result.status_code == 200, result.text
@@ -579,9 +613,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             for table in cast(list[dict[str, Any]], surface["tables"])
         ]
         keyless_unchanged = next(
-            table
-            for table in repeated_tables
-            if table["table_name"] == KEYLESS_FALLBACK_TABLE
+            table for table in repeated_tables if table["table_name"] == KEYLESS_FALLBACK_TABLE
         )
         assert keyless_unchanged["change_kind"] == "UNCHANGED"
         assert keyless_unchanged["row_change_stats"]["row_added_count"] == 0
@@ -629,99 +661,219 @@ def test_compose_business_rejection_manual_close_and_fresh_upload_archive(tmp_pa
     assert_running_backend_worker_images_match_build(env)
     provenance = capture_running_container_provenance(env)
     try:
-        original = run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
-            journey_key_prefix="business-original", token=SESSION_TOKEN)
+        original = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=initial_commit,
+            journey_key_prefix="business-original",
+            token=SESSION_TOKEN,
+        )
         with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
             openapi = client.get("/openapi.json")
             assert openapi.status_code == 200, openapi.text
-            openapi_path = Path(env.get("GATEWAY_COMPOSE_GATE_OPENAPI_PATH", str(tmp_path / "openapi.json")))
+            openapi_path = Path(
+                env.get("GATEWAY_COMPOSE_GATE_OPENAPI_PATH", str(tmp_path / "openapi.json"))
+            )
             openapi_path.write_bytes(openapi.content)
             print(f"production OpenAPI exported to {openapi_path}")
-            _approve_submission(client, str(original["submission_id"]), idempotency_key="business-approve-original")
+            _approve_submission(
+                client, str(original["submission_id"]), idempotency_key="business-approve-original"
+            )
             candidate_body = client.get("/v1/archive-candidates").json()
             selected = _candidate_for_submission(candidate_body, str(original["submission_id"]))
             preview_response = client.post("/v1/archive-plan-preview", json={"selected": selected})
             assert preview_response.status_code == 200, preview_response.text
             preview = preview_response.json()
-            assert any(item["issue_code"] == "GENERATION_TIME_MISSING" for item in preview["anomalies"])
+            assert any(
+                item["issue_code"] == "GENERATION_TIME_MISSING" for item in preview["anomalies"]
+            )
             head = preview["head"]
-            confirmation = client.post("/v1/archive-confirmations", headers=_auth_headers(idempotency_key="business-original-confirm"),
-                json={"expected_baseline_node_id": head["business_baseline_node_id"], "expected_baseline_head_version": head["baseline_head_version"],
-                    "selected": selected, "candidate_set_digest": preview["candidate_set_digest"], "subject_digest": preview["selection_subject_digest"],
-                    "expected_sequence": 0, "action": "CONFIRM", "reason": "confirm the selected submitted state"})
+            confirmation = client.post(
+                "/v1/archive-confirmations",
+                headers=_auth_headers(idempotency_key="business-original-confirm"),
+                json={
+                    "expected_baseline_node_id": head["business_baseline_node_id"],
+                    "expected_baseline_head_version": head["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview["candidate_set_digest"],
+                    "subject_digest": preview["selection_subject_digest"],
+                    "expected_sequence": 0,
+                    "action": "CONFIRM",
+                    "reason": "confirm the selected submitted state",
+                },
+            )
             assert confirmation.status_code == 201, confirmation.text
-            blocked = client.post("/v1/archives", headers=_auth_headers(idempotency_key="business-unresolved-start"),
-                json={"expected_baseline_node_id": head["business_baseline_node_id"], "expected_baseline_head_version": head["baseline_head_version"],
-                    "selected": selected, "candidate_set_digest": preview["candidate_set_digest"],
-                    "confirmation_refs": [{"subject_digest": preview["selection_subject_digest"], "sequence": confirmation.json()["sequence"]}],
-                    "anomaly_resolution_refs": []})
-            assert blocked.status_code == 409 and blocked.json()["code"] == "ARCHIVE_ANOMALY_UNRESOLVED"
+            blocked = client.post(
+                "/v1/archives",
+                headers=_auth_headers(idempotency_key="business-unresolved-start"),
+                json={
+                    "expected_baseline_node_id": head["business_baseline_node_id"],
+                    "expected_baseline_head_version": head["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview["candidate_set_digest"],
+                    "confirmation_refs": [
+                        {
+                            "subject_digest": preview["selection_subject_digest"],
+                            "sequence": confirmation.json()["sequence"],
+                        }
+                    ],
+                    "anomaly_resolution_refs": [],
+                },
+            )
+            assert (
+                blocked.status_code == 409
+                and blocked.json()["code"] == "ARCHIVE_ANOMALY_UNRESOLVED"
+            )
             main_before = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
-            commits_before = list_repository_commit_ids(env, repository_id, bearer_token=BEARER_TOKEN)
-            with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN), timeout=60.0) as archive_only:
-                hidden_review = archive_only.get(f"/v1/submissions/{original['submission_id']}/review")
+            commits_before = list_repository_commit_ids(
+                env, repository_id, bearer_token=BEARER_TOKEN
+            )
+            with httpx.Client(
+                base_url=BACKEND_URL, headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN), timeout=60.0
+            ) as archive_only:
+                hidden_review = archive_only.get(
+                    f"/v1/submissions/{original['submission_id']}/review"
+                )
                 assert hidden_review.status_code == 403, hidden_review.text
                 own_candidates = archive_only.get("/v1/archive-candidates")
                 assert own_candidates.status_code == 200, own_candidates.text
                 own_body = cast(dict[str, Any], own_candidates.json())
-                own_candidate = next(item for item in own_body["candidates"] if item["submission_id"] == original["submission_id"])
-                assert _candidate_for_submission(own_body, str(original["submission_id"])) == selected
+                own_candidate = next(
+                    item
+                    for item in own_body["candidates"]
+                    if item["submission_id"] == original["submission_id"]
+                )
+                assert (
+                    _candidate_for_submission(own_body, str(original["submission_id"])) == selected
+                )
                 review_version = own_candidate["review_version"]
                 assert type(review_version) is int and review_version > 0
-                close_body = {"expected_review_version": review_version,
+                close_body = {
+                    "expected_review_version": review_version,
                     "expected_baseline_node_id": own_body["head"]["business_baseline_node_id"],
                     "expected_baseline_head_version": own_body["head"]["baseline_head_version"],
-                    "reason": "generation time cannot be accepted for this input; close and upload again"}
-                stale = archive_only.post(f"/v1/submissions/{original['submission_id']}/closure",
-                    headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-stale-close-original"),
-                    json={**close_body, "expected_review_version": review_version - 1})
-                assert stale.status_code == 409 and stale.json()["code"] == "REVIEW_VERSION_CONFLICT", stale.text
-                closed = archive_only.post(f"/v1/submissions/{original['submission_id']}/closure",
-                    headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-close-original"), json=close_body)
+                    "reason": "generation time cannot be accepted for this input; close and upload again",
+                }
+                stale = archive_only.post(
+                    f"/v1/submissions/{original['submission_id']}/closure",
+                    headers=_auth_headers(
+                        token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-stale-close-original"
+                    ),
+                    json={**close_body, "expected_review_version": review_version - 1},
+                )
+                assert (
+                    stale.status_code == 409 and stale.json()["code"] == "REVIEW_VERSION_CONFLICT"
+                ), stale.text
+                closed = archive_only.post(
+                    f"/v1/submissions/{original['submission_id']}/closure",
+                    headers=_auth_headers(
+                        token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-close-original"
+                    ),
+                    json=close_body,
+                )
                 assert closed.status_code == 201, closed.text
-                replay = archive_only.post(f"/v1/submissions/{original['submission_id']}/closure",
-                    headers=_auth_headers(token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-close-original"), json=close_body)
+                replay = archive_only.post(
+                    f"/v1/submissions/{original['submission_id']}/closure",
+                    headers=_auth_headers(
+                        token=ARCHIVE_ONLY_TOKEN, idempotency_key="business-close-original"
+                    ),
+                    json=close_body,
+                )
                 assert replay.status_code == 200 and replay.json() == closed.json(), replay.text
             assert client.get("/v1/archive-candidates").json()["head"] == head
             review = client.get(f"/v1/submissions/{original['submission_id']}/review")
             assert review.status_code == 200 and review.json()["status"] == "APPROVED"
             assert review.json()["submission_disposition"]["source_kind"] == "MANUAL_CLOSE"
-            assert resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN) == main_before
-            assert list_repository_commit_ids(env, repository_id, bearer_token=BEARER_TOKEN) == commits_before
+            assert (
+                resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN) == main_before
+            )
+            assert (
+                list_repository_commit_ids(env, repository_id, bearer_token=BEARER_TOKEN)
+                == commits_before
+            )
+
         def corrected_upload(version: int) -> dict[str, tuple[str, bytes, str]]:
             def package(value: str) -> bytes:
-                sql = ("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value VARCHAR(32));\n"
+                sql = (
+                    "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value VARCHAR(32));\n"
                     f"INSERT INTO t VALUES (1, '{value}');\n"
                     "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, saved_time TEXT);\n"
-                    "INSERT INTO version_manager VALUES ('project-v2', '2026-11-07T12:00:00Z');\n")
+                    "INSERT INTO version_manager VALUES ('project-v2', '2026-11-07T12:00:00Z');\n"
+                )
                 return pack_tar_gz({"sql/dbcfg.sql": sql.encode("utf-8")})
-            return upload_files(expected_version=version, initial_bytes=package("before"), modified_bytes=package("corrected"))
-        reupload = run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
-            journey_key_prefix="business-new-upload", token=SESSION_TOKEN, upload_files_factory=corrected_upload)
+
+            return upload_files(
+                expected_version=version,
+                initial_bytes=package("before"),
+                modified_bytes=package("corrected"),
+            )
+
+        reupload = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=initial_commit,
+            journey_key_prefix="business-new-upload",
+            token=SESSION_TOKEN,
+            upload_files_factory=corrected_upload,
+        )
         assert reupload["submission_id"] != original["submission_id"]
         assert reupload["workspace_id"] == original["workspace_id"]
         with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
-            _approve_submission(client, str(reupload["submission_id"]), idempotency_key="business-approve-new")
+            _approve_submission(
+                client, str(reupload["submission_id"]), idempotency_key="business-approve-new"
+            )
             candidates = client.get("/v1/archive-candidates").json()
             selected = _candidate_for_submission(candidates, str(reupload["submission_id"]))
             preview = client.post("/v1/archive-plan-preview", json={"selected": selected}).json()
-            assert not any(item["issue_code"] == "GENERATION_TIME_MISSING" for item in preview["anomalies"])
+            assert not any(
+                item["issue_code"] == "GENERATION_TIME_MISSING" for item in preview["anomalies"]
+            )
             head = preview["head"]
-            confirmation = client.post("/v1/archive-confirmations", headers=_auth_headers(idempotency_key="business-new-confirm"),
-                json={"expected_baseline_node_id": head["business_baseline_node_id"], "expected_baseline_head_version": head["baseline_head_version"],
-                    "selected": selected, "candidate_set_digest": preview["candidate_set_digest"], "subject_digest": preview["selection_subject_digest"],
-                    "expected_sequence": 0, "action": "CONFIRM", "reason": "confirm the new submission after closing the original"})
+            confirmation = client.post(
+                "/v1/archive-confirmations",
+                headers=_auth_headers(idempotency_key="business-new-confirm"),
+                json={
+                    "expected_baseline_node_id": head["business_baseline_node_id"],
+                    "expected_baseline_head_version": head["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview["candidate_set_digest"],
+                    "subject_digest": preview["selection_subject_digest"],
+                    "expected_sequence": 0,
+                    "action": "CONFIRM",
+                    "reason": "confirm the new submission after closing the original",
+                },
+            )
             assert confirmation.status_code == 201, confirmation.text
-            refs = resolve_archive_preview_anomalies(client, preview_body=preview, selected=selected, token=ARCHIVER_TOKEN,
-                idempotency_key_prefix="business-new-accept", reason="the new input supplies generation time and its recorded project identity is reviewed")
-            started = client.post("/v1/archives", headers=_auth_headers(idempotency_key="business-new-start"),
-                json={"expected_baseline_node_id": head["business_baseline_node_id"], "expected_baseline_head_version": head["baseline_head_version"],
-                    "selected": selected, "candidate_set_digest": preview["candidate_set_digest"],
-                    "confirmation_refs": [{"subject_digest": preview["selection_subject_digest"], "sequence": confirmation.json()["sequence"]}],
-                    "anomaly_resolution_refs": refs})
+            refs = resolve_archive_preview_anomalies(
+                client,
+                preview_body=preview,
+                selected=selected,
+                token=ARCHIVER_TOKEN,
+                idempotency_key_prefix="business-new-accept",
+                reason="the new input supplies generation time and its recorded project identity is reviewed",
+            )
+            started = client.post(
+                "/v1/archives",
+                headers=_auth_headers(idempotency_key="business-new-start"),
+                json={
+                    "expected_baseline_node_id": head["business_baseline_node_id"],
+                    "expected_baseline_head_version": head["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview["candidate_set_digest"],
+                    "confirmation_refs": [
+                        {
+                            "subject_digest": preview["selection_subject_digest"],
+                            "sequence": confirmation.json()["sequence"],
+                        }
+                    ],
+                    "anomaly_resolution_refs": refs,
+                },
+            )
             assert started.status_code == 201, started.text
             result = client.get(f"/v1/archives/{started.json()['archive_result_id']}")
-            assert result.status_code == 200 and result.json()["business_validation"]["rule_id"] == "gateway-vnext/archive-business-validation/v1"
+            assert (
+                result.status_code == 200
+                and result.json()["business_validation"]["rule_id"]
+                == "gateway-vnext/archive-business-validation/v1"
+            )
     finally:
         path = persist_compose_gate_provenance(env, provenance)
         print(f"compose gate provenance written to {path}")

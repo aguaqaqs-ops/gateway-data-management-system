@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import re
 
-_TOKEN = re.compile(r"--[^\n]*(?:\n|$)|\#[^\n]*(?:\n|$)|/\*.*?\*/|'(?:\\.|''|[^'\\])*'|`(?:``|[^`])*`|[A-Za-z_][A-Za-z_0-9]*|\S", re.S)
+_TOKEN = re.compile(
+    r"--[^\n]*(?:\n|$)|\#[^\n]*(?:\n|$)|/\*.*?\*/|'(?:\\.|''|[^'\\])*'|`(?:``|[^`])*`|[A-Za-z_][A-Za-z_0-9]*|\S",
+    re.S,
+)
 _ESCAPE = {"n": "\n", "r": "\r", "t": "\t", "0": "\0", "Z": "\x1a", "b": "\b"}
 
 
@@ -12,7 +15,12 @@ def _string(token: str) -> str | None:
     if not token.startswith("'"):
         raise ValueError("COMMENT requires a string")
     body = token[1:-1]
-    decoded = re.sub(r"\\(.)|('')", lambda match: _ESCAPE.get(match[1], match[1]) if match[1] is not None else "'", body, flags=re.S)
+    decoded = re.sub(
+        r"\\(.)|('')",
+        lambda match: _ESCAPE.get(match[1], match[1]) if match[1] is not None else "'",
+        body,
+        flags=re.S,
+    )
     if "\0" in decoded:
         raise ValueError("NUL comment")
     return decoded if decoded.strip() else None

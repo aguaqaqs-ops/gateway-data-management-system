@@ -1,9 +1,14 @@
 """Public surface of the Storage Projection capability."""
 
 from gateway_backend.capabilities.storage_projection.native import (
-    StorageInputLease, open_storage_input, project_arrow_table,
-    require_storage_input_owner, require_storage_operation, storage_memory_limit,
-    verify_storage_metadata_manifest, render_storage_schema_native,
+    StorageInputLease,
+    open_storage_input,
+    project_arrow_table,
+    require_storage_input_owner,
+    require_storage_operation,
+    storage_memory_limit,
+    verify_storage_metadata_manifest,
+    render_storage_schema_native,
 )
 from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext
 from gateway_backend.capabilities.storage_projection.arrow import project_canonical_arrow_table_set
@@ -62,7 +67,10 @@ from gateway_backend.capabilities.storage_projection.publish import (
     publish_canonicalization_manifest,
 )
 
-from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
+from gateway_backend.capabilities.storage_projection._digest import (
+    compute_manifest_digest,
+    compute_schema_digest,
+)
 
 __all__ = [
     "compute_schema_digest",
@@ -126,4 +134,5 @@ __all__ = [
 
 
 from gateway_backend.capabilities.storage_projection._digest import compute_storage_rule_digest
+
 __all__ += ["compute_storage_rule_digest"]

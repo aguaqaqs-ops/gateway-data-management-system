@@ -93,9 +93,7 @@ def test_package_kind_does_not_enter_sql_snapshot_identity() -> None:
     )
     assert staged.required_sql_document_ref is not None
     dump = resolve_sql_dump_source(staged.required_sql_document_ref)
-    parsed = parse_arrow_sql(
-        sql_request(sql, ParserInvocationContext(ParserNeverCancel()))
-    )
+    parsed = parse_arrow_sql(sql_request(sql, ParserInvocationContext(ParserNeverCancel())))
     packaged = materialize_sql(parsed, sql_source_digest=dump.sql_source_digest)
     raw = materialize_sql(sql)
     assert packaged.snapshot is not None and raw.snapshot is not None

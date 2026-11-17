@@ -83,9 +83,7 @@ class ArchiveAuditVersionConflict(ArchiveApplicationError):
     stable_code = "ARCHIVE_AUDIT_VERSION_CONFLICT"
 
     def __init__(self, *, expected: int, actual: int) -> None:
-        super().__init__(
-            f"audit sequence conflict: expected {expected}, actual {actual}"
-        )
+        super().__init__(f"audit sequence conflict: expected {expected}, actual {actual}")
         self.expected = expected
         self.actual = actual
 

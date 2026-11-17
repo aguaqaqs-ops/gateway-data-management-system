@@ -13,7 +13,11 @@ from typing import Callable, Protocol, TypeAlias, runtime_checkable
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict, assert_no_host_path_identity
+from gateway_backend.artifacts import (
+    ArtifactRef,
+    artifact_ref_to_dict,
+    assert_no_host_path_identity,
+)
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
     ComparisonRecordsClosure,
@@ -28,22 +32,30 @@ RISK_RULESET_CONTRACT_VERSION = "backend-vnext/risk-ruleset/v1"
 RISK_MODEL_VERSION = "backend-vnext/risk-model/v6"
 RISK_ANNOTATION_CONTRACT_VERSION = "backend-vnext/risk-annotations/v1"
 RISK_ANNOTATION_MEDIA_TYPE = "application/vnd.gateway.risk-annotations+json"
-RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = (
-    "application/vnd.gateway.risk-annotations.manifest+json"
-)
-RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
-    "application/vnd.gateway.risk-annotations.closure+json"
-)
+RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = "application/vnd.gateway.risk-annotations.manifest+json"
+RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = "application/vnd.gateway.risk-annotations.closure+json"
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
 RISK_RULESET_VERSION = "v9"
 RISK_RULE_VERSION = "v9"
 
-_STANDARD_POINT_TABLES = tuple(sorted((
-    "device_st", "device_mx", "device_co", "device_sg", "device_sp",
-    "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb",
-)))
+_STANDARD_POINT_TABLES = tuple(
+    sorted(
+        (
+            "device_st",
+            "device_mx",
+            "device_co",
+            "device_sg",
+            "device_sp",
+            "device_cnt",
+            "device_sn",
+            "device_tap",
+            "device_other",
+            "device_disturb",
+        )
+    )
+)
 _STANDARD_ADD_DELETE_EXCLUSIONS = tuple(sorted((*_STANDARD_POINT_TABLES, "device_cfg")))
 
 
@@ -180,8 +192,7 @@ class RiskReasonCode(StrEnum):
 
 @runtime_checkable
 class RiskCancellationProbe(Protocol):
-    def is_set(self) -> bool:
-        ...
+    def is_set(self) -> bool: ...
 
 
 class RiskReservationPort(Protocol):
@@ -221,11 +232,15 @@ class RiskExecutionContext:
     # Transient typed outcomes, after current evaluation/replay and before the
     # owning charges close. Consumers reduce immediately; no artifact reparse.
     attribution_observer: Callable[[str, tuple[RiskAnnotation, ...], bool], None] | None = field(
-        default=None, repr=False, compare=False,
+        default=None,
+        repr=False,
+        compare=False,
     )
 
     def __post_init__(self) -> None:
-        if self.cancel_requested is not None and not isinstance(self.cancel_requested, RiskCancellationProbe):
+        if self.cancel_requested is not None and not isinstance(
+            self.cancel_requested, RiskCancellationProbe
+        ):
             raise ValueError("cancel_requested must implement RiskCancellationProbe")
         if self.deadline_monotonic is not None and type(self.deadline_monotonic) is not float:
             raise ValueError("deadline_monotonic must be float or None")
@@ -503,9 +518,13 @@ def risk_ruleset_from_document(document: Mapping[str, object]) -> RiskRulesetSna
     rules = tuple(_rule_from_document(item) for item in rules_payload)
     return RiskRulesetSnapshot(
         contract_version=_require_string(document.get("contract_version"), "contract_version"),
-        risk_model_version=_require_string(document.get("risk_model_version"), "risk_model_version"),
+        risk_model_version=_require_string(
+            document.get("risk_model_version"), "risk_model_version"
+        ),
         risk_ruleset_id=_require_string(document.get("risk_ruleset_id"), "risk_ruleset_id"),
-        risk_ruleset_version=_require_string(document.get("risk_ruleset_version"), "risk_ruleset_version"),
+        risk_ruleset_version=_require_string(
+            document.get("risk_ruleset_version"), "risk_ruleset_version"
+        ),
         rules=rules,
         risk_ruleset_digest=compute_risk_ruleset_digest(document),
     )
@@ -538,7 +557,9 @@ def _rule_from_document(payload: object) -> RiskRuleSpec:
         target_scope=RiskScope(_require_string(payload.get("target_scope"), "target_scope")),
         reason_code=RiskReasonCode(_require_string(payload.get("reason_code"), "reason_code")),
         severity_policy=RiskSeverityPolicy(
-            default_level=RiskLevel(_require_string(severity_payload.get("default_level"), "default_level")),
+            default_level=RiskLevel(
+                _require_string(severity_payload.get("default_level"), "default_level")
+            ),
             overrides=tuple(overrides),
         ),
         params=_pairs_from_document(payload.get("params"), "params"),
@@ -549,11 +570,9 @@ def _rule_from_document(payload: object) -> RiskRuleSpec:
 class RiskRecordsAccess(Protocol):
     """Read-only R5 records closure protocol consumed by future risk rules."""
 
-    def get_records_closure(self) -> ComparisonRecordsClosure:
-        ...
+    def get_records_closure(self) -> ComparisonRecordsClosure: ...
 
-    def get_ordered_records(self, table_name: str) -> tuple[OrderedRecord, ...]:
-        ...
+    def get_ordered_records(self, table_name: str) -> tuple[OrderedRecord, ...]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -593,14 +612,22 @@ class RiskFacts:
     def __post_init__(self) -> None:
         if type(self.comparison_digest) is not DigestRef:
             raise ValueError("comparison_digest must be DigestRef")
-        object.__setattr__(self, "table_name", _require_canonical_name(self.table_name, "table_name"))
+        object.__setattr__(
+            self, "table_name", _require_canonical_name(self.table_name, "table_name")
+        )
         if type(self.table_status) is not ComparisonTableStatus:
             raise ValueError("table_status must be ComparisonTableStatus")
         if type(self.risk_scope) is not RiskScope:
             raise ValueError("risk_scope must be RiskScope")
-        if self.schema_changes is not None and type(self.schema_changes) is not ComparisonSchemaChanges:
+        if (
+            self.schema_changes is not None
+            and type(self.schema_changes) is not ComparisonSchemaChanges
+        ):
             raise ValueError("schema_changes must be ComparisonSchemaChanges or None")
-        if self.row_change_stats is not None and type(self.row_change_stats) is not RiskRowChangeStats:
+        if (
+            self.row_change_stats is not None
+            and type(self.row_change_stats) is not RiskRowChangeStats
+        ):
             raise ValueError("row_change_stats must be RiskRowChangeStats or None")
         if type(self.degraded) is not bool:
             raise ValueError("degraded must be bool")
@@ -617,11 +644,19 @@ class RiskFacts:
             "degraded": self.degraded,
             "degraded_reasons": list(self.degraded_reasons),
             "diagnostics": list(self.diagnostics),
-            "records_ref": None if self.records_ref is None else artifact_ref_to_dict(self.records_ref),
+            "records_ref": None
+            if self.records_ref is None
+            else artifact_ref_to_dict(self.records_ref),
             "risk_scope": self.risk_scope.value,
-            "row_change_stats": None if self.row_change_stats is None else self.row_change_stats.to_document(),
-            "schema_changes": None if self.schema_changes is None else _schema_changes_document(self.schema_changes),
-            "semantic_facts": None if self.semantic_facts is None else _pairs_document(self.semantic_facts),
+            "row_change_stats": None
+            if self.row_change_stats is None
+            else self.row_change_stats.to_document(),
+            "schema_changes": None
+            if self.schema_changes is None
+            else _schema_changes_document(self.schema_changes),
+            "semantic_facts": None
+            if self.semantic_facts is None
+            else _pairs_document(self.semantic_facts),
             "table_name": self.table_name,
             "table_status": self.table_status.value,
         }
@@ -643,12 +678,16 @@ class RiskTarget:
         if type(self.target_type) is not RiskTargetType:
             raise ValueError("target_type must be RiskTargetType")
         if self.table_name is not None:
-            object.__setattr__(self, "table_name", _require_canonical_name(self.table_name, "table_name"))
+            object.__setattr__(
+                self, "table_name", _require_canonical_name(self.table_name, "table_name")
+            )
         for label in ("row_identity", "before_row_identity", "current_row_identity"):
             value = getattr(self, label)
             if value is not None and type(value) is not DigestRef:
                 raise ValueError(f"{label} must be DigestRef or None")
-        object.__setattr__(self, "changed_columns", _canonical_columns(self.changed_columns, "changed_columns"))
+        object.__setattr__(
+            self, "changed_columns", _canonical_columns(self.changed_columns, "changed_columns")
+        )
         if self.position is not None and (type(self.position) is not int or self.position < 1):
             raise ValueError("position must be a positive int or None")
         if self.position_range is not None:
@@ -714,8 +753,10 @@ class RiskAnnotation:
             raise ValueError("risk_level must be RiskLevel")
         if type(self.target) is not RiskTarget:
             raise ValueError("target must be RiskTarget")
-        if type(self.reasons) is not tuple or not self.reasons or any(
-            type(item) is not RiskReason for item in self.reasons
+        if (
+            type(self.reasons) is not tuple
+            or not self.reasons
+            or any(type(item) is not RiskReason for item in self.reasons)
         ):
             raise ValueError("reasons must contain at least one RiskReason")
         _require_string_tuple(self.diagnostics, "diagnostics")
@@ -743,7 +784,9 @@ class RiskAnnotationArtifact:
     contract_version: str = RISK_ANNOTATION_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "table_name", _require_canonical_name(self.table_name, "table_name"))
+        object.__setattr__(
+            self, "table_name", _require_canonical_name(self.table_name, "table_name")
+        )
         for label in ("content_ref", "manifest_ref"):
             if type(getattr(self, label)) is not ArtifactRef:
                 raise ValueError(f"{label} must be ArtifactRef")
@@ -777,7 +820,9 @@ class RiskAnnotationClosureEntry:
     no_record_reason_codes: tuple[RiskReasonCode, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "table_name", _require_canonical_name(self.table_name, "table_name"))
+        object.__setattr__(
+            self, "table_name", _require_canonical_name(self.table_name, "table_name")
+        )
         if type(self.annotation_count) is not int or self.annotation_count < 0:
             raise ValueError("annotation_count must be a non-negative int")
         if self.artifact is not None:
@@ -972,9 +1017,7 @@ def _risk_annotation_from_document(payload: object) -> RiskAnnotation:
             changed_columns=tuple(changed_columns_payload),
             position=target_payload["position"],
             position_range=(
-                None
-                if position_range_payload is None
-                else tuple(position_range_payload)
+                None if position_range_payload is None else tuple(position_range_payload)
             ),
             coverage=target_payload["coverage"],
         ),
@@ -994,7 +1037,9 @@ class RiskTableRisk:
     diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "table_name", _require_canonical_name(self.table_name, "table_name"))
+        object.__setattr__(
+            self, "table_name", _require_canonical_name(self.table_name, "table_name")
+        )
         if type(self.risk_level) is not RiskLevel:
             raise ValueError("risk_level must be RiskLevel")
         _require_reason_codes(self.reason_codes, "reason_codes", require_one=True)
@@ -1009,7 +1054,9 @@ class RiskTableRisk:
     def to_document(self) -> dict[str, object]:
         return {
             "annotation_count": self.annotation_count,
-            "annotation_ref": None if self.annotation_ref is None else artifact_ref_to_dict(self.annotation_ref),
+            "annotation_ref": None
+            if self.annotation_ref is None
+            else artifact_ref_to_dict(self.annotation_ref),
             "diagnostics": list(self.diagnostics),
             "reason_codes": [item.value for item in self.reason_codes],
             "risk_level": self.risk_level.value,
@@ -1135,25 +1182,36 @@ class RiskEvaluationResult:
         ):
             raise ValueError("annotation_artifacts must contain RiskAnnotationArtifact")
         artifact_names = tuple(item.table_name for item in self.annotation_artifacts)
-        if artifact_names != tuple(sorted(artifact_names)) or len(set(artifact_names)) != len(artifact_names):
+        if artifact_names != tuple(sorted(artifact_names)) or len(set(artifact_names)) != len(
+            artifact_names
+        ):
             raise ValueError("annotation_artifacts must use canonical unique table order")
         _require_string_tuple(self.cache_diagnostics, "cache_diagnostics")
         _require_string_tuple(self.diagnostics, "diagnostics")
         if self.status in {RiskEvaluationStatus.FAILED, RiskEvaluationStatus.CANCELLED}:
-            if any(
-                value is not None
-                for value in (self.risk_evaluation, self.risk_report, self.risk_closure)
-            ) or self.annotation_artifacts:
+            if (
+                any(
+                    value is not None
+                    for value in (self.risk_evaluation, self.risk_report, self.risk_closure)
+                )
+                or self.annotation_artifacts
+            ):
                 raise ValueError("failed/cancelled result must not expose risk outputs")
         elif self.risk_evaluation is None or self.risk_report is None:
             raise ValueError("ready/degraded result requires risk evaluation and report")
         if self.risk_evaluation is not None and self.risk_report is not None:
-            if self.risk_report.risk_evaluation_digest != self.risk_evaluation.risk_evaluation_digest:
+            if (
+                self.risk_report.risk_evaluation_digest
+                != self.risk_evaluation.risk_evaluation_digest
+            ):
                 raise ValueError("risk report must bind to risk evaluation digest")
         if self.risk_closure is not None:
             if self.risk_evaluation is None:
                 raise ValueError("risk closure requires risk evaluation")
-            if self.risk_closure.risk_evaluation_digest != self.risk_evaluation.risk_evaluation_digest:
+            if (
+                self.risk_closure.risk_evaluation_digest
+                != self.risk_evaluation.risk_evaluation_digest
+            ):
                 raise ValueError("risk closure must bind to risk evaluation digest")
 
     def to_document(self) -> dict[str, object]:
@@ -1162,7 +1220,9 @@ class RiskEvaluationResult:
             "cache_diagnostics": list(self.cache_diagnostics),
             "diagnostics": list(self.diagnostics),
             "risk_closure": None if self.risk_closure is None else self.risk_closure.to_document(),
-            "risk_evaluation": None if self.risk_evaluation is None else self.risk_evaluation.to_document(),
+            "risk_evaluation": None
+            if self.risk_evaluation is None
+            else self.risk_evaluation.to_document(),
             "risk_report": None if self.risk_report is None else self.risk_report.to_document(),
             "status": self.status.value,
         }
@@ -1205,10 +1265,16 @@ class RiskEvaluationInput:
             raise ValueError("unsupported risk contract version")
         if self.risk_model_version != self.risk_ruleset.risk_model_version:
             raise ValueError("risk_model_version must match risk ruleset")
-        if self.records_access is not None and not isinstance(self.records_access, RiskRecordsAccess):
+        if self.records_access is not None and not isinstance(
+            self.records_access, RiskRecordsAccess
+        ):
             raise ValueError("records_access must implement RiskRecordsAccess")
         if self.requested_tables is not None:
-            object.__setattr__(self, "requested_tables", _canonical_names(self.requested_tables, "requested_tables"))
+            object.__setattr__(
+                self,
+                "requested_tables",
+                _canonical_names(self.requested_tables, "requested_tables"),
+            )
         if type(self.risk_options) is not RiskOptions:
             raise ValueError("risk_options must be RiskOptions")
         if type(self.artifact_policy) is not RiskArtifactPolicy:
@@ -1224,7 +1290,9 @@ class RiskEvaluationInput:
             "risk_model_version": self.risk_model_version,
             "risk_options": self.risk_options.to_document(),
             "risk_ruleset_digest": _optional_digest(self.risk_ruleset.risk_ruleset_digest),
-            "requested_tables": None if self.requested_tables is None else list(self.requested_tables),
+            "requested_tables": None
+            if self.requested_tables is None
+            else list(self.requested_tables),
         }
 
 
@@ -1250,7 +1318,9 @@ def compute_risk_table_digest(
     table_risk: RiskTableRisk,
     annotation_manifest_digests: Sequence[DigestRef] = (),
 ) -> DigestRef:
-    return raw_blob_digest(canonicalize_json_value(risk_table_digest_payload(table_risk, annotation_manifest_digests)))
+    return raw_blob_digest(
+        canonicalize_json_value(risk_table_digest_payload(table_risk, annotation_manifest_digests))
+    )
 
 
 def risk_evaluation_digest_payload(
@@ -1442,7 +1512,9 @@ def _optional_digest(value: DigestRef | None) -> str | None:
     return None if value is None else value.value
 
 
-def _reject_unknown_keys(payload: Mapping[str, object], allowed: frozenset[str], label: str) -> None:
+def _reject_unknown_keys(
+    payload: Mapping[str, object], allowed: frozenset[str], label: str
+) -> None:
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"{label} contains unknown fields: {', '.join(sorted(unknown))}")
@@ -1474,32 +1546,134 @@ V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
                 RiskReasonCode.PROJECT_IDENTITY_MISMATCH,
                 RiskLevel.HIGH,
             ),
-            _default_rule(RiskRuleId.TABLE_ADDED, RiskScope.TABLE, RiskReasonCode.TABLE_ADDED, RiskLevel.LOW),
-            _default_rule(RiskRuleId.TABLE_DELETED, RiskScope.TABLE, RiskReasonCode.TABLE_DELETED, RiskLevel.MEDIUM_HIGH),
-            _default_rule(RiskRuleId.SCHEMA_CHANGED, RiskScope.TABLE, RiskReasonCode.SCHEMA_CHANGED, RiskLevel.MEDIUM_HIGH),
-            _default_rule(RiskRuleId.ROW_ADDED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_ADDED, RiskLevel.MEDIUM_LOW, tuple((f"exclude_table:{name}", True) for name in _STANDARD_ADD_DELETE_EXCLUSIONS)),
-            _default_rule(RiskRuleId.ROW_DELETED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_DELETED, RiskLevel.MEDIUM_LOW, tuple((f"exclude_table:{name}", True) for name in _STANDARD_ADD_DELETE_EXCLUSIONS)),
-            _default_rule(RiskRuleId.ROW_MODIFIED, RiskScope.STANDARD_ROWS, RiskReasonCode.ROW_MODIFIED, RiskLevel.MEDIUM_HIGH, tuple((f"ignore_address_table:{name}", True) for name in _STANDARD_POINT_TABLES)),
-            _default_rule(RiskRuleId.STANDARD_NAME_UPDATE, RiskScope.STANDARD_ROWS, RiskReasonCode.STANDARD_NAME_UPDATE, RiskLevel.LOW),
-            _default_rule(RiskRuleId.ORDERED_MOVE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MOVE, RiskLevel.MEDIUM_HIGH),
-            _default_rule(RiskRuleId.ORDERED_REPLACEMENT, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_REPLACEMENT, RiskLevel.MEDIUM_LOW),
-            _default_rule(RiskRuleId.ORDERED_MIDDLE_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE, RiskLevel.MEDIUM_HIGH),
-            _default_rule(RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE, RiskLevel.HIGH, (("channel_table_name", True), ("name_contains:yk", True))),
-            _default_rule(RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL, RiskLevel.HIGH, (("channel_table_name", True), ("name_contains:yk", True))),
-            _default_rule(RiskRuleId.ORDERED_TAIL_INSERT_DELETE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_TAIL_INSERT_DELETE, RiskLevel.LOW),
-            _default_rule(RiskRuleId.ORDERED_NAME_UPDATE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_NAME_UPDATE, RiskLevel.LOW),
-            _default_rule(RiskRuleId.ORDERED_CONTENT_UPDATE, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_CONTENT_UPDATE, RiskLevel.MEDIUM_LOW),
-            _default_rule(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_RISK_UNKNOWN, RiskLevel.UNKNOWN),
-            _default_rule(RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL, RiskLevel.MEDIUM_HIGH),
-            _default_rule(RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL, RiskScope.ORDERED_TABLE, RiskReasonCode.ORDERED_TAIL_BLANK_INTERVAL, RiskLevel.LOW),
-            _default_rule(RiskRuleId.KEY_DEGRADED, RiskScope.DEGRADED_TABLE, RiskReasonCode.KEY_DEGRADED, RiskLevel.UNKNOWN),
+            _default_rule(
+                RiskRuleId.TABLE_ADDED, RiskScope.TABLE, RiskReasonCode.TABLE_ADDED, RiskLevel.LOW
+            ),
+            _default_rule(
+                RiskRuleId.TABLE_DELETED,
+                RiskScope.TABLE,
+                RiskReasonCode.TABLE_DELETED,
+                RiskLevel.MEDIUM_HIGH,
+            ),
+            _default_rule(
+                RiskRuleId.SCHEMA_CHANGED,
+                RiskScope.TABLE,
+                RiskReasonCode.SCHEMA_CHANGED,
+                RiskLevel.MEDIUM_HIGH,
+            ),
+            _default_rule(
+                RiskRuleId.ROW_ADDED,
+                RiskScope.STANDARD_ROWS,
+                RiskReasonCode.ROW_ADDED,
+                RiskLevel.MEDIUM_LOW,
+                tuple((f"exclude_table:{name}", True) for name in _STANDARD_ADD_DELETE_EXCLUSIONS),
+            ),
+            _default_rule(
+                RiskRuleId.ROW_DELETED,
+                RiskScope.STANDARD_ROWS,
+                RiskReasonCode.ROW_DELETED,
+                RiskLevel.MEDIUM_LOW,
+                tuple((f"exclude_table:{name}", True) for name in _STANDARD_ADD_DELETE_EXCLUSIONS),
+            ),
+            _default_rule(
+                RiskRuleId.ROW_MODIFIED,
+                RiskScope.STANDARD_ROWS,
+                RiskReasonCode.ROW_MODIFIED,
+                RiskLevel.MEDIUM_HIGH,
+                tuple((f"ignore_address_table:{name}", True) for name in _STANDARD_POINT_TABLES),
+            ),
+            _default_rule(
+                RiskRuleId.STANDARD_NAME_UPDATE,
+                RiskScope.STANDARD_ROWS,
+                RiskReasonCode.STANDARD_NAME_UPDATE,
+                RiskLevel.LOW,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_MOVE,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_MOVE,
+                RiskLevel.MEDIUM_HIGH,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_REPLACEMENT,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_REPLACEMENT,
+                RiskLevel.MEDIUM_LOW,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_MIDDLE_INSERT_DELETE,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE,
+                RiskLevel.MEDIUM_HIGH,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_MIDDLE_INSERT_DELETE,
+                RiskLevel.HIGH,
+                (("channel_table_name", True), ("name_contains:yk", True)),
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL,
+                RiskLevel.HIGH,
+                (("channel_table_name", True), ("name_contains:yk", True)),
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_TAIL_INSERT_DELETE,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_TAIL_INSERT_DELETE,
+                RiskLevel.LOW,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_NAME_UPDATE,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_NAME_UPDATE,
+                RiskLevel.LOW,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_CONTENT_UPDATE,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_CONTENT_UPDATE,
+                RiskLevel.MEDIUM_LOW,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_RISK_UNKNOWN,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_RISK_UNKNOWN,
+                RiskLevel.UNKNOWN,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_MIDDLE_BLANK_INTERVAL,
+                RiskLevel.MEDIUM_HIGH,
+            ),
+            _default_rule(
+                RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL,
+                RiskScope.ORDERED_TABLE,
+                RiskReasonCode.ORDERED_TAIL_BLANK_INTERVAL,
+                RiskLevel.LOW,
+            ),
+            _default_rule(
+                RiskRuleId.KEY_DEGRADED,
+                RiskScope.DEGRADED_TABLE,
+                RiskReasonCode.KEY_DEGRADED,
+                RiskLevel.UNKNOWN,
+            ),
             _default_rule(
                 RiskRuleId.ORDERED_DIFF_UNSUPPORTED,
                 RiskScope.DEGRADED_TABLE,
                 RiskReasonCode.ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED,
                 RiskLevel.UNKNOWN,
             ),
-            _default_rule(RiskRuleId.COMPARISON_FAILED, RiskScope.TABLE, RiskReasonCode.COMPARISON_FAILED, RiskLevel.HIGH),
+            _default_rule(
+                RiskRuleId.COMPARISON_FAILED,
+                RiskScope.TABLE,
+                RiskReasonCode.COMPARISON_FAILED,
+                RiskLevel.HIGH,
+            ),
             _default_rule(
                 RiskRuleId.COMPOSITE_SIGNAL_POINT,
                 RiskScope.TABLE,

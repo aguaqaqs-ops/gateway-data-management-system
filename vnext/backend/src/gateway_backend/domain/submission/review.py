@@ -164,9 +164,7 @@ class ReviewIdempotencyRecord:
 def review_allowed_transitions() -> dict[ReviewStatus, dict[ReviewAction, ReviewStatus]]:
     """Return the frozen review transition matrix for inventory tests."""
 
-    return {
-        current: dict(actions) for current, actions in _ALLOWED_TRANSITIONS.items()
-    }
+    return {current: dict(actions) for current, actions in _ALLOWED_TRANSITIONS.items()}
 
 
 def is_terminal_review_status(status: ReviewStatus) -> bool:
@@ -232,15 +230,11 @@ def validate_review_closure(
         except InvalidReviewTransition:
             raise ReviewClosureViolation("review event transition is not allowed") from None
         if target != event.to_status:
-            raise ReviewClosureViolation(
-                "review event to_status does not match transition policy"
-            )
+            raise ReviewClosureViolation("review event to_status does not match transition policy")
         try:
             validate_review_reason(action, event.reason)
         except InvalidReviewReason:
-            raise ReviewClosureViolation(
-                "review event reason violates action contract"
-            ) from None
+            raise ReviewClosureViolation("review event reason violates action contract") from None
     latest_event = events[-1]
     latest_sequence = latest_event.sequence
     if projection.optimistic_version != latest_sequence:

@@ -102,14 +102,20 @@ def test_cancel_and_timeout_copy_are_shared() -> None:
     assert xml_cancel.status is ParseStatus.FAILED
     assert sql_cancel.diagnostics[0].code is ParserDiagnosticCode.PARSER_CANCELLED
     assert xml_cancel.diagnostics[0].code is ParserDiagnosticCode.PARSER_CANCELLED
-    assert sql_cancel.diagnostics[0].message == xml_cancel.diagnostics[0].message == "parser cancelled"
+    assert (
+        sql_cancel.diagnostics[0].message == xml_cancel.diagnostics[0].message == "parser cancelled"
+    )
 
     expired = ParserInvocationContext(NeverCancel(), time.monotonic() - 1.0)
     sql_timeout = parse_request_result(sql_request("CREATE TABLE t (id INT NULL);", expired))
     xml_timeout = parse_xml(xml_request("<root/>", expired))
     assert sql_timeout.diagnostics[0].code is ParserDiagnosticCode.PARSER_TIMEOUT
     assert xml_timeout.diagnostics[0].code is ParserDiagnosticCode.PARSER_TIMEOUT
-    assert sql_timeout.diagnostics[0].message == xml_timeout.diagnostics[0].message == "parser deadline exceeded"
+    assert (
+        sql_timeout.diagnostics[0].message
+        == xml_timeout.diagnostics[0].message
+        == "parser deadline exceeded"
+    )
 
 
 def test_diagnostic_truncation_marker_copy_is_shared() -> None:
@@ -121,24 +127,30 @@ def test_diagnostic_truncation_marker_copy_is_shared() -> None:
         '<?xml version="1.0" encoding="ISO-8859-1"?><root/>',
         budgets=tiny_budgets(max_diagnostics=1, max_diagnostics_total_bytes=28),
     )
-    sql_marker = [item for item in sql.diagnostics if item.code is ParserDiagnosticCode.PARSER_DIAGNOSTICS_TRUNCATED]
-    xml_marker = [item for item in xml.diagnostics if item.code is ParserDiagnosticCode.PARSER_DIAGNOSTICS_TRUNCATED]
+    sql_marker = [
+        item
+        for item in sql.diagnostics
+        if item.code is ParserDiagnosticCode.PARSER_DIAGNOSTICS_TRUNCATED
+    ]
+    xml_marker = [
+        item
+        for item in xml.diagnostics
+        if item.code is ParserDiagnosticCode.PARSER_DIAGNOSTICS_TRUNCATED
+    ]
     assert sql_marker and xml_marker
     assert sql_marker[0].message == xml_marker[0].message == "parser diagnostics truncated"
 
 
 @pytest.mark.parametrize("case_dir", SQL_GOLDEN_CASES)
-def test_sql_golden_oracle_exact_comparison(
-    case_dir: str
-) -> None:
+def test_sql_golden_oracle_exact_comparison(case_dir: str) -> None:
     sql = load_text(f"{case_dir}/input.sql")
     payload = load_expected(f"{case_dir}/expected.json")
     expected = parse_result_from_expected(payload)
     actual = parse_text(sql)
     assert actual.status is expected.status
-    assert [
-        (item.code, item.table, item.byte_offset) for item in actual.diagnostics
-    ] == [(item.code, item.table, item.byte_offset) for item in expected.diagnostics]
+    assert [(item.code, item.table, item.byte_offset) for item in actual.diagnostics] == [
+        (item.code, item.table, item.byte_offset) for item in expected.diagnostics
+    ]
     assert len(actual.tables) == len(expected.tables)
     for got, want in zip(actual.tables, expected.tables, strict=True):
         assert got.descriptor == want.descriptor
@@ -157,6 +169,6 @@ def test_xml_golden_oracle_exact_comparison(case_dir: str) -> None:
     actual = parse_xml_text(xml)
     assert actual.status is expected.status
     assert actual.events == expected.events
-    assert [(item.code, item.message, item.byte_offset, item.source) for item in actual.diagnostics] == [
-        (item.code, item.message, item.byte_offset, item.source) for item in expected.diagnostics
-    ]
+    assert [
+        (item.code, item.message, item.byte_offset, item.source) for item in actual.diagnostics
+    ] == [(item.code, item.message, item.byte_offset, item.source) for item in expected.diagnostics]

@@ -106,6 +106,7 @@ class RepositoryArtifactRef:
 @dataclass(frozen=True, slots=True)
 class SubmissionAccessBinding:
     """Durable scalar columns needed before exposing or decoding Submission facts."""
+
     workspace_id: str
     repository_id: str
     created_by: str
@@ -229,18 +230,24 @@ class SubmitAttempt:
             raise ValueError("repository_artifact_ref must be RepositoryArtifactRef or None")
         if type(self.configuration_facts) is not ConfigurationFacts:
             raise ValueError("immutable configuration facts are required")
-        self.configuration_facts.assert_binding(workspace_id=self.workspace_id,
-            upload_revision_id=self.upload_revision_id, generation=self.workspace_generation,
+        self.configuration_facts.assert_binding(
+            workspace_id=self.workspace_id,
+            upload_revision_id=self.upload_revision_id,
+            generation=self.workspace_generation,
             repository_id=self.repository_id,
             business_baseline_node_id=self.business_baseline_node_id,
             business_baseline_commit_id=self.business_baseline_commit_id,
-            baseline_head_version=self.baseline_head_version, modified_digest=self.canonical_business_digest)
+            baseline_head_version=self.baseline_head_version,
+            modified_digest=self.canonical_business_digest,
+        )
         self.configuration_facts.assert_source_artifacts(tuple(self.source_artifact_refs))
         _validate_identity_confirmations(self.identity_confirmations)
         if (self.prepared_canonicalization_manifest_ref is None) != (
             self.prepared_canonicalization_manifest_digest is None
         ):
-            raise ValueError("prepared canonicalization manifest ref and digest must appear together")
+            raise ValueError(
+                "prepared canonicalization manifest ref and digest must appear together"
+            )
         if self.prepared_canonicalization_manifest_ref is not None:
             parse_artifact_id(self.prepared_canonicalization_manifest_ref)
             _validate_non_empty_str(
@@ -322,11 +329,15 @@ class Submission:
             raise ValueError("created_at must be datetime")
         if type(self.configuration_facts) is not ConfigurationFacts:
             raise ValueError("immutable configuration facts are required")
-        self.configuration_facts.assert_binding(workspace_id=self.workspace_id,
-            upload_revision_id=self.upload_revision_id, generation=self.workspace_generation,
-            repository_id=self.repository_id, business_baseline_node_id=self.based_on_baseline_node_id,
+        self.configuration_facts.assert_binding(
+            workspace_id=self.workspace_id,
+            upload_revision_id=self.upload_revision_id,
+            generation=self.workspace_generation,
+            repository_id=self.repository_id,
+            business_baseline_node_id=self.based_on_baseline_node_id,
             business_baseline_commit_id=self.business_baseline_commit_id,
-            modified_digest=self.canonical_business_digest)
+            modified_digest=self.canonical_business_digest,
+        )
         self.configuration_facts.assert_source_artifacts(tuple(self.source_artifact_refs))
         _validate_identity_confirmations(self.identity_confirmations)
 
@@ -362,7 +373,6 @@ class RepositorySubmitOccupancy:
     acquired_at: datetime
 
 
-
 def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
     _validate_non_empty_str(attempt.canonicalization_manifest_ref, "canonicalization_manifest_ref")
     _validate_non_empty_str(
@@ -370,7 +380,10 @@ def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
         "canonicalization_manifest_digest",
     )
 
-    if attempt.repository_artifact_ref is not None and attempt.repository_import_artifact_ref is None:
+    if (
+        attempt.repository_artifact_ref is not None
+        and attempt.repository_import_artifact_ref is None
+    ):
         raise SubmitAttemptInvariantViolation(
             "repository artifact ref requires backend import artifact ref"
         )
@@ -410,13 +423,16 @@ def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
     if attempt.state is SubmitAttemptState.EFFECT_PENDING and attempt.effect_pending_at is None:
         raise SubmitAttemptInvariantViolation("EFFECT_PENDING attempt requires effect_pending_at")
 
+
 def _validate_non_empty_str(value: object, field_name: str) -> None:
     if type(value) is not str or not value:
         raise ValueError(f"{field_name} must be a non-empty string")
 
 
 def _validate_identity_confirmations(value: object) -> None:
-    if type(value) is not tuple or any(type(item) is not SubmitIdentityConfirmation for item in value):
+    if type(value) is not tuple or any(
+        type(item) is not SubmitIdentityConfirmation for item in value
+    ):
         raise ValueError("identity_confirmations must contain SubmitIdentityConfirmation")
     actions = tuple(item.action for item in value)
     if len(actions) > 2 or len(set(actions)) != len(actions):

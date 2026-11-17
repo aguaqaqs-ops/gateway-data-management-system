@@ -1,4 +1,5 @@
 """Bounded process-local scalar hooks; no I/O, serialization or business imports."""
+
 from __future__ import annotations
 
 from contextvars import ContextVar
@@ -7,10 +8,12 @@ from functools import wraps
 from time import monotonic
 from typing import Callable, Literal, ParamSpec, TypeVar
 
-Stage = Literal['parse', 'materialize', 'compare', 'risk', 'export', 'bundle', 'rs_import', 'finalize']
-Layer = Literal['canonical', 'comparison', 'risk_candidate', 'snapshot_export']
-P = ParamSpec('P')
-R = TypeVar('R')
+Stage = Literal[
+    "parse", "materialize", "compare", "risk", "export", "bundle", "rs_import", "finalize"
+]
+Layer = Literal["canonical", "comparison", "risk_candidate", "snapshot_export"]
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 @dataclass
@@ -19,7 +22,9 @@ class Metrics:
     lookups: dict[str, int] = field(default_factory=dict)
     hits: dict[str, int] = field(default_factory=dict)
     shape: dict[str, int] = field(default_factory=dict)
-    tables: list[tuple[str, str, str, int | None, int | None, int | None]] = field(default_factory=list)
+    tables: list[tuple[str, str, str, int | None, int | None, int | None]] = field(
+        default_factory=list
+    )
     table_bytes: int = 0
     tables_total: int = 0
     truncated: bool = False
@@ -34,7 +39,7 @@ class Metrics:
     submit_attempt_id: str | None = None
 
 
-_current: ContextVar[Metrics | None] = ContextVar('execution_metrics', default=None)
+_current: ContextVar[Metrics | None] = ContextVar("execution_metrics", default=None)
 
 
 def current_metrics() -> Metrics | None:
@@ -65,7 +70,9 @@ def timed(stage: Stage) -> Callable[[Callable[P, R]], Callable[P, R]]:
                 return function(*args, **kwargs)
             finally:
                 duration(stage, monotonic() - started)
+
         return call
+
     return decorate
 
 
@@ -88,35 +95,58 @@ def cache_hit(layer: Layer) -> None:
         pass
 
 
-def input_shape(identity: str, *, table_count: int, total_rows: int, max_table_rows: int,
-                sql_bytes: int | None = None) -> None:
+def input_shape(
+    identity: str,
+    *,
+    table_count: int,
+    total_rows: int,
+    max_table_rows: int,
+    sql_bytes: int | None = None,
+) -> None:
     try:
         metrics = _current.get()
         if metrics is None or metrics.ambiguous_input:
             return
         if metrics.input_identity is not None and metrics.input_identity != identity:
             metrics.ambiguous_input = True
-            for key in ('table_count', 'total_rows', 'max_table_rows', 'sql_bytes', 'ordered_table_rows'):
+            for key in (
+                "table_count",
+                "total_rows",
+                "max_table_rows",
+                "sql_bytes",
+                "ordered_table_rows",
+            ):
                 metrics.shape.pop(key, None)
             return
         metrics.input_identity = identity
-        metrics.shape.update(table_count=table_count, total_rows=total_rows, max_table_rows=max_table_rows)
+        metrics.shape.update(
+            table_count=table_count, total_rows=total_rows, max_table_rows=max_table_rows
+        )
         if sql_bytes is not None:
-            metrics.shape['sql_bytes'] = sql_bytes
+            metrics.shape["sql_bytes"] = sql_bytes
     except Exception:
         pass
 
 
-def pair_table(pair: str, name: str, mode: str, before: int | None, after: int | None,
-               changed: int | None) -> None:
+def pair_table(
+    pair: str, name: str, mode: str, before: int | None, after: int | None, changed: int | None
+) -> None:
     try:
         metrics = _current.get()
         if metrics is None:
             return
         metrics.tables_total += 1
-        charge = 192 + len(name.encode('utf-8')) + len(pair.encode('utf-8')) + len(mode.encode('utf-8'))
-        if (len(metrics.tables) < 100 and len(name) <= 256 and len(name.encode('utf-8')) <= 256
-                and len(pair) <= 255 and len(mode) <= 255 and metrics.table_bytes + charge <= 10 * 1024):
+        charge = (
+            192 + len(name.encode("utf-8")) + len(pair.encode("utf-8")) + len(mode.encode("utf-8"))
+        )
+        if (
+            len(metrics.tables) < 100
+            and len(name) <= 256
+            and len(name.encode("utf-8")) <= 256
+            and len(pair) <= 255
+            and len(mode) <= 255
+            and metrics.table_bytes + charge <= 10 * 1024
+        ):
             metrics.table_bytes += charge
             metrics.tables.append((pair, name, mode, before, after, changed))
         else:
@@ -131,17 +161,19 @@ def pair_totals(*, changed_tables: int, changed_rows: int, complete: bool = True
         if metrics is not None:
             if not complete:
                 metrics.changed_incomplete = True
-                metrics.shape.pop('changed_tables', None)
-                metrics.shape.pop('changed_rows', None)
+                metrics.shape.pop("changed_tables", None)
+                metrics.shape.pop("changed_rows", None)
             if metrics.changed_incomplete:
                 return
-            for key, value in (('changed_tables', changed_tables), ('changed_rows', changed_rows)):
+            for key, value in (("changed_tables", changed_tables), ("changed_rows", changed_rows)):
                 metrics.shape[key] = metrics.shape.get(key, 0) + value
     except Exception:
         pass
 
 
-def bind_scope(repository_id: str, submit_attempt_id: str | None = None, *, rules_digest: str | None = None) -> None:
+def bind_scope(
+    repository_id: str, submit_attempt_id: str | None = None, *, rules_digest: str | None = None
+) -> None:
     try:
         metrics = _current.get()
         if metrics is not None:
@@ -152,23 +184,30 @@ def bind_scope(repository_id: str, submit_attempt_id: str | None = None, *, rule
         pass
 
 
-def ordered_input_table(identity: str, name: str | None = None, rows: int = 0, *, complete: bool = True) -> None:
+def ordered_input_table(
+    identity: str, name: str | None = None, rows: int = 0, *, complete: bool = True
+) -> None:
     try:
         metrics = _current.get()
-        if metrics is None or metrics.ambiguous_input or metrics.input_identity != identity or metrics.ordered_incomplete:
+        if (
+            metrics is None
+            or metrics.ambiguous_input
+            or metrics.input_identity != identity
+            or metrics.ordered_incomplete
+        ):
             return
         if not complete:
             metrics.ordered_incomplete = True
-            metrics.shape.pop('ordered_table_rows', None)
+            metrics.shape.pop("ordered_table_rows", None)
             return
-        metrics.shape.setdefault('ordered_table_rows', 0)
+        metrics.shape.setdefault("ordered_table_rows", 0)
         if name is None or name in metrics.ordered_seen:
             return
         if len(metrics.ordered_seen) >= 100:
             metrics.ordered_incomplete = True
-            metrics.shape.pop('ordered_table_rows', None)
+            metrics.shape.pop("ordered_table_rows", None)
             return
         metrics.ordered_seen.add(name)
-        metrics.shape['ordered_table_rows'] += rows
+        metrics.shape["ordered_table_rows"] += rows
     except Exception:
         pass

@@ -8,7 +8,10 @@ import pytest
 
 from gateway_backend.application.submission.import_builder import pin_prepare_import_artifacts
 from gateway_backend.domain.submission.models import BackendArtifactRef
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from tests.test_submit_transactions import seed_submit_ready_workspace
 
 pytestmark = pytest.mark.unit
@@ -51,5 +54,9 @@ def test_pin_prepare_import_artifacts_extends_attempt_protection(db_path: Path) 
             owner_id="sa-1",
         )
         assert held == frozenset(
-            {ref.artifact_id for ref in seed.protected_refs} | {"a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6", "a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9"}
+            {ref.artifact_id for ref in seed.protected_refs}
+            | {
+                "a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+                "a1:durable:d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
+            }
         )

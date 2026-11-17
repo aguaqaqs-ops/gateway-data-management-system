@@ -7,7 +7,11 @@ from gateway_backend.bootstrap.statistics import build_statistics_sink
 
 from gateway_backend.artifacts.scratch import ScratchSpacePort
 
-from gateway_backend.bootstrap.storage_layout import artifact_layout_from_config, local_store_from_config, scratch_space_from_config
+from gateway_backend.bootstrap.storage_layout import (
+    artifact_layout_from_config,
+    local_store_from_config,
+    scratch_space_from_config,
+)
 
 import logging
 import signal
@@ -26,9 +30,15 @@ from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
 from gateway_backend.artifacts.store import ArtifactStreamingStorePort
-from gateway_backend.application.history.compare_jobs import publish_stopped_compute_cancelled as publish_history_stop_cancelled
+from gateway_backend.application.history.compare_jobs import (
+    publish_stopped_compute_cancelled as publish_history_stop_cancelled,
+)
 from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
-from gateway_backend.application.kernel_execution import bind_kernel_execution, build_cooperative_kernel_stop, publish_generic_stopped_compute_cancelled
+from gateway_backend.application.kernel_execution import (
+    bind_kernel_execution,
+    build_cooperative_kernel_stop,
+    publish_generic_stopped_compute_cancelled,
+)
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
@@ -122,7 +132,11 @@ from gateway_backend.operations.worker_startup import WorkerStartup
 from gateway_backend.runtime_preflight import RuntimePreflight
 from gateway_backend.bootstrap.repository_identity import assert_repository_identity
 from gateway_backend.bootstrap.deployment_identity import compare_configuration
-from gateway_backend.bootstrap.worker_instance import WorkerInstanceConflict, acquire_worker_instance, worker_id_for
+from gateway_backend.bootstrap.worker_instance import (
+    WorkerInstanceConflict,
+    acquire_worker_instance,
+    worker_id_for,
+)
 
 from gateway_backend.settings import OperationWorkerSettings
 
@@ -157,8 +171,12 @@ def build_job_worker_composition_for_settings(
         raise ValueError("settings must be OperationWorkerSettings")
     if type(definitions) is not tuple:
         raise ValueError("definitions must be a tuple")
-    RuntimePreflight(settings.deployment_config, "worker", container=settings.runtime_mode == "container",
-        configuration_check=lambda: compare_configuration(settings.deployment_config))
+    RuntimePreflight(
+        settings.deployment_config,
+        "worker",
+        container=settings.runtime_mode == "container",
+        configuration_check=lambda: compare_configuration(settings.deployment_config),
+    )
     bound_handlers = {} if handlers is None else dict(handlers)
     bound_decoders = {} if payload_decoders is None else dict(payload_decoders)
     deployment = settings.deployment_config
@@ -183,15 +201,28 @@ def build_production_preview_dependencies(
     """Compose production Preview ports: Bounded store, HTTP/Arrow adapter, mapping Head."""
 
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
-    assert_repository_identity(settings.repository_base_url, token, settings.deployment_config,
-        timeout_seconds=settings.repository_timeout_seconds)
+    assert_repository_identity(
+        settings.repository_base_url,
+        token,
+        settings.deployment_config,
+        timeout_seconds=settings.repository_timeout_seconds,
+    )
     bootstrap_control_database(settings)
     from gateway_backend.bootstrap.provisioning import reserved_directory
+
     storage = settings.deployment_config.storage
-    directory = reserved_directory(settings.processing_groups_file, settings.device_directory_file,
-        environment=storage.environment_id, group=storage.group_id)
-    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file,
-        directory=directory, group=storage.group_id)
+    directory = reserved_directory(
+        settings.processing_groups_file,
+        settings.device_directory_file,
+        environment=storage.environment_id,
+        group=storage.group_id,
+    )
+    seed_provisioned_mappings(
+        settings.control_db_path,
+        settings.provisioned_mapping_file,
+        directory=directory,
+        group=storage.group_id,
+    )
     deployment = settings.deployment_config
     local_store = local_store_from_config(deployment)
     local_store.check_publication_support()
@@ -227,8 +258,9 @@ def build_production_preview_dependencies(
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         control_transaction_factory=control_transaction_factory,
         snapshot_export_cache=snapshot_export_cache,
-        computation_cache=ControlDbComputationCache(control_transaction_factory,
-            cast(ComputationCacheArtifactStore, artifact_store)),
+        computation_cache=ControlDbComputationCache(
+            control_transaction_factory, cast(ComputationCacheArtifactStore, artifact_store)
+        ),
     )
     write_uow_factory = build_worker_write_uow_factory(control_transaction_factory)
     return preview_deps, write_uow_factory
@@ -270,7 +302,9 @@ def build_production_submit_dependencies(
         return ControlDbUnitOfWork(
             settings.control_db_path,
             canonicalization_manifest_reader=manifest_reader,
-            artifact_borrow=cast(ArtifactStreamingStorePort, preview_deps.artifact_store).read_session,
+            artifact_borrow=cast(
+                ArtifactStreamingStorePort, preview_deps.artifact_store
+            ).read_session,
         )
 
     def submission_id_factory() -> str:
@@ -303,8 +337,12 @@ def bootstrap_control_database(settings: OperationWorkerSettings) -> None:
 
     if type(settings) is not OperationWorkerSettings:
         raise ValueError("settings must be OperationWorkerSettings")
-    RuntimePreflight(settings.deployment_config, "worker", container=settings.runtime_mode == "container",
-        configuration_check=lambda: compare_configuration(settings.deployment_config))
+    RuntimePreflight(
+        settings.deployment_config,
+        "worker",
+        container=settings.runtime_mode == "container",
+        configuration_check=lambda: compare_configuration(settings.deployment_config),
+    )
     parent = settings.control_db_path.parent
     if not parent.is_dir():
         raise ValueError("control DB parent is not a directory")
@@ -349,15 +387,23 @@ def build_worker_runtime(
     runtime_roots = artifact_layout_from_config(deployment.storage)
 
     def default_read_uow_factory() -> OperationUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path, read_only=True, artifact_borrow=runtime_roots.read_session)
+        return ControlDbUnitOfWork(
+            settings.control_db_path, read_only=True, artifact_borrow=runtime_roots.read_session
+        )
 
     def default_write_uow_factory() -> OperationUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path, artifact_borrow=runtime_roots.read_session)
+        return ControlDbUnitOfWork(
+            settings.control_db_path, artifact_borrow=runtime_roots.read_session
+        )
 
     resolved_read_uow_factory = read_uow_factory or default_read_uow_factory
     unguarded_write_uow_factory = write_uow_factory or default_write_uow_factory
-    guard = RuntimePreflight(settings.deployment_config, "worker", container=settings.runtime_mode == "container",
-        configuration_check=lambda: compare_configuration(settings.deployment_config))
+    guard = RuntimePreflight(
+        settings.deployment_config,
+        "worker",
+        container=settings.runtime_mode == "container",
+        configuration_check=lambda: compare_configuration(settings.deployment_config),
+    )
 
     def resolved_write_uow_factory() -> OperationUnitOfWork:
         guard.check()
@@ -388,8 +434,12 @@ def build_worker_runtime(
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
-    kernel_registry = _KernelWorkerRegistry(recovery_registry, settings.kernel_threads, settings.kernel_memory_budget_bytes,
-        scratch_space_from_config(deployment))
+    kernel_registry = _KernelWorkerRegistry(
+        recovery_registry,
+        settings.kernel_threads,
+        settings.kernel_memory_budget_bytes,
+        scratch_space_from_config(deployment),
+    )
     startup = _R4WorkerStartup(
         read_uow_factory=resolved_read_uow_factory,
         write_uow_factory=resolved_write_uow_factory,
@@ -398,8 +448,10 @@ def build_worker_runtime(
         recovery_hook=_fail_closed_recovery,
         worker_id_factory=lambda: worker_id_for(deployment, settings.instance_index),
         startup_recovery=startup_recovery,
-        running_worker_ids=frozenset(worker_id_for(deployment, index)
-            for index in range(1, deployment.resources.worker.count + 1)),
+        running_worker_ids=frozenset(
+            worker_id_for(deployment, index)
+            for index in range(1, deployment.resources.worker.count + 1)
+        ),
         observer=startup_observer,
     )
     bounded_startup = _StartupBudget(
@@ -439,8 +491,12 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
         try:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
-            RuntimePreflight(configured.deployment_config, "worker", container=configured.runtime_mode == "container",
-                configuration_check=lambda: compare_configuration(configured.deployment_config))
+            RuntimePreflight(
+                configured.deployment_config,
+                "worker",
+                container=configured.runtime_mode == "container",
+                configuration_check=lambda: compare_configuration(configured.deployment_config),
+            )
             acquire_worker_instance(configured.deployment_config, configured.instance_index)
             initialize_compute_kernel(configured.kernel_threads)
             previous_handlers = _install_signal_handlers(stop_requested, stop_wakeup_callbacks)
@@ -450,8 +506,12 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             )
 
             assert_workspace_registry_ready(build_workspace_job_registry())
-            preview_deps, submit_write_uow_factory = build_production_preview_dependencies(configured)
-            submit_deps = build_production_submit_dependencies(configured, preview_deps=preview_deps)
+            preview_deps, submit_write_uow_factory = build_production_preview_dependencies(
+                configured
+            )
+            submit_deps = build_production_submit_dependencies(
+                configured, preview_deps=preview_deps
+            )
             history_compare_deps = HistoryCompareRuntimeDependencies(
                 artifact_store=preview_deps.artifact_store,
                 repository_provider_factory=preview_deps.repository_provider_factory,
@@ -625,7 +685,12 @@ class _KernelWorkerRegistry:
         executor = self._registry.resolve(key)
         if executor is None:
             return None
-        return bind_kernel_execution(executor, threads=self._threads, memory_budget_bytes=self._memory_budget_bytes, scratch=self._scratch)
+        return bind_kernel_execution(
+            executor,
+            threads=self._threads,
+            memory_budget_bytes=self._memory_budget_bytes,
+            scratch=self._scratch,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -647,16 +712,22 @@ class _RecoveryAwareWorkerRegistry:
         recovery = self._recovery_by_key.get(key)
         cooperative_stop = None
         if capability is RecoveryCapabilityValue.PURE_RECOMPUTE:
-            publishers = {PREVIEW_JOB_KIND: publish_preview_stop_cancelled,
-                SUBMIT_JOB_KIND: publish_submit_stop_cancelled, HISTORY_COMPARE_JOB_KIND: publish_history_stop_cancelled}
-            publish_cancelled = publishers.get(key.job_kind, publish_generic_stopped_compute_cancelled)
+            publishers = {
+                PREVIEW_JOB_KIND: publish_preview_stop_cancelled,
+                SUBMIT_JOB_KIND: publish_submit_stop_cancelled,
+                HISTORY_COMPARE_JOB_KIND: publish_history_stop_cancelled,
+            }
+            publish_cancelled = publishers.get(
+                key.job_kind, publish_generic_stopped_compute_cancelled
+            )
             cooperative_stop = build_cooperative_kernel_stop(publish_cancelled)
         return build_recovery_routed_executor(
             executor,
             recovery,
             capability,
             jitter=self._jitter,
-            now_factory=self._now_factory, cooperative_stop=cooperative_stop,
+            now_factory=self._now_factory,
+            cooperative_stop=cooperative_stop,
         )
 
 
@@ -809,7 +880,9 @@ def _install_signal_handlers(
     try:
         previous_int = signal.signal(Signals.SIGINT, request_drain)
     except BaseException:
-        signal.signal(Signals.SIGTERM, cast(Callable[[int, FrameType | None], object], previous_term))
+        signal.signal(
+            Signals.SIGTERM, cast(Callable[[int, FrameType | None], object], previous_term)
+        )
         raise
     return previous_term, previous_int
 

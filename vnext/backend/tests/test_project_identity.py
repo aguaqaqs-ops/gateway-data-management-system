@@ -101,8 +101,7 @@ def _sql_for_table(
     statements = [f"CREATE TABLE version_manager ({definitions});"]
     for row in rows:
         values = ", ".join(
-            "NULL" if value is None else "'" + str(value).replace("'", "''") + "'"
-            for value in row
+            "NULL" if value is None else "'" + str(value).replace("'", "''") + "'" for value in row
         )
         statements.append(f"INSERT INTO version_manager VALUES ({values});")
     return " ".join(statements)

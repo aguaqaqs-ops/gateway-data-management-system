@@ -19,7 +19,11 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import HistoryHttpDependencies, get_history_http, get_workspace_http
+from gateway_backend.http.dependencies import (
+    HistoryHttpDependencies,
+    get_history_http,
+    get_workspace_http,
+)
 from gateway_backend.http.orchestration.history_compare import (
     accept_compare_operation,
     assert_history_result_not_expired,
@@ -31,7 +35,9 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.errors import ErrorResponse
 from gateway_backend.http.orchestration.history_read import list_history_operation
 from gateway_backend.http.orchestration.history_compare_list import list_compare_operations
-from gateway_backend.http.orchestration.operation_scope import authorize_history_compare_operation_read
+from gateway_backend.http.orchestration.operation_scope import (
+    authorize_history_compare_operation_read,
+)
 from gateway_backend.http.schemas.history import (
     HistoryCompareAcceptRequest,
     HistoryCompareAcceptResponse,
@@ -86,13 +92,17 @@ def list_history_route(
 
 
 @router.get(
-    "/v1/history-compares", response_model=HistoryCompareListResponse,
+    "/v1/history-compares",
+    response_model=HistoryCompareListResponse,
     responses={
         401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
         403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
         404: {"description": "RESOURCE_NOT_FOUND", "model": ErrorResponse},
         422: {"description": "REQUEST_VALIDATION_FAILED", "model": ErrorResponse},
-        503: {"description": "HISTORY_INTEGRITY_FAILURE, SERVICE_NOT_READY", "model": ErrorResponse},
+        503: {
+            "description": "HISTORY_INTEGRITY_FAILURE, SERVICE_NOT_READY",
+            "model": ErrorResponse,
+        },
     },
 )
 def list_history_compares_route(
@@ -109,15 +119,27 @@ def list_history_compares_route(
     response_model=HistoryCompareAcceptResponse,
     status_code=202,
     responses={
-        200: {"description": "Existing operation reused or replayed", "model": HistoryCompareAcceptResponse},
+        200: {
+            "description": "Existing operation reused or replayed",
+            "model": HistoryCompareAcceptResponse,
+        },
         401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
         403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
         404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE", "model": ErrorResponse},
-        409: {"description": "IDEMPOTENCY_CONFLICT, HISTORY_COMPARE_REQUEST_EXPIRED, HISTORY_COMPARE_SCOPE_LIMIT, ADMISSION_CONFLICT; scope limit details include operation_ids", "model": ErrorResponse},
+        409: {
+            "description": "IDEMPOTENCY_CONFLICT, HISTORY_COMPARE_REQUEST_EXPIRED, HISTORY_COMPARE_SCOPE_LIMIT, ADMISSION_CONFLICT; scope limit details include operation_ids",
+            "model": ErrorResponse,
+        },
         413: {"description": "REQUEST_TOO_LARGE", "model": ErrorResponse},
         422: {"description": "REQUEST_VALIDATION_FAILED", "model": ErrorResponse},
-        429: {"description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL, HISTORY_COMPARE_ALIAS_LIMIT; alias limit details include operation_id", "model": ErrorResponse},
-        503: {"description": "SERVICE_NOT_READY, HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE", "model": ErrorResponse},
+        429: {
+            "description": "ADMISSION_LIMIT_REACHED, OPERATION_QUEUE_FULL, HISTORY_COMPARE_ALIAS_LIMIT; alias limit details include operation_id",
+            "model": ErrorResponse,
+        },
+        503: {
+            "description": "SERVICE_NOT_READY, HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE",
+            "model": ErrorResponse,
+        },
     },
 )
 def accept_history_compare_route(
@@ -163,7 +185,10 @@ def accept_history_compare_route(
         403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
         404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE", "model": ErrorResponse},
         410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED", "model": ErrorResponse},
-        503: {"description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE", "model": ErrorResponse},
+        503: {
+            "description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE",
+            "model": ErrorResponse,
+        },
     },
 )
 def get_history_compare_route(
@@ -195,16 +220,25 @@ def get_history_compare_route(
             "description": "Complete uncompressed POSIX bundle tar",
             "content": {"application/x-tar": {}},
             "headers": {
-                "Content-Length": {"schema": {"type": "integer"}, "description": "Exact complete tar byte count"},
+                "Content-Length": {
+                    "schema": {"type": "integer"},
+                    "description": "Exact complete tar byte count",
+                },
                 "ETag": {"schema": {"type": "string"}, "description": "Quoted bundle digest"},
-                "Content-Disposition": {"schema": {"type": "string"}, "description": "Safe attachment tar filename"},
+                "Content-Disposition": {
+                    "schema": {"type": "string"},
+                    "description": "Safe attachment tar filename",
+                },
             },
         },
         401: {"description": "AUTHENTICATION_REQUIRED", "model": ErrorResponse},
         403: {"description": "SCOPE_FORBIDDEN", "model": ErrorResponse},
         404: {"description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE", "model": ErrorResponse},
         410: {"description": "HISTORY_COMPARE_RESULT_EXPIRED", "model": ErrorResponse},
-        503: {"description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE", "model": ErrorResponse},
+        503: {
+            "description": "HISTORY_INTEGRITY_FAILURE, BUNDLE_INTEGRITY_FAILURE",
+            "model": ErrorResponse,
+        },
     },
 )
 def get_history_compare_bundle_route(

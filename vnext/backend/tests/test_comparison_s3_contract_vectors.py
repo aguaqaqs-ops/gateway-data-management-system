@@ -73,7 +73,9 @@ def _added_rows(
     )
 
 
-def _input(tables: tuple[ComparisonTableFact, ...], *, options: RiskOptions | None = None) -> RiskEvaluationInput:
+def _input(
+    tables: tuple[ComparisonTableFact, ...], *, options: RiskOptions | None = None
+) -> RiskEvaluationInput:
     facts = ComparisonFacts(
         comparison_digest=raw_blob_digest(b"s3-risk-comparison"),
         facts_core_digest=raw_blob_digest(b"s3-risk-facts"),
@@ -92,7 +94,8 @@ def _input(tables: tuple[ComparisonTableFact, ...], *, options: RiskOptions | No
             added_table_count=0,
             deleted_table_count=0,
             schema_changed_table_count=sum(
-                table.status in {
+                table.status
+                in {
                     ComparisonTableStatus.SCHEMA_CHANGED,
                     ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
                 }
@@ -131,12 +134,10 @@ def test_records_writer_uses_1024_rows_then_one_row_group() -> None:
     )
     source = pq.read_table(pa.BufferReader(base64.b64decode(fixture.read_text(encoding="ascii"))))
     one_row = source.to_pylist()[0]
-    rows = tuple(
-        dict(one_row, row_identity=index.to_bytes(32, "big"))
-        for index in range(1025)
-    )
+    rows = tuple(dict(one_row, row_identity=index.to_bytes(32, "big")) for index in range(1025))
     schema = _schema_for(
-        RecordsArtifactFamily.STANDARD, None,
+        RecordsArtifactFamily.STANDARD,
+        None,
         RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES,
     )
     raw = write_arrow_parquet(
@@ -144,7 +145,9 @@ def test_records_writer_uses_1024_rows_then_one_row_group() -> None:
             pa.RecordBatch.from_pylist(list(rows[:1024]), schema=schema),
             pa.RecordBatch.from_pylist(list(rows[1024:]), schema=schema),
         ),
-        schema, RecordsPublicationPolicy(), RecordsPublicationContext(),
+        schema,
+        RecordsPublicationPolicy(),
+        RecordsPublicationContext(),
     )
     file = pq.ParquetFile(pa.BufferReader(raw))
 
@@ -161,12 +164,16 @@ def test_table_budget_exception_does_not_consume_pair_count() -> None:
     result = evaluate_risk(
         source,
         artifact_store=InMemoryArtifactStore(),
-        execution_policy=RiskExecutionPolicy(max_annotations_per_table=2, max_annotations_per_pair=3),
+        execution_policy=RiskExecutionPolicy(
+            max_annotations_per_table=2, max_annotations_per_pair=3
+        ),
     )
 
     assert result.status is RiskEvaluationStatus.DEGRADED
     assert result.risk_report is not None
-    assert tuple((table.table_name, table.annotation_count) for table in result.risk_report.tables) == (
+    assert tuple(
+        (table.table_name, table.annotation_count) for table in result.risk_report.tables
+    ) == (
         ("a", 1),
         ("b", 2),
         ("c", 1),
@@ -198,7 +205,9 @@ def test_diagnostics_preflight_degraded_does_consume_pair_count() -> None:
 
     assert result.status is RiskEvaluationStatus.DEGRADED
     assert result.risk_report is not None
-    assert tuple((table.table_name, table.annotation_count) for table in result.risk_report.tables) == (
+    assert tuple(
+        (table.table_name, table.annotation_count) for table in result.risk_report.tables
+    ) == (
         ("a", 0),
         ("b", 0),
         ("c", 0),

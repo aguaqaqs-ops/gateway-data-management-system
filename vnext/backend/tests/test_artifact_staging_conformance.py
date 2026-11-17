@@ -96,11 +96,13 @@ def test_directory_publication_failure_does_not_publish_locatable_artifact(
 ) -> None:
     root = staging_root(tmp_path)
     store = open_local_store(root)
+
     def fail_publication(source: Path, target: Path) -> None:
         raise OSError("injected directory publication failure")
 
     monkeypatch.setattr(
-        "gateway_backend.infrastructure.artifact_store.local_store.rename_noreplace", fail_publication,
+        "gateway_backend.infrastructure.artifact_store.local_store.rename_noreplace",
+        fail_publication,
     )
     ref = ArtifactRef(
         artifact_id=OPAQUE_ARTIFACT_ID,

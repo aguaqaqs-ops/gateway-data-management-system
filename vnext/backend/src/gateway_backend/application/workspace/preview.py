@@ -10,7 +10,10 @@ from datetime import datetime
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.job_definitions import (
+    JobDefinitionLookupError,
+    JobDefinitionRegistry,
+)
 from gateway_backend.application.preview_semantics import current_preview_capabilities
 from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_CONTRACT_VERSION,
@@ -191,6 +194,7 @@ def accept_start_preview(
         )
         if unit_of_work.count_queued_operations() >= operation_queue_limit:
             from gateway_backend.operations.store import OperationQueueFull
+
             raise OperationQueueFull
         unit_of_work.operations.insert_operation_with_initial_step(operation, step)
         unit_of_work.workspace.save_preview_acceptance(
@@ -238,7 +242,9 @@ def build_preview_job_payload(
 ) -> bytes:
     source_artifacts: dict[str, dict[str, object]] = {}
     source_digests: dict[str, str] = {}
-    for role, binding in sorted(upload_revision.source_artifacts.items(), key=lambda item: item[0].value):
+    for role, binding in sorted(
+        upload_revision.source_artifacts.items(), key=lambda item: item[0].value
+    ):
         source_artifacts[role.value] = {
             "artifact_id": binding.artifact_id,
             "media_type": binding.media_type,
@@ -380,7 +386,9 @@ def read_preview_result(
     if workspace is None:
         raise ScopeForbidden
     assert_exact_scope(workspace, context)
-    result = repository.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=workspace.repository_id)
+    result = repository.get_preview_result(
+        preview_result_id, workspace_id=workspace_id, repository_id=workspace.repository_id
+    )
     if result is None or result.workspace_id != workspace_id:
         raise ScopeForbidden
     return build_preview_read_state(result=result, baseline_head_read=baseline_head_read)

@@ -1,4 +1,5 @@
 """Strict deployment document adapter. Runtime mount/cgroup checks belong to bootstrap."""
+
 from __future__ import annotations
 
 import json
@@ -12,11 +13,23 @@ from typing import Mapping, TypeGuard, cast
 
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_FILESYSTEMS = 10
-SLOTS = frozenset({"be-durable", "be-canonical", "be-comparison", "be-export", "be-scratch",
-    "be-metadata", "rs-repository", "rs-artifacts", "rs-scratch", "rs-metadata"})
+SLOTS = frozenset(
+    {
+        "be-durable",
+        "be-canonical",
+        "be-comparison",
+        "be-export",
+        "be-scratch",
+        "be-metadata",
+        "rs-repository",
+        "rs-artifacts",
+        "rs-scratch",
+        "rs-metadata",
+    }
+)
 _ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}\Z")
 _STORAGE_ID = re.compile(r"[0-9a-f]{32}\Z")
-_GIB = 1024 ** 3
+_GIB = 1024**3
 
 
 def _object(value: object, keys: set[str]) -> dict[str, object]:
@@ -50,7 +63,13 @@ def _identity(value: object) -> str:
 
 
 def _path(value: object, *, allow_root: bool = False) -> str:
-    if type(value) is not str or not value.startswith("/") or value.startswith("//") or "\x00" in value or "\\" in value:
+    if (
+        type(value) is not str
+        or not value.startswith("/")
+        or value.startswith("//")
+        or "\x00" in value
+        or "\\" in value
+    ):
         raise ValueError("configuration path must be absolute POSIX")
     path = PurePosixPath(value)
     if ".." in path.parts or str(path) != value or (value == "/" and not allow_root):
@@ -60,7 +79,7 @@ def _path(value: object, *, allow_root: bool = False) -> str:
 
 def _distinct_paths(paths: list[str]) -> None:
     for index, path in enumerate(paths):
-        for other in paths[index + 1:]:
+        for other in paths[index + 1 :]:
             left, right = PurePosixPath(path), PurePosixPath(other)
             if left == right or left in right.parents or right in left.parents:
                 raise ValueError("storage roots must be distinct and non-nested")
@@ -78,9 +97,13 @@ def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def _document(raw: bytes) -> dict[str, object]:
     if type(raw) is not bytes or len(raw) > MAX_CONFIG_BYTES:
         raise ValueError("configuration exceeds 256 KiB")
+
     def invalid_constant(value: str) -> object:
         raise ValueError("non-finite JSON constant")
-    value: object = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=invalid_constant)
+
+    value: object = json.loads(
+        raw.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=invalid_constant
+    )
     if type(value) is not dict:
         raise ValueError("configuration must be an object")
     return cast(dict[str, object], value)
@@ -93,8 +116,11 @@ def _validate_jcs_domain(value: object) -> TypeGuard[_JcsValue]:
     # Keep the deployment format's I-JSON/Unicode gates independent of other services.
     if isinstance(value, str):
         for codepoint in map(ord, value):
-            if (0xD800 <= codepoint <= 0xDFFF or 0xFDD0 <= codepoint <= 0xFDEF
-                    or (codepoint & 0xFFFE) == 0xFFFE):
+            if (
+                0xD800 <= codepoint <= 0xDFFF
+                or 0xFDD0 <= codepoint <= 0xFDEF
+                or (codepoint & 0xFFFE) == 0xFFFE
+            ):
                 raise ValueError("configuration contains invalid Unicode")
     elif type(value) is int:
         if not -(2**53) + 1 <= value <= 2**53 - 1:
@@ -121,6 +147,7 @@ def _configuration_digest(document: dict[str, object]) -> str:
     # stable observations with the existing owning JCS implementation on demand.
     from gateway_shared_kernel import raw_blob_digest
     from gateway_shared_kernel.jcs import canonicalize_json_value
+
     return raw_blob_digest(canonicalize_json_value(document)).value
 
 
@@ -167,7 +194,9 @@ class StorageLayoutConfig:
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> StorageLayoutConfig:
-        doc = _object(_document(raw), {"schema_version", "environment_id", "group_id", "filesystems", "roots"})
+        doc = _object(
+            _document(raw), {"schema_version", "environment_id", "group_id", "filesystems", "roots"}
+        )
         _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
         fs_raw = doc["filesystems"]
@@ -176,15 +205,21 @@ class StorageLayoutConfig:
         filesystems: dict[str, FilesystemPolicy] = {}
         for key, value in fs_raw.items():
             key = _identity(key)
-            item = _object(value, {"mountpoint", "expected_source", "min_free_bytes", "min_free_fraction"})
+            item = _object(
+                value, {"mountpoint", "expected_source", "min_free_bytes", "min_free_fraction"}
+            )
             expected_source = item["expected_source"]
             if type(expected_source) is not str or not expected_source or "\x00" in expected_source:
                 raise ValueError("filesystem expected_source must be explicit")
             fraction = _number(item["min_free_fraction"])
             if fraction > 1:
                 raise ValueError("filesystem free fraction must be at most one")
-            filesystems[key] = FilesystemPolicy(_path(item["mountpoint"], allow_root=True), expected_source,
-                _integer(item["min_free_bytes"]), fraction)
+            filesystems[key] = FilesystemPolicy(
+                _path(item["mountpoint"], allow_root=True),
+                expected_source,
+                _integer(item["min_free_bytes"]),
+                fraction,
+            )
         if len({policy.mountpoint for policy in filesystems.values()}) != len(filesystems):
             raise ValueError("one filesystem mountpoint must have one policy")
         source_policies: dict[str, tuple[int, float]] = {}
@@ -206,15 +241,18 @@ class StorageLayoutConfig:
             mount = PurePosixPath(filesystems[filesystem_id].mountpoint)
             if PurePosixPath(source) != mount and mount not in PurePosixPath(source).parents:
                 raise ValueError("storage source is outside its filesystem mountpoint")
-            roots[slot] = StorageRoot(source, _path(item["path"]), filesystem_id, storage_id, "bind")
+            roots[slot] = StorageRoot(
+                source, _path(item["path"]), filesystem_id, storage_id, "bind"
+            )
         if len({root.storage_id for root in roots.values()}) != len(roots):
             raise ValueError("storage root identities must be distinct")
         if {root.filesystem_id for root in roots.values()} != set(filesystems):
             raise ValueError("filesystem policies must be used by a root")
         _distinct_paths([root.source for root in roots.values()])
         _distinct_paths([root.path for root in roots.values()])
-        return cls(environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots),
-            raw)
+        return cls(
+            environment_id, group_id, MappingProxyType(filesystems), MappingProxyType(roots), raw
+        )
 
     @classmethod
     def load(cls, path: Path) -> StorageLayoutConfig:
@@ -224,7 +262,9 @@ class StorageLayoutConfig:
         if role not in {"backend", "worker", "repository_service"}:
             raise ValueError("unknown storage role")
         prefix = "rs-" if role == "repository_service" else "be-"
-        return MappingProxyType({slot: root for slot, root in self.roots.items() if slot.startswith(prefix)})
+        return MappingProxyType(
+            {slot: root for slot, root in self.roots.items() if slot.startswith(prefix)}
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,8 +276,11 @@ class ServiceResources:
 
 def _service(value: object) -> ServiceResources:
     item = _object(value, {"memory_limit_bytes", "cpu_limit", "swap_limit_bytes"})
-    return ServiceResources(_integer(item["memory_limit_bytes"]), _number(item["cpu_limit"]),
-        _integer(item["swap_limit_bytes"], minimum=0))
+    return ServiceResources(
+        _integer(item["memory_limit_bytes"]),
+        _number(item["cpu_limit"]),
+        _integer(item["swap_limit_bytes"], minimum=0),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,38 +326,87 @@ class ResourceProfile:
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ResourceProfile:
-        doc = _object(_document(raw), {"schema_version", "environment_id", "group_id", "worker",
-            "backend", "repository_service", "host_budget", "temporary"})
+        doc = _object(
+            _document(raw),
+            {
+                "schema_version",
+                "environment_id",
+                "group_id",
+                "worker",
+                "backend",
+                "repository_service",
+                "host_budget",
+                "temporary",
+            },
+        )
         _validate_jcs_domain(doc)
         environment_id, group_id = _header(doc)
-        item = _object(doc["worker"], {"count", "active_limit", "kernel_threads", "kernel_memory_bytes",
-            "memory_envelope_bytes", "memory_reserve_bytes", "cpu_limit", "swap_limit_bytes"})
-        worker = WorkerResources(_integer(item["count"], maximum=32), _integer(item["active_limit"], maximum=32),
-            _integer(item["kernel_threads"], maximum=256), _integer(item["kernel_memory_bytes"], maximum=40 * _GIB),
+        item = _object(
+            doc["worker"],
+            {
+                "count",
+                "active_limit",
+                "kernel_threads",
+                "kernel_memory_bytes",
+                "memory_envelope_bytes",
+                "memory_reserve_bytes",
+                "cpu_limit",
+                "swap_limit_bytes",
+            },
+        )
+        worker = WorkerResources(
+            _integer(item["count"], maximum=32),
+            _integer(item["active_limit"], maximum=32),
+            _integer(item["kernel_threads"], maximum=256),
+            _integer(item["kernel_memory_bytes"], maximum=40 * _GIB),
             _integer(item["memory_envelope_bytes"], maximum=48 * _GIB),
-            _integer(item["memory_reserve_bytes"], minimum=8 * _GIB), _number(item["cpu_limit"]),
-            _integer(item["swap_limit_bytes"], minimum=0))
+            _integer(item["memory_reserve_bytes"], minimum=8 * _GIB),
+            _number(item["cpu_limit"]),
+            _integer(item["swap_limit_bytes"], minimum=0),
+        )
         if worker.count != worker.active_limit:
             raise ValueError("worker count must equal active_limit")
-        if (worker.memory_reserve_bytes >= worker.memory_envelope_bytes
-                or worker.kernel_memory_bytes > worker.memory_envelope_bytes - worker.memory_reserve_bytes
-                or worker.kernel_threads > math.floor(worker.cpu_limit)):
+        if (
+            worker.memory_reserve_bytes >= worker.memory_envelope_bytes
+            or worker.kernel_memory_bytes
+            > worker.memory_envelope_bytes - worker.memory_reserve_bytes
+            or worker.kernel_threads > math.floor(worker.cpu_limit)
+        ):
             raise ValueError("worker kernel exceeds its resource envelope")
         backend, repository_service = _service(doc["backend"]), _service(doc["repository_service"])
-        host_raw = _object(doc["host_budget"], {"memory_bytes", "cpu_count", "shared_memory_reserve_bytes", "shared_cpu_reserve"})
-        host = HostBudget(_integer(host_raw["memory_bytes"]), _integer(host_raw["cpu_count"]),
+        host_raw = _object(
+            doc["host_budget"],
+            {"memory_bytes", "cpu_count", "shared_memory_reserve_bytes", "shared_cpu_reserve"},
+        )
+        host = HostBudget(
+            _integer(host_raw["memory_bytes"]),
+            _integer(host_raw["cpu_count"]),
             _integer(host_raw["shared_memory_reserve_bytes"], minimum=0),
-            _number(host_raw["shared_cpu_reserve"], allow_zero=True))
-        if (worker.count * worker.memory_envelope_bytes + backend.memory_limit_bytes
-                + repository_service.memory_limit_bytes + host.shared_memory_reserve_bytes > host.memory_bytes
-                or worker.count * worker.cpu_limit + backend.cpu_limit + repository_service.cpu_limit
-                + host.shared_cpu_reserve > host.cpu_count):
+            _number(host_raw["shared_cpu_reserve"], allow_zero=True),
+        )
+        if (
+            worker.count * worker.memory_envelope_bytes
+            + backend.memory_limit_bytes
+            + repository_service.memory_limit_bytes
+            + host.shared_memory_reserve_bytes
+            > host.memory_bytes
+            or worker.count * worker.cpu_limit
+            + backend.cpu_limit
+            + repository_service.cpu_limit
+            + host.shared_cpu_reserve
+            > host.cpu_count
+        ):
             raise ValueError("group services exceed host planning budget")
-        temp = _object(doc["temporary"], {"scratch_max_bytes_per_attempt", "staging_max_bytes_per_object"})
-        temporary = TemporaryLimits(_integer(temp["scratch_max_bytes_per_attempt"]),
-            _integer(temp["staging_max_bytes_per_object"]))
-        return cls(environment_id, group_id, worker, backend, repository_service, host, temporary,
-            raw)
+        temp = _object(
+            doc["temporary"], {"scratch_max_bytes_per_attempt", "staging_max_bytes_per_object"}
+        )
+        temporary = TemporaryLimits(
+            _integer(temp["scratch_max_bytes_per_attempt"]),
+            _integer(temp["staging_max_bytes_per_object"]),
+        )
+        return cls(
+            environment_id, group_id, worker, backend, repository_service, host, temporary, raw
+        )
 
     @classmethod
     def load(cls, path: Path) -> ResourceProfile:
@@ -327,8 +419,10 @@ class DeploymentConfig:
     resources: ResourceProfile
 
     def __post_init__(self) -> None:
-        if ((self.storage.environment_id, self.storage.group_id)
-                != (self.resources.environment_id, self.resources.group_id)):
+        if (self.storage.environment_id, self.storage.group_id) != (
+            self.resources.environment_id,
+            self.resources.group_id,
+        ):
             raise ValueError("storage/resource environment and group must match")
 
     @classmethod

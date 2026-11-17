@@ -23,7 +23,10 @@ from tests.support.table_access_xml import parse_xml_text
 MALFORMED_CASES = (
     ("xml/malformed/s3-unknown-element/input.xml", CompositeDiagnosticCode.UNKNOWN_ELEMENT),
     ("xml/malformed/s3-missing-operator-type/input.xml", CompositeDiagnosticCode.MISSING_ATTRIBUTE),
-    ("xml/malformed/s3-empty-top-level-name/input.xml", CompositeDiagnosticCode.EMPTY_TOP_LEVEL_NAME),
+    (
+        "xml/malformed/s3-empty-top-level-name/input.xml",
+        CompositeDiagnosticCode.EMPTY_TOP_LEVEL_NAME,
+    ),
     ("xml/malformed/s3-invalid-root/input.xml", CompositeDiagnosticCode.INVALID_ROOT),
 )
 
@@ -203,7 +206,9 @@ def test_ast_digest_is_deterministic() -> None:
 
 def test_cancel_fails_closed() -> None:
     xml = load_text("xml/valid/s3-minimal-logic/input.xml")
-    result = materialize_logic(xml, catalog=special_catalog(), context=ParserInvocationContext(CountCancel(1)))
+    result = materialize_logic(
+        xml, catalog=special_catalog(), context=ParserInvocationContext(CountCancel(1))
+    )
     assert result.status is CompositeSignalStatus.FAILED
     assert result.diagnostics[0].code is CompositeDiagnosticCode.MATERIALIZATION_CANCELLED
 
@@ -213,7 +218,9 @@ def test_timeout_fails_closed() -> None:
     result = materialize_logic(
         xml,
         catalog=special_catalog(),
-        context=ParserInvocationContext(CountCancel(10_000), deadline_monotonic=time.monotonic() - 1.0),
+        context=ParserInvocationContext(
+            CountCancel(10_000), deadline_monotonic=time.monotonic() - 1.0
+        ),
     )
     assert result.status is CompositeSignalStatus.FAILED
     assert result.diagnostics[0].code is CompositeDiagnosticCode.MATERIALIZATION_TIMEOUT

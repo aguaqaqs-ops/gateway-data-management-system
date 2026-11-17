@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from tests.support.configuration_facts import replace_preview_with_facts
-from tests.support.configuration_fact_faults import CONFIGURATION_BODY_FAULTS, corrupt_configuration_body
+from tests.support.configuration_fact_faults import (
+    CONFIGURATION_BODY_FAULTS,
+    corrupt_configuration_body,
+)
 
 from pathlib import Path
 from typing import Any
@@ -60,7 +63,9 @@ def seeded_env(tmp_path: Path) -> tuple[WorkspaceHttpTestEnvironment, dict[str, 
     return environment, _seeded_workspace_dict(seed)
 
 
-def test_accept_submit_returns_202_with_attempt_body(seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]]) -> None:
+def test_accept_submit_returns_202_with_attempt_body(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
     env, workspace = seeded_env
     response = env.client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
@@ -75,7 +80,9 @@ def test_accept_submit_returns_202_with_attempt_body(seeded_env: tuple[Workspace
     assert body["workspace_id"] == workspace["workspace_id"]
 
 
-def test_accept_submit_requires_idempotency_key(seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]]) -> None:
+def test_accept_submit_requires_idempotency_key(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
     env, workspace = seeded_env
     response = env.client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
@@ -99,7 +106,9 @@ def test_accept_submit_requires_registry(tmp_path: Path) -> None:
     assert response.json()["code"] == "SERVICE_NOT_READY"
 
 
-def test_accept_submit_replays_same_attempt(seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]]) -> None:
+def test_accept_submit_replays_same_attempt(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
     env, workspace = seeded_env
     url = f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts"
     headers = env.auth_headers(idempotency_key="submit-replay")
@@ -114,16 +123,36 @@ def test_accept_submit_replays_same_attempt(seeded_env: tuple[WorkspaceHttpTestE
 IDENTITY_CONFIRMATION_HTTP_FAILURES = (
     pytest.param(
         [
-            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
-            {"action": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
-            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "ok",
+            },
+            {
+                "action": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "ok",
+            },
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "ok",
+            },
         ],
         id="more-than-two-confirmations",
     ),
     pytest.param(
         [
-            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
-            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "b" * 64, "reason": "ok"},
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "ok",
+            },
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "b" * 64,
+                "reason": "ok",
+            },
         ],
         id="duplicate-action",
     ),
@@ -132,19 +161,43 @@ IDENTITY_CONFIRMATION_HTTP_FAILURES = (
         id="unknown-action",
     ),
     pytest.param(
-        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:not-a-digest", "reason": "ok"}],
+        [
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:not-a-digest",
+                "reason": "ok",
+            }
+        ],
         id="malformed-digest",
     ),
     pytest.param(
-        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": ""}],
+        [
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "",
+            }
+        ],
         id="empty-reason",
     ),
     pytest.param(
-        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "x" * 4097}],
+        [
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "x" * 4097,
+            }
+        ],
         id="reason-over-byte-limit",
     ),
     pytest.param(
-        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "bad\x00reason"}],
+        [
+            {
+                "action": "ACCEPT_DATASET_REPLACEMENT",
+                "assessment_set_digest": "sha256:" + "a" * 64,
+                "reason": "bad\x00reason",
+            }
+        ],
         id="forbidden-control-character",
     ),
 )
@@ -345,7 +398,9 @@ def test_accept_submit_rejects_unreadable_artifacts(tmp_path: Path) -> None:
 
 
 def test_accept_submit_rejects_unavailable_main_resolve(tmp_path: Path) -> None:
-    environment = create_workspace_http_environment(tmp_path, main_resolve_port=FailingMainResolvePort())
+    environment = create_workspace_http_environment(
+        tmp_path, main_resolve_port=FailingMainResolvePort()
+    )
     seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
     workspace = _seeded_workspace_dict(seed)
     response = environment.client.post(
@@ -406,7 +461,9 @@ def test_accept_submit_rejects_string_workspace_version(
 
 
 def test_accept_submit_prefers_artifact_unavailable_over_main_resolve(tmp_path: Path) -> None:
-    environment = create_workspace_http_environment(tmp_path, main_resolve_port=FailingMainResolvePort())
+    environment = create_workspace_http_environment(
+        tmp_path, main_resolve_port=FailingMainResolvePort()
+    )
     seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
     workspace = _seeded_workspace_dict(seed)
     upload = seed["upload_revision"]
@@ -478,10 +535,14 @@ def test_accept_submit_rejects_admission_limit(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
 def test_accept_submit_hides_foreign_preview_before_configuration_decode(
-    tmp_path: Path, fault: str,
+    tmp_path: Path,
+    fault: str,
 ) -> None:
     from tests.test_preview_read_http import _preview_result, _seed_upload, _seed_workspace
-    env = create_workspace_http_environment(tmp_path, extra_sessions={"other-reader": make_identity(actor_id="other-actor")})
+
+    env = create_workspace_http_environment(
+        tmp_path, extra_sessions={"other-reader": make_identity(actor_id="other-actor")}
+    )
     seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
     workspace = _seeded_workspace_dict(seed)
     headers = {**env.auth_headers(), "Authorization": "Bearer other-reader"}
@@ -489,10 +550,20 @@ def test_accept_submit_hides_foreign_preview_before_configuration_decode(
     foreign_upload = _seed_upload(env.client, headers, foreign_workspace)
     foreign_preview = _preview_result(foreign_workspace, foreign_upload, "op-foreign-preview")
     env.repository.save_preview_result(foreign_preview)
-    corrupt_configuration_body(env.db_path, kind="preview", target_id=foreign_preview.preview_result_id, fault=fault)
+    corrupt_configuration_body(
+        env.db_path, kind="preview", target_id=foreign_preview.preview_result_id, fault=fault
+    )
     body = {**_submit_body(workspace), "preview_result_id": foreign_preview.preview_result_id}
-    response = env.client.post(f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
-        headers=env.auth_headers(idempotency_key="foreign-preview"), json=body)
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="foreign-preview"),
+        json=body,
+    )
     assert response.status_code == 404
     with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 0
+        )

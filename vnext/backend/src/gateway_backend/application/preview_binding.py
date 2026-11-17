@@ -1,4 +1,5 @@
 """Accepted Preview/READY binding identity, checked at T1, finalize and review reads."""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -8,7 +9,11 @@ from gateway_backend.domain.workspace.models import PreviewArtifactRef, PreviewR
 
 
 def _ref_document(ref: PreviewArtifactRef | None) -> object:
-    return None if ref is None else [ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256.value]
+    return (
+        None
+        if ref is None
+        else [ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256.value]
+    )
 
 
 def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
@@ -35,18 +40,27 @@ def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
             "modified_canonical_state_digest": canonical.modified_canonical_state_digest.value,
             "storage_projection_ruleset_digest": canonical.storage_projection_ruleset_digest.value,
             "rules_semantically_equal": canonical.rules_semantically_equal,
-            "canonical_table_set_closure_ref": _ref_document(canonical.canonical_table_set_closure_ref),
+            "canonical_table_set_closure_ref": _ref_document(
+                canonical.canonical_table_set_closure_ref
+            ),
             "canonical_table_set_closure_digest": canonical.canonical_table_set_closure_digest.value,
             "canonicalization_manifest_ref": _ref_document(canonical.canonicalization_manifest_ref),
             "canonicalization_manifest_digest": canonical.canonicalization_manifest_digest.value,
         },
         "identity_assessment_set_digest": preview.identity_assessment_set_digest.value,
-        "identity_pairs": [{
-            "pair_id": pair.pair_id, "applicability": pair.applicability.value,
-            "status": pair.status.value, "mode": pair.mode.value,
-            "assessment_ref": _ref_document(pair.assessment_ref),
-            "assessment_digest": None if pair.assessment_digest is None else pair.assessment_digest.value,
-        } for pair in preview.identity_pairs],
+        "identity_pairs": [
+            {
+                "pair_id": pair.pair_id,
+                "applicability": pair.applicability.value,
+                "status": pair.status.value,
+                "mode": pair.mode.value,
+                "assessment_ref": _ref_document(pair.assessment_ref),
+                "assessment_digest": None
+                if pair.assessment_digest is None
+                else pair.assessment_digest.value,
+            }
+            for pair in preview.identity_pairs
+        ],
         "comparison_pairs": [pair.model_dump(mode="json") for pair in preview.comparison_pairs],
         "bundle_artifact_id": preview.bundle_artifact_id,
         "ready_closure_artifact_id": preview.ready_closure_artifact_id,

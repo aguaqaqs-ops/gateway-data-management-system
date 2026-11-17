@@ -59,7 +59,9 @@ def _submit_operation_document(operation_id: str) -> dict[str, object]:
             "baseline_head_version": 3,
             "repository_expected_commit_id": "commit-base",
             "canonical_business_digest": "sha256:" + "5" * 64,
-            "source_artifact_refs": ["a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"],
+            "source_artifact_refs": [
+                "a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"
+            ],
             "preview_ready_closure_ref": "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
             "canonical_table_set_closure_ref": "a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
             "canonical_table_set_closure_digest": "sha256:canonical-table-closure",
@@ -126,11 +128,18 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     token_file = db_path.parent / "repository-bearer-token"
     token_file.write_text("test-repository-token\n", encoding="utf-8")
     fixture_settings = make_operation_worker_settings(db_path.parent, control_db_path=db_path)
-    storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
+    storage_file, resources_file = (
+        fixture_settings.storage_layout_file,
+        fixture_settings.resource_profile_file,
+    )
     environment["GATEWAY_BACKEND_OPERATION_WORKER_RUNTIME_MODE"] = "host"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] = "1"
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_PROCESSING_GROUPS_FILE"] = str(fixture_settings.processing_groups_file)
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_DEVICE_DIRECTORY_FILE"] = str(fixture_settings.device_directory_file)
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_PROCESSING_GROUPS_FILE"] = str(
+        fixture_settings.processing_groups_file
+    )
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_DEVICE_DIRECTORY_FILE"] = str(
+        fixture_settings.device_directory_file
+    )
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
@@ -143,12 +152,19 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
 @contextmanager
 def _spawn_worker(db_path: Path) -> Iterator[subprocess.Popen[str]]:
     environment = _subprocess_environment(db_path)
-    with repository_ready_stub_context(db_path.parent,
-            storage_layout_file=Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"])) as repository:
+    with repository_ready_stub_context(
+        db_path.parent, storage_layout_file=Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"])
+    ) as repository:
         environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = repository.base_url
-        process = subprocess.Popen([sys.executable, "-m", MODULE], cwd=BACKEND_ROOT,
-            env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1)
+        process = subprocess.Popen(
+            [sys.executable, "-m", MODULE],
+            cwd=BACKEND_ROOT,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
         try:
             yield process
         finally:
@@ -219,7 +235,7 @@ def test_submit_process_termination_respects_checkpoint_commit_barrier(
 ) -> None:
     db_path = tmp_path / "submit-termination" / "control.sqlite3"
     db_path.parent.mkdir(parents=True)
-    child_code = r'''
+    child_code = r"""
 import dataclasses
 import sys
 from datetime import UTC, datetime, timedelta
@@ -290,7 +306,7 @@ session.publish_checkpoint(
 )
 print("AFTER_CHECKPOINT", flush=True)
 sys.stdin.buffer.read(1)
-'''
+"""
     process = subprocess.Popen(
         [sys.executable, "-c", child_code, str(db_path)],
         cwd=BACKEND_ROOT,

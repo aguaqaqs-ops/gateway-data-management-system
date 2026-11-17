@@ -11,7 +11,10 @@ from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.risk_evaluation._facts import ExtractedRiskFacts
-from gateway_backend.capabilities.risk_evaluation._rules import ordered_yk_name_applies, standard_rule_applicability
+from gateway_backend.capabilities.risk_evaluation._rules import (
+    ordered_yk_name_applies,
+    standard_rule_applicability,
+)
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RISK_CONTRACT_VERSION,
     RiskEvaluationInput,
@@ -119,13 +122,18 @@ def optional_candidate_input(
     if operation is None or item.composite_signal:
         return None, None
     operation.checkpoint()
-    upper = 64 * 1024 + sum(_input_upper(value) for value in (
-        comparison_task_digest, item.comparison_facts,
-        item.table_fact.diagnostics,
-        evaluation_input.comparison_facts.diagnostics,
-        evaluation_input.risk_ruleset, evaluation_input.risk_options,
-        evaluation_input.artifact_policy,
-    ))
+    upper = 64 * 1024 + sum(
+        _input_upper(value)
+        for value in (
+            comparison_task_digest,
+            item.comparison_facts,
+            item.table_fact.diagnostics,
+            evaluation_input.comparison_facts.diagnostics,
+            evaluation_input.risk_ruleset,
+            evaluation_input.risk_options,
+            evaluation_input.artifact_policy,
+        )
+    )
     if upper > _KEY_RESERVATION_BYTES:
         return None, None
     try:
@@ -137,39 +145,64 @@ def optional_candidate_input(
         # These fields bind publication/authority rather than pure rule input.
         for name in ("comparison_digest", "table_name", "records_ref"):
             del facts[name]
-        facts.update({
-            "ordered_yk_name": ordered_yk_name_applies(evaluation_input.risk_ruleset, item.table_fact.table_name),
-            "ordered_tail_bounds": (None if evaluation_input.ordered_tail_bounds is None
-                or item.table_fact.table_name not in evaluation_input.ordered_tail_bounds else {
-                    field.name: getattr(evaluation_input.ordered_tail_bounds[item.table_fact.table_name], field.name)
-                    for field in fields(evaluation_input.ordered_tail_bounds[item.table_fact.table_name])
-                }),
-            "standard_rule_applicability": list(standard_rule_applicability(
-                evaluation_input.risk_ruleset, item.table_fact.table_name,
-            )),
-            "comparison_failed": item.comparison_failed,
-            "content_changed": item.table_fact.content_changed,
-            "ordered_unsupported": item.ordered_unsupported,
-            "pair_diagnostics": list(evaluation_input.comparison_facts.diagnostics),
-            "row_count_before": item.table_fact.row_count_before,
-            "row_count_current": item.table_fact.row_count_current,
-            "suppressed_added_count": item.table_fact.suppressed_added_count,
-            "suppressed_deleted_count": item.table_fact.suppressed_deleted_count,
-            "table_diagnostics": list(item.table_fact.diagnostics),
-            "uncovered_targets": list(item.uncovered_targets),
-        })
+        facts.update(
+            {
+                "ordered_yk_name": ordered_yk_name_applies(
+                    evaluation_input.risk_ruleset, item.table_fact.table_name
+                ),
+                "ordered_tail_bounds": (
+                    None
+                    if evaluation_input.ordered_tail_bounds is None
+                    or item.table_fact.table_name not in evaluation_input.ordered_tail_bounds
+                    else {
+                        field.name: getattr(
+                            evaluation_input.ordered_tail_bounds[item.table_fact.table_name],
+                            field.name,
+                        )
+                        for field in fields(
+                            evaluation_input.ordered_tail_bounds[item.table_fact.table_name]
+                        )
+                    }
+                ),
+                "standard_rule_applicability": list(
+                    standard_rule_applicability(
+                        evaluation_input.risk_ruleset,
+                        item.table_fact.table_name,
+                    )
+                ),
+                "comparison_failed": item.comparison_failed,
+                "content_changed": item.table_fact.content_changed,
+                "ordered_unsupported": item.ordered_unsupported,
+                "pair_diagnostics": list(evaluation_input.comparison_facts.diagnostics),
+                "row_count_before": item.table_fact.row_count_before,
+                "row_count_current": item.table_fact.row_count_current,
+                "suppressed_added_count": item.table_fact.suppressed_added_count,
+                "suppressed_deleted_count": item.table_fact.suppressed_deleted_count,
+                "table_diagnostics": list(item.table_fact.diagnostics),
+                "uncovered_targets": list(item.uncovered_targets),
+            }
+        )
         candidate = RiskCandidateInputV1(
             comparison_task_digest=comparison_task_digest,
             facts_jcs=canonicalize_json_value(facts),
-            ruleset_jcs=canonicalize_json_value(risk_ruleset_document(evaluation_input.risk_ruleset)),
+            ruleset_jcs=canonicalize_json_value(
+                risk_ruleset_document(evaluation_input.risk_ruleset)
+            ),
             options_jcs=canonicalize_json_value(evaluation_input.risk_options.to_document()),
-            artifact_policy_jcs=canonicalize_json_value(evaluation_input.artifact_policy.to_document()),
+            artifact_policy_jcs=canonicalize_json_value(
+                evaluation_input.artifact_policy.to_document()
+            ),
             policy_version=policy.policy_version,
         )
-        actual = 2048 + sum(len(value) * 16 for value in (
-            candidate.facts_jcs, candidate.ruleset_jcs, candidate.options_jcs,
-            candidate.artifact_policy_jcs,
-        ))
+        actual = 2048 + sum(
+            len(value) * 16
+            for value in (
+                candidate.facts_jcs,
+                candidate.ruleset_jcs,
+                candidate.options_jcs,
+                candidate.artifact_policy_jcs,
+            )
+        )
         if actual > _KEY_RESERVATION_BYTES:
             charge.close()
             return None, None
@@ -218,7 +251,8 @@ def _event_document(event: RiskCandidateEvent, ordinal: int) -> dict[str, object
 
 
 def encode_risk_candidates(
-    events: tuple[RiskCandidateEvent, ...], task_digest: str,
+    events: tuple[RiskCandidateEvent, ...],
+    task_digest: str,
     operation: RiskOperationPort,
 ) -> EncodedRiskCandidates | None:
     """Encode only a naturally completed sequence; failure to retain is a miss.
@@ -264,10 +298,18 @@ def encode_risk_candidates(
         raise
 
 
-_TARGET_KEYS = frozenset({
-    "target_type", "row_identity", "before_row_identity", "current_row_identity",
-    "changed_columns", "position", "position_range", "coverage",
-})
+_TARGET_KEYS = frozenset(
+    {
+        "target_type",
+        "row_identity",
+        "before_row_identity",
+        "current_row_identity",
+        "changed_columns",
+        "position",
+        "position_range",
+        "coverage",
+    }
+)
 
 
 def _target_from_document(value: object) -> RiskTarget:
@@ -281,6 +323,7 @@ def _target_from_document(value: object) -> RiskTarget:
         not isinstance(position_range, list) or len(position_range) != 2
     ):
         raise ValueError("invalid neutral position range")
+
     def digest(name: str) -> DigestRef | None:
         item = value[name]
         if item is None:
@@ -288,6 +331,7 @@ def _target_from_document(value: object) -> RiskTarget:
         if type(item) is not str:
             raise ValueError("invalid neutral risk identity")
         return DigestRef(item)
+
     return RiskTarget(
         target_type=RiskTargetType(value["target_type"]),
         row_identity=digest("row_identity"),
@@ -301,7 +345,9 @@ def _target_from_document(value: object) -> RiskTarget:
 
 
 def decode_risk_candidates(
-    raw: bytes, task_digest: str, operation: RiskOperationPort,
+    raw: bytes,
+    task_digest: str,
+    operation: RiskOperationPort,
 ) -> DecodedRiskCandidates:
     operation.checkpoint()
     if len(raw) > MAX_CANDIDATE_BYTES:
@@ -309,42 +355,56 @@ def decode_risk_candidates(
     charge = operation.memory.reserve(8192 + len(raw) * 64)
     try:
         document = json.loads(raw)
-        if (not isinstance(document, dict)
-                or set(document) != {"complete", "events", "format", "task_digest"}
-                or document["complete"] is not True
-                or document["format"] != RISK_CANDIDATES_FORMAT
-                or document["task_digest"] != task_digest
-                or not isinstance(document["events"], list)
-                or canonicalize_json_value(document) != raw):
+        if (
+            not isinstance(document, dict)
+            or set(document) != {"complete", "events", "format", "task_digest"}
+            or document["complete"] is not True
+            or document["format"] != RISK_CANDIDATES_FORMAT
+            or document["task_digest"] != task_digest
+            or not isinstance(document["events"], list)
+            or canonicalize_json_value(document) != raw
+        ):
             raise ValueError("invalid risk candidate envelope")
         operation.checkpoint()
         events: list[RiskCandidateEvent] = []
         for index, value in enumerate(document["events"]):
             if index % 1024 == 0:
                 operation.checkpoint()
-            if (not isinstance(value, dict) or type(value.get("ordinal")) is not int
-                    or value["ordinal"] != index):
+            if (
+                not isinstance(value, dict)
+                or type(value.get("ordinal")) is not int
+                or value["ordinal"] != index
+            ):
                 raise ValueError("invalid risk candidate ordinal")
             if value.get("kind") == "CHECK_RECORDS_CLOSURE":
                 if set(value) != {"kind", "ordinal"}:
                     raise ValueError("invalid risk closure event")
                 events.append(CHECK_RECORDS_CLOSURE)
                 continue
-            if (value.get("kind") != "EMIT"
-                    or set(value) != {"kind", "ordinal", "rule_id", "target", "evidence"}
-                    or not isinstance(value["evidence"], list)):
+            if (
+                value.get("kind") != "EMIT"
+                or set(value) != {"kind", "ordinal", "rule_id", "target", "evidence"}
+                or not isinstance(value["evidence"], list)
+            ):
                 raise ValueError("invalid risk emit event")
             evidence: list[tuple[str, str | int | bool | None]] = []
             for pair in value["evidence"]:
-                if (not isinstance(pair, list) or len(pair) != 2
-                        or type(pair[0]) is not str or not pair[0]
-                        or (pair[1] is not None and type(pair[1]) not in {str, int, bool})):
+                if (
+                    not isinstance(pair, list)
+                    or len(pair) != 2
+                    or type(pair[0]) is not str
+                    or not pair[0]
+                    or (pair[1] is not None and type(pair[1]) not in {str, int, bool})
+                ):
                     raise ValueError("invalid risk candidate evidence")
                 evidence.append((pair[0], pair[1]))
-            events.append(RiskEmitEvent(
-                RiskRuleId(value["rule_id"]), _target_from_document(value["target"]),
-                tuple(evidence),
-            ))
+            events.append(
+                RiskEmitEvent(
+                    RiskRuleId(value["rule_id"]),
+                    _target_from_document(value["target"]),
+                    tuple(evidence),
+                )
+            )
         result = DecodedRiskCandidates(tuple(events), charge)
         operation.checkpoint()
         return result

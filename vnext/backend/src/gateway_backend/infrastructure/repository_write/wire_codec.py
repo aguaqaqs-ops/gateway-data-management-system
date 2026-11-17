@@ -32,7 +32,9 @@ def repository_artifact_ref_to_wire(ref: RepositoryArtifactRef) -> WireRepositor
     )
 
 
-def repository_artifact_ref_from_upload_response(response: UploadArtifactResponse) -> RepositoryArtifactRef:
+def repository_artifact_ref_from_upload_response(
+    response: UploadArtifactResponse,
+) -> RepositoryArtifactRef:
     wire_ref = response.artifact_ref
     return RepositoryArtifactRef(
         artifact_id=str(wire_ref.artifact_id),
@@ -78,16 +80,8 @@ def import_operation_from_wire(operation: VersionedOperation) -> RepositoryImpor
         error = RepositoryImportOperationError(
             code=str(wire_error.code),
             message=str(wire_error.message),
-            details=(
-                None
-                if wire_error.details is None
-                else dict(wire_error.details)
-            ),
-            request_id=(
-                None
-                if wire_error.request_id is None
-                else str(wire_error.request_id)
-            ),
+            details=(None if wire_error.details is None else dict(wire_error.details)),
+            request_id=(None if wire_error.request_id is None else str(wire_error.request_id)),
         )
     status = RepositoryImportOperationStatus(operation.status.value)
     return RepositoryImportOperation(
@@ -98,7 +92,9 @@ def import_operation_from_wire(operation: VersionedOperation) -> RepositoryImpor
     )
 
 
-def import_operation_from_evidence_payload(operation_payload: dict[str, object]) -> RepositoryImportOperation:
+def import_operation_from_evidence_payload(
+    operation_payload: dict[str, object],
+) -> RepositoryImportOperation:
     operation = VersionedOperation.model_validate(operation_payload)
     return import_operation_from_wire(operation)
 

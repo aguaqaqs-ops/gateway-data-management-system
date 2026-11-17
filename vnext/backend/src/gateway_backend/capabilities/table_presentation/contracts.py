@@ -34,7 +34,9 @@ class TablePresentation:
     def __post_init__(self) -> None:
         _name(self.table_name)
         object.__setattr__(self, "comment", normalize_comment(self.comment))
-        if type(self.columns) is not tuple or any(type(c) is not ColumnPresentation for c in self.columns):
+        if type(self.columns) is not tuple or any(
+            type(c) is not ColumnPresentation for c in self.columns
+        ):
             raise ValueError("presentation columns must be a tuple of ColumnPresentation")
         if len({c.name for c in self.columns}) != len(self.columns):
             raise ValueError("presentation columns must not repeat names")
@@ -45,7 +47,9 @@ class PresentationMetadata:
     tables: tuple[TablePresentation, ...] = ()
 
     def __post_init__(self) -> None:
-        if type(self.tables) is not tuple or any(type(t) is not TablePresentation for t in self.tables):
+        if type(self.tables) is not tuple or any(
+            type(t) is not TablePresentation for t in self.tables
+        ):
             raise ValueError("presentation tables must be a tuple of TablePresentation")
         names = [t.table_name for t in self.tables]
         if names != sorted(set(names), key=lambda name: name.encode("utf-8")):
@@ -57,17 +61,32 @@ class PresentationMetadata:
         for name, columns in sorted(tables, key=lambda t: t[0].encode("utf-8")):
             table = source.get(name)
             comments = {} if table is None else {c.name: c.comment for c in table.columns}
-            output.append(TablePresentation(name, None if table is None else table.comment,
-                tuple(ColumnPresentation(c, comments.get(c)) for c in columns)))
+            output.append(
+                TablePresentation(
+                    name,
+                    None if table is None else table.comment,
+                    tuple(ColumnPresentation(c, comments.get(c)) for c in columns),
+                )
+            )
         return PresentationMetadata(tuple(output))
 
     def require_coverage(self, tables: Mapping[str, tuple[str, ...]]) -> None:
         if {t.table_name: tuple(c.name for c in t.columns) for t in self.tables} != dict(tables):
-            raise ValueError("presentation must cover exactly the canonical tables and columns in DDL order")
+            raise ValueError(
+                "presentation must cover exactly the canonical tables and columns in DDL order"
+            )
 
     def to_document(self) -> dict[str, object]:
-        return {"tables": [{"table_name": t.table_name, "comment": t.comment,
-            "columns": [{"name": c.name, "comment": c.comment} for c in t.columns]} for t in self.tables]}
+        return {
+            "tables": [
+                {
+                    "table_name": t.table_name,
+                    "comment": t.comment,
+                    "columns": [{"name": c.name, "comment": c.comment} for c in t.columns],
+                }
+                for t in self.tables
+            ]
+        }
 
     @classmethod
     def from_document(cls, value: object) -> PresentationMetadata:
@@ -100,6 +119,7 @@ def _name(value: str) -> None:
 
 class PresentationColumn(Protocol):
     """Read-only canonical descriptor fields consumed by the presentation owner."""
+
     @property
     def name(self) -> str: ...
     @property

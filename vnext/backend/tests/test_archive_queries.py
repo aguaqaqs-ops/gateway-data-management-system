@@ -29,7 +29,10 @@ def test_archive_candidates_include_only_approved_current_base_submissions(db_pa
     )
     assert len(result.candidates) == 1
     assert result.candidates[0].submission_id == seed.submission_id
-    assert result.candidates[0].expected_candidate_digest == seed.selected_ref.expected_candidate_digest
+    assert (
+        result.candidates[0].expected_candidate_digest
+        == seed.selected_ref.expected_candidate_digest
+    )
     assert result.candidates[0].review_version == 1
     assert result.candidate_set_digest.startswith("sha256:")
     assert result.blockers == ()
@@ -350,7 +353,9 @@ def test_sqlite_list_archive_candidate_facts_raises_at_fetch_limit(db_path: Path
 
     from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+    from gateway_backend.infrastructure.control_db.sqlite_submission import (
+        SQLiteSubmissionRepository,
+    )
     from tests.support.archive_fixtures import seed_bulk_approved_archive_candidates
     from tests.test_submit_transactions import BASELINE_HEAD
 
@@ -368,37 +373,65 @@ def test_sqlite_list_archive_candidate_facts_raises_at_fetch_limit(db_path: Path
             )
 
 
-def test_archive_pending_gate_includes_other_actor_and_ignores_drafts_and_old_baselines(db_path: Path) -> None:
+def test_archive_pending_gate_includes_other_actor_and_ignores_drafts_and_old_baselines(
+    db_path: Path,
+) -> None:
     from dataclasses import replace
     from tests.test_review_transactions import _seed_additional_pending_review_submission
     from tests.support.baseline_fixtures import apply_baseline_head_state
     from tests.test_submit_transactions import BASELINE_HEAD
+
     seed = seed_approved_archive_candidate(db_path)
-    other = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
-        device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    other = _seed_additional_pending_review_submission(
+        db_path,
+        submission_id="sub-pending",
+        device_key="device-1",
+        repository_id=seed.repository_id,
+        project_id="project-1",
+    )
     from gateway_backend.application.workspace.services import create_or_get_workspace
     from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
+
     with ControlDbUnitOfWork(db_path) as transaction:
-        create_or_get_workspace(context=make_identity(actor_id="draft-only"),
+        create_or_get_workspace(
+            context=make_identity(actor_id="draft-only"),
             scope_resolution=FixedScopeResolutionPort(baseline_head=BASELINE_HEAD),
-            transaction=transaction, created_at=transaction.transaction_now)
-    result = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+            transaction=transaction,
+            created_at=transaction.transaction_now,
+        )
+    result = get_archive_candidates(
+        context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path)
+    )
     assert [candidate.submission_id for candidate in result.candidates] == [seed.submission_id]
     assert result.pending_submission_ids == (other.submission_id,)
     assert result.blockers == ("ARCHIVE_PENDING_REVIEW",)
-    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref, unit_of_work_factory=_uow_factory(db_path))
+    preview = preview_archive_plan(
+        context=seed.archiver_context,
+        selected_ref=seed.selected_ref,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
     assert not preview.can_start
     assert preview.pending_submission_ids == (other.submission_id,)
     assert "ARCHIVE_PENDING_REVIEW" in preview.blockers
-    apply_baseline_head_state(db_path, repository_id=seed.repository_id, baseline_head=replace(
-        BASELINE_HEAD, business_baseline_node_id="new-baseline", business_baseline_commit_id="commit-new",
-        baseline_head_version=BASELINE_HEAD.baseline_head_version + 1,
-    ))
+    apply_baseline_head_state(
+        db_path,
+        repository_id=seed.repository_id,
+        baseline_head=replace(
+            BASELINE_HEAD,
+            business_baseline_node_id="new-baseline",
+            business_baseline_commit_id="commit-new",
+            baseline_head_version=BASELINE_HEAD.baseline_head_version + 1,
+        ),
+    )
     # A changed Head must still reference real immutable source facts.
     with ControlDbUnitOfWork(db_path) as transaction:
-        transaction.connection.execute("UPDATE baseline_node_records SET source_submission_id = ? WHERE node_id = 'new-baseline'",
-            (seed.submission_id,))
-    advanced = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+        transaction.connection.execute(
+            "UPDATE baseline_node_records SET source_submission_id = ? WHERE node_id = 'new-baseline'",
+            (seed.submission_id,),
+        )
+    advanced = get_archive_candidates(
+        context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path)
+    )
     assert advanced.pending_submission_ids == ()
     assert advanced.blockers == ()
 
@@ -407,27 +440,50 @@ def test_archive_pending_gate_includes_other_actor_and_ignores_drafts_and_old_ba
 def test_pending_review_gate_rejects_broken_review_closure(db_path: Path, fault: str) -> None:
     from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
     from tests.support.archive_fixtures import _archiver_context
+
     review = _seed_pending_review_submission(db_path)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         if fault == "missing_projection":
-            unit_of_work.connection.execute("DELETE FROM review_projection_records WHERE submission_id = ?", (review.submission_id,))
+            unit_of_work.connection.execute(
+                "DELETE FROM review_projection_records WHERE submission_id = ?",
+                (review.submission_id,),
+            )
         elif fault == "missing_event":
-            unit_of_work.connection.execute("DELETE FROM review_event_records WHERE submission_id = ?", (review.submission_id,))
+            unit_of_work.connection.execute(
+                "DELETE FROM review_event_records WHERE submission_id = ?", (review.submission_id,)
+            )
         else:
-            unit_of_work.connection.execute("UPDATE review_projection_records SET status = 'REJECTED' WHERE submission_id = ?", (review.submission_id,))
+            unit_of_work.connection.execute(
+                "UPDATE review_projection_records SET status = 'REJECTED' WHERE submission_id = ?",
+                (review.submission_id,),
+            )
     with pytest.raises(ArchiveIntegrityFailure):
-        get_archive_candidates(context=_archiver_context("device-1", "project-1"), unit_of_work_factory=_uow_factory(db_path))
+        get_archive_candidates(
+            context=_archiver_context("device-1", "project-1"),
+            unit_of_work_factory=_uow_factory(db_path),
+        )
 
 
 def test_archive_digest_v2_preimages_match_the_frozen_consumer_vectors() -> None:
     import json
-    from gateway_backend.application.archive.contracts import compute_archive_digest, compute_close_request_fingerprint
+    from gateway_backend.application.archive.contracts import (
+        compute_archive_digest,
+        compute_close_request_fingerprint,
+    )
+
     root = Path(__file__).resolve().parents[2]
-    vectors = json.loads((root / "fixtures/golden/archive/v2/identities.json").read_text())["vectors"]
+    vectors = json.loads((root / "fixtures/golden/archive/v2/identities.json").read_text())[
+        "vectors"
+    ]
     for vector in vectors:
         payload = vector["payload"]
         assert compute_archive_digest(vector["kind"], payload) == vector["digest"]
         if vector["kind"] == "candidate":
             assert compute_candidate_digest(**payload) == vector["digest"]
         elif vector["kind"] == "close-request":
-            assert compute_close_request_fingerprint(**{key: value for key, value in payload.items() if key != "command_kind"}) == vector["digest"]
+            assert (
+                compute_close_request_fingerprint(
+                    **{key: value for key, value in payload.items() if key != "command_kind"}
+                )
+                == vector["digest"]
+            )

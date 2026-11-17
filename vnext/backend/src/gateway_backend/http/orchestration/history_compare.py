@@ -20,7 +20,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.checkpoints import ReadyClosureDocument, StepCheckpointEnvelope
-from gateway_backend.application.comparison_audit import ComparisonStructureAudit, StructureAuditBinding
+from gateway_backend.application.comparison_audit import (
+    ComparisonStructureAudit,
+    StructureAuditBinding,
+)
 from gateway_backend.application.history.compare import (
     HistoryCompareAcceptanceResult as ApplicationHistoryCompareAcceptanceResult,
     accept_history_compare,
@@ -118,12 +121,17 @@ def accept_compare_operation(
                 history_scope_active_limit=history_scope_active_limit,
                 operation_queue_limit=operation_queue_limit,
                 resolve_current_identity=resolve_current_identity,
-                preflight=(None if artifact_store is None or bundle_reader is None else
-                    lambda operation, acceptance: preflight_history_result(
-                        operation=operation, acceptance=acceptance,
+                preflight=(
+                    None
+                    if artifact_store is None or bundle_reader is None
+                    else lambda operation, acceptance: preflight_history_result(
+                        operation=operation,
+                        acceptance=acceptance,
                         unit_of_work_factory=unit_of_work_factory,
-                        artifact_store=artifact_store, bundle_reader=bundle_reader,
-                    )),
+                        artifact_store=artifact_store,
+                        bundle_reader=bundle_reader,
+                    )
+                ),
             )
     except ApiError:
         raise
@@ -140,36 +148,62 @@ def accept_compare_operation(
 
 @contextmanager
 def preflight_history_result(
-    *, operation: OperationRecord, acceptance: HistoryCompareAcceptanceRecord,
-    unit_of_work_factory: HistoryControlUnitOfWorkFactory, artifact_store: object,
+    *,
+    operation: OperationRecord,
+    acceptance: HistoryCompareAcceptanceRecord,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
+    artifact_store: object,
     bundle_reader: BundleReaderPort,
 ) -> Iterator[frozenset[str]]:
     """Keep the root borrowed from metadata reads through the caller's writer check."""
     read_session = getattr(artifact_store, "read_session", None)
     try:
         with read_session() if read_session is not None else nullcontext():
-            _load_success_result(operation=operation, acceptance=acceptance,
-                                 unit_of_work_factory=unit_of_work_factory, artifact_store=artifact_store)
+            _load_success_result(
+                operation=operation,
+                acceptance=acceptance,
+                unit_of_work_factory=unit_of_work_factory,
+                artifact_store=artifact_store,
+            )
             with unit_of_work_factory(read_only=True) as uow:
-                step = uow.operations.get_step(history_compare_step_id(operation.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+                step = uow.operations.get_step(
+                    history_compare_step_id(operation.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+                )
             if step.checkpoint_ref is None:
-                raise ApiError(code="ARTIFACT_UNAVAILABLE", message="history checkpoint unavailable", status_code=404)
+                raise ApiError(
+                    code="ARTIFACT_UNAVAILABLE",
+                    message="history checkpoint unavailable",
+                    status_code=404,
+                )
             envelope = _load_checkpoint_envelope_from_store(artifact_store, step.checkpoint_ref)
             state_ref, _ = history_compare_assemble_state_from_checkpoint(
-                envelope.job_state, cast(BoundedArtifactStorePort, artifact_store))
+                envelope.job_state, cast(BoundedArtifactStorePort, artifact_store)
+            )
             ready_ref = history_compare_ready_ref(envelope.job_state)
-            closure = ReadyClosureDocument.from_canonical_bytes(_read_metadata_from_store(artifact_store, ready_ref))
-            prepared = read_compare_bundle(operation=operation, bundle_reader=bundle_reader,
-                                           unit_of_work_factory=unit_of_work_factory, artifact_store=artifact_store)
+            closure = ReadyClosureDocument.from_canonical_bytes(
+                _read_metadata_from_store(artifact_store, ready_ref)
+            )
+            prepared = read_compare_bundle(
+                operation=operation,
+                bundle_reader=bundle_reader,
+                unit_of_work_factory=unit_of_work_factory,
+                artifact_store=artifact_store,
+            )
             try:
-                yield frozenset(ref.artifact_id for ref in
-                                (step.checkpoint_ref, state_ref, ready_ref, *closure.artifact_refs()))
+                yield frozenset(
+                    ref.artifact_id
+                    for ref in (step.checkpoint_ref, state_ref, ready_ref, *closure.artifact_refs())
+                )
             finally:
                 prepared.close()
     except ApiError as exc:
         raise HistoryComparePreflightFailure(exc) from exc
     except (CheckpointDecodeError, ManifestVerificationError) as exc:
-        raise HistoryComparePreflightFailure(ApiError(code="ARTIFACT_UNAVAILABLE", message="history result unavailable", status_code=404)) from exc
+        raise HistoryComparePreflightFailure(
+            ApiError(
+                code="ARTIFACT_UNAVAILABLE", message="history result unavailable", status_code=404
+            )
+        ) from exc
 
 
 def assert_history_result_not_expired(
@@ -177,9 +211,17 @@ def assert_history_result_not_expired(
 ) -> None:
     if operation.status is OperationStatus.SUCCEEDED:
         if operation.completed_at is None:
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history result has no completion time", status_code=503)
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history result has no completion time",
+                status_code=503,
+            )
         if now >= operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds):
-            raise ApiError(code="HISTORY_COMPARE_RESULT_EXPIRED", message="history result has expired", status_code=410)
+            raise ApiError(
+                code="HISTORY_COMPARE_RESULT_EXPIRED",
+                message="history result has expired",
+                status_code=410,
+            )
 
 
 def history_compare_acceptance_to_response(
@@ -256,11 +298,21 @@ def read_compare_bundle(
         # closes; the outer borrow also protects checkpoint/state reads.
         with read_session() if read_session is not None else nullcontext():
             with unit_of_work_factory(read_only=True) as unit_of_work:
-                acceptance = unit_of_work.history_compare.get_acceptance_by_operation_id(operation.operation_id)
+                acceptance = unit_of_work.history_compare.get_acceptance_by_operation_id(
+                    operation.operation_id
+                )
             if acceptance is None:
-                raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history acceptance is missing", status_code=503)
-            _load_success_result(operation=operation, acceptance=acceptance,
-                                 unit_of_work_factory=unit_of_work_factory, artifact_store=artifact_store)
+                raise ApiError(
+                    code="HISTORY_INTEGRITY_FAILURE",
+                    message="history acceptance is missing",
+                    status_code=503,
+                )
+            _load_success_result(
+                operation=operation,
+                acceptance=acceptance,
+                unit_of_work_factory=unit_of_work_factory,
+                artifact_store=artifact_store,
+            )
             bundle_artifact_id, expected_digest = _bundle_binding(
                 operation=operation,
                 unit_of_work_factory=unit_of_work_factory,
@@ -301,7 +353,9 @@ def _public_operation_status(
     return cast(Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"], status.value)
 
 
-def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef, *, bundle_manifest: bool = False) -> bytes:
+def _read_metadata_from_store(
+    artifact_store: object, ref: ArtifactRef, *, bundle_manifest: bool = False
+) -> bytes:
     try:
         locate = getattr(artifact_store, "locate", None)
         if locate is not None:
@@ -313,7 +367,9 @@ def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef, *, bundl
             raw_bytes = b"".join(read_exact(ref))
             verify_readable = getattr(artifact_store, "verify_readable", None)
             if verify_readable is None:
-                raise ManifestVerificationError("artifact store does not support digest verification")
+                raise ManifestVerificationError(
+                    "artifact store does not support digest verification"
+                )
             verification = verify_readable(
                 ref,
                 expected_size=ref.size_bytes,
@@ -324,11 +380,19 @@ def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef, *, bundl
                     verification.reason or "artifact digest verification failed"
                 )
     except ArtifactUnavailableError as exc:
-        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
+        raise ApiError(
+            code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404
+        ) from exc
     except ManifestVerificationError as exc:
         if bundle_manifest:
-            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle failed integrity verification", status_code=503) from exc
-        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
+            raise ApiError(
+                code="BUNDLE_INTEGRITY_FAILURE",
+                message="bundle failed integrity verification",
+                status_code=503,
+            ) from exc
+        raise ApiError(
+            code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404
+        ) from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise ApiError(
             code="ARTIFACT_UNAVAILABLE",
@@ -339,7 +403,8 @@ def _read_metadata_from_store(artifact_store: object, ref: ArtifactRef, *, bundl
 
 
 def _load_checkpoint_envelope_from_store(
-    artifact_store: object, ref: ArtifactRef,
+    artifact_store: object,
+    ref: ArtifactRef,
 ) -> StepCheckpointEnvelope:
     raw_bytes = _read_metadata_from_store(artifact_store, ref)
     try:
@@ -377,27 +442,41 @@ def _load_success_result(
         if not isinstance(payload_object, dict):
             raise ValueError("history payload must be an object")
         payload = decode_history_compare_payload(payload_object)
-        if (payload.acceptance_id != acceptance.acceptance_id
-                or payload.gateway_device_external_key != acceptance.gateway_device_external_key
-                or payload.business_project_id != acceptance.business_project_id
-                or payload.repository_id != acceptance.repository_id
-                or payload.idempotency_key != acceptance.idempotency_key
-                or payload.request_fingerprint != acceptance.request_fingerprint
-                or payload.comparison_ruleset_digest != acceptance.comparison_ruleset_digest
-                or payload.nodes != acceptance.nodes or payload.pair_count != len(acceptance.nodes) - 1
-                or payload.comparison_contract_version != HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION
-                or payload.view_kind != HISTORY_COMPARE_VIEW_KIND
-                or operation.job_contract_version != HISTORY_COMPARE_JOB_CONTRACT_VERSION
-                or operation.business_refs != (BusinessReference(kind="history_compare", value=acceptance.acceptance_id),)):
+        if (
+            payload.acceptance_id != acceptance.acceptance_id
+            or payload.gateway_device_external_key != acceptance.gateway_device_external_key
+            or payload.business_project_id != acceptance.business_project_id
+            or payload.repository_id != acceptance.repository_id
+            or payload.idempotency_key != acceptance.idempotency_key
+            or payload.request_fingerprint != acceptance.request_fingerprint
+            or payload.comparison_ruleset_digest != acceptance.comparison_ruleset_digest
+            or payload.nodes != acceptance.nodes
+            or payload.pair_count != len(acceptance.nodes) - 1
+            or payload.comparison_contract_version != HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION
+            or payload.view_kind != HISTORY_COMPARE_VIEW_KIND
+            or operation.job_contract_version != HISTORY_COMPARE_JOB_CONTRACT_VERSION
+            or operation.business_refs
+            != (BusinessReference(kind="history_compare", value=acceptance.acceptance_id),)
+        ):
             raise ValueError("history operation and acceptance disagree")
     except (ValueError, TypeError, HistoryCompareJobError) as exc:
-        raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history operation binding disagrees", status_code=503) from exc
-    if (acceptance.operation_id != operation.operation_id
-            or envelope.operation_id != operation.operation_id
-            or envelope.step_name != HISTORY_COMPARE_STEP_ASSEMBLE
-            or envelope.job_kind != operation.job_kind
-            or envelope.job_contract_version != operation.job_contract_version):
-        raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history checkpoint binding disagrees", status_code=503)
+        raise ApiError(
+            code="HISTORY_INTEGRITY_FAILURE",
+            message="history operation binding disagrees",
+            status_code=503,
+        ) from exc
+    if (
+        acceptance.operation_id != operation.operation_id
+        or envelope.operation_id != operation.operation_id
+        or envelope.step_name != HISTORY_COMPARE_STEP_ASSEMBLE
+        or envelope.job_kind != operation.job_kind
+        or envelope.job_contract_version != operation.job_contract_version
+    ):
+        raise ApiError(
+            code="HISTORY_INTEGRITY_FAILURE",
+            message="history checkpoint binding disagrees",
+            status_code=503,
+        )
     try:
         assemble_state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(
             envelope.job_state,
@@ -410,42 +489,92 @@ def _load_success_result(
             status_code=404,
         ) from exc
     try:
-        state = _HistoryAssembleState.model_validate_json(canonicalize_json_value(assemble_state), strict=True)
+        state = _HistoryAssembleState.model_validate_json(
+            canonicalize_json_value(assemble_state), strict=True
+        )
     except (ValueError, ValidationError) as exc:
-        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
+        raise ApiError(
+            code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404
+        ) from exc
     try:
         ready_ref = history_compare_ready_ref(envelope.job_state)
         if operation.ready_closure_ref != ready_ref:
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY binding disagrees", status_code=503)
-        closure = ReadyClosureDocument.from_canonical_bytes(_read_metadata_from_store(artifact_store, ready_ref))
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history READY binding disagrees",
+                status_code=503,
+            )
+        closure = ReadyClosureDocument.from_canonical_bytes(
+            _read_metadata_from_store(artifact_store, ready_ref)
+        )
         if closure.job_contract_version != operation.job_contract_version:
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY version disagrees", status_code=503)
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history READY version disagrees",
+                status_code=503,
+            )
         bundle_id = envelope.job_state.get("bundle_artifact_id")
-        bundle_ref = next((ref for ref in closure.artifact_refs() if ref.artifact_id == bundle_id), None)
+        bundle_ref = next(
+            (ref for ref in closure.artifact_refs() if ref.artifact_id == bundle_id), None
+        )
         if bundle_ref is None:
-            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle is outside history READY", status_code=503)
-        if set(ready_closure_refs_from_assemble(assemble_state, bundle_ref)) != set(closure.artifact_refs()):
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY outputs disagree", status_code=503)
+            raise ApiError(
+                code="BUNDLE_INTEGRITY_FAILURE",
+                message="bundle is outside history READY",
+                status_code=503,
+            )
+        if set(ready_closure_refs_from_assemble(assemble_state, bundle_ref)) != set(
+            closure.artifact_refs()
+        ):
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history READY outputs disagree",
+                status_code=503,
+            )
     except (CheckpointDecodeError, ManifestVerificationError) as exc:
-        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404) from exc
+        raise ApiError(
+            code="ARTIFACT_UNAVAILABLE", message="compare result is not available", status_code=404
+        ) from exc
     except (HistoryCompareJobError, ValueError, TypeError, KeyError) as exc:
-        raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY outputs disagree", status_code=503) from exc
+        raise ApiError(
+            code="HISTORY_INTEGRITY_FAILURE",
+            message="history READY outputs disagree",
+            status_code=503,
+        ) from exc
     try:
         pairs = state.pairs
-        expected_ids = ("left_to_right",) if len(acceptance.nodes) == 2 else ("left_to_middle", "middle_to_right")
+        expected_ids = (
+            ("left_to_right",)
+            if len(acceptance.nodes) == 2
+            else ("left_to_middle", "middle_to_right")
+        )
         if len(pairs) != len(expected_ids) or state.pair_ids != list(expected_ids):
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history pair count disagrees", status_code=503)
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history pair count disagrees",
+                status_code=503,
+            )
         for index, pair in enumerate(pairs):
-            before, current = acceptance.nodes[index:index + 2]
-            if (pair.pair_id != expected_ids[index]
-                    or pair.before_ref.ref_kind != before.ref_kind.value or pair.before_ref.ref_id != before.ref_id
-                    or pair.before_commit != before.commit_id
-                    or pair.current_ref.ref_kind != current.ref_kind.value or pair.current_ref.ref_id != current.ref_id
-                    or pair.current_commit != current.commit_id):
-                raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history pair binding disagrees", status_code=503)
+            before, current = acceptance.nodes[index : index + 2]
+            if (
+                pair.pair_id != expected_ids[index]
+                or pair.before_ref.ref_kind != before.ref_kind.value
+                or pair.before_ref.ref_id != before.ref_id
+                or pair.before_commit != before.commit_id
+                or pair.current_ref.ref_kind != current.ref_kind.value
+                or pair.current_ref.ref_id != current.ref_id
+                or pair.current_commit != current.commit_id
+            ):
+                raise ApiError(
+                    code="HISTORY_INTEGRITY_FAILURE",
+                    message="history pair binding disagrees",
+                    status_code=503,
+                )
         try:
             bindings = state.structure_audit_bindings
-            if len(bindings) != len(pairs) or {item.pair_id for item in bindings} != set(expected_ids):
+            if len(bindings) != len(pairs) or {item.pair_id for item in bindings} != set(
+                expected_ids
+            ):
                 raise ValueError("incomplete structure audit bindings")
             refs_by_id = {ref.artifact_id: ref for ref in closure.artifact_refs()}
             pairs_by_id = {pair.pair_id: pair for pair in pairs}
@@ -456,31 +585,71 @@ def _load_success_result(
                     ref = refs_by_id.get(binding.audit_artifact_id)
                     if ref is None:
                         raise ValueError("structure audit is missing from READY")
-                    audit = ComparisonStructureAudit.model_validate_json(_read_metadata_from_store(artifact_store, ref), strict=True)
-                    if audit.pair_id != binding.pair_id or audit.comparison_digest != binding.comparison_digest or not audit.tables:
+                    audit = ComparisonStructureAudit.model_validate_json(
+                        _read_metadata_from_store(artifact_store, ref), strict=True
+                    )
+                    if (
+                        audit.pair_id != binding.pair_id
+                        or audit.comparison_digest != binding.comparison_digest
+                        or not audit.tables
+                    ):
                         raise ValueError("structure audit document binding disagrees")
         except (ValueError, TypeError, ValidationError) as exc:
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history structure audit disagrees", status_code=503) from exc
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history structure audit disagrees",
+                status_code=503,
+            ) from exc
         try:
             bundle_metadata = decode_bundle_manifest(
-                bundle_ref, lambda: _read_metadata_from_store(artifact_store, bundle_ref, bundle_manifest=True)
+                bundle_ref,
+                lambda: _read_metadata_from_store(artifact_store, bundle_ref, bundle_manifest=True),
             )
         except BundleIntegrityError as exc:
-            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle failed integrity verification", status_code=503) from exc
-        expected_input_roles = tuple((index, node.ref_id) for index, node in enumerate(acceptance.nodes))
-        expected_pair_indices = tuple((pair_id, index, index + 1) for index, pair_id in enumerate(expected_ids))
-        if (bundle_metadata.input_roles != expected_input_roles
-                or bundle_metadata.pair_input_indices != expected_pair_indices):
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history bundle input binding disagrees", status_code=503)
+            raise ApiError(
+                code="BUNDLE_INTEGRITY_FAILURE",
+                message="bundle failed integrity verification",
+                status_code=503,
+            ) from exc
+        expected_input_roles = tuple(
+            (index, node.ref_id) for index, node in enumerate(acceptance.nodes)
+        )
+        expected_pair_indices = tuple(
+            (pair_id, index, index + 1) for index, pair_id in enumerate(expected_ids)
+        )
+        if (
+            bundle_metadata.input_roles != expected_input_roles
+            or bundle_metadata.pair_input_indices != expected_pair_indices
+        ):
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history bundle input binding disagrees",
+                status_code=503,
+            )
         ready_by_id = {ref.artifact_id: ref for ref in closure.artifact_refs()}
-        bundle_refs = (bundle_metadata.closure_ref, *(entry.artifact_ref for entry in bundle_metadata.entries))
+        bundle_refs = (
+            bundle_metadata.closure_ref,
+            *(entry.artifact_ref for entry in bundle_metadata.entries),
+        )
         if any(ready_by_id.get(ref.artifact_id) != ref for ref in bundle_refs):
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history READY omits bundle members", status_code=503)
-        expected_pair_digests = tuple((pair.pair_id, pair.surface_digest, pair.comparison_digest) for pair in pairs)
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history READY omits bundle members",
+                status_code=503,
+            )
+        expected_pair_digests = tuple(
+            (pair.pair_id, pair.surface_digest, pair.comparison_digest) for pair in pairs
+        )
         expected_risk_digests = tuple((pair.pair_id, pair.risk_digest) for pair in pairs)
-        if (bundle_metadata.pair_digests != expected_pair_digests
-                or bundle_metadata.pair_risk_digests != expected_risk_digests):
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history pair and bundle digests disagree", status_code=503)
+        if (
+            bundle_metadata.pair_digests != expected_pair_digests
+            or bundle_metadata.pair_risk_digests != expected_risk_digests
+        ):
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history pair and bundle digests disagree",
+                status_code=503,
+            )
         bundle_digest = state.bundle_digest
         result = HistoryCompareResultInputResponse(
             input={
@@ -499,19 +668,41 @@ def _load_success_result(
             completed_at=operation.completed_at,
         )
         if bundle_metadata.bundle_digest != bundle_digest:
-            raise ApiError(code="BUNDLE_INTEGRITY_FAILURE", message="bundle digest disagrees", status_code=503)
+            raise ApiError(
+                code="BUNDLE_INTEGRITY_FAILURE", message="bundle digest disagrees", status_code=503
+            )
         if bundle_digest != envelope.job_state.get("bundle_digest"):
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history bundle binding disagrees", status_code=503)
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history bundle binding disagrees",
+                status_code=503,
+            )
         if operation.completed_at is None:
-            raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history completion time is missing", status_code=503)
-        expected_refs = frozenset(ref.artifact_id for ref in
-                                  (assemble_step.checkpoint_ref, assemble_state_ref, ready_ref, *closure.artifact_refs()))
+            raise ApiError(
+                code="HISTORY_INTEGRITY_FAILURE",
+                message="history completion time is missing",
+                status_code=503,
+            )
+        expected_refs = frozenset(
+            ref.artifact_id
+            for ref in (
+                assemble_step.checkpoint_ref,
+                assemble_state_ref,
+                ready_ref,
+                *closure.artifact_refs(),
+            )
+        )
         with unit_of_work_factory(read_only=True) as uow:
             if not uow.history_compare.result_protection_matches(
-                operation.operation_id, expected_refs,
+                operation.operation_id,
+                expected_refs,
                 operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds),
             ):
-                raise ApiError(code="HISTORY_INTEGRITY_FAILURE", message="history result protection disagrees", status_code=503)
+                raise ApiError(
+                    code="HISTORY_INTEGRITY_FAILURE",
+                    message="history result protection disagrees",
+                    status_code=503,
+                )
         return result
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         raise ApiError(

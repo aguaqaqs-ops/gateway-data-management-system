@@ -141,16 +141,25 @@ def _insert_submission(
             'upload-key', 'import-key', ?, 'FINALIZED', ?, 1, 'actor-1', 0
         )
         """,
-        (configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id, upload_revision_id="upload-1", baseline_node_id="initial-node", baseline_commit_id="initial-commit"), *(
-            attempt_id,
-            workspace_id,
-            repository_id,
-            snapshot_digest,
-            manifest_ref_id,
-            manifest_digest,
-            f"operation-{submission_id}",
-            submission_id,
-        )),
+        (
+            configuration_facts_blob(
+                workspace_id=workspace_id,
+                repository_id=repository_id,
+                upload_revision_id="upload-1",
+                baseline_node_id="initial-node",
+                baseline_commit_id="initial-commit",
+            ),
+            *(
+                attempt_id,
+                workspace_id,
+                repository_id,
+                snapshot_digest,
+                manifest_ref_id,
+                manifest_digest,
+                f"operation-{submission_id}",
+                submission_id,
+            ),
+        ),
     )
     connection.execute(
         """
@@ -168,15 +177,24 @@ def _insert_submission(
                   'sha256:5555555555555555555555555555555555555555555555555555555555555555', X'5b2261313a64757261626c653a36616433343834313636643334616666353462313934653433373137386566666333363562393265333434343836383037383138616131303930386364303431225d', ?, ?, 'sha256:package', '799c16fa-982c-51b8-8243-d5fc8f95823f',
                   'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0)
         """,
-        (configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id, upload_revision_id="upload-1", baseline_node_id="initial-node", baseline_commit_id="initial-commit"), *(
-            submission_id,
-            attempt_id,
-            workspace_id,
-            repository_id,
-            commit_id,
-            manifest_ref_id,
-            manifest_digest,
-        )),
+        (
+            configuration_facts_blob(
+                workspace_id=workspace_id,
+                repository_id=repository_id,
+                upload_revision_id="upload-1",
+                baseline_node_id="initial-node",
+                baseline_commit_id="initial-commit",
+            ),
+            *(
+                submission_id,
+                attempt_id,
+                workspace_id,
+                repository_id,
+                commit_id,
+                manifest_ref_id,
+                manifest_digest,
+            ),
+        ),
     )
 
 
@@ -251,7 +269,13 @@ def test_commit_metadata_is_resolved_only_from_the_requested_repository_and_froz
     store = InMemoryArtifactStore()
     manifest, payload = _manifest()
     assert manifest.manifest_digest is not None
-    manifest_ref_id = _put_manifest(store, payload, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"manifest-{case.replace('_', '-')}"))
+    manifest_ref_id = _put_manifest(
+        store,
+        payload,
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "test-fixture", f"manifest-{case.replace('_', '-')}"
+        ),
+    )
     if setup == "other_repository":
         _insert_submission(
             connection,
@@ -342,7 +366,11 @@ def test_manifest_digest_mismatch_fails_with_diagnostic_log_and_metric(
     store = InMemoryArtifactStore()
     manifest, payload = _manifest()
     assert manifest.manifest_digest is not None
-    manifest_ref_id = _put_manifest(store, payload, artifact_id="a1:durable:75d3c347e10217879a7ddbe95339e89c3e22150172f18a745837f68ae9faef0e")
+    manifest_ref_id = _put_manifest(
+        store,
+        payload,
+        artifact_id="a1:durable:75d3c347e10217879a7ddbe95339e89c3e22150172f18a745837f68ae9faef0e",
+    )
     _insert_submission(
         connection,
         repository_id="repository-1",
@@ -354,7 +382,9 @@ def test_manifest_digest_mismatch_fails_with_diagnostic_log_and_metric(
     metrics = CountingMetadataMetrics()
     resolver = _resolver(connection, store, metrics=metrics)
 
-    with caplog.at_level("ERROR", logger="gateway_backend.infrastructure.control_db.sqlite_commit_metadata"):
+    with caplog.at_level(
+        "ERROR", logger="gateway_backend.infrastructure.control_db.sqlite_commit_metadata"
+    ):
         with pytest.raises(CommitCanonicalMetadataError) as raised:
             resolver.resolve(
                 repository_id="repository-1",
@@ -380,7 +410,11 @@ def test_unsupported_manifest_versions_fail_closed_as_missing_provenance() -> No
         ruleset_version="published-rules-v1",
     )
     assert historical.manifest_digest is not None
-    manifest_ref_id = _put_manifest(store, payload, artifact_id="a1:durable:beffba788012aa6e3f78e3fec564f3c8e595165386e5f28fb30fb540549d8f55")
+    manifest_ref_id = _put_manifest(
+        store,
+        payload,
+        artifact_id="a1:durable:beffba788012aa6e3f78e3fec564f3c8e595165386e5f28fb30fb540549d8f55",
+    )
     _insert_submission(
         connection,
         repository_id="repository-1",
@@ -404,24 +438,54 @@ def test_unsupported_manifest_versions_fail_closed_as_missing_provenance() -> No
 
 def test_history_comments_follow_exact_submission_refs_for_equal_canonical_identity() -> None:
     from gateway_backend.application.canonical_metadata.binding import presentation_for_commit
-    from gateway_backend.capabilities.table_presentation.contracts import TablePresentation, ColumnPresentation
+    from gateway_backend.capabilities.table_presentation.contracts import (
+        TablePresentation,
+        ColumnPresentation,
+    )
     from tests.support.mutation_contracts import manifest as draft_manifest, manifest_table
+
     connection = _connection()
     store = InMemoryArtifactStore()
     draft = draft_manifest(tables=(manifest_table(),))
     semantic = compute_manifest_digest(draft)
     refs = []
     for index, label in enumerate(("旧注释", "新注释")):
-        comments = PresentationMetadata((TablePresentation("orders", label, tuple(ColumnPresentation(name, label) for name in ("board", "link_no", "status"))),))
+        comments = PresentationMetadata(
+            (
+                TablePresentation(
+                    "orders",
+                    label,
+                    tuple(
+                        ColumnPresentation(name, label) for name in ("board", "link_no", "status")
+                    ),
+                ),
+            )
+        )
         manifest = replace(draft, presentation=comments, manifest_digest=semantic)
-        ref = _put_manifest(store, durable_manifest_bytes(manifest), artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"comments-{index}"))
+        ref = _put_manifest(
+            store,
+            durable_manifest_bytes(manifest),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE, "test-fixture", f"comments-{index}"
+            ),
+        )
         refs.append(ref)
-        _insert_submission(connection, repository_id="repo-comments", commit_id=f"commit-{index}", scope=FROZEN_SCOPE,
-            manifest_ref_id=ref, manifest_digest=semantic.value, submission_id=f"submission-{index}", workspace_id=f"workspace-{index}")
+        _insert_submission(
+            connection,
+            repository_id="repo-comments",
+            commit_id=f"commit-{index}",
+            scope=FROZEN_SCOPE,
+            manifest_ref_id=ref,
+            manifest_digest=semantic.value,
+            submission_id=f"submission-{index}",
+            workspace_id=f"workspace-{index}",
+        )
     assert refs[0] != refs[1]
     # A newly constructed resolver represents reopening durable metadata after restart.
     for index, label in enumerate(("旧注释", "新注释")):
-        metadata = _resolver(connection, store).resolve(repository_id="repo-comments", commit_id=f"commit-{index}", scope=FROZEN_SCOPE)
+        metadata = _resolver(connection, store).resolve(
+            repository_id="repo-comments", commit_id=f"commit-{index}", scope=FROZEN_SCOPE
+        )
         assert metadata.manifest is not None and metadata.manifest.manifest_digest == semantic
         assert presentation_for_commit(metadata).tables[0].comment == label
         connection.commit()

@@ -5,7 +5,10 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from typing import Protocol
 
-from gateway_backend.application.control_transactions import ControlTransaction, ReadOnlySubmissionReader
+from gateway_backend.application.control_transactions import (
+    ControlTransaction,
+    ReadOnlySubmissionReader,
+)
 from gateway_backend.domain.baseline.ports import BaselineRepository
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.artifacts.types import ArtifactRef
@@ -67,6 +70,7 @@ class WorkspaceControlUnitOfWorkFactory(Protocol):
         *,
         read_only: bool = False,
     ) -> AbstractContextManager[WorkspaceControlTransaction]: ...
+
 
 __all__ = [
     "BaselineHeadReadPort",

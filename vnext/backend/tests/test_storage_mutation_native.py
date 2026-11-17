@@ -13,33 +13,63 @@ import pyarrow as pa
 import pytest
 from gateway_shared_kernel import raw_blob_digest
 
-from gateway_backend.artifacts import ArtifactLocation, ArtifactRef, InMemoryArtifactStore, build_artifact_id
+from gateway_backend.artifacts import (
+    ArtifactLocation,
+    ArtifactRef,
+    InMemoryArtifactStore,
+    build_artifact_id,
+)
 from gateway_backend.capabilities.mutation_planning.contracts import (
-    MutationPolicy, MutationThresholdPolicy, StorageNetCounts, StorageTableSideV1,
-    StorageTableTaskV1, TableMutationKind,
+    MutationPolicy,
+    MutationThresholdPolicy,
+    StorageNetCounts,
+    StorageTableSideV1,
+    StorageTableTaskV1,
+    TableMutationKind,
 )
 from gateway_backend.capabilities.mutation_planning.native import prepare_storage_table
 from gateway_backend.capabilities.mutation_planning.storage import choose_table_mutation
 from gateway_backend.capabilities.storage_projection.contracts import (
-    RepositoryImportColumn, RepositoryImportTable,
+    RepositoryImportColumn,
+    RepositoryImportTable,
 )
 from gateway_backend.capabilities.storage_projection import StorageInputLease, open_storage_input
-from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
+from gateway_backend.capabilities.storage_projection._digest import (
+    compute_manifest_digest,
+    compute_schema_digest,
+)
 from gateway_backend.capabilities.snapshot_materialization import (
-    ArrowSnapshotTableReader, snapshot_table_from_arrow, source_descriptor_from_arrow,
-    open_snapshot_table_artifact, publish_canonical_tables,
-    SnapshotTableArtifact, SnapshotTableArtifactManifest,
-    SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION, ROW_MATERIALIZATION_PROFILE,
+    ArrowSnapshotTableReader,
+    snapshot_table_from_arrow,
+    source_descriptor_from_arrow,
+    open_snapshot_table_artifact,
+    publish_canonical_tables,
+    SnapshotTableArtifact,
+    SnapshotTableArtifactManifest,
+    SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
+    ROW_MATERIALIZATION_PROFILE,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    ROW_FORMAT_CANONICAL_IPC, ARTIFACT_COMPRESSION_NONE,
+    ROW_FORMAT_CANONICAL_IPC,
+    ARTIFACT_COMPRESSION_NONE,
 )
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, KernelMemoryLimit, KernelStopped, NeverCancel, OperationMemoryBudget,
-    current_kernel_context, kernel_control_scope, kernel_execution_scope,
+    KernelExecutionContext,
+    KernelMemoryLimit,
+    KernelStopped,
+    NeverCancel,
+    OperationMemoryBudget,
+    current_kernel_context,
+    kernel_control_scope,
+    kernel_execution_scope,
 )
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
-from tests.support.mutation_contracts import digest, manifest as manifest_document, manifest_table, storage_view
+from tests.support.mutation_contracts import (
+    digest,
+    manifest as manifest_document,
+    manifest_table,
+    storage_view,
+)
 from tests.support.storage_projection import table_descriptor, typed_column
 
 pytestmark = pytest.mark.unit
@@ -48,14 +78,28 @@ pytestmark = pytest.mark.unit
 def _schema() -> pa.Schema:
     def field(name: str) -> pa.Field:
         profile = {
-            "declared_type": {"kind": "string", "bits": None, "precision": None,
-                              "scale": None, "bit_width": None},
-            "labels": None, "logical_type": "standard", "sql_type": "VARCHAR(64)",
+            "declared_type": {
+                "kind": "string",
+                "bits": None,
+                "precision": None,
+                "scale": None,
+                "bit_width": None,
+            },
+            "labels": None,
+            "logical_type": "standard",
+            "sql_type": "VARCHAR(64)",
         }
-        return pa.field(name, pa.string(), nullable=False,
-                        metadata={b"gdds.canonical_type": json.dumps(profile).encode()})
-    return pa.schema([field("board"), field("link_no"), field("status")],
-                     metadata={b"gdds.canonical_mapping_version": b"1"})
+        return pa.field(
+            name,
+            pa.string(),
+            nullable=False,
+            metadata={b"gdds.canonical_type": json.dumps(profile).encode()},
+        )
+
+    return pa.schema(
+        [field("board"), field("link_no"), field("status")],
+        metadata={b"gdds.canonical_mapping_version": b"1"},
+    )
 
 
 def _table(rows: list[tuple[str, str, str]]) -> pa.Table:
@@ -66,89 +110,158 @@ def _table(rows: list[tuple[str, str, str]]) -> pa.Table:
     )
 
 
-def _side(table: pa.Table, *, source_fill: str = "a", content_fill: str = "b",
-          keyless: bool = False,
-          column_names: tuple[str, ...] = ("board", "link_no", "status")) -> StorageTableSideV1:
+def _side(
+    table: pa.Table,
+    *,
+    source_fill: str = "a",
+    content_fill: str = "b",
+    keyless: bool = False,
+    column_names: tuple[str, ...] = ("board", "link_no", "status"),
+) -> StorageTableSideV1:
     view = replace(storage_view(), retained_columns=column_names)
     manifest = manifest_table(row_count=table.num_rows)
     manifest = replace(manifest, retained_columns=column_names)
     if keyless:
-        view = replace(view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
-                       canonical_key_columns=())
-        manifest = replace(manifest, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
-                           canonical_key_columns=())
+        view = replace(
+            view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS, canonical_key_columns=()
+        )
+        manifest = replace(
+            manifest,
+            canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
+            canonical_key_columns=(),
+        )
     schema_digest = compute_schema_digest(
-        columns=[{"name": name, "nullable": False, "sql_type": "VARCHAR(64)"}
-                 for name in column_names],
+        columns=[
+            {"name": name, "nullable": False, "sql_type": "VARCHAR(64)"} for name in column_names
+        ],
         primary_key=manifest.canonical_key_columns,
     )
-    manifest = replace(manifest, source_schema_digest=digest(source_fill * 2),
-                       canonical_schema_digest=schema_digest, content_digest=digest(content_fill * 2))
+    manifest = replace(
+        manifest,
+        source_schema_digest=digest(source_fill * 2),
+        canonical_schema_digest=schema_digest,
+        content_digest=digest(content_fill * 2),
+    )
     descriptor = table_descriptor(
-        "orders", [typed_column(name, "VARCHAR(64)") for name in column_names],
-        primary_key_columns=manifest.canonical_key_columns, row_count=table.num_rows,
+        "orders",
+        [typed_column(name, "VARCHAR(64)") for name in column_names],
+        primary_key_columns=manifest.canonical_key_columns,
+        row_count=table.num_rows,
         raw_content_digest=manifest.content_digest,
     )
-    source = source_descriptor_from_arrow({
-        "canonical_name": "orders", "display_name": "orders", "reader_ready": True,
-        "primary_key": list(manifest.canonical_key_columns),
-        "columns": [{"canonical_name": name, "display_name": name, "ordinal": index,
-                     "sql_type": "VARCHAR(64)", "logical_type": "standard", "nullable": False,
-                     "labels": None,
-                     "declared_type": {"kind": "string", "bits": None, "precision": None,
-                                       "scale": None, "bit_width": None}}
-                    for index, name in enumerate(column_names)],
-    })
+    source = source_descriptor_from_arrow(
+        {
+            "canonical_name": "orders",
+            "display_name": "orders",
+            "reader_ready": True,
+            "primary_key": list(manifest.canonical_key_columns),
+            "columns": [
+                {
+                    "canonical_name": name,
+                    "display_name": name,
+                    "ordinal": index,
+                    "sql_type": "VARCHAR(64)",
+                    "logical_type": "standard",
+                    "nullable": False,
+                    "labels": None,
+                    "declared_type": {
+                        "kind": "string",
+                        "bits": None,
+                        "precision": None,
+                        "scale": None,
+                        "bit_width": None,
+                    },
+                }
+                for index, name in enumerate(column_names)
+            ],
+        }
+    )
     canonical = snapshot_table_from_arrow(descriptor, table, source)
     assert isinstance(canonical.reader, ArrowSnapshotTableReader)
     canonical.reader.mark_canonical_comparison_verified()  # Fixture stands in for the verified IPC writer.
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "storage-input-fixture", "empty"),
-                            "application/octet-stream", 0, empty_digest)
-    canonical = replace(canonical, artifact=SnapshotTableArtifact(
-        manifest_ref=reference,
-        manifest=SnapshotTableArtifactManifest(
-            artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
-            snapshot_digest=empty_digest, table_name="orders", descriptor=descriptor,
-            row_file_refs=(reference,), row_format=ROW_FORMAT_CANONICAL_IPC,
-            compression=ARTIFACT_COMPRESSION_NONE,
-            row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-            artifact_content_digest=empty_digest, created_at="2026-11-08T00:00:00Z",
-            repository_id="storage-fixture",
+    reference = ArtifactRef(
+        build_artifact_id(ArtifactLocation.DURABLE, "storage-input-fixture", "empty"),
+        "application/octet-stream",
+        0,
+        empty_digest,
+    )
+    canonical = replace(
+        canonical,
+        artifact=SnapshotTableArtifact(
+            manifest_ref=reference,
+            manifest=SnapshotTableArtifactManifest(
+                artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
+                snapshot_digest=empty_digest,
+                table_name="orders",
+                descriptor=descriptor,
+                row_file_refs=(reference,),
+                row_format=ROW_FORMAT_CANONICAL_IPC,
+                compression=ARTIFACT_COMPRESSION_NONE,
+                row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
+                artifact_content_digest=empty_digest,
+                created_at="2026-11-08T00:00:00Z",
+                repository_id="storage-fixture",
+            ),
+            row_layout_digest=empty_digest,
         ),
-        row_layout_digest=empty_digest,
-    ))
+    )
     context = current_kernel_context()
     assert context is not None
     complete = manifest_document(tables=(manifest,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
     lease = open_storage_input(canonical, complete, manifest, context)
-    return StorageTableSideV1(manifest, view, complete.storage_projection_version, lease.stream, lease.schema, lease, complete)
+    return StorageTableSideV1(
+        manifest,
+        view,
+        complete.storage_projection_version,
+        lease.stream,
+        lease.schema,
+        lease,
+        complete,
+    )
 
 
 def _metadata_side(table: pa.Table, *, keyless: bool) -> StorageTableSideV1:
     view = storage_view()
     manifest_item = manifest_table(row_count=table.num_rows)
     if keyless:
-        view = replace(view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
-                       canonical_key_columns=())
-        manifest_item = replace(manifest_item, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
-                                canonical_key_columns=())
+        view = replace(
+            view, canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS, canonical_key_columns=()
+        )
+        manifest_item = replace(
+            manifest_item,
+            canonical_key_policy=CanonicalKeyPolicy.EXPLICIT_KEYLESS,
+            canonical_key_columns=(),
+        )
     complete = manifest_document(tables=(manifest_item,))
     complete = replace(complete, manifest_digest=compute_manifest_digest(complete))
-    return StorageTableSideV1(manifest_item, view, complete.storage_projection_version, metadata_manifest=complete)
+    return StorageTableSideV1(
+        manifest_item, view, complete.storage_projection_version, metadata_manifest=complete
+    )
 
 
 def _task(before: StorageTableSideV1 | None, after: StorageTableSideV1) -> StorageTableTaskV1:
-    return StorageTableTaskV1("orders", before, after,
-        RepositoryImportTable("orders", tuple(RepositoryImportColumn(name, "VARCHAR(64)", False)
-                                             for name in after.manifest_table.retained_columns),
-                              after.manifest_table.canonical_key_columns,
-                              after.manifest_table.canonical_row_count))
+    return StorageTableTaskV1(
+        "orders",
+        before,
+        after,
+        RepositoryImportTable(
+            "orders",
+            tuple(
+                RepositoryImportColumn(name, "VARCHAR(64)", False)
+                for name in after.manifest_table.retained_columns
+            ),
+            after.manifest_table.canonical_key_columns,
+            after.manifest_table.canonical_row_count,
+        ),
+    )
 
 
 def _assert_operation_resources_released(
-    context: KernelExecutionContext, *, retained_sql_bytes: int = 0,
+    context: KernelExecutionContext,
+    *,
+    retained_sql_bytes: int = 0,
 ) -> None:
     # Flush operation-lived metadata. Arrow/native charges have closed;
     # exported SQL bytes remain charged until the operation scope ends.
@@ -175,7 +288,8 @@ def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_di
         store = InMemoryArtifactStore()
         published_before, fresh_after = publish_canonical_tables(
             (old_candidate.input_owner.table, new_candidate.input_owner.table),
-            snapshot_digest=digest("ee"), store=store,
+            snapshot_digest=digest("ee"),
+            store=store,
             repository_id="storage-fresh-writer",
         )
         old_candidate.input_owner.close()
@@ -183,8 +297,10 @@ def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_di
         assert published_before.artifact is not None
         manifest_ref = published_before.artifact.manifest_ref
         cached_before = open_snapshot_table_artifact(
-            store, manifest_ref,
-            repository_id="storage-fresh-writer", canonical_required=True,
+            store,
+            manifest_ref,
+            repository_id="storage-fresh-writer",
+            canonical_required=True,
         )
         assert published_before.reader is not None
         published_before.reader.close()
@@ -194,27 +310,46 @@ def test_fresh_and_cached_canonical_inputs_keep_declaration_order_for_storage_di
         assert cached_before.reader.canonical_artifact_read_verified
         assert isinstance(fresh_after.reader, ArrowSnapshotTableReader)
         assert fresh_after.reader.canonical_comparison_verified
-        with closing(fresh_after.reader.reopen()) as reader, closing(reader.arrow_stream()) as stream:
+        with (
+            closing(fresh_after.reader.reopen()) as reader,
+            closing(reader.arrow_stream()) as stream,
+        ):
             assert b"gdds.canonical_mapping_version" not in (stream.schema.metadata or {})
-            assert all(b"gdds.canonical_type" not in (field.metadata or {}) for field in stream.schema)
+            assert all(
+                b"gdds.canonical_type" not in (field.metadata or {}) for field in stream.schema
+            )
         assert old_candidate.metadata_manifest is not None
         assert new_candidate.metadata_manifest is not None
         old_lease = open_storage_input(
-            cached_before, old_candidate.metadata_manifest, old_candidate.manifest_table, context,
+            cached_before,
+            old_candidate.metadata_manifest,
+            old_candidate.manifest_table,
+            context,
         )
         new_lease = open_storage_input(
-            fresh_after, new_candidate.metadata_manifest, new_candidate.manifest_table, context,
+            fresh_after,
+            new_candidate.metadata_manifest,
+            new_candidate.manifest_table,
+            context,
         )
         assert old_lease.schema.names == list(names)
         assert new_lease.schema.names == list(names)
-        before = replace(old_candidate, stream=old_lease.stream, schema=old_lease.schema, input_owner=old_lease)
-        after = replace(new_candidate, stream=new_lease.stream, schema=new_lease.schema, input_owner=new_lease)
+        before = replace(
+            old_candidate, stream=old_lease.stream, schema=old_lease.schema, input_owner=old_lease
+        )
+        after = replace(
+            new_candidate, stream=new_lease.stream, schema=new_lease.schema, input_owner=new_lease
+        )
         task = _task(before, after)
         with prepare_storage_table(task, context) as handle:
             summary = handle.summary()
             assert summary.net_counts == StorageNetCounts(0, 1, 0)
-            decision = choose_table_mutation(task, summary,
-                policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+            decision = choose_table_mutation(
+                task,
+                summary,
+                policy=MutationPolicy.ADAPTIVE_PATCH,
+                threshold=MutationThresholdPolicy(),
+            )
             handle.apply_decision(decision)
         assert old_lease.closed and new_lease.closed
         # The existing artifact owner retains only its manifest parse envelope
@@ -237,9 +372,15 @@ def test_native_diff_counts_full_persisted_update_and_releases_table_lease() -> 
         summary = handle.summary()
         assert summary.net_counts == StorageNetCounts(0, 1, 0)
         assert handle.patch_locator_count == 1
-        assert choose_table_mutation(_task(before, after), summary,
-            policy=MutationPolicy.ADAPTIVE_PATCH,
-            threshold=MutationThresholdPolicy()).operation is TableMutationKind.PATCH_DML
+        assert (
+            choose_table_mutation(
+                _task(before, after),
+                summary,
+                policy=MutationPolicy.ADAPTIVE_PATCH,
+                threshold=MutationThresholdPolicy(),
+            ).operation
+            is TableMutationKind.PATCH_DML
+        )
     _assert_operation_resources_released(context)
 
 
@@ -253,8 +394,12 @@ def test_native_storage_rebuild_renders_ordered_insert_bytes_and_closes_early() 
         b"('1', '0', 'one'), ('2', '0', 'two');\n"
     )
     with prepare_storage_table(task, context) as handle:
-        decision = choose_table_mutation(task, handle.summary(),
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task,
+            handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            threshold=MutationThresholdPolicy(),
+        )
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         chunks = handle.render(decision)
         assert b"".join(chunks) == expected
@@ -275,8 +420,12 @@ def test_native_storage_patch_renders_full_nonkey_case_under_same_memory_budget(
         b"THEN 'new' ELSE `status` END WHERE (`board`,`link_no`) IN (('42', '0'));\n"
     )
     with prepare_storage_table(task, context) as handle:
-        decision = choose_table_mutation(task, handle.summary(),
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task,
+            handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            threshold=MutationThresholdPolicy(),
+        )
         assert decision.operation is TableMutationKind.PATCH_DML
         handle.apply_decision(decision)
         chunks = handle.render(decision)
@@ -290,8 +439,12 @@ def test_native_storage_chunks_are_bounded_and_early_close_releases_last_owner()
     after = _side(_table([("1", "0", "x" * (2 * 1024 * 1024))]))
     task = _task(None, after)
     handle = prepare_storage_table(task, context)
-    decision = choose_table_mutation(task, handle.summary(),
-        policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+    decision = choose_table_mutation(
+        task,
+        handle.summary(),
+        policy=MutationPolicy.ADAPTIVE_PATCH,
+        threshold=MutationThresholdPolicy(),
+    )
     chunks = handle.render(decision)
     first = next(chunks)
     assert len(first) == 1024 * 1024
@@ -310,8 +463,12 @@ def test_storage_render_cancellation_after_first_chunk_closes_input_owner() -> N
         after = _side(_table([("1", "0", "x" * (2 * 1024 * 1024))]))
         task = _task(None, after)
         with prepare_storage_table(task, context) as handle:
-            decision = choose_table_mutation(task, handle.summary(),
-                policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+            decision = choose_table_mutation(
+                task,
+                handle.summary(),
+                policy=MutationPolicy.ADAPTIVE_PATCH,
+                threshold=MutationThresholdPolicy(),
+            )
             chunks = handle.render(decision)
             assert len(next(chunks)) == 1024 * 1024
             cancelled.set()
@@ -329,8 +486,12 @@ def test_operation_scope_closes_unconsumed_storage_render_before_releasing_budge
         after = _side(_table([("1", "0", "value")]))
         task = _task(None, after)
         handle = prepare_storage_table(task, context)
-        decision = choose_table_mutation(task, handle.summary(),
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task,
+            handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            threshold=MutationThresholdPolicy(),
+        )
         chunks = handle.render(decision)
         assert context.memory.used_bytes > 0
     assert list(chunks) == []
@@ -351,8 +512,9 @@ def test_metadata_only_before_and_present_empty_after_keep_unknown_net_diff() ->
         assert summary.before_rows == 1 and summary.after_rows == 0
         assert summary.net_counts is None
         assert summary.before_identity_validated and summary.after_identity_validated
-        decision = choose_table_mutation(task, summary, policy=MutationPolicy.ADAPTIVE_PATCH,
-                                         threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task, summary, policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy()
+        )
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         assert decision.replay_insert_rows == 0
         handle.apply_decision(decision)
@@ -369,8 +531,9 @@ def test_source_schema_only_change_is_noop_after_complete_keyed_diff() -> None:
     with prepare_storage_table(task, context) as handle:
         summary = handle.summary()
         assert summary.net_counts == StorageNetCounts(0, 0, 0)
-        decision = choose_table_mutation(task, summary,
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task, summary, policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy()
+        )
         assert decision.operation is TableMutationKind.NOOP
         assert decision.reason == "NO_NET_STORAGE_CHANGE"
         handle.apply_decision(decision)
@@ -391,8 +554,9 @@ def test_source_only_change_with_metadata_before_rebuilds_without_invented_net_c
     with prepare_storage_table(task, context) as handle:
         summary = handle.summary()
         assert summary.net_counts is None
-        decision = choose_table_mutation(task, summary,
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task, summary, policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy()
+        )
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         assert decision.reason == "BEFORE_ROWS_UNAVAILABLE"
         handle.apply_decision(decision)
@@ -405,14 +569,19 @@ def test_storage_rule_digest_only_change_uses_the_shared_comparability_rule() ->
     assert context is not None
     before = _side(old, source_fill="1")
     after = _side(new, source_fill="2")
-    before = replace(before, storage_view=replace(before.storage_view, storage_rule_digest=digest("11")))
-    after = replace(after, storage_view=replace(after.storage_view, storage_rule_digest=digest("22")))
+    before = replace(
+        before, storage_view=replace(before.storage_view, storage_rule_digest=digest("11"))
+    )
+    after = replace(
+        after, storage_view=replace(after.storage_view, storage_rule_digest=digest("22"))
+    )
     task = _task(before, after)
     with prepare_storage_table(task, context) as handle:
         summary = handle.summary()
         assert summary.net_counts == StorageNetCounts(0, 0, 0)
-        decision = choose_table_mutation(task, summary,
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task, summary, policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy()
+        )
         assert decision.operation is TableMutationKind.NOOP
         handle.apply_decision(decision)
     _assert_operation_resources_released(context)
@@ -422,12 +591,15 @@ def test_native_entry_rejects_structural_context_and_closed_context() -> None:
     table = _table([])
     after = _side(table)
     task = _task(None, after)
+
     class FakeContext:
         memory = OperationMemoryBudget(1024**2)
         cancel_probe = NeverCancel()
         threads = 1
         deadline_monotonic = None
-        def require_active(self) -> None: pass
+
+        def require_active(self) -> None:
+            pass
 
     with pytest.raises(ValueError, match="real kernel operation context"):
         prepare_storage_table(task, FakeContext())  # type: ignore[arg-type]
@@ -445,9 +617,11 @@ def test_uncharged_replacement_stream_cannot_claim_a_verified_identity() -> None
     assert context is not None
     after = _side(_table([("1", "0", "same")]))
     replacement = _table([("1", "0", "different")])
-    spoofed = replace(after,
+    spoofed = replace(
+        after,
         stream=pa.RecordBatchReader.from_batches(replacement.schema, replacement.to_batches()),
-        schema=replacement.schema)
+        schema=replacement.schema,
+    )
     try:
         with pytest.raises(ValueError, match="verified same-operation input owner"):
             prepare_storage_table(_task(None, spoofed), context)
@@ -501,8 +675,12 @@ def test_rebuild_discards_old_arrow_and_patch_locators_before_render() -> None:
     after = _side(new, content_fill="2")
     task = _task(before, after)
     with prepare_storage_table(task, context) as handle:
-        decision = choose_table_mutation(task, handle.summary(),
-            policy=MutationPolicy.ADAPTIVE_PATCH, threshold=MutationThresholdPolicy())
+        decision = choose_table_mutation(
+            task,
+            handle.summary(),
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            threshold=MutationThresholdPolicy(),
+        )
         assert decision.operation is TableMutationKind.REBUILD_TABLE
         assert handle.patch_locator_count == 1000
         with_old = context.memory.used_bytes
@@ -515,7 +693,9 @@ def test_rebuild_discards_old_arrow_and_patch_locators_before_render() -> None:
 
 def test_empty_multibatch_input_rejects_header_growth_before_stream_consumption() -> None:
     schema = _schema()
-    empty = pa.RecordBatch.from_arrays([pa.array([], type=pa.string()) for _ in range(3)], schema=schema)
+    empty = pa.RecordBatch.from_arrays(
+        [pa.array([], type=pa.string()) for _ in range(3)], schema=schema
+    )
     after = _side(pa.Table.from_batches([empty] * 64, schema=schema))
     context = current_kernel_context()
     assert context is not None
@@ -567,7 +747,8 @@ for batch_size in (3, 1):
 assert observed == [(1, 1, 1, 3), (1, 1, 1, 3)]
 print(json.dumps(observed))
 """.replace("THREADS", str(threads))
-    result = subprocess.run([sys.executable, "-c", script], check=False,
-                            capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        [sys.executable, "-c", script], check=False, capture_output=True, text=True, timeout=30
+    )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == [[1, 1, 1, 3], [1, 1, 1, 3]]

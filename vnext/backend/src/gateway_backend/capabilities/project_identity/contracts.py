@@ -58,7 +58,11 @@ class ProjectIdentityAssessment:
             raise ValueError("schema_version is unsupported")
         if self.rule_version != PROJECT_IDENTITY_RULE_VERSION:
             raise ValueError("rule_version is unsupported")
-        for field_name in ("before_snapshot_digest", "current_snapshot_digest", "assessment_digest"):
+        for field_name in (
+            "before_snapshot_digest",
+            "current_snapshot_digest",
+            "assessment_digest",
+        ):
             if type(getattr(self, field_name)) is not DigestRef:
                 raise ValueError(f"{field_name} must be DigestRef")
         if type(self.status) is not ProjectIdentityStatus:
@@ -112,7 +116,9 @@ class ProjectIdentityAssessment:
                 None if self.before_entry_set_digest is None else self.before_entry_set_digest.value
             ),
             "current_entry_set_digest": (
-                None if self.current_entry_set_digest is None else self.current_entry_set_digest.value
+                None
+                if self.current_entry_set_digest is None
+                else self.current_entry_set_digest.value
             ),
             "diagnostics": list(self.diagnostics),
             "assessment_digest": self.assessment_digest.value,

@@ -146,7 +146,9 @@ class RecoveryPolicyDecision:
                 raise ValueError("retry_not_before is required for MOVE_TO_RETRY_WAIT")
             _validate_utc_datetime(self.retry_not_before, "retry_not_before")
         elif self.retry_not_before is not None:
-            raise ValueError("retry_not_before must be null unless disposition is MOVE_TO_RETRY_WAIT")
+            raise ValueError(
+                "retry_not_before must be null unless disposition is MOVE_TO_RETRY_WAIT"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -715,7 +717,11 @@ def build_recovery_routed_executor(
     *,
     jitter: Jitter,
     now_factory: NowFactory,
-    cooperative_stop: Callable[[Exception, OperationRecord, StepRecord, ExecutionControl, LeaseSession], ExecutorAcknowledgment | None] | None = None,
+    cooperative_stop: Callable[
+        [Exception, OperationRecord, StepRecord, ExecutionControl, LeaseSession],
+        ExecutorAcknowledgment | None,
+    ]
+    | None = None,
 ) -> ClaimedExecutor:
     if not callable(handler):
         raise ValueError("handler must be callable")
@@ -755,7 +761,7 @@ def build_recovery_routed_executor(
             acknowledgment = handler(operation, step, control, lease_session)
             if type(acknowledgment) is not ExecutorAcknowledgment:
                 raise ValueError("handler must return ExecutorAcknowledgment")
-        except (LeaseExpired, StaleWrite, StoreBusy):
+        except LeaseExpired, StaleWrite, StoreBusy:
             raise
         except HandlerExecutionFailure as exc:
             if recovering:
@@ -797,7 +803,9 @@ def build_recovery_routed_executor(
             reason = f"pure-recompute handler raised {type(exc).__name__}"
             result = HandlerRecoveryResult(
                 disposition=RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
-                diagnostic_code="operation.resource_limit_exceeded" if isinstance(exc, MemoryError) else "operation.pure_recompute_failed",
+                diagnostic_code="operation.resource_limit_exceeded"
+                if isinstance(exc, MemoryError)
+                else "operation.pure_recompute_failed",
                 reason=reason,
             )
             return finalize_handler_recovery(
@@ -823,7 +831,9 @@ def step_lease_expired(step: StepRecord, transaction_now: datetime) -> bool:
     return step.lease_expires_at <= transaction_now
 
 
-def policy_diagnostic_to_operation_diagnostic(decision: RecoveryPolicyDecision) -> OperationDiagnostic:
+def policy_diagnostic_to_operation_diagnostic(
+    decision: RecoveryPolicyDecision,
+) -> OperationDiagnostic:
     return OperationDiagnostic(
         code=decision.diagnostic_code.upper(),
         message=decision.reason,
@@ -1012,7 +1022,7 @@ class StartupRecovery:
                     decision=decision,
                 )
                 retry_not_before = intent.set_retry_not_before
-        except (StaleWrite, StoreBusy):
+        except StaleWrite, StoreBusy:
             return StartupDisposition.RETRYABLE_BLOCK
 
         startup_disposition = startup_disposition_after_recovery(
@@ -1074,10 +1084,7 @@ def authorize_operator_command(
     step_status: StepStatus,
 ) -> None:
     if command is OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE:
-        if (
-            operation_status is OperationStatus.FAILED
-            and step_status is StepStatus.FAILED
-        ):
+        if operation_status is OperationStatus.FAILED and step_status is StepStatus.FAILED:
             return
     if operation_status is not OperationStatus.MANUAL_RECOVERY_REQUIRED:
         raise ValueError("operator recovery requires MANUAL_RECOVERY_REQUIRED operation")

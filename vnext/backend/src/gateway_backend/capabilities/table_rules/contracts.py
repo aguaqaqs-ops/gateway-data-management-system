@@ -29,9 +29,18 @@ FALLBACK_SELECTOR_VALUE = "*"
 # These exact configuration tables keep their DDL storage identity while
 # comparison aligns options by page and sequence. No suffix-wide policy.
 CONFIGURATION_DIFF_TABLE_NAMES: tuple[str, ...] = (
-    "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg",
-    "iec61850c_cfg", "jdxx_cfg", "sc_cfg", "scada_cfg",
-    "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
+    "cnt_manage_cfg",
+    "iec101_cfg",
+    "iec104_cfg",
+    "iec104gw_cfg",
+    "iec61850c_cfg",
+    "jdxx_cfg",
+    "sc_cfg",
+    "scada_cfg",
+    "sg_manage_cfg",
+    "vqc_cfg",
+    "wave_cfg",
+    "wf_cfg",
 )
 CONFIGURATION_COMPARE_KEY_COLUMNS = ("page_no", "no")
 # Generated sequence columns are retained for storage but excluded from
@@ -51,8 +60,14 @@ BUSINESS_SEQUENCE_KEYS: dict[str, tuple[str, ...]] = {
     "rule_61850dev_praser_default_cfg": (),
 }
 BUSINESS_SEQUENCE_COLUMNS = {
-    name: ("id" if name in {"prot_list", "dev_list", "rule_61850dev_praser_cfg", "rule_61850dev_praser_default_cfg"}
-           else "rule_id" if name == "rule_61850point_praser_cfg" else "no")
+    name: (
+        "id"
+        if name
+        in {"prot_list", "dev_list", "rule_61850dev_praser_cfg", "rule_61850dev_praser_default_cfg"}
+        else "rule_id"
+        if name == "rule_61850point_praser_cfg"
+        else "no"
+    )
     for name in BUSINESS_SEQUENCE_KEYS
 }
 ORDERED_POSITION_COLUMN = "no"
@@ -263,7 +278,11 @@ class TableRuleSelector:
         if self.kind is TableRuleSelectorKind.EXACT:
             return f"exact:{self.value}"
         if self.kind is TableRuleSelectorKind.REGEX:
-            suffix = "" if self.table_comment_contains is None else f":comment:{self.table_comment_contains}"
+            suffix = (
+                ""
+                if self.table_comment_contains is None
+                else f":comment:{self.table_comment_contains}"
+            )
             return f"regex:{self.value}{suffix}"
         return f"fallback:{FALLBACK_SELECTOR_VALUE}"
 
@@ -286,12 +305,16 @@ class TableCompareKey:
     key_columns: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        object.__setattr__(
+            self, "canonical_table", canonicalize_rule_identifier(self.canonical_table)
+        )
         if type(self.key_columns) is not tuple:
             raise ValueError("key_columns must be a tuple")
         if not self.key_columns:
             raise ValueError("key_columns must not be empty")
-        canonical_columns = tuple(canonicalize_rule_identifier(column) for column in self.key_columns)
+        canonical_columns = tuple(
+            canonicalize_rule_identifier(column) for column in self.key_columns
+        )
         _reject_duplicate_names(canonical_columns, "key_columns")
         object.__setattr__(self, "key_columns", canonical_columns)
 
@@ -314,8 +337,14 @@ class LegacyRuleDecision:
             raise ValueError("selector must be TableRuleSelector")
         if type(self.static_role) is not TableStaticRole:
             raise ValueError("static_role must be TableStaticRole")
-        object.__setattr__(self, "compare_key_columns", _canonical_name_tuple(self.compare_key_columns, "compare_key_columns"))
-        object.__setattr__(self, "ignored_columns", _canonical_name_tuple(self.ignored_columns, "ignored_columns"))
+        object.__setattr__(
+            self,
+            "compare_key_columns",
+            _canonical_name_tuple(self.compare_key_columns, "compare_key_columns"),
+        )
+        object.__setattr__(
+            self, "ignored_columns", _canonical_name_tuple(self.ignored_columns, "ignored_columns")
+        )
         object.__setattr__(
             self,
             "compare_excluded_columns",
@@ -327,8 +356,13 @@ class LegacyRuleDecision:
             _canonical_name_tuple(self.stable_key_candidates, "stable_key_candidates"),
         )
         if self.position_column is not None:
-            object.__setattr__(self, "position_column", canonicalize_rule_identifier(self.position_column))
-        if self.compare_key_mode is not None and type(self.compare_key_mode) is not TableCompareKeyMode:
+            object.__setattr__(
+                self, "position_column", canonicalize_rule_identifier(self.position_column)
+            )
+        if (
+            self.compare_key_mode is not None
+            and type(self.compare_key_mode) is not TableCompareKeyMode
+        ):
             raise ValueError("compare_key_mode must be TableCompareKeyMode or None")
         if self.artifact_scope is not None and type(self.artifact_scope) is not TableArtifactScope:
             raise ValueError("artifact_scope must be TableArtifactScope or None")
@@ -353,7 +387,9 @@ class ResolvedTableRule:
     record: TableRuleRecord
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        object.__setattr__(
+            self, "canonical_table", canonicalize_rule_identifier(self.canonical_table)
+        )
         if type(self.decision) is not LegacyRuleDecision:
             raise ValueError("decision must be LegacyRuleDecision")
         if type(self.record) is not TableRuleRecord:
@@ -372,7 +408,9 @@ class StorageRuleView:
     storage_rule_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        object.__setattr__(
+            self, "canonical_table", canonicalize_rule_identifier(self.canonical_table)
+        )
         if type(self.canonical_key_policy) is not CanonicalKeyPolicy:
             raise ValueError("canonical_key_policy must be CanonicalKeyPolicy")
         if type(self.ordered_policy) is not OrderedPolicy:
@@ -441,8 +479,14 @@ class TableRuleRecord:
             raise ValueError("ordered_policy must be OrderedPolicy")
         if _PRECEDENCE_ROLES[self.precedence_class] is not self.static_role:
             raise ValueError("precedence_class does not match static_role")
-        object.__setattr__(self, "compare_key_columns", _canonical_name_tuple(self.compare_key_columns, "compare_key_columns"))
-        object.__setattr__(self, "ignored_columns", _canonical_name_tuple(self.ignored_columns, "ignored_columns"))
+        object.__setattr__(
+            self,
+            "compare_key_columns",
+            _canonical_name_tuple(self.compare_key_columns, "compare_key_columns"),
+        )
+        object.__setattr__(
+            self, "ignored_columns", _canonical_name_tuple(self.ignored_columns, "ignored_columns")
+        )
         object.__setattr__(
             self,
             "compare_excluded_columns",
@@ -459,13 +503,18 @@ class TableRuleRecord:
             _canonical_name_tuple(self.structural_columns, "structural_columns"),
         )
         if self.position_column is not None:
-            object.__setattr__(self, "position_column", canonicalize_rule_identifier(self.position_column))
+            object.__setattr__(
+                self, "position_column", canonicalize_rule_identifier(self.position_column)
+            )
         if type(self.dropped_columns) is not tuple:
             raise ValueError("dropped_columns must be a tuple")
         for item in self.dropped_columns:
             if type(item) is not DroppedColumn:
                 raise ValueError("dropped_columns must contain DroppedColumn")
-        if self.compare_key_mode is not None and type(self.compare_key_mode) is not TableCompareKeyMode:
+        if (
+            self.compare_key_mode is not None
+            and type(self.compare_key_mode) is not TableCompareKeyMode
+        ):
             raise ValueError("compare_key_mode must be TableCompareKeyMode or None")
         if self.artifact_scope is not None and type(self.artifact_scope) is not TableArtifactScope:
             raise ValueError("artifact_scope must be TableArtifactScope or None")
@@ -476,7 +525,9 @@ class TableRuleRecord:
             "artifact_scope": None if self.artifact_scope is None else self.artifact_scope.value,
             "canonical_key_policy": self.canonical_key_policy.value,
             "compare_key_columns": list(self.compare_key_columns),
-            "compare_key_mode": None if self.compare_key_mode is None else self.compare_key_mode.value,
+            "compare_key_mode": None
+            if self.compare_key_mode is None
+            else self.compare_key_mode.value,
             "compare_excluded_columns": list(self.compare_excluded_columns),
             "dropped_columns": [
                 {"name": item.name, "reason": item.reason} for item in self.dropped_columns
@@ -485,8 +536,11 @@ class TableRuleRecord:
             "ordered_policy": self.ordered_policy.value,
             "position_column": self.position_column,
             "precedence_class": self.precedence_class.value,
-            "selector": {"kind": self.selector.kind.value, "value": self.selector.value,
-                         "table_comment_contains": self.selector.table_comment_contains},
+            "selector": {
+                "kind": self.selector.kind.value,
+                "value": self.selector.value,
+                "table_comment_contains": self.selector.table_comment_contains,
+            },
             "stable_key_candidates": list(self.stable_key_candidates),
             "static_role": self.static_role.value,
             "structural_columns": list(self.structural_columns),
@@ -559,7 +613,9 @@ class OrderedComparisonRule:
     blank_row_policy: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "position_column", canonicalize_rule_identifier(self.position_column))
+        object.__setattr__(
+            self, "position_column", canonicalize_rule_identifier(self.position_column)
+        )
         object.__setattr__(
             self,
             "stable_key_candidates",
@@ -586,12 +642,17 @@ class ComparisonRuleView:
     comparison_rule_digest: DigestRef
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        object.__setattr__(
+            self, "canonical_table", canonicalize_rule_identifier(self.canonical_table)
+        )
         if type(self.comparison_role) is not ComparisonRole:
             raise ValueError("comparison_role must be ComparisonRole")
         if type(self.artifact_scope) is not TableArtifactScope:
             raise ValueError("artifact_scope must be TableArtifactScope")
-        if self.compare_key_mode is not None and type(self.compare_key_mode) is not TableCompareKeyMode:
+        if (
+            self.compare_key_mode is not None
+            and type(self.compare_key_mode) is not TableCompareKeyMode
+        ):
             raise ValueError("compare_key_mode must be TableCompareKeyMode or None")
         object.__setattr__(
             self,
@@ -615,7 +676,10 @@ class ComparisonRuleView:
             structural_columns=(),
         )
         if self.comparison_role is ComparisonRole.ORDERED:
-            if self.ordered is None or self.artifact_scope is not TableArtifactScope.ORDERED_SEMANTIC:
+            if (
+                self.ordered is None
+                or self.artifact_scope is not TableArtifactScope.ORDERED_SEMANTIC
+            ):
                 raise ValueError("ORDERED comparison rules require ordered semantics")
         elif self.ordered is not None or self.artifact_scope is TableArtifactScope.ORDERED_SEMANTIC:
             raise ValueError("only ORDERED comparison rules may carry ordered semantics")
@@ -664,7 +728,9 @@ def table_ruleset_from_document(document: Mapping[str, object]) -> TableRulesetS
         raise ValueError("rules must be a list")
     rules = tuple(_rule_record_from_document(item) for item in rules_payload)
     snapshot = TableRulesetSnapshot(
-        table_ruleset_version=_require_positive_int(document.get("table_ruleset_version"), "table_ruleset_version"),
+        table_ruleset_version=_require_positive_int(
+            document.get("table_ruleset_version"), "table_ruleset_version"
+        ),
         ruleset_id=_require_string(document.get("ruleset_id"), "ruleset_id"),
         ruleset_version=_require_string(document.get("ruleset_version"), "ruleset_version"),
         contract_version=_require_string(document.get("contract_version"), "contract_version"),
@@ -691,28 +757,44 @@ def _rule_record_from_document(payload: object) -> TableRuleRecord:
         raise ValueError("dropped_columns must be a list")
     return TableRuleRecord(
         selector=TableRuleSelector(
-            kind=TableRuleSelectorKind(_require_string(selector_payload.get("kind"), "selector.kind")),
+            kind=TableRuleSelectorKind(
+                _require_string(selector_payload.get("kind"), "selector.kind")
+            ),
             value=_require_string(selector_payload.get("value"), "selector.value"),
-            table_comment_contains=_optional_string(selector_payload.get("table_comment_contains"), "selector.table_comment_contains"),
+            table_comment_contains=_optional_string(
+                selector_payload.get("table_comment_contains"), "selector.table_comment_contains"
+            ),
         ),
         precedence_class=SelectorPrecedenceClass(
             _require_string(payload.get("precedence_class"), "precedence_class")
         ),
         static_role=TableStaticRole(_require_string(payload.get("static_role"), "static_role")),
-        table_storage=TableStorageDisposition(_require_string(payload.get("table_storage"), "table_storage")),
+        table_storage=TableStorageDisposition(
+            _require_string(payload.get("table_storage"), "table_storage")
+        ),
         canonical_key_policy=CanonicalKeyPolicy(
             _require_string(payload.get("canonical_key_policy"), "canonical_key_policy")
         ),
-        ordered_policy=OrderedPolicy(_require_string(payload.get("ordered_policy"), "ordered_policy")),
-        compare_key_mode=_optional_enum(payload.get("compare_key_mode"), TableCompareKeyMode, "compare_key_mode"),
-        compare_key_columns=_string_tuple(payload.get("compare_key_columns"), "compare_key_columns"),
+        ordered_policy=OrderedPolicy(
+            _require_string(payload.get("ordered_policy"), "ordered_policy")
+        ),
+        compare_key_mode=_optional_enum(
+            payload.get("compare_key_mode"), TableCompareKeyMode, "compare_key_mode"
+        ),
+        compare_key_columns=_string_tuple(
+            payload.get("compare_key_columns"), "compare_key_columns"
+        ),
         ignored_columns=_string_tuple(payload.get("ignored_columns"), "ignored_columns"),
         compare_excluded_columns=_string_tuple(
             payload.get("compare_excluded_columns"), "compare_excluded_columns"
         ),
-        artifact_scope=_optional_enum(payload.get("artifact_scope"), TableArtifactScope, "artifact_scope"),
+        artifact_scope=_optional_enum(
+            payload.get("artifact_scope"), TableArtifactScope, "artifact_scope"
+        ),
         position_column=_optional_string(payload.get("position_column"), "position_column"),
-        stable_key_candidates=_string_tuple(payload.get("stable_key_candidates"), "stable_key_candidates"),
+        stable_key_candidates=_string_tuple(
+            payload.get("stable_key_candidates"), "stable_key_candidates"
+        ),
         dropped_columns=tuple(_dropped_column_from_document(item) for item in dropped_payload),
         structural_columns=_string_tuple(payload.get("structural_columns"), "structural_columns"),
     )
@@ -745,7 +827,12 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
             raise ValueError("SKIP tables forbid a canonical key")
         if record.compare_key_mode is not None or record.compare_key_columns:
             raise ValueError("SKIP tables forbid compare keys")
-        if record.ignored_columns or record.compare_excluded_columns or record.dropped_columns or record.structural_columns:
+        if (
+            record.ignored_columns
+            or record.compare_excluded_columns
+            or record.dropped_columns
+            or record.structural_columns
+        ):
             raise ValueError("SKIP tables forbid ignored or dropped columns")
         if record.ordered_policy is not OrderedPolicy.NONE:
             raise ValueError("SKIP tables forbid ordered policy")
@@ -758,7 +845,9 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
         if record.compare_key_mode is not None or record.compare_key_columns:
             raise ValueError("snapshot-only and browse-only rules forbid compare keys")
         if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS:
-            raise ValueError("snapshot-only and browse-only storage key is DDL primary key or keyless")
+            raise ValueError(
+                "snapshot-only and browse-only storage key is DDL primary key or keyless"
+            )
         if record.ordered_policy is not OrderedPolicy.NONE:
             raise ValueError("snapshot-only and browse-only forbid ordered policy")
         if record.static_role is TableStaticRole.SNAPSHOT_ONLY:
@@ -807,7 +896,10 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
     elif record.precedence_class is SelectorPrecedenceClass.STANDARD_DEVICE_CFG:
         if record.selector.kind is not TableRuleSelectorKind.EXACT:
             raise ValueError("device_cfg selector must be exact")
-        if record.compare_key_mode is not TableCompareKeyMode.EXPLICIT_KEY or record.compare_key_columns != BUSINESS_SEQUENCE_KEYS["device_cfg"]:
+        if (
+            record.compare_key_mode is not TableCompareKeyMode.EXPLICIT_KEY
+            or record.compare_key_columns != BUSINESS_SEQUENCE_KEYS["device_cfg"]
+        ):
             raise ValueError("device_cfg requires its business comparison key")
         if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY:
             raise ValueError("device_cfg storage key is DDL primary key")
@@ -836,7 +928,12 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
             record.precedence_class is SelectorPrecedenceClass.STANDARD_EXACT
             and record.selector.value in BUSINESS_SEQUENCE_KEYS
             and record.compare_key_columns == BUSINESS_SEQUENCE_KEYS[record.selector.value]
-            and record.compare_key_mode is (TableCompareKeyMode.EXPLICIT_KEY if record.compare_key_columns else TableCompareKeyMode.FULL_ROW_MULTISET)
+            and record.compare_key_mode
+            is (
+                TableCompareKeyMode.EXPLICIT_KEY
+                if record.compare_key_columns
+                else TableCompareKeyMode.FULL_ROW_MULTISET
+            )
             and record.artifact_scope is TableArtifactScope.ALL_CHANGES
         )
     ):
@@ -904,7 +1001,9 @@ def _validate_storage_column_sets(
             raise ValueError("ordered no must not be DROP_FROM_STORAGE")
 
 
-def _reject_ignored_key_conflict(key_columns: tuple[str, ...], ignored_columns: tuple[str, ...]) -> None:
+def _reject_ignored_key_conflict(
+    key_columns: tuple[str, ...], ignored_columns: tuple[str, ...]
+) -> None:
     if set(key_columns) & set(ignored_columns):
         raise ValueError("ignored columns must not be effective key columns")
 
@@ -960,7 +1059,9 @@ def _reject_path_shaped(value: str, label: str) -> None:
         raise ValueError(f"{label} must not be a filesystem path")
 
 
-def _reject_unknown_keys(payload: Mapping[str, object], allowed: frozenset[str], label: str) -> None:
+def _reject_unknown_keys(
+    payload: Mapping[str, object], allowed: frozenset[str], label: str
+) -> None:
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"{label} contains unknown fields")

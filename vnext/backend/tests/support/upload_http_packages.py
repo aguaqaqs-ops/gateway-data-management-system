@@ -77,12 +77,8 @@ def keyless_fallback_upload_files(
     initial_rows: tuple[str, ...] = KEYLESS_FALLBACK_BASE_ROWS,
     modified_rows: tuple[str, ...] = KEYLESS_FALLBACK_BASE_ROWS,
 ) -> dict[str, tuple[str, bytes, str]]:
-    initial_bytes = pack_tar_gz(
-        {"sql/dbcfg.sql": _keyless_fallback_sql(initial_rows)}
-    )
-    modified_bytes = pack_tar_gz(
-        {"sql/dbcfg.sql": _keyless_fallback_sql(modified_rows)}
-    )
+    initial_bytes = pack_tar_gz({"sql/dbcfg.sql": _keyless_fallback_sql(initial_rows)})
+    modified_bytes = pack_tar_gz({"sql/dbcfg.sql": _keyless_fallback_sql(modified_rows)})
     return upload_files(
         expected_version=expected_version,
         initial_bytes=initial_bytes,

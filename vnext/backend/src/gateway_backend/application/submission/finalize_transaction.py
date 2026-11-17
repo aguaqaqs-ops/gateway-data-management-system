@@ -85,7 +85,9 @@ def finalize_submit_transaction(
     if workspace is None:
         raise ValueError("workspace is missing")
 
-    existing_submission = unit_of_work.submission.get_submission_by_attempt(request.submit_attempt_id)
+    existing_submission = unit_of_work.submission.get_submission_by_attempt(
+        request.submit_attempt_id
+    )
     result = finalize_submit(
         command=FinalizeSubmitCommand(
             attempt=attempt,
@@ -103,11 +105,16 @@ def finalize_submit_transaction(
     if preview is None:
         raise FinalizeBindingMismatch("frozen Preview is missing")
     if preview is not None:
-        from gateway_backend.application.submission.review_result import assert_submission_preview_binding
+        from gateway_backend.application.submission.review_result import (
+            assert_submission_preview_binding,
+        )
+
         try:
             assert_submission_preview_binding(result.submission, preview)
         except ValueError as exc:
-            raise FinalizeBindingMismatch("frozen Preview scope or content binding mismatch") from exc
+            raise FinalizeBindingMismatch(
+                "frozen Preview scope or content binding mismatch"
+            ) from exc
         if (
             preview.workspace_id != attempt.workspace_id
             or preview.repository_id != attempt.repository_id
@@ -155,8 +162,9 @@ def finalize_submit_transaction(
         baseline_head_version=attempt.baseline_head_version,
     )
 
-    _transfer_finalize_protection(unit_of_work, attempt=finalized_attempt,
-        review_artifact_refs=request.review_artifact_refs)
+    _transfer_finalize_protection(
+        unit_of_work, attempt=finalized_attempt, review_artifact_refs=request.review_artifact_refs
+    )
     from gateway_backend.application.submission.artifact_release import (
         release_submit_checkpoint_protection,
     )
@@ -242,7 +250,9 @@ def _assert_finalized_closure(
     submission: Submission,
     review_artifact_refs: tuple[ArtifactRef, ...],
 ) -> None:
-    _assert_frozen_review_closure(unit_of_work, attempt=attempt, review_artifact_refs=review_artifact_refs)
+    _assert_frozen_review_closure(
+        unit_of_work, attempt=attempt, review_artifact_refs=review_artifact_refs
+    )
     occupancy = unit_of_work.submission.get_workspace_occupancy(attempt.workspace_id)
     if occupancy is None or occupancy.active_submission_id != submission.submission_id:
         raise FinalizeRecoveryRequired(
@@ -252,7 +262,8 @@ def _assert_finalized_closure(
     if repository_occupancy is not None:
         raise FinalizeRecoveryRequired("repository occupancy is still held after finalize")
     review_refs = unit_of_work.list_artifact_protection_for_owner(
-        owner_kind="submission-review", owner_id=submission.submission_id)
+        owner_kind="submission-review", owner_id=submission.submission_id
+    )
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
     if not {ref.artifact_id for ref in review_artifact_refs}.issubset(review_refs):
         raise FinalizeRecoveryRequired("submission review protection is incomplete")
@@ -270,14 +281,21 @@ def _transfer_finalize_protection(
     attempt: SubmitAttempt,
     review_artifact_refs: tuple[ArtifactRef, ...],
 ) -> None:
-    _assert_frozen_review_closure(unit_of_work, attempt=attempt, review_artifact_refs=review_artifact_refs)
+    _assert_frozen_review_closure(
+        unit_of_work, attempt=attempt, review_artifact_refs=review_artifact_refs
+    )
     refs_by_id = {ref.artifact_id: ref for ref in review_artifact_refs}
     held = unit_of_work.list_artifact_protection_for_owner(
-        owner_kind="submit-attempt", owner_id=attempt.submit_attempt_id)
+        owner_kind="submit-attempt", owner_id=attempt.submit_attempt_id
+    )
     if not set(refs_by_id).issubset(held):
         raise FinalizeBindingMismatch("frozen Preview closure protection is incomplete")
-    unit_of_work.set_artifact_protection(review_artifact_refs, owner_kind="submission-review",
-        owner_id=attempt.submission_id or "", intent="submission-review")
+    unit_of_work.set_artifact_protection(
+        review_artifact_refs,
+        owner_kind="submission-review",
+        owner_id=attempt.submission_id or "",
+        intent="submission-review",
+    )
     unit_of_work.clear_artifact_protection(
         owner_kind="submit-attempt",
         owner_id=attempt.submit_attempt_id,
@@ -287,7 +305,9 @@ def _transfer_finalize_protection(
             artifact_id=artifact_id,
             media_type="application/octet-stream",
             size_bytes=0,
-            raw_sha256=DigestRef("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+            raw_sha256=DigestRef(
+                "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            ),
         )
         for artifact_id in attempt.source_artifact_refs
     )
@@ -316,14 +336,25 @@ def _transfer_finalize_protection(
 
 
 def _assert_frozen_review_closure(
-    unit_of_work: SubmitFinalizeControlTransaction, *, attempt: SubmitAttempt,
+    unit_of_work: SubmitFinalizeControlTransaction,
+    *,
+    attempt: SubmitAttempt,
     review_artifact_refs: tuple[ArtifactRef, ...],
 ) -> None:
     operation = unit_of_work.operations.get_operation(attempt.operation_id)
-    ready_ref = next((ref for ref in operation.artifact_refs
-        if ref.artifact_id == attempt.preview_ready_closure_ref), None)
-    preview = unit_of_work.workspace.get_preview_result(attempt.preview_result_id,
-        workspace_id=attempt.workspace_id, repository_id=attempt.repository_id)
+    ready_ref = next(
+        (
+            ref
+            for ref in operation.artifact_refs
+            if ref.artifact_id == attempt.preview_ready_closure_ref
+        ),
+        None,
+    )
+    preview = unit_of_work.workspace.get_preview_result(
+        attempt.preview_result_id,
+        workspace_id=attempt.workspace_id,
+        repository_id=attempt.repository_id,
+    )
     refs_by_id = {ref.artifact_id: ref for ref in review_artifact_refs}
     if ready_ref is None or preview is None or refs_by_id.get(ready_ref.artifact_id) != ready_ref:
         raise FinalizeBindingMismatch("frozen Preview READY binding is missing")
@@ -331,7 +362,10 @@ def _assert_frozen_review_closure(
         raise FinalizeBindingMismatch("accepted Preview binding changed before finalize")
     outputs = tuple(ref for ref in review_artifact_refs if ref.artifact_id != ready_ref.artifact_id)
     raw = ReadyClosureDocument.build(outputs, preview.contract_version).to_canonical_bytes()
-    if (len(refs_by_id) != len(review_artifact_refs) or ready_ref.size_bytes != len(raw)
-            or ready_ref.raw_sha256 != raw_blob_digest(raw)
-            or preview.bundle_artifact_id not in refs_by_id):
+    if (
+        len(refs_by_id) != len(review_artifact_refs)
+        or ready_ref.size_bytes != len(raw)
+        or ready_ref.raw_sha256 != raw_blob_digest(raw)
+        or preview.bundle_artifact_id not in refs_by_id
+    ):
         raise FinalizeBindingMismatch("finalize review refs differ from frozen READY closure")

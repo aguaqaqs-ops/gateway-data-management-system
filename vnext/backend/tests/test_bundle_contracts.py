@@ -23,7 +23,11 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleTableSide,
     validate_logical_path,
 )
-from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyResult, SurfaceAssemblyStatus, SurfaceTableRefs
+from gateway_backend.capabilities.surface_assembly import (
+    SurfaceAssemblyResult,
+    SurfaceAssemblyStatus,
+    SurfaceTableRefs,
+)
 from gateway_backend.capabilities.surface_assembly._refs import validate_surface_ref
 from gateway_backend.capabilities.bundle_assembly._refs import validate_bundle_ref
 from tests.support.artifact_ref_faults import UNSUPPORTED_DELIVERY_ARTIFACT_IDS
@@ -33,7 +37,12 @@ pytestmark = pytest.mark.unit
 
 def _ref(name: str) -> ArtifactRef:
     raw = name.encode()
-    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name), "application/json", len(raw), raw_blob_digest(raw))
+    return ArtifactRef(
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", name),
+        "application/json",
+        len(raw),
+        raw_blob_digest(raw),
+    )
 
 
 def test_bundle_contract_normalizes_input_and_pair_order() -> None:

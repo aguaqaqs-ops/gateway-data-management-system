@@ -10,7 +10,11 @@ from fastapi import APIRouter, Depends, Request, status
 from gateway_backend.artifacts.store import StorageCapacityUnavailable
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
+from gateway_backend.http.dependencies import (
+    WorkspaceHttpDependencies,
+    acquire_new_work,
+    get_workspace_http,
+)
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.multipart_stream import parse_streaming_multipart
 from gateway_backend.http.orchestration.multipart_upload import (
@@ -66,7 +70,9 @@ async def accept_upload_route(
         )
     with acquire_new_work(deps.admission_gate):
         try:
-            parsed = await parse_streaming_multipart(scratch=deps.scratch, headers=request.headers, stream=request.stream())
+            parsed = await parse_streaming_multipart(
+                scratch=deps.scratch, headers=request.headers, stream=request.stream()
+            )
             return await accept_multipart_upload(
                 context=context,
                 workspace_id=workspace_id,
@@ -82,13 +88,17 @@ async def accept_upload_route(
             if exc.errno not in {errno.ENOSPC, errno.EDQUOT}:
                 raise
             raise ApiError(
-                code="SERVICE_NOT_READY", message="storage write capacity unavailable",
-                status_code=503, details={"reason": "capacity_rejected"},
+                code="SERVICE_NOT_READY",
+                message="storage write capacity unavailable",
+                status_code=503,
+                details={"reason": "capacity_rejected"},
             ) from exc
         except StorageCapacityUnavailable as exc:
             raise ApiError(
-                code="SERVICE_NOT_READY", message="storage write capacity unavailable",
-                status_code=503, details={"reason": "capacity_rejected"},
+                code="SERVICE_NOT_READY",
+                message="storage write capacity unavailable",
+                status_code=503,
+                details={"reason": "capacity_rejected"},
             ) from exc
         except UploadStreamTimeoutError as exc:
             raise ApiError(

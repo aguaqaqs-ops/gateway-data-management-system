@@ -29,7 +29,10 @@ from gateway_backend.application.submission.contracts import (
     AcceptSubmitCommand,
     IdentityConfirmationRequest,
 )
-from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
+from gateway_backend.application.submission.errors import (
+    PreviewBindingConflict,
+    SubmitJobNotRegistered,
+)
 from gateway_backend.application.submission.ports import (
     RepositoryMainResolvePort,
     SubmitControlUnitOfWorkFactory,
@@ -143,11 +146,15 @@ def load_accept_submit_preflight(
     except SubmitImportBuilderError as exc:
         raise PreviewBindingConflict(str(exc)) from exc
     try:
-        review_refs = load_preview_review_closure(preview_result,
-            lookup=artifact_ref_lookup, store=artifact_store)
+        review_refs = load_preview_review_closure(
+            preview_result, lookup=artifact_ref_lookup, store=artifact_store
+        )
     except ManifestVerificationError as exc:
-        raise ApiError(code="ARTIFACT_UNAVAILABLE", message="required review artifact is not readable",
-            status_code=503) from exc
+        raise ApiError(
+            code="ARTIFACT_UNAVAILABLE",
+            message="required review artifact is not readable",
+            status_code=503,
+        ) from exc
     except (ValueError, TypeError, KeyError) as exc:
         raise PreviewBindingConflict("preview review closure is invalid") from exc
     refs_by_id = {ref.artifact_id: ref for ref in (*canonical_refs, *review_refs)}
@@ -222,8 +229,11 @@ def accept_submit_operation(
             preflight = build_replay_preflight_from_attempt(prior_attempt)
         else:
             loaded_upload = workspace_repository.get_upload_revision(command.upload_revision_id)
-            loaded_preview = workspace_repository.get_preview_result(command.preview_result_id,
-                workspace_id=command.workspace_id, repository_id=resolved.repository_id)
+            loaded_preview = workspace_repository.get_preview_result(
+                command.preview_result_id,
+                workspace_id=command.workspace_id,
+                repository_id=resolved.repository_id,
+            )
             if loaded_upload is None or loaded_preview is None:
                 raise ApiError(
                     code="RESOURCE_NOT_FOUND",

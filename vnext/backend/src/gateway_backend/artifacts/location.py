@@ -1,4 +1,5 @@
 """Versioned logical location identity; physical deployment paths never enter IDs."""
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,14 @@ def build_artifact_id(location: ArtifactLocation, kind: str, identity_payload: o
         raise ValueError("location must be ArtifactLocation")
     if type(kind) is not str or _KIND.fullmatch(kind) is None:
         raise ValueError("artifact kind must be a fixed lowercase token")
-    token = hashlib.sha256(canonicalize_json_value([
-        "gateway-artifact-id-v1", location.value, kind, identity_payload,
-    ])).hexdigest()
+    token = hashlib.sha256(
+        canonicalize_json_value(
+            [
+                "gateway-artifact-id-v1",
+                location.value,
+                kind,
+                identity_payload,
+            ]
+        )
+    ).hexdigest()
     return f"a1:{location.value}:{token}"

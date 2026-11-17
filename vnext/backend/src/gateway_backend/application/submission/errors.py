@@ -86,9 +86,7 @@ class NoCanonicalChange(SubmitApplicationError):
     stable_code = "NO_CANONICAL_CHANGE"
 
     def __init__(self) -> None:
-        super().__init__(
-            "preview canonical business digest equals current business base"
-        )
+        super().__init__("preview canonical business digest equals current business base")
 
 
 class ProjectIdentityConfirmationRequired(SubmitApplicationError):

@@ -1,4 +1,5 @@
 """One multi-worker deployment journey; business matrices retain their own owners."""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -21,23 +22,33 @@ from tests.test_submit_compose_e2e import ACTOR2_TOKEN, _compose_env
 pytestmark = [pytest.mark.integration, pytest.mark.serial, pytest.mark.container]
 
 
-def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[Path],
-        resume_polling: Event, cleanup: Callable[[], None] | None = None) -> None:
+def _finalize_worker_probe(
+    preserve_failure: Callable[[], None],
+    barriers: list[Path],
+    resume_polling: Event,
+    cleanup: Callable[[], None] | None = None,
+) -> None:
     """Attempt every release, retaining the test failure over observation errors."""
     primary = sys.exception()
     failures: list[tuple[str, BaseException]] = []
+
     def attempt(phase: str, action: Callable[[], object]) -> None:
         try:
             action()
         except BaseException as error:
             failures.append((phase, error))
+
     try:
         attempt("diagnostics", preserve_failure)
     finally:
         try:
             for barrier in barriers:
-                attempt("executor release", lambda: write_container_readable_text(
-                    barrier.with_suffix(".release"), "release executor"))
+                attempt(
+                    "executor release",
+                    lambda: write_container_readable_text(
+                        barrier.with_suffix(".release"), "release executor"
+                    ),
+                )
         finally:
             try:
                 attempt("polling resume", resume_polling.set)
@@ -64,32 +75,58 @@ def _finalize_worker_probe(preserve_failure: Callable[[], None], barriers: list[
 
 
 def _stop_workers(ids: list[str]) -> None:
-    signalled = subprocess.run(["docker", "kill", "--signal", "TERM", *ids],
-        check=False, capture_output=True, text=True, timeout=30)
+    signalled = subprocess.run(
+        ["docker", "kill", "--signal", "TERM", *ids],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     assert signalled.returncode == 0, signalled.stderr
-    exited = subprocess.run(["docker", "wait", *ids], check=False,
-        capture_output=True, text=True, timeout=210)
+    exited = subprocess.run(
+        ["docker", "wait", *ids], check=False, capture_output=True, text=True, timeout=210
+    )
     assert exited.returncode == 0, exited.stderr
     assert exited.stdout.split() == ["0"] * len(ids)
-    state = subprocess.run(["docker", "inspect", *ids], check=False,
-        capture_output=True, text=True, timeout=30)
+    state = subprocess.run(
+        ["docker", "inspect", *ids], check=False, capture_output=True, text=True, timeout=30
+    )
     assert state.returncode == 0, state.stderr
-    assert all(item["State"]["Pid"] == 0 and not item["State"]["Running"]
-               for item in json.loads(state.stdout))
+    assert all(
+        item["State"]["Pid"] == 0 and not item["State"]["Running"]
+        for item in json.loads(state.stdout)
+    )
 
 
 def _manage_group(env: dict[str, str], command: str) -> str:
     rendered = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
     mounts = {item["target"]: item["source"] for item in rendered["services"]["worker"]["volumes"]}
-    result = subprocess.run([sys.executable, str(harness.VNEXT_ROOT / "scripts/manage-worker-group.py"), command,
-        "--project", env["COMPOSE_PROJECT_NAME"],
-        "--groups-file", str(Path(env["GATEWAY_PROCESSING_GROUPS_DIRECTORY"]) / "groups.json"),
-        "--compose-file", str(harness.COMPOSE_FILE),
-        "--compose-file", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"],
-        "--storage-layout", mounts["/run/gateway/storage-layout.json"],
-        "--resource-profile", mounts["/run/gateway/resource-profile.json"],
-        "--internal-bearer-token-file", env["GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE"]],
-        env=env, check=False, capture_output=True, text=True, timeout=900)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(harness.VNEXT_ROOT / "scripts/manage-worker-group.py"),
+            command,
+            "--project",
+            env["COMPOSE_PROJECT_NAME"],
+            "--groups-file",
+            str(Path(env["GATEWAY_PROCESSING_GROUPS_DIRECTORY"]) / "groups.json"),
+            "--compose-file",
+            str(harness.COMPOSE_FILE),
+            "--compose-file",
+            env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"],
+            "--storage-layout",
+            mounts["/run/gateway/storage-layout.json"],
+            "--resource-profile",
+            mounts["/run/gateway/resource-profile.json"],
+            "--internal-bearer-token-file",
+            env["GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE"],
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     print("fixed_group_maintenance=" + result.stdout.strip(), flush=True)
     return result.stdout
@@ -97,7 +134,7 @@ def _manage_group(env: dict[str, str], command: str) -> str:
 
 def _queued_preview_snapshot(env: dict[str, str], operation_ids: list[str]) -> dict[str, Any]:
     # Read one consistent view of the accepted facts, not telemetry or queue counts.
-    probe = f'''
+    probe = f"""
 import json, sqlite3
 operation_ids = json.loads({json.dumps(json.dumps(operation_ids))})
 connection = sqlite3.connect('file:/var/lib/gateway/be-metadata/control.sqlite3?mode=ro', uri=True, timeout=1)
@@ -125,43 +162,66 @@ for operation_id in operation_ids:
         'workspace': workspace, 'protections': protections}}
 connection.close()
 print(json.dumps(snapshot, sort_keys=True))
-'''
+"""
     result = harness.run_compose(env, "exec", "-T", "backend", "python", "-c", probe)
     assert result.returncode == 0, result.stdout + result.stderr
     return cast(dict[str, Any], json.loads(result.stdout))
 
 
-def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_exit(tmp_path: Path) -> None:
+def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_exit(
+    tmp_path: Path,
+) -> None:
     harness.require_docker()
     env = _compose_env(tmp_path)
-    revision = subprocess.run(["git", "-C", str(harness.REPO_ROOT), "rev-parse", "HEAD"],
-        check=True, capture_output=True, text=True, timeout=10).stdout.strip()
-    assert not subprocess.run(["git", "-C", str(harness.REPO_ROOT), "status", "--porcelain"],
-        check=True, capture_output=True, text=True, timeout=10).stdout.strip()
-    env.update(GATEWAY_BACKEND_CANDIDATE_SHA=revision,
+    revision = subprocess.run(
+        ["git", "-C", str(harness.REPO_ROOT), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    assert not subprocess.run(
+        ["git", "-C", str(harness.REPO_ROOT), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    env.update(
+        GATEWAY_BACKEND_CANDIDATE_SHA=revision,
         GATEWAY_BACKEND_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-backend:fixed",
-        GATEWAY_WORKER_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-worker:fixed")
+        GATEWAY_WORKER_IMAGE=env["COMPOSE_PROJECT_NAME"] + "-worker:fixed",
+    )
     harness.ensure_repository_service_image(candidate_revision=revision)
     harness.prepare_runtime_config(env, workers=2)
     rendered_path = Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"])
     rendered_config = json.loads(rendered_path.read_bytes())
-    roots = {item["target"]: item["source"] for item in rendered_config["services"]["worker"]["volumes"]}
+    roots = {
+        item["target"]: item["source"] for item in rendered_config["services"]["worker"]["volumes"]
+    }
     scratch = Path(roots["/var/lib/gateway/be-scratch"])
     barriers = [scratch / f"fixed-worker-{index}-barrier" for index in (1, 2)]
     for index, service in enumerate(("worker", "worker-2"), 1):
-        rendered_config["services"][service]["command"] = ["python", "-c",
-            EXECUTOR_BARRIER.replace("processing-group-barrier", f"fixed-worker-{index}-barrier")]
+        rendered_config["services"][service]["command"] = [
+            "python",
+            "-c",
+            EXECUTOR_BARRIER.replace("processing-group-barrier", f"fixed-worker-{index}-barrier"),
+        ]
     rendered_path.write_text(json.dumps(rendered_config))
     resume_polling = Event()
     accepted: Queue[str] = Queue()
     diagnostics_attempted = False
+
     def preserve_failure() -> None:
         nonlocal diagnostics_attempted
         if sys.exc_info()[0] is not None and not diagnostics_attempted:
             diagnostics_attempted = True
             harness.capture_container_diagnostics(env, tmp_path / "worker-diagnostics")
+
     try:
-        _repository_id, initial_commit = harness.start_three_container_stack(env, tmp_path, workers=2)
+        _repository_id, initial_commit = harness.start_three_container_stack(
+            env, tmp_path, workers=2
+        )
         rendered = harness.run_compose(env, "config", "--format", "json")
         assert rendered.returncode == 0, rendered.stdout + rendered.stderr
         services = json.loads(rendered.stdout)["services"]
@@ -172,14 +232,26 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
         assert first["image"] == second["image"]
         assert first["volumes"] == second["volumes"]
         assert first["secrets"] == second["secrets"]
-        assert {key: value for key, value in first["environment"].items() if not key.endswith("INSTANCE_INDEX")} == {
-            key: value for key, value in second["environment"].items() if not key.endswith("INSTANCE_INDEX")}
+        assert {
+            key: value
+            for key, value in first["environment"].items()
+            if not key.endswith("INSTANCE_INDEX")
+        } == {
+            key: value
+            for key, value in second["environment"].items()
+            if not key.endswith("INSTANCE_INDEX")
+        }
         observed = harness.check_fixed_worker_deployment(env)
         assert {entry["instance_index"] for entry in observed.values()} == {1, 2}
         baseline = harness.capture_worker_container_state(env)
-        duplicate = harness.run_compose(env, "run", "--rm", "--no-deps", "--pull", "never", "worker", timeout=60)
+        duplicate = harness.run_compose(
+            env, "run", "--rm", "--no-deps", "--pull", "never", "worker", timeout=60
+        )
         assert duplicate.returncode != 0
-        assert "operation_worker_failed category=worker_instance_conflict" in duplicate.stdout + duplicate.stderr
+        assert (
+            "operation_worker_failed category=worker_instance_conflict"
+            in duplicate.stdout + duplicate.stderr
+        )
         assert "code=worker_ready" not in duplicate.stdout + duplicate.stderr
         harness.assert_worker_container_unchanged(env, baseline)
         ids = [str(entry["container_id"]) for entry in observed.values()]
@@ -190,10 +262,14 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
             assert resume_polling.wait(timeout=120), "worker overlap probe did not release polling"
 
         def preview(index: int) -> dict[str, Any]:
-            return harness.run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
-                journey_key_prefix=f"fixed-workers-{index}", preview_only=True,
+            return harness.run_accept_to_submission_read_journey(
+                env,
+                initial_commit_id=initial_commit,
+                journey_key_prefix=f"fixed-workers-{index}",
+                preview_only=True,
                 token=harness.SESSION_TOKEN if index == 1 else ACTOR2_TOKEN,
-                on_preview_accepted=on_accepted)
+                on_preview_accepted=on_accepted,
+            )
 
         # Fresh isolated roots: neither operation can hit a prewarmed baseline export cache.
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -206,17 +282,25 @@ def test_fixed_two_workers_share_image_and_roots_with_actual_limits_and_clean_ex
                 assert _queued_preview_snapshot(env, operation_ids) == queued
                 # These schemas have no operation/Workspace absolute deadline.
                 # Preserve their real time anchors and protection expiry instead.
-                print("queued_previews_preserved_across_drain=" + json.dumps(operation_ids), flush=True)
+                print(
+                    "queued_previews_preserved_across_drain=" + json.dumps(operation_ids),
+                    flush=True,
+                )
                 # Keep the authenticated startup dependency available. Each test-only
                 # executor barrier blocks after claim while the supervisor renews leases.
                 for barrier in barriers:
                     write_container_readable_text(barrier.with_suffix(".arm"), "hold executor")
-                started = subprocess.run(["docker", "start", *ids], check=False,
-                    capture_output=True, text=True, timeout=30)
+                started = subprocess.run(
+                    ["docker", "start", *ids],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
                 assert started.returncode == 0, started.stderr
                 for barrier in barriers:
                     wait_for(barrier.with_suffix(".reached").exists, timeout=30)
-                probe = f'''
+                probe = f"""
 import json, sqlite3, time
 from pathlib import Path
 from gateway_backend.bootstrap.worker_instance import worker_id_for
@@ -235,8 +319,10 @@ while time.monotonic() < deadline:
     time.sleep(0.05)
 else:
     raise RuntimeError('both fixed workers did not execute the two accepted operations concurrently')
-'''
-                overlap = harness.run_compose(env, "exec", "-T", "backend", "python", "-c", probe, timeout=25)
+"""
+                overlap = harness.run_compose(
+                    env, "exec", "-T", "backend", "python", "-c", probe, timeout=25
+                )
                 assert overlap.returncode == 0, overlap.stdout + overlap.stderr
                 print(overlap.stdout, flush=True)
             finally:
@@ -245,16 +331,20 @@ else:
         assert results[0]["workspace_id"] != results[1]["workspace_id"]
         assert results[0]["preview_summaries"] == results[1]["preview_summaries"]
         harness.worker_ready(env)
-        probe = ("from pathlib import Path; from gateway_backend.deployment_config import DeploymentConfig; "
+        probe = (
+            "from pathlib import Path; from gateway_backend.deployment_config import DeploymentConfig; "
             "from gateway_backend.runtime_preflight import RuntimePreflight; "
             "guard=RuntimePreflight(DeploymentConfig.load(Path('/run/gateway/storage-layout.json'),"
             "Path('/run/gateway/resource-profile.json')),'worker'); "
-            "import json; print(json.dumps(guard.observations(),sort_keys=True))")
+            "import json; print(json.dumps(guard.observations(),sort_keys=True))"
+        )
         for service in observed:
             result = harness.run_compose(env, "exec", "-T", service, "python", "-c", probe)
             assert result.returncode == 0, result.stdout + result.stderr
             print(f"{service}_cgroup_preflight={result.stdout}", flush=True)
-        harness.persist_compose_gate_provenance(env, harness.capture_running_container_provenance(env))
+        harness.persist_compose_gate_provenance(
+            env, harness.capture_running_container_provenance(env)
+        )
         assert "not quiescent" in _manage_group(env, "drain")
         # Recovery explicitly starts the same fixed containers under closed admission.
         assert "not quiescent" in _manage_group(env, "start-recovery")
@@ -263,5 +353,9 @@ else:
         assert {state.split()[0] for state in restarted.values()} == set(ids)
         assert "group processes stopped" in _manage_group(env, "stop-group")
     finally:
-        _finalize_worker_probe(preserve_failure, barriers, resume_polling,
-            lambda: harness.cleanup_compose_project_artifacts(env))
+        _finalize_worker_probe(
+            preserve_failure,
+            barriers,
+            resume_polling,
+            lambda: harness.cleanup_compose_project_artifacts(env),
+        )

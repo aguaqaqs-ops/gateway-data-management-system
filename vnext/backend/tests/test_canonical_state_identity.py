@@ -86,9 +86,7 @@ def _added_column() -> SnapshotTableDescriptor:
 
 
 def _changed_type() -> SnapshotTableDescriptor:
-    return _descriptor(
-        (_BASE_COLUMNS[0], SnapshotColumnDescriptor("name", "name", True, "TEXT"))
-    )
+    return _descriptor((_BASE_COLUMNS[0], SnapshotColumnDescriptor("name", "name", True, "TEXT")))
 
 
 def _changed_length() -> SnapshotTableDescriptor:

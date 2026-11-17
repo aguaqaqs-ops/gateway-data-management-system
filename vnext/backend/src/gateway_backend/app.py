@@ -43,7 +43,10 @@ def create_app(
             runtime.workspace_http,
             history_deps=runtime.history_http,
         )
-        app.state.deployment_identity = (configured.deployment_config.storage.environment_id, configured.deployment_config.storage.group_id)
+        app.state.deployment_identity = (
+            configured.deployment_config.storage.environment_id,
+            configured.deployment_config.storage.group_id,
+        )
         app.state.device_registration = runtime.device_registration
         app.state.storage_guard = runtime.storage_guard
         app.state.statistics_http = runtime.statistics_http
@@ -53,6 +56,7 @@ def create_app(
                 runtime.statistics.start()
             except Exception:
                 import logging
+
                 logging.getLogger(__name__).warning("statistics start failed")
         if configured.maintenance_mode:
             runtime.admission_gate.close()
@@ -66,6 +70,7 @@ def create_app(
                     runtime.statistics.close()
                 except Exception:
                     import logging
+
                     logging.getLogger(__name__).warning("statistics stop failed")
 
     from gateway_backend.http.dependencies import ArchiveRequestBodyLimitMiddleware
@@ -77,15 +82,21 @@ def create_app(
     app.add_middleware(ArchiveRequestBodyLimitMiddleware)
     maybe_add_inflight_barrier_middleware(app)
     register_exception_handlers(app)
+
     @app.middleware("http")
     async def storage_admission(request, call_next):  # type: ignore[no-untyped-def]
         guard = getattr(app.state, "storage_guard", None)
         if guard is not None and request.url.path != "/healthz":
             try:
                 guard.check()
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 from gateway_backend.http.errors import error_response
-                return error_response(code="SERVICE_NOT_READY", message="deployment storage unavailable", status_code=503)
+
+                return error_response(
+                    code="SERVICE_NOT_READY",
+                    message="deployment storage unavailable",
+                    status_code=503,
+                )
         return await call_next(request)
 
     app.state.ready = False
@@ -105,7 +116,7 @@ def _register_health_routes(app: FastAPI, *, ready: bool | None) -> None:
         if guard is not None:
             try:
                 guard.check()
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 is_ready = False
         if not is_ready:
             return JSONResponse({"status": "not_ready"}, status_code=503)

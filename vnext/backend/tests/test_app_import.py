@@ -8,11 +8,14 @@ import pytest
 pytestmark = pytest.mark.unit
 
 
-@pytest.mark.parametrize("module", (
-    "gateway_backend.app",
-    "gateway_backend.application.preview_jobs",
-    "gateway_backend.application.pair_pipeline",
-))
+@pytest.mark.parametrize(
+    "module",
+    (
+        "gateway_backend.app",
+        "gateway_backend.application.preview_jobs",
+        "gateway_backend.application.pair_pipeline",
+    ),
+)
 def test_application_imports_without_circular_dependencies(module: str) -> None:
     result = subprocess.run(
         [sys.executable, "-c", f"import {module}"],

@@ -1,4 +1,5 @@
 """Read the immutable Preview owned by a Submission under current review scope."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -7,14 +8,18 @@ from dataclasses import dataclass
 
 from gateway_backend.application.checkpoints import ReadyClosureDocument
 from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
-from gateway_backend.application.submission.accept_transaction import deterministic_submit_operation_id
+from gateway_backend.application.submission.accept_transaction import (
+    deterministic_submit_operation_id,
+)
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.operations import BusinessReference
 from gateway_backend.operations.store import RecordNotFound
 from gateway_backend.application.comparison_audit import ComparisonStructureAudit
 from gateway_backend.application.submission.ports import ReviewApplyControlUnitOfWorkFactory
 from gateway_backend.application.submission.review import (
-    assert_fresh_scope_matches, assert_review_permission, load_review_scope_facts,
+    assert_fresh_scope_matches,
+    assert_review_permission,
+    load_review_scope_facts,
     resolve_fresh_provisioned_scope,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
@@ -49,20 +54,32 @@ def _read_chunks(store: BoundedArtifactStorePort, ref: ArtifactRef) -> Iterator[
 
 
 def load_preview_review_closure(
-    preview: PreviewResult, *, lookup: ArtifactLookup, store: BoundedArtifactStorePort,
+    preview: PreviewResult,
+    *,
+    lookup: ArtifactLookup,
+    store: BoundedArtifactStorePort,
 ) -> tuple[ArtifactRef, ...]:
     """Verify exact READY/bundle/pair/audit identities without current global rules."""
-    expected_pair_ids = (("baseline_to_initial", "initial_to_modified")
+    expected_pair_ids = (
+        ("baseline_to_initial", "initial_to_modified")
         if preview.canonical.configuration_facts.initial_origin == "UPLOADED"
-        else ("initial_to_modified",))
-    if (tuple(pair.pair_id for pair in preview.comparison_pairs) != expected_pair_ids
-            or tuple(pair.pair_id for pair in preview.identity_pairs) != expected_pair_ids):
+        else ("initial_to_modified",)
+    )
+    if (
+        tuple(pair.pair_id for pair in preview.comparison_pairs) != expected_pair_ids
+        or tuple(pair.pair_id for pair in preview.identity_pairs) != expected_pair_ids
+    ):
         raise BundleIntegrityError("Preview pair count does not match its input mode")
     current_pair = preview.comparison_pairs[-1]
-    if (current_pair.current_snapshot_digest != preview.digests.snapshot_digest
-            or current_pair.comparison_digest != preview.digests.comparison_digest
-            or (current_pair.risk_digest is not None and current_pair.risk_digest != preview.digests.risk_digest)
-            or len({pair.ruleset_digest for pair in preview.comparison_pairs}) != 1):
+    if (
+        current_pair.current_snapshot_digest != preview.digests.snapshot_digest
+        or current_pair.comparison_digest != preview.digests.comparison_digest
+        or (
+            current_pair.risk_digest is not None
+            and current_pair.risk_digest != preview.digests.risk_digest
+        )
+        or len({pair.ruleset_digest for pair in preview.comparison_pairs}) != 1
+    ):
         raise BundleIntegrityError("Preview comparison input binding mismatch")
     ready_ref = lookup.lookup_ref(preview.ready_closure_artifact_id)
     if ready_ref is None:
@@ -78,8 +95,10 @@ def load_preview_review_closure(
     metadata = read_bundle_transport_metadata(_read_metadata(store, manifest_ref))
     if metadata.bundle_digest != preview.digests.bundle_digest:
         raise BundleIntegrityError("Preview bundle digest binding mismatch")
-    expected_pairs = tuple((pair.pair_id, pair.surface_digest, pair.comparison_digest)
-        for pair in preview.comparison_pairs)
+    expected_pairs = tuple(
+        (pair.pair_id, pair.surface_digest, pair.comparison_digest)
+        for pair in preview.comparison_pairs
+    )
     expected_risks = tuple((pair.pair_id, pair.risk_digest) for pair in preview.comparison_pairs)
     if metadata.pair_digests != expected_pairs or metadata.pair_risk_digests != expected_risks:
         raise BundleIntegrityError("Preview bundle pair binding mismatch")
@@ -95,10 +114,19 @@ def load_preview_review_closure(
         if audit_ref is None:
             raise BundleIntegrityError("Preview structure audit is outside its READY closure")
         audit = ComparisonStructureAudit.model_validate_json(_read_metadata(store, audit_ref))
-        if (audit.pair_id, audit.comparison_digest, audit.before_snapshot_digest,
-                audit.current_snapshot_digest, audit.ruleset_digest) != (
-                pair.pair_id, pair.comparison_digest, pair.before_snapshot_digest,
-                pair.current_snapshot_digest, pair.ruleset_digest) or not audit.tables:
+        if (
+            audit.pair_id,
+            audit.comparison_digest,
+            audit.before_snapshot_digest,
+            audit.current_snapshot_digest,
+            audit.ruleset_digest,
+        ) != (
+            pair.pair_id,
+            pair.comparison_digest,
+            pair.before_snapshot_digest,
+            pair.current_snapshot_digest,
+            pair.ruleset_digest,
+        ) or not audit.tables:
             raise BundleIntegrityError("Preview structure audit binding mismatch")
     # Verify the complete backend closure, including canonical inputs and audits.
     # Payload files are consumed as bounded chunks, never joined into metadata.
@@ -109,15 +137,18 @@ def load_preview_review_closure(
 
 
 def assert_submission_preview_binding(submission: Submission, preview: PreviewResult) -> None:
-    if (preview.preview_result_id != submission.preview_result_id
-            or preview.workspace_id != submission.workspace_id
-            or preview.repository_id != submission.repository_id
-            or preview.upload_revision_id != submission.upload_revision_id
-            or preview.generation != submission.workspace_generation
-            or preview.business_baseline_node_id != submission.based_on_baseline_node_id
-            or preview.business_baseline_commit_id != submission.business_baseline_commit_id
-            or preview.canonical.configuration_facts != submission.configuration_facts
-            or preview.canonical.modified_canonical_state_digest.value != submission.canonical_business_digest):
+    if (
+        preview.preview_result_id != submission.preview_result_id
+        or preview.workspace_id != submission.workspace_id
+        or preview.repository_id != submission.repository_id
+        or preview.upload_revision_id != submission.upload_revision_id
+        or preview.generation != submission.workspace_generation
+        or preview.business_baseline_node_id != submission.based_on_baseline_node_id
+        or preview.business_baseline_commit_id != submission.business_baseline_commit_id
+        or preview.canonical.configuration_facts != submission.configuration_facts
+        or preview.canonical.modified_canonical_state_digest.value
+        != submission.canonical_business_digest
+    ):
         raise BundleIntegrityError("Submission Preview binding mismatch")
 
 
@@ -129,7 +160,9 @@ class SubmissionPreviewRead:
 
 
 def read_submission_preview(
-    *, context: IdentityContext, submission_id: str,
+    *,
+    context: IdentityContext,
+    submission_id: str,
     scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
 ) -> SubmissionPreviewRead:
@@ -139,40 +172,55 @@ def read_submission_preview(
     with unit_of_work_factory(read_only=True) as unit_of_work:
         fresh = resolve_fresh_provisioned_scope(unit_of_work, context)
         assert_fresh_scope_matches(fresh, resolved)
-        facts = load_review_scope_facts(unit_of_work, context=context,
-            submission_id=submission_id, resolved_scope=fresh)
+        facts = load_review_scope_facts(
+            unit_of_work, context=context, submission_id=submission_id, resolved_scope=fresh
+        )
         try:
-            preview = unit_of_work.workspace.get_preview_result(facts.submission.preview_result_id,
-                workspace_id=facts.submission.workspace_id, repository_id=fresh.repository_id)
+            preview = unit_of_work.workspace.get_preview_result(
+                facts.submission.preview_result_id,
+                workspace_id=facts.submission.workspace_id,
+                repository_id=fresh.repository_id,
+            )
         except (ValueError, TypeError, KeyError) as exc:
             raise BundleIntegrityError("Submission Preview facts are invalid") from exc
         if preview is None:
             raise ArtifactUnavailableError("Submission Preview is unavailable")
         assert_submission_preview_binding(facts.submission, preview)
-        attempt = unit_of_work.submission.get_submit_attempt(facts.submission.submit_attempt_id,
-            workspace_id=facts.submission.workspace_id, repository_id=fresh.repository_id)
-        if (attempt is None or attempt.preview_result_id != preview.preview_result_id
-                or attempt.submission_id != submission_id
-                or attempt.preview_ready_closure_ref != preview.ready_closure_artifact_id
-                or attempt.preview_ready_closure_digest != derive_preview_ready_closure_digest(preview)
-                or attempt.configuration_facts != preview.canonical.configuration_facts
-                or attempt.snapshot_digest != preview.digests.snapshot_digest):
+        attempt = unit_of_work.submission.get_submit_attempt(
+            facts.submission.submit_attempt_id,
+            workspace_id=facts.submission.workspace_id,
+            repository_id=fresh.repository_id,
+        )
+        if (
+            attempt is None
+            or attempt.preview_result_id != preview.preview_result_id
+            or attempt.submission_id != submission_id
+            or attempt.preview_ready_closure_ref != preview.ready_closure_artifact_id
+            or attempt.preview_ready_closure_digest != derive_preview_ready_closure_digest(preview)
+            or attempt.configuration_facts != preview.canonical.configuration_facts
+            or attempt.snapshot_digest != preview.digests.snapshot_digest
+        ):
             raise BundleIntegrityError("Submission accepted Preview binding mismatch")
         if attempt.operation_id != deterministic_submit_operation_id(
-                workspace_id=attempt.workspace_id, idempotency_key=attempt.accept_idempotency_key):
+            workspace_id=attempt.workspace_id, idempotency_key=attempt.accept_idempotency_key
+        ):
             raise BundleIntegrityError("Submission operation binding mismatch")
         try:
             operation = unit_of_work.operations.get_operation(attempt.operation_id)
         except RecordNotFound as exc:
             raise ArtifactUnavailableError("Submission operation is unavailable") from exc
         if operation.job_kind != SUBMIT_JOB_KIND or operation.business_refs != (
-                BusinessReference(kind="workspace", value=attempt.workspace_id),
-                BusinessReference(kind="submit_attempt", value=attempt.submit_attempt_id)):
+            BusinessReference(kind="workspace", value=attempt.workspace_id),
+            BusinessReference(kind="submit_attempt", value=attempt.submit_attempt_id),
+        ):
             raise BundleIntegrityError("Submission operation scope mismatch")
         refs = operation.artifact_refs
         held = unit_of_work.list_artifact_protection_for_owner(
-            owner_kind="submission-review", owner_id=submission_id)
-        ready_ref = next((ref for ref in refs if ref.artifact_id == preview.ready_closure_artifact_id), None)
+            owner_kind="submission-review", owner_id=submission_id
+        )
+        ready_ref = next(
+            (ref for ref in refs if ref.artifact_id == preview.ready_closure_artifact_id), None
+        )
         if ready_ref is None or ready_ref.artifact_id not in held:
             raise BundleIntegrityError("Submission review protection is incomplete")
         return SubmissionPreviewRead(preview, ready_ref, held)

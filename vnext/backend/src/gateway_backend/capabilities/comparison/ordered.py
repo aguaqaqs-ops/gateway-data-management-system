@@ -5,17 +5,31 @@ from __future__ import annotations
 from typing import Any
 
 from gateway_backend.capabilities.comparison.contracts import (
-    BlankExtension, BlankSummary, ComparisonRecord, ComparisonRecordKind,
-    ComparisonSchemaChanges, ComparisonTableFact, ComparisonTableStatus,
-    OrderedExtension, OrderedStatus, OrderedSummary, OrderedTablePolicy,
-    OrderedTableProcessingMode, ReplayGuarantee, SchemaChangeSource,
-    TableComparisonTask, _ComparisonTablePolicy,
+    BlankExtension,
+    BlankSummary,
+    ComparisonRecord,
+    ComparisonRecordKind,
+    ComparisonSchemaChanges,
+    ComparisonTableFact,
+    ComparisonTableStatus,
+    OrderedExtension,
+    OrderedStatus,
+    OrderedSummary,
+    OrderedTablePolicy,
+    OrderedTableProcessingMode,
+    ReplayGuarantee,
+    SchemaChangeSource,
+    TableComparisonTask,
+    _ComparisonTablePolicy,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
 )
-from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, STORAGE_PROJECTION_VERSION
+from gateway_backend.capabilities.table_rules.contracts import (
+    OrderedPolicy,
+    STORAGE_PROJECTION_VERSION,
+)
 
 
 class OrderedComparisonError(StandardComparisonError):
@@ -28,14 +42,18 @@ def _ordered_input_diagnostics(task: TableComparisonTask) -> tuple[str, ...]:
     for descriptor in (task.before_descriptor, task.current_descriptor):
         if descriptor is not None and not {"gid", "no"} <= {c.name for c in descriptor.columns}:
             return ("ORDERED_REQUIRED_COLUMN_MISSING",)
-    for descriptor, facts in ((task.before_descriptor, policy.storage_facts_before),
-                              (task.current_descriptor, policy.storage_facts_current)):
-        if descriptor is not None and (facts is None
-                or facts.storage_rule_view.ordered_policy is not OrderedPolicy.GID_NO_V1
-                or facts.storage_projection_version != STORAGE_PROJECTION_VERSION
-                or facts.canonical_schema_digest is None
-                or facts.raw_content_digest is None
-                or facts.raw_content_digest != descriptor.raw_content_digest):
+    for descriptor, facts in (
+        (task.before_descriptor, policy.storage_facts_before),
+        (task.current_descriptor, policy.storage_facts_current),
+    ):
+        if descriptor is not None and (
+            facts is None
+            or facts.storage_rule_view.ordered_policy is not OrderedPolicy.GID_NO_V1
+            or facts.storage_projection_version != STORAGE_PROJECTION_VERSION
+            or facts.canonical_schema_digest is None
+            or facts.raw_content_digest is None
+            or facts.raw_content_digest != descriptor.raw_content_digest
+        ):
             return ("ORDERED_INPUT_NOT_CANONICAL",)
     return ()
 
@@ -54,17 +72,26 @@ def _compare_single_side_ordered(task: TableComparisonTask) -> ComparisonTableFa
     assert descriptor is not None
     diagnostics = _ordered_input_diagnostics(task)
     if diagnostics:
-        return _degraded_fact(task, before, current,
-            _single_side_schema_changes(descriptor, added=added, policy=policy), diagnostics)
+        return _degraded_fact(
+            task,
+            before,
+            current,
+            _single_side_schema_changes(descriptor, added=added, policy=policy),
+            diagnostics,
+        )
     try:
         return _compare_single_side(
-            task, descriptor,
-            added=added, policy=policy,
+            task,
+            descriptor,
+            added=added,
+            policy=policy,
         )
     except StandardComparisonError as exc:
         assert descriptor is not None
         return _degraded_fact(
-            task, before, current,
+            task,
+            before,
+            current,
             _single_side_schema_changes(descriptor, added=added, policy=policy),
             (str(exc),),
         )
@@ -145,7 +172,9 @@ def _degraded_fact(
             replay_guarantee=ReplayGuarantee.UNSUPPORTED,
             table_processing_mode=OrderedTableProcessingMode.DEGRADED,
             diagnostics=diagnostics,
-            policy_digest=task.policy.ordered_policy.policy_digest if task.policy and task.policy.ordered_policy else None,
+            policy_digest=task.policy.ordered_policy.policy_digest
+            if task.policy and task.policy.ordered_policy
+            else None,
         ),
         blank_extension=BlankExtension(
             status=OrderedStatus.DEGRADED,

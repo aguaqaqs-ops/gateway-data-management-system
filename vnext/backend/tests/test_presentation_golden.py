@@ -1,4 +1,5 @@
 """Backend-owned consumer vectors from the real presentation fixture generator."""
+
 from __future__ import annotations
 
 import base64
@@ -13,14 +14,21 @@ import pytest
 
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.capabilities.business_navigation.contracts import validate_diagnostics, validate_navigation
+from gateway_backend.capabilities.business_navigation.contracts import (
+    validate_diagnostics,
+    validate_navigation,
+)
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_backend.capabilities.row_location import LOCATOR_SCHEMA
 
 GOLDEN = Path(__file__).resolve().parents[2] / "fixtures/golden/presentation/be-b/v6"
 MANIFEST: dict[str, Any] = json.loads((GOLDEN / "manifest.json").read_bytes())
 SCENARIOS = tuple(item["scenario"] for item in MANIFEST["scenarios"])
-CODE_INVENTORY: dict[str, Any] = json.loads((Path(__file__).resolve().parents[2] / "fixtures/presentation-inputs/diagnostic-codes.json").read_bytes())
+CODE_INVENTORY: dict[str, Any] = json.loads(
+    (
+        Path(__file__).resolve().parents[2] / "fixtures/presentation-inputs/diagnostic-codes.json"
+    ).read_bytes()
+)
 
 
 def _load(kind: str, scenario: str) -> list[dict[str, Any]]:
@@ -43,16 +51,25 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
         assert surface["surface_contract_version"] == "backend-vnext/comparison-surface/v4"
         payload = vector["semantic_preimage"]
         assert raw_blob_digest(canonicalize_json_value(payload)).value == vector["surface_digest"]
-        assert vector["surface_digest"] == surface["surface_digest"] == vector["physical_variant_digest"]
-        assert all("table_refs" not in table and "row_locator_ref" not in table for table in payload["_tables"])
+        assert (
+            vector["surface_digest"]
+            == surface["surface_digest"]
+            == vector["physical_variant_digest"]
+        )
+        assert all(
+            "table_refs" not in table and "row_locator_ref" not in table
+            for table in payload["_tables"]
+        )
         published_codes = set(surface["diagnostics"]["diagnostics_summary"])
         published_codes.update(surface["view"]["diagnostics_summary"])
         for table in surface["tables"]:
             published_codes.update(table["diagnostics"]["diagnostics_summary"])
         assert published_codes <= set(CODE_INVENTORY["surface_summary_codes"])
         table_ids = frozenset(table["table_id"] for table in surface["tables"])
-        navigation = validate_navigation(navigations[pair_id]["document"],
-            replacement=surface["comparison_mode"] == "DATASET_REPLACEMENT")
+        navigation = validate_navigation(
+            navigations[pair_id]["document"],
+            replacement=surface["comparison_mode"] == "DATASET_REPLACEMENT",
+        )
         # Frozen actual producer outcomes bridge marker publication to bound
         # Surface/Bundle consumers; these are business scenarios, not a second
         # emptiness algorithm in the golden reader.
@@ -60,44 +77,90 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
             items = [item for group in navigation["groups"] for item in group["items"]]
             tabs = [tab for item in items for tab in item["tabs"]]
             assert tabs and all(tab["empty"] is True for tab in tabs)
-            assert all(item["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0, "change_complete": True, "risk_complete": True} for item in items)
+            assert all(
+                item["summary"]
+                == {
+                    "change_kinds": [],
+                    "risk_level": None,
+                    "nonempty_tab_count": 0,
+                    "change_complete": True,
+                    "risk_complete": True,
+                }
+                for item in items
+            )
             assert all(group["nonempty_item_count"] == 0 for group in navigation["groups"])
         if scenario == "table-addition":
             secondary = navigation["groups"][1]
             empty_device = next(i for i in secondary["items"] if i["item_key"] == "device:addr:49")
             assert all(t["empty"] for t in empty_device["tabs"])
-            assert empty_device["summary"] == {"change_kinds": [], "risk_level": None, "nonempty_tab_count": 0, "change_complete": True, "risk_complete": True}
+            assert empty_device["summary"] == {
+                "change_kinds": [],
+                "risk_level": None,
+                "nonempty_tab_count": 0,
+                "change_complete": True,
+                "risk_complete": True,
+            }
             assert secondary["nonempty_item_count"] == 1
-            added_empty = next(t for g in navigation["groups"] for i in g["items"] for t in i["tabs"]
-                               if t["table_id"] == "b1_n1_sg_cfg")
+            added_empty = next(
+                t
+                for g in navigation["groups"]
+                for i in g["items"]
+                for t in i["tabs"]
+                if t["table_id"] == "b1_n1_sg_cfg"
+            )
             assert added_empty["empty"] is True
             added_table = next(t for t in surface["tables"] if t["table_id"] == "b1_n1_sg_cfg")
-            assert added_table["change_kind"] == "ADDED" and added_table["risk_refs"]["risk_level"] is not None
+            assert (
+                added_table["change_kind"] == "ADDED"
+                and added_table["risk_refs"]["risk_level"] is not None
+            )
         if scenario == "schema-keyless":
-            structural = [t for g in navigation["groups"] for i in g["items"] for t in i["tabs"]
-                          if t["table_id"] == "device_st"]
+            structural = [
+                t
+                for g in navigation["groups"]
+                for i in g["items"]
+                for t in i["tabs"]
+                if t["table_id"] == "device_st"
+            ]
             assert structural and all(t["empty"] is False for t in structural)
         diagnostic = diagnostics[pair_id]["document"]
         if diagnostic is not None:
             validate_diagnostics(diagnostic, navigation, table_ids)
-        projections = [p for p in surface["projections"] if p["projection_kind"] == "BUSINESS_NAVIGATION"]
+        projections = [
+            p for p in surface["projections"] if p["projection_kind"] == "BUSINESS_NAVIGATION"
+        ]
         assert len(projections) == 1
-        assert projections[0]["projection_digest"] == raw_blob_digest(canonicalize_json_value(navigation)).value
+        assert (
+            projections[0]["projection_digest"]
+            == raw_blob_digest(canonicalize_json_value(navigation)).value
+        )
         for table in surface["tables"]:
             columns = table["columns"]
-            assert [c["name"] for c in columns] == sorted({c["name"] for c in columns}, key=lambda value: value.encode())
+            assert [c["name"] for c in columns] == sorted(
+                {c["name"] for c in columns}, key=lambda value: value.encode()
+            )
             assert sorted(c["display_order"] for c in columns) == list(range(len(columns)))
             for side in ("before", "current", "browse"):
-                assert (table["table_refs"][side + "_table_ref"] is None) == (table["table_content_bindings"][side] is None)
+                assert (table["table_refs"][side + "_table_ref"] is None) == (
+                    table["table_content_bindings"][side] is None
+                )
     for vector in _load("row-location", scenario):
         raw = base64.b64decode(vector["parquet_base64"], validate=True)
         assert raw_blob_digest(raw).value == vector["raw_sha256"]
         file = pq.ParquetFile(pa.BufferReader(raw))
         assert file.schema_arrow.equals(LOCATOR_SCHEMA, check_metadata=True)
         rows = file.read().to_pylist()
-        assert [{**row, "row_identity": row["row_identity"].hex()} for row in rows] == vector["rows"]
-        assert [row["row_identity"] for row in rows] == sorted({row["row_identity"] for row in rows})
-        table = next(t for t in surfaces[vector["pair_id"]]["document"]["tables"] if t["table_id"] == vector["table_id"])
+        assert [{**row, "row_identity": row["row_identity"].hex()} for row in rows] == vector[
+            "rows"
+        ]
+        assert [row["row_identity"] for row in rows] == sorted(
+            {row["row_identity"] for row in rows}
+        )
+        table = next(
+            t
+            for t in surfaces[vector["pair_id"]]["document"]["tables"]
+            if t["table_id"] == vector["table_id"]
+        )
         for row in rows:
             for side in ("before", "current"):
                 index = row[side + "_row_index"]
@@ -109,13 +172,21 @@ def test_generated_five_class_presentation_vectors_are_mutually_bound(scenario: 
         history = scenario in {"history-three-nodes", "schema-keyless"}
         for index, item in enumerate(vector["manifest"]["inputs"]):
             assert item["snapshot_digest"] is None and item["display_metadata"] == {}
-            assert item["display_name"] == (f"node-{index}" if history else item["role"].capitalize())
+            assert item["display_name"] == (
+                f"node-{index}" if history else item["role"].capitalize()
+            )
             if history:
                 assert item["role"] == f"fixture-history-ref-{index}"
         transport = read_bundle_transport_metadata(canonicalize_json_value(vector["manifest"]))
-        assert transport.expected_closure_bytes == canonicalize_json_value(vector["artifact_closure"])
+        assert transport.expected_closure_bytes == canonicalize_json_value(
+            vector["artifact_closure"]
+        )
     if scenario == "comment-only":
-        result = next(item for item in MANIFEST["scenarios"] if item["scenario"] == scenario)["submit_result"]
+        result = next(item for item in MANIFEST["scenarios"] if item["scenario"] == scenario)[
+            "submit_result"
+        ]
         assert result["code"] == "NO_CANONICAL_CHANGE"
         assert result["write_transactions"] == result["repository_main_calls"] == 0
-        assert result["baseline_canonical_state_digest"] == result["modified_canonical_state_digest"]
+        assert (
+            result["baseline_canonical_state_digest"] == result["modified_canonical_state_digest"]
+        )

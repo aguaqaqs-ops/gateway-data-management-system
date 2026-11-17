@@ -57,7 +57,9 @@ def test_accept_upload_returns_201(env: WorkspaceHttpTestEnvironment) -> None:
     assert set(body["source_artifacts"]) == {"INITIAL", "MODIFIED"}
 
 
-def test_drain_counts_upload_until_existing_stream_finishes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_drain_counts_upload_until_existing_stream_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from gateway_backend.http.dependencies import ClosableAdmissionGate
     from gateway_backend.http.routes import upload_revisions
     from gateway_backend.http.orchestration.multipart_stream import parse_streaming_multipart
@@ -75,9 +77,19 @@ def test_drain_counts_upload_until_existing_stream_finishes(tmp_path: Path, monk
 
     monkeypatch.setattr(upload_revisions, "parse_streaming_multipart", drain_while_streaming)
     url = f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions"
-    assert env.client.post(url, headers=env.auth_headers(idempotency_key="existing-upload"), files=upload_files()).status_code == 201
+    assert (
+        env.client.post(
+            url, headers=env.auth_headers(idempotency_key="existing-upload"), files=upload_files()
+        ).status_code
+        == 201
+    )
     assert gate.snapshot() == {"accepting_new_work": False, "in_flight": 0}
-    assert env.client.post(url, headers=env.auth_headers(idempotency_key="new-upload"), files=upload_files()).status_code == 429
+    assert (
+        env.client.post(
+            url, headers=env.auth_headers(idempotency_key="new-upload"), files=upload_files()
+        ).status_code
+        == 429
+    )
 
 
 def test_accept_upload_rejects_non_multipart_content_type(
@@ -168,7 +180,9 @@ def test_accept_upload_rejects_missing_file_part(env: WorkspaceHttpTestEnvironme
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
 
 
-def test_accept_upload_rejects_modified_only_with_initial(env: WorkspaceHttpTestEnvironment) -> None:
+def test_accept_upload_rejects_modified_only_with_initial(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
     workspace = _create_workspace(env.client, env.auth_headers()).json()
     manifest = {
         "expected_workspace_version": 0,
@@ -238,7 +252,9 @@ def test_accept_upload_rejects_non_archive_payload(env: WorkspaceHttpTestEnviron
     assert persisted.current_upload_revision_id is None
 
 
-def test_accept_upload_rejects_archive_missing_required_sql(env: WorkspaceHttpTestEnvironment) -> None:
+def test_accept_upload_rejects_archive_missing_required_sql(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
     workspace = _create_workspace(env.client, env.auth_headers()).json()
     empty = pack_tar_gz({"readme.txt": b"no sql"})
     response = env.client.post(
@@ -367,13 +383,18 @@ def test_accept_upload_sets_cancel_intent_on_running_preview(
 
 @pytest.mark.parametrize("target", ("be-durable", "be-scratch"))
 def test_multipart_known_write_capacity_refusal_is_service_not_ready(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
 ) -> None:
     from dataclasses import replace
     from typing import cast
     from fastapi import FastAPI
     from gateway_backend import runtime_preflight as preflight
-    from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+    from gateway_backend.bootstrap.storage_layout import (
+        local_store_from_config,
+        scratch_space_from_config,
+    )
     from gateway_backend.deployment_config import DeploymentConfig
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
     from tests.support.artifact_layout import write_deployment_files
@@ -385,20 +406,30 @@ def test_multipart_known_write_capacity_refusal_is_service_not_ready(
     environment = create_workspace_http_environment(tmp_path / "http")
     app = cast(FastAPI, environment.client.app)
     deps = app.state.workspace_http
-    app.state.workspace_http = replace(deps, scratch=scratch_space_from_config(deployment),
-        artifact_store=BoundedArtifactStore(local))
+    app.state.workspace_http = replace(
+        deps,
+        scratch=scratch_space_from_config(deployment),
+        artifact_store=BoundedArtifactStore(local),
+    )
     workspace = _create_workspace(environment.client, environment.auth_headers()).json()
     original = preflight.check_capacity
     calls: list[Path] = []
-    def capacity(path: Path, minimum: int, fraction: float, *, headroom: int = 0) -> tuple[int, int]:
+
+    def capacity(
+        path: Path, minimum: int, fraction: float, *, headroom: int = 0
+    ) -> tuple[int, int]:
         calls.append(path)
         if path == Path(deployment.storage.roots[target].path):
-            raise preflight.CapacityUnavailable("available is above watermark but below known write")
+            raise preflight.CapacityUnavailable(
+                "available is above watermark but below known write"
+            )
         return original(path, minimum, fraction, headroom=headroom)
+
     monkeypatch.setattr(preflight, "check_capacity", capacity)
     response = environment.client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
-        headers=environment.auth_headers(idempotency_key="capacity-refusal"), files=upload_files(),
+        headers=environment.auth_headers(idempotency_key="capacity-refusal"),
+        files=upload_files(),
     )
     assert response.status_code == 503, response.text
     assert response.json()["code"] == "SERVICE_NOT_READY"

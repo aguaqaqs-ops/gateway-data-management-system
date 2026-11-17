@@ -62,7 +62,9 @@ from gateway_backend.operations.worker import (
 )
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
-from gateway_backend.infrastructure.repository_write.abort_evidence import HttpRepositoryAbortEvidencePort
+from gateway_backend.infrastructure.repository_write.abort_evidence import (
+    HttpRepositoryAbortEvidencePort,
+)
 from tests.support.submit_job_harness import (
     RecordingTransport,
     SubmitWorkerHarness,
@@ -262,6 +264,7 @@ def _seed_running_submit_without_checkpoint(
     seed: SubmitSeed,
 ) -> tuple[SubmitAttempt, OperationRecord, StepRecord, str, str]:
     from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE
+
     prepare_worker_id = "worker-prepare"
     prepare_lease_token = "lease-prepare"
     submit_worker_id = "worker-submit"
@@ -411,9 +414,7 @@ def test_submit_recovery_without_checkpoint_retains_occupancy(tmp_path: Path) ->
         lease_token=lease_token,
         operation_id=operation.operation_id,
         step_id=step.step_id,
-        write_uow_factory=build_worker_write_uow_factory(
-            lambda: ControlDbUnitOfWork(db_path)
-        ),
+        write_uow_factory=build_worker_write_uow_factory(lambda: ControlDbUnitOfWork(db_path)),
         control=control,
         observer=lambda _event: None,
     )
@@ -800,7 +801,9 @@ def test_await_import_finalize_response_loss_after_terminal_commit_before_worker
         True,
     )
     try:
-        with pytest.raises(RuntimeError, match=FAULT_AFTER_BUSINESS_FINALIZE_COMMIT_BEFORE_WORKER_ACK):
+        with pytest.raises(
+            RuntimeError, match=FAULT_AFTER_BUSINESS_FINALIZE_COMMIT_BEFORE_WORKER_ACK
+        ):
             seed_harness.runtime._run_claim(
                 work,
                 lambda: False,

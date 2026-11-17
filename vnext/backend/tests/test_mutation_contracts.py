@@ -6,7 +6,12 @@ from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 
 import pytest
-from gateway_shared_kernel import CanonicalEncodingError, CanonicalErrorCode, DigestRef, raw_blob_digest
+from gateway_shared_kernel import (
+    CanonicalEncodingError,
+    CanonicalErrorCode,
+    DigestRef,
+    raw_blob_digest,
+)
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities import mutation_planning as mutation_planning_public
@@ -249,14 +254,21 @@ def test_change_set_artifact_rejects_digest_mismatch() -> None:
 def test_change_set_and_closure_digests_preserve_original_document_binding() -> None:
     mutations = (
         delete_mutation(board="1"),
-        replace(insert_mutation(board="2"), operation=RowMutationOperation.UPDATE,
-                before_row_digest=raw_blob_digest(b"before")),
+        replace(
+            insert_mutation(board="2"),
+            operation=RowMutationOperation.UPDATE,
+            before_row_digest=raw_blob_digest(b"before"),
+        ),
         insert_mutation(board="3"),
     )
     artifact = change_set_artifact(mutations=mutations)
-    expected = raw_blob_digest(canonicalize_json_value({
-        "mutations": [item.to_document() for item in mutations],
-    }))
+    expected = raw_blob_digest(
+        canonicalize_json_value(
+            {
+                "mutations": [item.to_document() for item in mutations],
+            }
+        )
+    )
     assert mutation_contracts.compute_change_set_digest(mutations) == expected
     assert artifact.manifest.change_set_digest == expected
     closure_document = mutation_contracts.change_set_closure_document(artifact)
@@ -264,18 +276,27 @@ def test_change_set_and_closure_digests_preserve_original_document_binding() -> 
     assert mutation_contracts.compute_change_set_closure_digest(artifact) == closure_digest
     with pytest.raises(ValueError, match="closure_digest"):
         mutation_contracts.ChangeSetClosure(
-            manifest=artifact.manifest, mutations=mutations,
+            manifest=artifact.manifest,
+            mutations=mutations,
             closure_digest=raw_blob_digest(b"wrong closure"),
         )
 
 
 def test_change_set_unicode_error_precedes_earlier_mutation_number_error() -> None:
-    first = replace(insert_mutation(board="1"), after_image=mutation_contracts.PersistedRowImage(
-        columns=(("payload", {"kind": "source-literal-anomaly", "envelope": {"n": float("inf")}}),),
-    ))
-    second = replace(insert_mutation(board="2"), after_image=mutation_contracts.PersistedRowImage(
-        columns=(("payload", {"kind": "string", "text": "\ud800"}),),
-    ))
+    first = replace(
+        insert_mutation(board="1"),
+        after_image=mutation_contracts.PersistedRowImage(
+            columns=(
+                ("payload", {"kind": "source-literal-anomaly", "envelope": {"n": float("inf")}}),
+            ),
+        ),
+    )
+    second = replace(
+        insert_mutation(board="2"),
+        after_image=mutation_contracts.PersistedRowImage(
+            columns=(("payload", {"kind": "string", "text": "\ud800"}),),
+        ),
+    )
     with pytest.raises(CanonicalEncodingError) as caught:
         mutation_contracts.compute_change_set_digest((first, second))
     assert caught.value.code is CanonicalErrorCode.CANONICAL_INVALID_UNICODE

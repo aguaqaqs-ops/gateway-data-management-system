@@ -107,7 +107,9 @@ def test_external_apply_input_binds_public_change_set_only() -> None:
             change_set_digest=closure.manifest.change_set_digest,
             target_registration=registration,
             expected_repository_base_digest=digest("ff"),
-            renderer_capability=renderer_capability(target_kind=MutationTargetKind.EXTERNAL_REFERENCE),
+            renderer_capability=renderer_capability(
+                target_kind=MutationTargetKind.EXTERNAL_REFERENCE
+            ),
         )
 
 

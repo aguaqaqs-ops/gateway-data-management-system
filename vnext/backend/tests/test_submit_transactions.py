@@ -8,7 +8,11 @@ from tests.support.review_result_fixtures import review_artifact_refs
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
-from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts, replace_preview_with_facts
+from tests.support.configuration_facts import (
+    preview_result_with_facts,
+    submit_attempt_with_facts,
+    replace_preview_with_facts,
+)
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -64,7 +68,12 @@ from gateway_backend.application.submission.finalize_transaction import (
     FinalizeSubmitTransactionRequest,
     finalize_submit_transaction,
 )
-from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND, SUBMIT_STEP_AWAIT, SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
+from gateway_backend.application.submission.job_payload import (
+    SUBMIT_JOB_KIND,
+    SUBMIT_STEP_AWAIT,
+    SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
+)
 from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.application.workspace.services import create_or_get_workspace
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -112,7 +121,10 @@ from tests.support.preview_fixtures import (
     make_canonical_artifact_fixture,
     make_preview_canonical_bindings,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -194,7 +206,9 @@ def _uow_factory(db_path: Path) -> SubmitControlUnitOfWorkFactory:
     return factory
 
 
-def _tracking_uow_factory(db_path: Path, tracker: WriterLockTracker) -> SubmitControlUnitOfWorkFactory:
+def _tracking_uow_factory(
+    db_path: Path, tracker: WriterLockTracker
+) -> SubmitControlUnitOfWorkFactory:
     def factory(*, read_only: bool = False) -> TrackingUnitOfWork:
         tracker.factory_calls = (*tracker.factory_calls, read_only)
         return TrackingUnitOfWork(
@@ -240,7 +254,9 @@ class FakeAbortEvidencePort:
         del repository_id, repository_operation_id
         return self.stable_failure_code
 
-    def validate_matching_stable_failure(self, *, attempt: SubmitAttempt, proof: MatchingAbortProof) -> None:
+    def validate_matching_stable_failure(
+        self, *, attempt: SubmitAttempt, proof: MatchingAbortProof
+    ) -> None:
         del attempt, proof
         self.calls += 1
         writer_open = False if self.tracker is None else self.tracker.writer_open
@@ -315,8 +331,15 @@ def _assert_t1_zero_writes(db_path: Path, seed: SubmitSeed, *, idempotency_key: 
             is None
         )
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
-        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        )
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def _submit_job_registry() -> JobDefinitionRegistry:
@@ -349,8 +372,16 @@ def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> Preview
         canonical=make_preview_canonical_bindings(repository_id, generated_source_ids=True),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
-        ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
+        bundle_artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
+        ),
+        ready_closure_artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        ),
         operation_id="op-preview-1",
         created_at=TS1,
     )
@@ -382,7 +413,9 @@ def _set_preview_identity_statuses(
                     else ProjectIdentityMode.DETAILED
                 ),
                 assessment_ref=PreviewArtifactRef(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"identity-{pair_id}"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE, "test-fixture", f"identity-{pair_id}"
+                    ),
                     media_type="application/json",
                     size_bytes=0,
                     raw_sha256=assessment_digest,
@@ -400,7 +433,9 @@ def _set_preview_identity_statuses(
                         pair.pair_id,
                         pair.applicability.value,
                         pair.status.value,
-                        pair.assessment_digest.value if pair.assessment_digest is not None else None,
+                        pair.assessment_digest.value
+                        if pair.assessment_digest is not None
+                        else None,
                     ]
                     for pair in pairs
                 ],
@@ -426,19 +461,31 @@ def _set_preview_identity_statuses(
 def _protected_preview_refs(repository_id: str = "repo-1") -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            ),
             media_type="application/gzip",
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            ),
             media_type="application/gzip",
             size_bytes=2,
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            ),
             media_type="application/json",
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -458,7 +505,10 @@ def seed_submit_ready_workspace(
     input_completeness: InputCompleteness = InputCompleteness.FULL,
 ) -> SubmitSeed:
     from tests.support.baseline_fixtures import read_authoritative_baseline_head
-    from gateway_backend.application.preview_jobs import PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND
+    from gateway_backend.application.preview_jobs import (
+        PREVIEW_JOB_CONTRACT_VERSION,
+        PREVIEW_JOB_KIND,
+    )
 
     _seed_provisioned_mapping(
         db_path,
@@ -493,13 +543,21 @@ def seed_submit_ready_workspace(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    ),
                     media_type="application/gzip",
                     size_bytes=1,
                     raw_sha256="sha256:initial",
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    ),
                     media_type="application/gzip",
                     size_bytes=2,
                     raw_sha256="sha256:modified",
@@ -511,8 +569,15 @@ def seed_submit_ready_workspace(
             created_at=TS0,
         )
         if input_completeness is InputCompleteness.MODIFIED_ONLY:
-            upload_revision = replace(upload_revision, input_completeness=input_completeness,
-                source_artifacts={SourceArtifactRole.MODIFIED: upload_revision.source_artifacts[SourceArtifactRole.MODIFIED]})
+            upload_revision = replace(
+                upload_revision,
+                input_completeness=input_completeness,
+                source_artifacts={
+                    SourceArtifactRole.MODIFIED: upload_revision.source_artifacts[
+                        SourceArtifactRole.MODIFIED
+                    ]
+                },
+            )
         preview = replace_preview_with_facts(
             _preview_result(workspace.workspace_id, repository_id),
             preview_result_id=preview_result_id,
@@ -525,19 +590,55 @@ def seed_submit_ready_workspace(
             baseline_head_version=baseline_head.baseline_head_version,
         )
         facts = preview.canonical.configuration_facts
-        preview = replace(preview, canonical=replace(preview.canonical, configuration_facts=replace(
-            facts,
-            initial=replace(facts.initial, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf")),
-            modified=replace(facts.modified, source_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
-        )))
+        preview = replace(
+            preview,
+            canonical=replace(
+                preview.canonical,
+                configuration_facts=replace(
+                    facts,
+                    initial=replace(
+                        facts.initial,
+                        source_artifact_id=build_artifact_id(
+                            ArtifactLocation.DURABLE,
+                            "test-fixture",
+                            "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                        ),
+                    ),
+                    modified=replace(
+                        facts.modified,
+                        source_artifact_id=build_artifact_id(
+                            ArtifactLocation.DURABLE,
+                            "test-fixture",
+                            "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                        ),
+                    ),
+                ),
+            ),
+        )
         if input_completeness is InputCompleteness.MODIFIED_ONLY:
-            preview = replace(preview, canonical=replace(preview.canonical,
-                configuration_facts=replace(preview.canonical.configuration_facts, initial_origin="BASELINE_REUSED")))
+            preview = replace(
+                preview,
+                canonical=replace(
+                    preview.canonical,
+                    configuration_facts=replace(
+                        preview.canonical.configuration_facts, initial_origin="BASELINE_REUSED"
+                    ),
+                ),
+            )
         from tests.support.review_result_fixtures import closed_review_preview
+
         preview, review_refs, _payloads = closed_review_preview(
-            preview, make_canonical_artifact_fixture(repository_id).refs)
+            preview, make_canonical_artifact_fixture(repository_id).refs
+        )
         source_ids = {binding.artifact_id for binding in upload_revision.source_artifacts.values()}
-        protected_refs = (*(ref for ref in _protected_preview_refs(repository_id) if ref.artifact_id in source_ids), *review_refs)
+        protected_refs = (
+            *(
+                ref
+                for ref in _protected_preview_refs(repository_id)
+                if ref.artifact_id in source_ids
+            ),
+            *review_refs,
+        )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         updated_workspace = replace(
@@ -554,13 +655,16 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         from gateway_backend.application.workspace.preview import build_preview_job_payload
+
         payload = build_preview_job_payload(
-            workspace_id=workspace.workspace_id, upload_revision=upload_revision,
+            workspace_id=workspace.workspace_id,
+            upload_revision=upload_revision,
             repository_id=repository_id,
             business_baseline_node_id=baseline_head.business_baseline_node_id,
             business_baseline_commit_id=baseline_head.business_baseline_commit_id,
             baseline_head_version=baseline_head.baseline_head_version,
-            idempotency_key="preview-key", comparison_ruleset_digest="sha256:rules",
+            idempotency_key="preview-key",
+            comparison_ruleset_digest="sha256:rules",
         )
         unit_of_work.connection.execute(
             """INSERT INTO operation_records (
@@ -569,11 +673,20 @@ def seed_submit_ready_workspace(
                 checkpoint_ref, ready_closure_ref, status, diagnostic, cancel_requested,
                 created_at_us, updated_at_us, completed_at_us
             ) VALUES (?, ?, 0, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'SUCCEEDED', NULL, 0, 1, 1, 1)""",
-            (preview.operation_id, OPERATION_RUNTIME_CONTRACT_VERSION, PREVIEW_JOB_KIND,
-             PREVIEW_JOB_CONTRACT_VERSION, payload, canonicalize_json_value([
-                 {"kind": "workspace", "value": workspace.workspace_id},
-                 {"kind": "upload_revision", "value": upload_revision.upload_revision_id},
-             ]), b"[]"),
+            (
+                preview.operation_id,
+                OPERATION_RUNTIME_CONTRACT_VERSION,
+                PREVIEW_JOB_KIND,
+                PREVIEW_JOB_CONTRACT_VERSION,
+                payload,
+                canonicalize_json_value(
+                    [
+                        {"kind": "workspace", "value": workspace.workspace_id},
+                        {"kind": "upload_revision", "value": upload_revision.upload_revision_id},
+                    ]
+                ),
+                b"[]",
+            ),
         )
         preview_operation_id = "op-preview-1"
         unit_of_work.set_artifact_protection(
@@ -636,13 +749,19 @@ def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
     )
 
 
-def _set_preview_canonical_states_equal(seed: SubmitSeed, *, rules_equal: bool = True) -> SubmitSeed:
+def _set_preview_canonical_states_equal(
+    seed: SubmitSeed, *, rules_equal: bool = True
+) -> SubmitSeed:
     canonical = replace(
         seed.preview_result.canonical,
         rules_semantically_equal=rules_equal,
-        configuration_facts=replace(seed.preview_result.canonical.configuration_facts,
-            baseline_content_identity=replace(seed.preview_result.canonical.configuration_facts.baseline_content_identity,
-                canonical_state_digest=seed.preview_result.canonical.modified_canonical_state_digest.value)),
+        configuration_facts=replace(
+            seed.preview_result.canonical.configuration_facts,
+            baseline_content_identity=replace(
+                seed.preview_result.canonical.configuration_facts.baseline_content_identity,
+                canonical_state_digest=seed.preview_result.canonical.modified_canonical_state_digest.value,
+            ),
+        ),
         baseline_canonical_state_digest=(
             seed.preview_result.canonical.modified_canonical_state_digest
         ),
@@ -661,13 +780,27 @@ def _set_preview_canonical_states_equal(seed: SubmitSeed, *, rules_equal: bool =
 
 def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
-    from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE, CanonicalTableKey
+    from gateway_backend.artifacts.canonical_table_store import (
+        CANONICAL_IPC_MEDIA_TYPE,
+        CanonicalTableKey,
+    )
     from gateway_shared_kernel import raw_blob_digest
-    canonical_key = CanonicalTableKey(seed.workspace.repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(b"canonical"))
-    canonical_ref = ArtifactRef(canonical_key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, 9, raw_blob_digest(b"canonical"))
+
+    canonical_key = CanonicalTableKey(
+        seed.workspace.repository_id,
+        "3",
+        raw_blob_digest(b"schema"),
+        1,
+        raw_blob_digest(b"canonical"),
+    )
+    canonical_ref = ArtifactRef(
+        canonical_key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, 9, raw_blob_digest(b"canonical")
+    )
     additional_refs = tuple(
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"additional-protected-{index:03d}"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE, "test-fixture", f"additional-protected-{index:03d}"
+            ),
             media_type="application/octet-stream",
             size_bytes=1,
             raw_sha256=DigestRef("sha256:" + f"{index:064x}"),
@@ -703,8 +836,12 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
 
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         attempt = unit_of_work.submission.get_submit_attempt(result.submit_attempt_id)
-        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
-        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(
+            seed.workspace.workspace_id
+        )
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            seed.workspace.repository_id
+        )
         operation = unit_of_work.operations.get_operation(result.operation_id)
         workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
         submit_artifact_ids = unit_of_work.list_artifact_protection_for_owner(
@@ -720,7 +857,8 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
             owner_id=seed.preview_operation_id,
         )
         canonical_expiry = unit_of_work.connection.execute(
-            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
+            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?",
+            (canonical_ref.artifact_id,),
         ).fetchone()[0]
 
     assert attempt is not None
@@ -901,7 +1039,9 @@ def test_t1_freezes_both_identity_confirmations_and_fingerprints_reason(db_path:
         ),
     )
     with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
-        with pytest.raises(SubmitAttemptInvariantViolation, match="identity confirmations are immutable"):
+        with pytest.raises(
+            SubmitAttemptInvariantViolation, match="identity confirmations are immutable"
+        ):
             unit_of_work.submission.cas_update_attempt(altered_attempt, expected_version=0)
 
     replay = accept_submit_transaction(
@@ -1069,7 +1209,9 @@ def test_t1_replay_rechecks_current_permission_and_exact_scope(db_path: Path) ->
 
 
 @pytest.mark.parametrize("stale_binding", ("operation", "preview"))
-def test_new_submit_rejects_preview_with_old_job_semantics(db_path: Path, stale_binding: str) -> None:
+def test_new_submit_rejects_preview_with_old_job_semantics(
+    db_path: Path, stale_binding: str
+) -> None:
     seed = seed_submit_ready_workspace(db_path)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         if stale_binding == "operation":
@@ -1078,7 +1220,10 @@ def test_new_submit_rejects_preview_with_old_job_semantics(db_path: Path, stale_
                 ("backend-vnext/preview/v4", seed.preview_result.operation_id),
             )
         else:
-            from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+            from gateway_backend.infrastructure.control_db.sqlite_workspace import (
+                preview_result_to_row,
+            )
+
             preview = replace(seed.preview_result, contract_version="backend-vnext/preview/v4")
             unit_of_work.connection.execute(
                 "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
@@ -1089,10 +1234,14 @@ def test_new_submit_rejects_preview_with_old_job_semantics(db_path: Path, stale_
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-new"),
             scope_resolution=FixedScopeResolutionPort(
-                repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD,
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
             ),
-            unit_of_work_factory=_uow_factory(db_path), job_registry=_submit_job_registry(),
-            main_resolve=RecordingMainResolvePort(), preflight=_preflight(seed), now=TS1,
+            unit_of_work_factory=_uow_factory(db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
         )
 
 
@@ -1133,7 +1282,9 @@ def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
     assert replay.operation_id == first.operation_id
 
 
-def test_t1_accept_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_t1_accept_rolls_back_when_late_write_fails(
+    db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seed = seed_submit_ready_workspace(db_path)
 
     def fail_insert_repository_occupancy(self, occupancy):  # type: ignore[no-untyped-def]
@@ -1168,28 +1319,44 @@ def test_t1_accept_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: 
             idempotency_key="accept-key-1",
         )
         workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
-        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert (
+            unit_of_work.submission.find_submit_idempotency(
+                seed.workspace.workspace_id, "accept-key-1"
+            )
+            is None
+        )
         assert unit_of_work.submission.get_submit_attempt(attempt_id) is None
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
-        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
-        assert unit_of_work.list_artifact_protection_for_owner(
-            owner_kind="submit-attempt",
-            owner_id=attempt_id,
-        ) == frozenset()
+        assert (
+            unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        )
+        assert (
+            unit_of_work.list_artifact_protection_for_owner(
+                owner_kind="submit-attempt",
+                owner_id=attempt_id,
+            )
+            == frozenset()
+        )
         assert unit_of_work.list_artifact_protection_for_owner(
             owner_kind="current-preview",
             owner_id=seed.workspace.workspace_id,
         ) == frozenset(ref.artifact_id for ref in seed.protected_refs)
         assert workspace is not None
         assert workspace.optimistic_version == seed.workspace.optimistic_version
-        assert unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM operation_records WHERE operation_id = ?",
-            (operation_id,),
-        ).fetchone()[0] == 0
-        assert unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM step_records WHERE operation_id = ?",
-            (operation_id,),
-        ).fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM operation_records WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM step_records WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
@@ -1221,7 +1388,18 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
             ),
             source_digest=seed.preview_result.digests.source_digest,
             snapshot_digest=seed.preview_result.digests.snapshot_digest,
-            source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"), build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
+            source_artifact_refs=(
+                build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "test-fixture",
+                    "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                ),
+                build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "test-fixture",
+                    "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                ),
+            ),
             canonical_table_set_closure_ref=(
                 seed.preview_result.canonical.canonical_table_set_closure_ref.artifact_id
             ),
@@ -1302,7 +1480,9 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
 
 @pytest.mark.serial
 @pytest.mark.parametrize("concurrent", (False, True))
-def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path, concurrent: bool) -> None:
+def test_t1_repository_occupancy_conflict_blocks_second_workspace(
+    db_path: Path, concurrent: bool
+) -> None:
     first_seed = seed_submit_ready_workspace(db_path)
 
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -1321,7 +1501,9 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path,
             updated_at=TS0,
         )
         unit_of_work.workspace.save_workspace(workspace, expected_version=0)
-        upload_revision = replace(first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2")
+        upload_revision = replace(
+            first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2"
+        )
         preview = replace_preview_with_facts(
             first_seed.preview_result,
             preview_result_id="pr-2",
@@ -1332,6 +1514,7 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path,
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         from tests.support.preview_fixtures import seed_completed_preview_operation
+
         seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated = replace(
             workspace,
@@ -1358,18 +1541,33 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path,
     )
     if concurrent:
         from tests.support.process_concurrency import run_processes
+
         def accept(seed: SubmitSeed, key: str) -> None:
             try:
-                accept_submit_transaction(command=_accept_command(seed, idempotency_key=key),
-                    scope_resolution=FixedScopeResolutionPort(repository_id='repo-1', baseline_head=BASELINE_HEAD),
-                    unit_of_work_factory=_uow_factory(db_path), job_registry=_submit_job_registry(),
-                    main_resolve=RecordingMainResolvePort(), preflight=_preflight(seed), now=TS1)
+                accept_submit_transaction(
+                    command=_accept_command(seed, idempotency_key=key),
+                    scope_resolution=FixedScopeResolutionPort(
+                        repository_id="repo-1", baseline_head=BASELINE_HEAD
+                    ),
+                    unit_of_work_factory=_uow_factory(db_path),
+                    job_registry=_submit_job_registry(),
+                    main_resolve=RecordingMainResolvePort(),
+                    preflight=_preflight(seed),
+                    now=TS1,
+                )
             except SubmitOccupancyConflict:
                 pass
-        run_processes((lambda: accept(first_seed, 'accept-key-1'), lambda: accept(second_seed, 'accept-key-2')))
+
+        run_processes(
+            (
+                lambda: accept(first_seed, "accept-key-1"),
+                lambda: accept(second_seed, "accept-key-2"),
+            )
+        )
         import sqlite3
+
         with sqlite3.connect(db_path) as db:
-            assert db.execute('SELECT COUNT(*) FROM submit_attempt_records').fetchone()[0] == 1
+            assert db.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
         return
     accept_submit_transaction(
         command=_accept_command(first_seed, idempotency_key="accept-key-1"),
@@ -1428,7 +1626,11 @@ def _seed_effect_pending_attempt(
         now=TS1,
     )
     backend_ref = BackendArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
+        ),
         media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
         size_bytes=10,
         raw_sha256=_SHA_PACKAGE,
@@ -1447,7 +1649,11 @@ def _seed_effect_pending_attempt(
             state=SubmitAttemptState.EFFECT_PENDING,
             effect_pending_at=TS1,
             optimistic_version=1,
-            prepared_canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+            prepared_canonicalization_manifest_ref=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+            ),
             prepared_canonicalization_manifest_digest=_SHA_MANIFEST,
             repository_import_artifact_ref=backend_ref,
             repository_artifact_ref=repository_ref,
@@ -1615,7 +1821,9 @@ def _seed_effect_pending_attempt(
         return updated
 
 
-def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_t3_finalize_inserts_submission_and_switches_occupancy(
+    db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
     monkeypatch.setattr(
@@ -1629,7 +1837,11 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
     assert attempt.canonicalization_manifest_digest == (
         seed.preview_result.canonical.canonicalization_manifest_digest.value
     )
-    assert attempt.prepared_canonicalization_manifest_ref == build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6")
+    assert attempt.prepared_canonicalization_manifest_ref == build_artifact_id(
+        ArtifactLocation.DURABLE,
+        "test-fixture",
+        "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+    )
     assert attempt.prepared_canonicalization_manifest_digest == _SHA_MANIFEST
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     facts = MatchingFinalizeFacts(
@@ -1639,7 +1851,11 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1665,42 +1881,70 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         submission = unit_of_work.submission.get_submission_by_attempt(attempt.submit_attempt_id)
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
-        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            seed.workspace.repository_id
+        )
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
         projection = unit_of_work.review.get_projection("sub-1")
         events = unit_of_work.review.list_events("sub-1")
         canonical_expiry = unit_of_work.connection.execute(
-            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
+            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?",
+            (canonical_ref.artifact_id,),
         ).fetchone()[0]
-        from gateway_backend.infrastructure.control_db.sqlite_baseline import get_current_head_from_connection
-        assert get_current_head_from_connection(unit_of_work.connection, seed.workspace.repository_id) == BASELINE_HEAD
+        from gateway_backend.infrastructure.control_db.sqlite_baseline import (
+            get_current_head_from_connection,
+        )
+
+        assert (
+            get_current_head_from_connection(unit_of_work.connection, seed.workspace.repository_id)
+            == BASELINE_HEAD
+        )
     assert submission is not None
     assert submission.submission_id == "sub-1"
     assert attempt.configuration_facts == seed.preview_result.canonical.configuration_facts
     assert submission.configuration_facts == attempt.configuration_facts
     with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute("DELETE FROM preview_result_records WHERE preview_result_id = ?", (attempt.preview_result_id,))
+        unit_of_work.connection.execute(
+            "DELETE FROM preview_result_records WHERE preview_result_id = ?",
+            (attempt.preview_result_id,),
+        )
     from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
     from gateway_backend.artifacts.store import InMemoryArtifactStore
+
     def expired_sql(*args: object, **kwargs: object) -> bytes:
         raise AssertionError("original SQL/source artifacts are no longer readable")
+
     monkeypatch.setattr(InMemoryArtifactStore, "locate", expired_sql)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         head = unit_of_work.baseline.get_head_record(seed.workspace.repository_id)
         assert head is not None
-        node = BaselineNode("node-archived-facts", seed.workspace.repository_id,
-            seed.workspace.gateway_device_external_key, seed.workspace.business_project_id,
-            submission.repository_commit_id, BaselineNodeKind.ARCHIVED_SUBMISSION,
-            head.node_id, submission.submission_id, TS1)
-        unit_of_work.baseline.save_archived_node_and_cas_head(node, expected_head=head,
-            new_head_node_id=node.node_id, new_head_version=head.optimistic_version + 1)
+        node = BaselineNode(
+            "node-archived-facts",
+            seed.workspace.repository_id,
+            seed.workspace.gateway_device_external_key,
+            seed.workspace.business_project_id,
+            submission.repository_commit_id,
+            BaselineNodeKind.ARCHIVED_SUBMISSION,
+            head.node_id,
+            submission.submission_id,
+            TS1,
+        )
+        unit_of_work.baseline.save_archived_node_and_cas_head(
+            node,
+            expected_head=head,
+            new_head_node_id=node.node_id,
+            new_head_version=head.optimistic_version + 1,
+        )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         archived_node = unit_of_work.baseline.get_node("node-archived-facts")
         assert archived_node is not None and archived_node.source_submission_id is not None
         assert unit_of_work.workspace.get_preview_result(attempt.preview_result_id) is None
         archived_source = unit_of_work.submission.get_submission(archived_node.source_submission_id)
     assert archived_source is not None
-    assert archived_source.configuration_facts.to_document() == attempt.configuration_facts.to_document()
+    assert (
+        archived_source.configuration_facts.to_document()
+        == attempt.configuration_facts.to_document()
+    )
     assert canonical_expiry is not None
     assert occupancy is not None
     assert occupancy.active_submission_id == "sub-1"
@@ -1726,7 +1970,11 @@ def test_t3_finalize_replay_does_not_insert_second_submission(db_path: Path) -> 
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1794,7 +2042,11 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1870,16 +2122,23 @@ def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> No
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         submission = unit_of_work.submission.get_submission_by_attempt(attempt.submit_attempt_id)
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
-        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            seed.workspace.repository_id
+        )
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
         workspace_result = create_or_get_workspace(
-            context=make_identity(), scope_resolution=FixedScopeResolutionPort(baseline_head=BASELINE_HEAD),
-            transaction=unit_of_work, created_at=TS1,
+            context=make_identity(),
+            scope_resolution=FixedScopeResolutionPort(baseline_head=BASELINE_HEAD),
+            transaction=unit_of_work,
+            created_at=TS1,
         )
         assert workspace_result.occupancy is None
-        assert workspace_result.workspace.optimistic_version == seed.workspace.optimistic_version + 2
+        assert (
+            workspace_result.workspace.optimistic_version == seed.workspace.optimistic_version + 2
+        )
         canonical_expiry = unit_of_work.connection.execute(
-            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
+            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?",
+            (canonical_ref.artifact_id,),
         ).fetchone()[0]
     assert submission is None
     assert canonical_expiry is not None
@@ -1891,13 +2150,24 @@ def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> No
 
 
 def _register_attempt_canonical_ref(db_path: Path, attempt: SubmitAttempt) -> ArtifactRef:
-    from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE, CanonicalTableKey
+    from gateway_backend.artifacts.canonical_table_store import (
+        CANONICAL_IPC_MEDIA_TYPE,
+        CanonicalTableKey,
+    )
     from gateway_shared_kernel import raw_blob_digest
-    key = CanonicalTableKey(attempt.repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(b"canonical"))
+
+    key = CanonicalTableKey(
+        attempt.repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(b"canonical")
+    )
     ref = ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, 9, raw_blob_digest(b"canonical"))
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.canonical_tables.register(key, ref)
-        unit_of_work.set_artifact_protection((ref,), owner_kind="submit-attempt", owner_id=attempt.submit_attempt_id, intent="submit-attempt")
+        unit_of_work.set_artifact_protection(
+            (ref,),
+            owner_kind="submit-attempt",
+            owner_id=attempt.submit_attempt_id,
+            intent="submit-attempt",
+        )
     return ref
 
 
@@ -1932,7 +2202,11 @@ def _finalize_facts(seed: SubmitSeed) -> MatchingFinalizeFacts:
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256=_SHA_PACKAGE,
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest=_SHA_MANIFEST,
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -1960,9 +2234,11 @@ def _finalize(
     expected_await_step_version: int | None = None,
     expected_operation_version: int | None = None,
 ) -> FinalizeSubmitResult:
-    actual_attempt_version, actual_await_version, actual_operation_version = _read_finalize_versions(
-        db_path,
-        attempt,
+    actual_attempt_version, actual_await_version, actual_operation_version = (
+        _read_finalize_versions(
+            db_path,
+            attempt,
+        )
     )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         return finalize_submit_transaction(
@@ -2030,7 +2306,9 @@ def _abort(
     tracker: WriterLockTracker | None = None,
 ) -> tuple[AbortSubmitTransactionResult, FakeAbortEvidencePort]:
     evidence = FakeAbortEvidencePort(tracker=tracker)
-    factory = _tracking_uow_factory(db_path, tracker) if tracker is not None else _uow_factory(db_path)
+    factory = (
+        _tracking_uow_factory(db_path, tracker) if tracker is not None else _uow_factory(db_path)
+    )
     result = abort_submit_transaction(
         request=AbortSubmitTransactionRequest(
             submit_attempt_id=attempt.submit_attempt_id,
@@ -2133,9 +2411,19 @@ def test_t1_rejects_incomplete_submit_job_registry_without_writes(db_path: Path)
             now=TS1,
         )
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert (
+            unit_of_work.submission.find_submit_idempotency(
+                seed.workspace.workspace_id, "accept-key-1"
+            )
+            is None
+        )
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> None:
@@ -2161,7 +2449,12 @@ def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> Non
             now=TS1,
         )
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert (
+            unit_of_work.submission.find_submit_idempotency(
+                seed.workspace.workspace_id, "accept-key-1"
+            )
+            is None
+        )
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
 
 
@@ -2189,12 +2482,17 @@ def test_t1_rejects_preview_built_with_another_projection_ruleset(db_path: Path)
 
     assert resolve.calls == 0
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.submission.find_submit_idempotency(
-            seed.workspace.workspace_id,
-            "accept-key-1",
-        ) is None
+        assert (
+            unit_of_work.submission.find_submit_idempotency(
+                seed.workspace.workspace_id,
+                "accept-key-1",
+            )
+            is None
+        )
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
-        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        assert (
+            unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        )
 
 
 def _take_over_await_lease(db_path: Path, operation_id: str) -> None:
@@ -2227,7 +2525,9 @@ def test_abort_rejects_stale_lease_after_takeover(db_path: Path) -> None:
     _take_over_await_lease(db_path, attempt.operation_id)
     with pytest.raises(StaleWrite, match="write precondition no longer matches"):
         _abort(db_path, attempt, seed, worker_id="worker-test", lease_token="lease-test")
-    result, _evidence = _abort(db_path, attempt, seed, worker_id="worker-new", lease_token="lease-new")
+    result, _evidence = _abort(
+        db_path, attempt, seed, worker_id="worker-new", lease_token="lease-new"
+    )
     assert result.replay is False
     assert result.attempt.state is SubmitAttemptState.ABORTED
 
@@ -2290,8 +2590,12 @@ def _assert_effect_pending_with_occupancy_held(
 ) -> None:
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         persisted = unit_of_work.submission.get_submit_attempt(attempt.submit_attempt_id)
-        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
-        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(
+            seed.workspace.workspace_id
+        )
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            seed.workspace.repository_id
+        )
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
     assert persisted is not None
     assert persisted.state is SubmitAttemptState.EFFECT_PENDING
@@ -2358,7 +2662,8 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
     seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path))
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         existing_operations = tuple(
-            tuple(row) for row in unit_of_work.connection.execute(
+            tuple(row)
+            for row in unit_of_work.connection.execute(
                 "SELECT * FROM operation_records ORDER BY operation_id"
             )
         )
@@ -2387,17 +2692,32 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
     assert resolve.uow_active_during_calls == ()
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
-        assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
+        assert (
+            unit_of_work.submission.find_submit_idempotency(
+                seed.workspace.workspace_id, "accept-key-1"
+            )
+            is None
+        )
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
-        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        )
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 0
+        )
         operations_after = tuple(
-            tuple(row) for row in unit_of_work.connection.execute(
+            tuple(row)
+            for row in unit_of_work.connection.execute(
                 "SELECT * FROM operation_records ORDER BY operation_id"
             )
         )
         assert operations_after == existing_operations
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM step_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute("SELECT COUNT(*) FROM step_records").fetchone()[0] == 0
+        )
         assert workspace is not None
         assert workspace.optimistic_version == seed.workspace.optimistic_version
 
@@ -2433,7 +2753,9 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
             updated_at=TS0,
         )
         unit_of_work.workspace.save_workspace(workspace, expected_version=0)
-        upload_revision = replace(first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2")
+        upload_revision = replace(
+            first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2"
+        )
         preview = replace_preview_with_facts(
             first_seed.preview_result,
             preview_result_id="pr-2",
@@ -2442,9 +2764,13 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
             operation_id="op-preview-2",
             canonical=replace(
                 first_seed.preview_result.canonical,
-                configuration_facts=replace(first_seed.preview_result.canonical.configuration_facts,
-                    baseline_content_identity=replace(first_seed.preview_result.canonical.configuration_facts.baseline_content_identity,
-                        canonical_state_digest=first_seed.preview_result.canonical.modified_canonical_state_digest.value)),
+                configuration_facts=replace(
+                    first_seed.preview_result.canonical.configuration_facts,
+                    baseline_content_identity=replace(
+                        first_seed.preview_result.canonical.configuration_facts.baseline_content_identity,
+                        canonical_state_digest=first_seed.preview_result.canonical.modified_canonical_state_digest.value,
+                    ),
+                ),
                 baseline_canonical_state_digest=(
                     first_seed.preview_result.canonical.modified_canonical_state_digest
                 ),
@@ -2453,6 +2779,7 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
         from tests.support.preview_fixtures import seed_completed_preview_operation
+
         seed_completed_preview_operation(unit_of_work, preview, upload_revision)
         updated = replace(
             workspace,
@@ -2547,7 +2874,9 @@ def _terminalize_await_step(db_path: Path, operation_id: str, *, fail_operation:
                 replace(
                     operation,
                     status=OperationStatus.FAILED,
-                    diagnostic=OperationDiagnostic(code="OPERATOR_CLOSED", message="operator recovery"),
+                    diagnostic=OperationDiagnostic(
+                        code="OPERATOR_CLOSED", message="operator recovery"
+                    ),
                     completed_at=now,
                     updated_at=now,
                     optimistic_version=operation.optimistic_version + 1,
@@ -2571,7 +2900,9 @@ def test_abort_is_idempotent_after_operator_terminalized_await_step(db_path: Pat
     assert second.replay is True
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
-        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        assert (
+            unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+        )
 
 
 def test_abort_completes_when_await_step_failed_and_operation_still_running(db_path: Path) -> None:
@@ -2721,7 +3052,9 @@ def test_prepared_attempt_rejects_business_abort(db_path: Path) -> None:
         )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
-        repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            seed.workspace.repository_id
+        )
         persisted = unit_of_work.submission.get_submit_attempt(accepted.submit_attempt_id)
     assert occupancy is not None
     assert repository_occupancy is not None
@@ -2746,7 +3079,9 @@ class DriftOnResolveMainResolvePort:
 def _drift_head_version_only(db_path: Path) -> None:
     _upsert_provisioned_mapping_row(
         db_path,
-        baseline_head=replace(BASELINE_HEAD, baseline_head_version=BASELINE_HEAD.baseline_head_version + 1),
+        baseline_head=replace(
+            BASELINE_HEAD, baseline_head_version=BASELINE_HEAD.baseline_head_version + 1
+        ),
     )
 
 
@@ -2770,7 +3105,9 @@ def _drift_mapping_disable(db_path: Path) -> None:
 
 def _drift_repo_swap(db_path: Path) -> None:
     # A complete new repository isolates mapping drift from unavailable authority.
-    _upsert_provisioned_mapping_row(db_path, repository_id="repo-other", baseline_head=BASELINE_HEAD)
+    _upsert_provisioned_mapping_row(
+        db_path, repository_id="repo-other", baseline_head=BASELINE_HEAD
+    )
 
 
 def _drift_repo_missing_authority(db_path: Path) -> None:
@@ -2832,15 +3169,22 @@ def test_t1_new_key_rejects_projection_drift_without_writes(
             assert row["repository_id"] == "repo-other"
             if apply_drift is _drift_repo_swap:
                 resolved = unit_of_work.resolve_provisioned_scope(
-                    gateway_device_external_key="device-1", business_project_id="project-1")
+                    gateway_device_external_key="device-1", business_project_id="project-1"
+                )
                 assert resolved.repository_id == "repo-other"
             else:
-                assert unit_of_work.connection.execute(
-                    "SELECT COUNT(*) FROM baseline_node_records WHERE repository_id='repo-other'"
-                ).fetchone()[0] == 0
-                assert unit_of_work.connection.execute(
-                    "SELECT COUNT(*) FROM baseline_head_records WHERE repository_id='repo-other'"
-                ).fetchone()[0] == 0
+                assert (
+                    unit_of_work.connection.execute(
+                        "SELECT COUNT(*) FROM baseline_node_records WHERE repository_id='repo-other'"
+                    ).fetchone()[0]
+                    == 0
+                )
+                assert (
+                    unit_of_work.connection.execute(
+                        "SELECT COUNT(*) FROM baseline_head_records WHERE repository_id='repo-other'"
+                    ).fetchone()[0]
+                    == 0
+                )
 
 
 def test_t1_replay_rejects_when_mapping_disabled_after_concurrent_winner(db_path: Path) -> None:
@@ -2889,13 +3233,18 @@ def test_t1_replay_rejects_when_mapping_disabled_after_concurrent_winner(db_path
         winner = unit_of_work.submission.get_submit_attempt(winner_id)
         assert winner is not None
         assert winner.state is SubmitAttemptState.PREPARED
-        assert unit_of_work.connection.execute(
-            "SELECT enabled FROM provisioned_scope_mappings WHERE gateway_device_external_key = ?",
-            ("device-1",),
-        ).fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT enabled FROM provisioned_scope_mappings WHERE gateway_device_external_key = ?",
+                ("device-1",),
+            ).fetchone()[0]
+            == 0
+        )
 
 
-def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(db_path: Path) -> None:
+def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
+    db_path: Path,
+) -> None:
     seed = seed_submit_ready_workspace(db_path)
     command = _accept_command(seed, idempotency_key="accept-key-head-replay")
     winner_submitted = False
@@ -2954,13 +3303,22 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
         ).fetchone()
         assert head_row is not None
         assert head_row["commit_id"] == "commit-only-drift"
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM submit_attempt_records"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_submit_queue_limit_counts_active_history_before_writing(db_path: Path) -> None:
     from gateway_backend.application.history.compare import accept_history_compare
     from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
-    from gateway_backend.application.history.contracts import HistoryCompareAcceptCommand, HistoryNodeRef, HistoryNodeRefKind
+    from gateway_backend.application.history.contracts import (
+        HistoryCompareAcceptCommand,
+        HistoryNodeRef,
+        HistoryNodeRefKind,
+    )
     from gateway_backend.operations.store import OperationQueueFull
     from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
@@ -2969,28 +3327,41 @@ def test_submit_queue_limit_counts_active_history_before_writing(db_path: Path) 
     accept_history_compare(
         command=HistoryCompareAcceptCommand(
             context=make_identity(permissions=frozenset({"read_project_history"})),
-            idempotency_key="queue-history", node_refs=(node, node),
+            idempotency_key="queue-history",
+            node_refs=(node, node),
         ),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
         job_registry=JobDefinitionRegistry.build(history_compare_job_definitions()),
-        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(), now=TS0,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
+        now=TS0,
     )
     with pytest.raises(OperationQueueFull):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="queue-submit"),
-            scope_resolution=FixedScopeResolutionPort(repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD),
-            unit_of_work_factory=_uow_factory(seed.db_path), job_registry=_submit_job_registry(),
-            main_resolve=RecordingMainResolvePort(), preflight=_preflight(seed), now=TS1,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
             operation_queue_limit=1,
         )
     _assert_t1_zero_writes(db_path, seed, idempotency_key="queue-submit")
 
 
 def test_t1_accepts_equal_rows_when_resolved_rules_changed(db_path: Path) -> None:
-    seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path), rules_equal=False)
+    seed = _set_preview_canonical_states_equal(
+        seed_submit_ready_workspace(db_path), rules_equal=False
+    )
     result = accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="rule-change"),
-        scope_resolution=FixedScopeResolutionPort(repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD
+        ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         main_resolve=RecordingMainResolvePort(),
@@ -3003,22 +3374,32 @@ def test_t1_accepts_equal_rows_when_resolved_rules_changed(db_path: Path) -> Non
 
 
 @pytest.mark.parametrize("rules_equal", (True, False))
-def test_standalone_accept_validation_uses_frozen_rule_equivalence(db_path: Path, rules_equal: bool) -> None:
+def test_standalone_accept_validation_uses_frozen_rule_equivalence(
+    db_path: Path, rules_equal: bool
+) -> None:
     from gateway_backend.application.submission.accept import validate_accept_submit
 
-    seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path), rules_equal=rules_equal)
+    seed = _set_preview_canonical_states_equal(
+        seed_submit_ready_workspace(db_path), rules_equal=rules_equal
+    )
+
     def validate() -> object:
         with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
             return validate_accept_submit(
                 command=_accept_command(seed, idempotency_key="standalone-rule-check"),
-                scope_resolution=FixedScopeResolutionPort(repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD),
+                scope_resolution=FixedScopeResolutionPort(
+                    repository_id=seed.workspace.repository_id, baseline_head=BASELINE_HEAD
+                ),
                 workspace_repository=unit_of_work.workspace,
                 submission_repository=unit_of_work.submission,
                 occupancy=unit_of_work.submission,
                 main_resolve=RecordingMainResolvePort(),
                 current_storage_projection_ruleset_digest=seed.preview_result.canonical.storage_projection_ruleset_digest.value,
-                preview_ready_closure_digest=derive_preview_ready_closure_digest(seed.preview_result),
+                preview_ready_closure_digest=derive_preview_ready_closure_digest(
+                    seed.preview_result
+                ),
             )
+
     if rules_equal:
         with pytest.raises(NoCanonicalChange):
             validate()

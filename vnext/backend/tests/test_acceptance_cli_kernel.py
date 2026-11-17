@@ -1,4 +1,5 @@
 """Fresh-process CLI composition consumes real published records without pytest startup."""
+
 from __future__ import annotations
 
 import base64
@@ -17,7 +18,7 @@ pytestmark = pytest.mark.unit
 # The child imports no pytest/conftest and starts with an actually uninitialized
 # native pool. Only external node/daemon checks and the costly journey dispatch
 # are replaced; main owns initialization, evidence and occupation lifecycle.
-CHILD = r'''
+CHILD = r"""
 import base64,json,os,sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -90,31 +91,56 @@ with ExitStack() as patches:
 assert calls==[1] and not (root/'busy').exists()
 assert json.loads((root/'output/finish.json').read_text())['exit_code']==0
 print(json.dumps({'scope':scope,'initialized':calls,'records':1,'fresh_process':True}))
-'''
+"""
 
 
-@pytest.mark.parametrize("scope", ("t4", "t4-history", "number1", "number1-replay", "number1-terminal"))
-def test_fresh_cli_initializes_fixed_kernel_before_consuming_records(tmp_path: Path, scope: str) -> None:
+@pytest.mark.parametrize(
+    "scope", ("t4", "t4-history", "number1", "number1-replay", "number1-terminal")
+)
+def test_fresh_cli_initializes_fixed_kernel_before_consuming_records(
+    tmp_path: Path, scope: str
+) -> None:
     store = InMemoryArtifactStore()
     schema = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8));"
-    product = native_product(schema + " INSERT INTO t VALUES(1,'before');",
-                             schema + " INSERT INTO t VALUES(1,'current');")
+    product = native_product(
+        schema + " INSERT INTO t VALUES(1,'before');",
+        schema + " INSERT INTO t VALUES(1,'current');",
+    )
     try:
         published = publish_product(product, store)
         assert published.facts is not None and published.facts.records_ref is not None
         assert published.records_closure is not None
-        record, = published.records_closure.records
+        (record,) = published.records_closure.records
         closure = published.facts.records_ref
         refs = (closure, record.records_ref, record.records_manifest_ref)
         source = tmp_path / "published.json"
-        source.write_text(json.dumps({"closure": artifact_ref_to_dict(closure), "artifacts": [
-            {"ref": artifact_ref_to_dict(ref), "raw": base64.b64encode(store.locate(ref)).decode()}
-            for ref in refs]}))
+        source.write_text(
+            json.dumps(
+                {
+                    "closure": artifact_ref_to_dict(closure),
+                    "artifacts": [
+                        {
+                            "ref": artifact_ref_to_dict(ref),
+                            "raw": base64.b64encode(store.locate(ref)).decode(),
+                        }
+                        for ref in refs
+                    ],
+                }
+            )
+        )
     finally:
         product.close()
     (tmp_path / "input").mkdir()
-    completed = subprocess.run([sys.executable, "-c", CHILD, scope, str(source), str(tmp_path)],
-                               capture_output=True, text=True, check=False)
+    completed = subprocess.run(
+        [sys.executable, "-c", CHILD, scope, str(source), str(tmp_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert json.loads(completed.stdout.splitlines()[-1]) == {
-        "scope": scope, "initialized": [1], "records": 1, "fresh_process": True}
+        "scope": scope,
+        "initialized": [1],
+        "records": 1,
+        "fresh_process": True,
+    }

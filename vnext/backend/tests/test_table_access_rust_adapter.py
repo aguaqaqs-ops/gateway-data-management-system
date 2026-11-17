@@ -268,13 +268,26 @@ COMMENT_VECTORS = (
 @pytest.mark.parametrize("sql", COMMENT_VECTORS)
 def test_native_comments_match_independent_create_comment_oracle(sql: str) -> None:
     from tests.support.comment_oracle import comment_oracle
+
     result = _native_result(sql.encode())
     assert result["status"] == "COMPLETE"
     tables = result["tables"]
     assert isinstance(tables, list)
-    actual = {"tables": sorted([{"table_name": t["canonical_name"], "comment": t["comment"],
-        "columns": [{"name": c["canonical_name"], "comment": c["comment"]} for c in t["columns"]]}
-        for t in tables], key=lambda t: str(t["table_name"]).encode())}
+    actual = {
+        "tables": sorted(
+            [
+                {
+                    "table_name": t["canonical_name"],
+                    "comment": t["comment"],
+                    "columns": [
+                        {"name": c["canonical_name"], "comment": c["comment"]} for c in t["columns"]
+                    ],
+                }
+                for t in tables
+            ],
+            key=lambda t: str(t["table_name"]).encode(),
+        )
+    }
     assert actual == comment_oracle(sql)
     for table in tables:
         table["arrow_stream"].close()
@@ -286,8 +299,11 @@ MALFORMED_COMMENT_LITERALS = ("'bad\\0value'", "123", "NULL", "'unterminated", "
 @pytest.mark.parametrize("literal", MALFORMED_COMMENT_LITERALS)
 @pytest.mark.parametrize("scope", ("column", "table"))
 def test_native_comment_rejects_malformed_strings(literal: str, scope: str) -> None:
-    sql = (f"CREATE TABLE t (id INT COMMENT {literal});" if scope == "column"
-           else f"CREATE TABLE t (id INT) COMMENT={literal};")
+    sql = (
+        f"CREATE TABLE t (id INT COMMENT {literal});"
+        if scope == "column"
+        else f"CREATE TABLE t (id INT) COMMENT={literal};"
+    )
     result = _native_result(sql.encode())
     assert result["kind"] == "result"
     assert result["status"] == "FAILED"
@@ -297,13 +313,23 @@ def test_native_comment_rejects_malformed_strings(literal: str, scope: str) -> N
 
 
 def test_native_comment_obeys_field_budget_and_does_not_enter_canonical_ipc() -> None:
-    limited = _parse_sql_native(b"CREATE TABLE t (id INT COMMENT '12345');", NeverCancel(), budgets=SimpleNamespace(max_field_bytes=4))
+    limited = _parse_sql_native(
+        b"CREATE TABLE t (id INT COMMENT '12345');",
+        NeverCancel(),
+        budgets=SimpleNamespace(max_field_bytes=4),
+    )
     assert limited["status"] == "FAILED"
     encoded = []
     for comment in ("old", "new"):
-        result = _native_result(f"CREATE TABLE t (id BIGINT COMMENT '{comment}'); INSERT INTO t VALUES (1);".encode())
+        result = _native_result(
+            f"CREATE TABLE t (id BIGINT COMMENT '{comment}'); INSERT INTO t VALUES (1);".encode()
+        )
         tables = result["tables"]
         assert isinstance(tables, list)
         table = tables[0]
-        encoded.append(_encode_canonical_ipc_native(table["columns"], table["arrow_stream"], NeverCancel(), _CANONICAL_IPC_BUDGETS))
+        encoded.append(
+            _encode_canonical_ipc_native(
+                table["columns"], table["arrow_stream"], NeverCancel(), _CANONICAL_IPC_BUDGETS
+            )
+        )
     assert encoded[0] == encoded[1]

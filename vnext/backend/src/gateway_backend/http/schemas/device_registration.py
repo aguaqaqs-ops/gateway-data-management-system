@@ -1,4 +1,5 @@
 """Processing-group wire models; routes own authentication and bounded body reading."""
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -12,10 +13,15 @@ from gateway_backend.device_identity import (
 )
 from gateway_backend.http.schemas.constraints import BoundedOpaqueId, CommitIdString
 
-ScopeIdentity = Annotated[str, BeforeValidator(validate_scope_identity), Field(min_length=1, max_length=255)]
-DeploymentIdentity = Annotated[str, BeforeValidator(validate_deployment_identity),
-    Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
-DeviceRouteKey = Annotated[str, BeforeValidator(validate_device_route_key), Field(pattern=r"^[0-9a-f]{64}$")]
+ScopeIdentity = Annotated[
+    str, BeforeValidator(validate_scope_identity), Field(min_length=1, max_length=255)
+]
+DeploymentIdentity = Annotated[
+    str, BeforeValidator(validate_deployment_identity), Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+]
+DeviceRouteKey = Annotated[
+    str, BeforeValidator(validate_device_route_key), Field(pattern=r"^[0-9a-f]{64}$")
+]
 
 
 class RegisterDeviceRequest(BaseModel):

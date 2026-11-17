@@ -211,10 +211,21 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
     _exact_standard("scdmod_para", key_columns=("ied_model",), ignored=frozenset({"no"})),
     _exact_standard("app_cfg", key_columns=("app_name",)),
     _exact_standard("rdb_cfg", key_columns=("no",)),
-    *(_device_point_case(name) for name in (
-        "device_st", "device_mx", "device_co", "device_sg", "device_sp",
-        "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb",
-    )),
+    *(
+        _device_point_case(name)
+        for name in (
+            "device_st",
+            "device_mx",
+            "device_co",
+            "device_sg",
+            "device_sp",
+            "device_cnt",
+            "device_sn",
+            "device_tap",
+            "device_other",
+            "device_disturb",
+        )
+    ),
     ParityCase(
         label="device_cfg:with-pk",
         table_name="device_cfg",
@@ -341,6 +352,7 @@ NON_OVERLAP_CASES: tuple[tuple[str, str, TableStaticRole, str], ...] = (
     ),
 )
 
+
 def _snapshot_only_foo() -> TableRuleRecord:
     return TableRuleRecord(
         selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=r"^foo$"),
@@ -361,7 +373,9 @@ PRECEDENCE_CASES: tuple[tuple[str, TableRulesetSnapshot, str, str], ...] = (
     ),
     (
         "standard exact over protocol",
-        snapshot_from_records(net_cfg_record(), protocol_option_record(r"^net_cfg$"), fallback_record()),
+        snapshot_from_records(
+            net_cfg_record(), protocol_option_record(r"^net_cfg$"), fallback_record()
+        ),
         "net_cfg",
         "exact:net_cfg",
     ),
@@ -381,7 +395,9 @@ COLLISION_CASES: tuple[tuple[str, TableRulesetSnapshot, str], ...] = (
     ),
     (
         "protocol regex overlap",
-        snapshot_from_records(protocol_option_record(r"^orders$"), protocol_option_record(r"^ord.*$")),
+        snapshot_from_records(
+            protocol_option_record(r"^orders$"), protocol_option_record(r"^ord.*$")
+        ),
         "orders",
     ),
 )
@@ -459,7 +475,9 @@ def test_selector_precedence_uses_rank_not_insertion_order(
     selector: str,
 ) -> None:
     del label
-    resolved = resolve_table_rule(snapshot, table_name, primary_key_columns=("id",), table_comment=None)
+    resolved = resolve_table_rule(
+        snapshot, table_name, primary_key_columns=("id",), table_comment=None
+    )
     assert resolved.decision.selector.canonical_serialization() == selector
 
 
@@ -528,14 +546,14 @@ def test_ignored_column_on_ddl_primary_key_fails_closed() -> None:
             ordered_policy=OrderedPolicy.NONE,
             compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
             ignored_columns=("id",),
-            dropped_columns=(DroppedColumn(name="id", reason=legacy_ignored_column_reason(selector)),),
+            dropped_columns=(
+                DroppedColumn(name="id", reason=legacy_ignored_column_reason(selector)),
+            ),
             artifact_scope=TableArtifactScope.ALL_CHANGES,
         )
     )
     with pytest.raises(ValueError, match="ignored columns must not be effective key columns"):
         resolve_table_rule(ruleset, "custom_ddl", primary_key_columns=("id",), table_comment=None)
-
-
 
 
 CHANNEL_REFERENCE_CASES = (
@@ -555,10 +573,16 @@ CHANNEL_REFERENCE_CASES = (
 
 @pytest.mark.parametrize("table_name,comment,is_ordered", CHANNEL_REFERENCE_CASES)
 def test_channel_ordering_requires_valid_name_and_actual_comment(
-    migrated_snapshot: TableRulesetSnapshot, table_name: str, comment: str | None, is_ordered: bool,
+    migrated_snapshot: TableRulesetSnapshot,
+    table_name: str,
+    comment: str | None,
+    is_ordered: bool,
 ) -> None:
     decision = resolve_table_rule(
-        migrated_snapshot, table_name, primary_key_columns=("id",), table_comment=comment,
+        migrated_snapshot,
+        table_name,
+        primary_key_columns=("id",),
+        table_comment=comment,
     ).decision
     assert (decision.static_role is TableStaticRole.ORDERED_DIFF) is is_ordered
     if is_ordered:

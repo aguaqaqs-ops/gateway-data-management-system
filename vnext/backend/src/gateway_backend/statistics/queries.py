@@ -1,18 +1,27 @@
 """Read-only telemetry boundary, independent of HTTP and business authority."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal, Protocol
 from gateway_repository_contracts.statistics import Role as Role
 
-from gateway_backend.statistics.models import ExecutionSummary, ResourceRecord, StatisticsIdentity, StorageRecord, WriteRecord
+from gateway_backend.statistics.models import (
+    ExecutionSummary,
+    ResourceRecord,
+    StatisticsIdentity,
+    StorageRecord,
+    WriteRecord,
+)
 
 
-CollectionKind = Literal['storage', 'storage_history', 'writes', 'executions']
+CollectionKind = Literal["storage", "storage_history", "writes", "executions"]
 
 
 class StatisticsReadError(Exception):
-    def __init__(self, reason: Literal['unavailable', 'invalid_cursor', 'budget_exceeded', 'select_claim']) -> None:
+    def __init__(
+        self, reason: Literal["unavailable", "invalid_cursor", "budget_exceeded", "select_claim"]
+    ) -> None:
         self.reason = reason
         super().__init__(reason)
 

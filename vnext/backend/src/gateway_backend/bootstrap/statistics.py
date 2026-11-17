@@ -1,4 +1,5 @@
 """Best-effort process telemetry lifecycle; never a business readiness dependency."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,11 @@ from gateway_backend.infrastructure.statistics.collection import BufferedTelemet
 from gateway_backend.infrastructure.statistics.queries import SQLiteStatisticsReader
 from gateway_backend.infrastructure.statistics.repository_feed import RepositoryFeedPoller
 from gateway_backend.infrastructure.statistics.sqlite_store import SQLiteStatisticsStore
-from gateway_backend.infrastructure.statistics.storage import DeviceStorageCollector, StorageCandidates, filesystem_capacity
+from gateway_backend.infrastructure.statistics.storage import (
+    DeviceStorageCollector,
+    StorageCandidates,
+    filesystem_capacity,
+)
 from gateway_backend.bootstrap.storage_layout import local_store_from_config
 from gateway_backend.statistics.config import StatisticsConfig, statistics_database_path
 from gateway_backend.statistics.models import StatisticsIdentity
@@ -30,52 +35,105 @@ def load_statistics_config() -> StatisticsConfig:
     try:
         return StatisticsConfig()
     except ValueError:
-        _LOG.warning('statistics disabled reason=invalid_configuration')
+        _LOG.warning("statistics disabled reason=invalid_configuration")
         return StatisticsConfig.model_construct(enabled=False)
 
 
 def build_statistics_sink(deployment: DeploymentConfig, role: str) -> BufferedTelemetrySink:
     config = load_statistics_config()
-    identity = StatisticsIdentity(environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id)
-    metadata = deployment.storage.roots['be-metadata']
+    identity = StatisticsIdentity(
+        environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id
+    )
+    metadata = deployment.storage.roots["be-metadata"]
     policy = deployment.storage.filesystems[metadata.filesystem_id]
     path = statistics_database_path(Path(metadata.path))
-    return BufferedTelemetrySink(SQLiteStatisticsStore(path, identity, config, capacity_path=Path(metadata.path),
-        min_free_bytes=policy.min_free_bytes, min_free_fraction=policy.min_free_fraction), identity, config,
-        role=role, config_digest=deployment.resources.digest)
+    return BufferedTelemetrySink(
+        SQLiteStatisticsStore(
+            path,
+            identity,
+            config,
+            capacity_path=Path(metadata.path),
+            min_free_bytes=policy.min_free_bytes,
+            min_free_fraction=policy.min_free_fraction,
+        ),
+        identity,
+        config,
+        role=role,
+        config_digest=deployment.resources.digest,
+    )
 
 
 class BackendStatistics:
-    def __init__(self, deployment: DeploymentConfig, control_db: Path, base_url: str, token: str) -> None:
-        self.sink = build_statistics_sink(deployment, 'backend')
+    def __init__(
+        self, deployment: DeploymentConfig, control_db: Path, base_url: str, token: str
+    ) -> None:
+        self.sink = build_statistics_sink(deployment, "backend")
         self.config = self.sink.config
-        self.collector = DeviceStorageCollector(StorageCandidates(control_db, self.config),
-            local_store_from_config(deployment), self.sink.identity, self.sink.offer, self.config)
-        self.poller = RepositoryFeedPoller(RepositoryClient(base_url=base_url, bearer_token=token,
-            timeout_seconds=self.config.rs_http_timeout_seconds), self.sink.identity, self.sink.offer,
-            timeout_seconds=self.config.rs_http_timeout_seconds, page_items=self.config.feed_page_items)
-        self.roots = {name: (Path(root.path), root.filesystem_id) for name, root in deployment.storage.roots.items()
-                      if name.startswith('be-')}
+        self.collector = DeviceStorageCollector(
+            StorageCandidates(control_db, self.config),
+            local_store_from_config(deployment),
+            self.sink.identity,
+            self.sink.offer,
+            self.config,
+        )
+        self.poller = RepositoryFeedPoller(
+            RepositoryClient(
+                base_url=base_url,
+                bearer_token=token,
+                timeout_seconds=self.config.rs_http_timeout_seconds,
+            ),
+            self.sink.identity,
+            self.sink.offer,
+            timeout_seconds=self.config.rs_http_timeout_seconds,
+            page_items=self.config.feed_page_items,
+        )
+        self.roots = {
+            name: (Path(root.path), root.filesystem_id)
+            for name, root in deployment.storage.roots.items()
+            if name.startswith("be-")
+        }
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.collection_failures = 0
-        self.http = StatisticsHttpDependencies(SQLiteStatisticsReader(self.sink.store.path, self.sink.identity,
-            available=lambda: self.config.enabled and self.sink.health.available),
-            dropped_count=lambda: self.sink.health.dropped + self.poller.dropped_count + self.collection_failures,
-            health=self.health, sample_interval_seconds=self.config.sample_interval_seconds)
+        self.http = StatisticsHttpDependencies(
+            SQLiteStatisticsReader(
+                self.sink.store.path,
+                self.sink.identity,
+                available=lambda: self.config.enabled and self.sink.health.available,
+            ),
+            dropped_count=lambda: (
+                self.sink.health.dropped + self.poller.dropped_count + self.collection_failures
+            ),
+            health=self.health,
+            sample_interval_seconds=self.config.sample_interval_seconds,
+        )
 
     def health(self) -> CollectionHealth:
-        reason = self.sink.health.reason or self.poller.reason or ("collection_failed" if self.collection_failures else None)
-        return CollectionHealth(enabled=self.config.enabled,
-            dropped_count=self.sink.health.dropped + self.poller.dropped_count + self.collection_failures,
-            quality='available' if reason is None else 'partial' if self.sink.health.available else 'unavailable',
-            reason=cast(Reason | None, reason))
+        reason = (
+            self.sink.health.reason
+            or self.poller.reason
+            or ("collection_failed" if self.collection_failures else None)
+        )
+        return CollectionHealth(
+            enabled=self.config.enabled,
+            dropped_count=self.sink.health.dropped
+            + self.poller.dropped_count
+            + self.collection_failures,
+            quality="available"
+            if reason is None
+            else "partial"
+            if self.sink.health.available
+            else "unavailable",
+            reason=cast(Reason | None, reason),
+        )
 
     def start(self) -> None:
         self.sink.start()
         if self.config.enabled and self._thread is None:
             try:
-                self._thread = threading.Thread(target=self._run, name='backend-statistics', daemon=True)
+                self._thread = threading.Thread(
+                    target=self._run, name="backend-statistics", daemon=True
+                )
                 self._thread.start()
             except Exception:
                 self._thread = None
@@ -90,10 +148,12 @@ class BackendStatistics:
                 try:
                     complete = self.collector.collect_next()
                     if complete:
-                        next_storage = max(monotonic() + .05, cycle_started + self.config.storage_refresh_seconds)
+                        next_storage = max(
+                            monotonic() + 0.05, cycle_started + self.config.storage_refresh_seconds
+                        )
                         cycle_started = next_storage
                     else:
-                        next_storage = monotonic() + .01
+                        next_storage = monotonic() + 0.01
                 except Exception:
                     self.collection_failures += 1
                     next_storage = now + self.config.maintenance_seconds
@@ -109,7 +169,7 @@ class BackendStatistics:
             if now >= next_poll:
                 next_poll = now + self.config.rs_poll_seconds
                 asyncio.run(self.poller.poll())
-            self._stop.wait(.05)
+            self._stop.wait(0.05)
 
     def close(self) -> None:
         self._stop.set()

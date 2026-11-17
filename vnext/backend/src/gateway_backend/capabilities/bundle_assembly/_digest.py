@@ -29,9 +29,7 @@ def integrity_payload(ref: object) -> dict[str, object]:
 
 
 def closure_semantic_payload(closure: BundleArtifactManifest) -> dict[str, object]:
-    return {
-        "entries": [_closure_entry_payload(item) for item in closure.entries]
-    }
+    return {"entries": [_closure_entry_payload(item) for item in closure.entries]}
 
 
 def _closure_entry_payload(item: BundleClosureEntry) -> dict[str, object]:
@@ -64,8 +62,12 @@ def manifest_semantic_payload(
         "bundle_profile": profile.value,
         "closure": closure_semantic_payload(closure),
         "diagnostics": list(sorted(diagnostics)),
-        "failed_pairs": [item.to_document() for item in sorted(failed_pairs, key=lambda item: item.pair_id)],
-        "inputs": [item.to_document() for item in sorted(inputs, key=lambda item: item.input_index)],
+        "failed_pairs": [
+            item.to_document() for item in sorted(failed_pairs, key=lambda item: item.pair_id)
+        ],
+        "inputs": [
+            item.to_document() for item in sorted(inputs, key=lambda item: item.input_index)
+        ],
         "pairs": [
             {
                 "before_input_index": item.before_input_index,

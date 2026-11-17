@@ -141,18 +141,34 @@ def test_create_workspace_rejects_admission_when_closed(tmp_path: Path) -> None:
 
 
 def _workspace_response(env: WorkspaceHttpTestEnvironment) -> dict[str, Any]:
-    response = env.client.post("/v1/workspaces", headers=env.auth_headers(), json={
-        "gateway_device_external_key": "device-1", "business_project_id": "project-1",
-    })
+    response = env.client.post(
+        "/v1/workspaces",
+        headers=env.auth_headers(),
+        json={
+            "gateway_device_external_key": "device-1",
+            "business_project_id": "project-1",
+        },
+    )
     assert response.status_code == 200, response.text
     return cast(dict[str, Any], response.json())
 
 
 @pytest.mark.parametrize("action", ["APPROVE", "REJECT", "WITHDRAW", "ARCHIVE"])
-def test_workspace_submission_pointer_follows_review_and_archive_lifecycle(tmp_path: Path, action: str) -> None:
+def test_workspace_submission_pointer_follows_review_and_archive_lifecycle(
+    tmp_path: Path, action: str
+) -> None:
     from gateway_backend.domain.submission.review import ReviewAction
-    from tests.test_review_transactions import _seed_pending_review_submission, _apply_review, _apply_command
-    from tests.support.archive_fixtures import archive_seed_from_review_seed, append_selection_confirmation, start_archive_for_seed
+    from tests.test_review_transactions import (
+        _seed_pending_review_submission,
+        _apply_review,
+        _apply_command,
+    )
+    from tests.support.archive_fixtures import (
+        archive_seed_from_review_seed,
+        append_selection_confirmation,
+        start_archive_for_seed,
+    )
+
     env = create_workspace_http_environment(tmp_path)
     seed = _seed_pending_review_submission(env.db_path)
     pending = _workspace_response(env)
@@ -182,7 +198,11 @@ def test_workspace_submission_pointer_follows_review_and_archive_lifecycle(tmp_p
 
 def test_workspace_attempt_pointer_survives_operation_failure(tmp_path: Path) -> None:
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-    from tests.test_submit_transactions import seed_submit_ready_workspace, _seed_effect_pending_attempt
+    from tests.test_submit_transactions import (
+        seed_submit_ready_workspace,
+        _seed_effect_pending_attempt,
+    )
+
     env = create_workspace_http_environment(tmp_path)
     ready = seed_submit_ready_workspace(env.db_path)
     unoccupied = _workspace_response(env)
@@ -194,29 +214,48 @@ def test_workspace_attempt_pointer_survives_operation_failure(tmp_path: Path) ->
     assert occupied["active_submission_id"] is None
     assert occupied["optimistic_version"] == unoccupied["optimistic_version"] + 1
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
-        unit_of_work.connection.execute("UPDATE operation_records SET status = 'FAILED', completed_at_us = updated_at_us WHERE operation_id = ?", (attempt.operation_id,))
+        unit_of_work.connection.execute(
+            "UPDATE operation_records SET status = 'FAILED', completed_at_us = updated_at_us WHERE operation_id = ?",
+            (attempt.operation_id,),
+        )
     assert _workspace_response(env) == occupied
 
 
-def test_workspace_projection_reads_occupancy_and_version_from_one_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workspace_projection_reads_occupancy_and_version_from_one_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from gateway_backend.application.workspace.services import create_or_get_workspace
     from gateway_backend.domain.submission.review import ReviewAction
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
     from gateway_backend.infrastructure.control_db.sqlite_workspace import SQLiteWorkspaceRepository
-    from tests.test_review_transactions import _seed_pending_review_submission, _apply_review, _apply_command
+    from tests.test_review_transactions import (
+        _seed_pending_review_submission,
+        _apply_review,
+        _apply_command,
+    )
+
     env = create_workspace_http_environment(tmp_path)
     seed = _seed_pending_review_submission(env.db_path)
     before = _workspace_response(env)
     original = SQLiteWorkspaceRepository.find_open_by_scope
+
     def find_then_release(self: SQLiteWorkspaceRepository, scope: object) -> object:
         workspace = original(self, scope)  # type: ignore[arg-type]
-        _apply_review(seed, _apply_command(seed, action=ReviewAction.WITHDRAW, idempotency_key="snapshot-release"))
+        _apply_review(
+            seed,
+            _apply_command(seed, action=ReviewAction.WITHDRAW, idempotency_key="snapshot-release"),
+        )
         return workspace
+
     with monkeypatch.context() as patch:
         patch.setattr(SQLiteWorkspaceRepository, "find_open_by_scope", find_then_release)
         with ControlDbUnitOfWork(env.db_path, read_only=True) as transaction:
-            result = create_or_get_workspace(context=make_identity(), scope_resolution=env.scope_resolution,
-                                             transaction=transaction, created_at=transaction.transaction_now)
+            result = create_or_get_workspace(
+                context=make_identity(),
+                scope_resolution=env.scope_resolution,
+                transaction=transaction,
+                created_at=transaction.transaction_now,
+            )
     assert result.occupancy is not None
     assert result.occupancy.active_submission_id == seed.submission_id
     assert result.workspace.optimistic_version == before["optimistic_version"]
@@ -225,11 +264,22 @@ def test_workspace_projection_reads_occupancy_and_version_from_one_snapshot(tmp_
     assert after["optimistic_version"] == before["optimistic_version"] + 1
 
 
-
-def test_workspace_finalize_atomically_switches_attempt_pointer_to_submission(tmp_path: Path) -> None:
-    from gateway_backend.application.submission.finalize_transaction import FinalizeSubmitTransactionRequest, finalize_submit_transaction
+def test_workspace_finalize_atomically_switches_attempt_pointer_to_submission(
+    tmp_path: Path,
+) -> None:
+    from gateway_backend.application.submission.finalize_transaction import (
+        FinalizeSubmitTransactionRequest,
+        finalize_submit_transaction,
+    )
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-    from tests.test_submit_transactions import seed_submit_ready_workspace, _seed_effect_pending_attempt, _read_finalize_versions, _finalize_facts, TS1
+    from tests.test_submit_transactions import (
+        seed_submit_ready_workspace,
+        _seed_effect_pending_attempt,
+        _read_finalize_versions,
+        _finalize_facts,
+        TS1,
+    )
+
     env = create_workspace_http_environment(tmp_path)
     seed = seed_submit_ready_workspace(env.db_path)
     attempt = _seed_effect_pending_attempt(env.db_path, seed)
@@ -238,13 +288,21 @@ def test_workspace_finalize_atomically_switches_attempt_pointer_to_submission(tm
     assert before["active_submission_id"] is None
     versions = _read_finalize_versions(env.db_path, attempt)
     with ControlDbUnitOfWork(env.db_path) as transaction:
-        finalize_submit_transaction(request=FinalizeSubmitTransactionRequest(
+        finalize_submit_transaction(
+            request=FinalizeSubmitTransactionRequest(
                 review_artifact_refs=review_artifact_refs(seed),
-            submit_attempt_id=attempt.submit_attempt_id, facts=_finalize_facts(seed),
-            submission_id="sub-finalized", created_at=TS1,
-            expected_attempt_version=versions[0], expected_await_step_version=versions[1],
-            expected_operation_version=versions[2], worker_id="worker-test", lease_token="lease-test",
-        ), unit_of_work=transaction)
+                submit_attempt_id=attempt.submit_attempt_id,
+                facts=_finalize_facts(seed),
+                submission_id="sub-finalized",
+                created_at=TS1,
+                expected_attempt_version=versions[0],
+                expected_await_step_version=versions[1],
+                expected_operation_version=versions[2],
+                worker_id="worker-test",
+                lease_token="lease-test",
+            ),
+            unit_of_work=transaction,
+        )
     after = _workspace_response(env)
     assert after["active_submit_attempt_id"] is None
     assert after["active_submission_id"] == "sub-finalized"

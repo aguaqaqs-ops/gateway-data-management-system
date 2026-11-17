@@ -51,8 +51,17 @@ from gateway_backend.application.recovery import (
     validate_external_effect_identity,
 )
 from gateway_backend.application.recovery import RecoveryCapability
-from gateway_backend.application.payloads import CheckpointDecodeError, PayloadDecodeError, PayloadDecoder, load_job_payload_bytes
-from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
+from gateway_backend.application.payloads import (
+    CheckpointDecodeError,
+    PayloadDecodeError,
+    PayloadDecoder,
+    load_job_payload_bytes,
+)
+from gateway_backend.artifacts.store import (
+    ArtifactStorePort,
+    ManifestVerificationError,
+    put_with_built_ref,
+)
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.operations.contracts import (
     JobStepKey,
@@ -95,6 +104,8 @@ _JOB_STATE_OPERATION_IDENTITY = "operation_identity"
 _JOB_STATE_REQUEST_ARTIFACT_ID = "request_artifact_id"
 _JOB_STATE_REQUEST_FINGERPRINT = "request_fingerprint"
 _JOB_STATE_REQUEST_SENT = "request_sent"
+
+
 @dataclass(frozen=True, slots=True)
 class PureComputePayload:
     """Bounded deterministic input for the pure-compute synthetic job."""
@@ -348,7 +359,9 @@ def external_effect_stub_job_definition() -> JobDefinition:
     )
 
 
-def decode_external_effect_stub_payload(payload_object: dict[str, object]) -> ExternalEffectStubPayload:
+def decode_external_effect_stub_payload(
+    payload_object: dict[str, object],
+) -> ExternalEffectStubPayload:
     request = decode_external_effect_stub_request(payload_object)
     stub_outcome = decode_stub_outcome(payload_object.get("stub_outcome"))
     return ExternalEffectStubPayload(
@@ -546,6 +559,7 @@ def build_external_effect_stub_recovery_port(
         raise ValueError("artifact_store must implement ArtifactStorePort")
 
     definition = external_effect_stub_job_definition()
+
     class _ExternalEffectStubRecoveryPort:
         def recover(
             self,
@@ -699,7 +713,9 @@ def _request_state_from_job_state(
 ) -> _ExternalEffectRequestState:
     if not isinstance(job_state, Mapping):
         raise CheckpointDecodeError("job_state must be a mapping", code="CHECKPOINT_SHAPE_INVALID")
-    request_bytes = build_request_bytes(expected_payload.idempotency_key, expected_payload.request_body)
+    request_bytes = build_request_bytes(
+        expected_payload.idempotency_key, expected_payload.request_body
+    )
     expected_identity = compute_operation_identity(
         expected_payload.idempotency_key,
         request_bytes,
@@ -1025,7 +1041,9 @@ def _put_pure_compute_output(store: ArtifactStorePort, output_bytes: bytes) -> A
 
 
 def _output_artifact_id(output_bytes: bytes) -> str:
-    return build_artifact_id(ArtifactLocation.DURABLE, "pure-compute-output", raw_blob_digest(output_bytes).value)
+    return build_artifact_id(
+        ArtifactLocation.DURABLE, "pure-compute-output", raw_blob_digest(output_bytes).value
+    )
 
 
 def _job_state_for_output(seed: str, output_artifact_id: str) -> dict[str, object]:

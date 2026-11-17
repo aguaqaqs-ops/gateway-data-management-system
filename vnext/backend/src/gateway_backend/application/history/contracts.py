@@ -12,8 +12,12 @@ from enum import StrEnum
 
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
-from gateway_backend.domain.archive.models import (SubmissionDispositionKind, SubmissionDispositionSourceKind,
-    SubmissionDisposition, ManualSubmissionClosure)
+from gateway_backend.domain.archive.models import (
+    SubmissionDispositionKind,
+    SubmissionDispositionSourceKind,
+    SubmissionDisposition,
+    ManualSubmissionClosure,
+)
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import Submission
 from gateway_backend.domain.submission.review import ReviewStatus
@@ -104,13 +108,19 @@ class HistoryNode:
             raise ValueError("baseline_kind must be BaselineNodeKind or None")
         if self.review_status is not None and type(self.review_status) is not ReviewStatus:
             raise ValueError("review_status must be ReviewStatus or None")
-        if self.submission_disposition is not None and type(self.submission_disposition) is not SubmissionDispositionKind:
+        if (
+            self.submission_disposition is not None
+            and type(self.submission_disposition) is not SubmissionDispositionKind
+        ):
             raise ValueError("submission_disposition must be SubmissionDispositionKind or None")
         if self.promoted_baseline_node_id is not None and (
             type(self.promoted_baseline_node_id) is not str or not self.promoted_baseline_node_id
         ):
             raise ValueError("promoted_baseline_node_id must be a non-empty string or None")
-        if self.eligibility_note is not None and type(self.eligibility_note) is not HistoryEligibilityNote:
+        if (
+            self.eligibility_note is not None
+            and type(self.eligibility_note) is not HistoryEligibilityNote
+        ):
             raise ValueError("eligibility_note must be HistoryEligibilityNote or None")
         if type(self.identity_exception) is not bool:
             raise ValueError("identity_exception must be a bool")
@@ -273,6 +283,7 @@ class HistoryCompareAcceptCommand:
     idempotency_key: str
     node_refs: tuple[HistoryNodeRef, ...]
 
+
 def parse_nodes_json(raw: str) -> tuple[HistoryCompareNodeBinding, ...]:
     import json
 
@@ -303,4 +314,3 @@ def nodes_json_from_bindings(nodes: Sequence[HistoryCompareNodeBinding]) -> str:
         for node in nodes
     ]
     return canonicalize_jcs(canonicalize_json_value(payload)).decode("utf-8")
-

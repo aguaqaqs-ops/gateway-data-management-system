@@ -1,4 +1,5 @@
 """Narrow Repository client adapter for device provisioning."""
+
 from gateway_repository_client import RepositoryClient
 from gateway_backend.application.provisioning.contracts import CreatedRepository, RepositoryIdentity
 

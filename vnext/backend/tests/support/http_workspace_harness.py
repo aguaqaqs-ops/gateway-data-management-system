@@ -84,7 +84,10 @@ from gateway_backend.http.dependencies import (
 )
 from gateway_backend.http.wiring import register_workspace_http
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -203,7 +206,9 @@ class InMemoryBoundedArtifactStore:
 
     def classify_cleanup(self, ref: ArtifactRef, now: datetime) -> CleanupDecision:
         del ref
-        return CleanupDecision(classification=CleanupClassification.ELIGIBLE_AFTER, eligible_after=now)
+        return CleanupDecision(
+            classification=CleanupClassification.ELIGIBLE_AFTER, eligible_after=now
+        )
 
     def delete_eligible(
         self,
@@ -220,7 +225,9 @@ class InMemoryBundleReader:
     def __init__(self, bundles: dict[str, tuple[str, bytes, str]] | None = None) -> None:
         self._bundles = dict(bundles or {})
 
-    def register(self, artifact_id: str, logical_name: str, payload: bytes, *, bundle_digest: str) -> None:
+    def register(
+        self, artifact_id: str, logical_name: str, payload: bytes, *, bundle_digest: str
+    ) -> None:
         self._bundles[artifact_id] = (logical_name, payload, bundle_digest)
 
     def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
@@ -229,8 +236,12 @@ class InMemoryBundleReader:
         except KeyError:
             raise ArtifactUnavailableError("bundle is not available") from None
         return PreparedBundleDownload(
-            bundle_digest=digest, content_length=len(payload), filename=logical_name,
-            etag=f'"{digest}"', stream=iter([payload]), _resources=ExitStack(),
+            bundle_digest=digest,
+            content_length=len(payload),
+            filename=logical_name,
+            etag=f'"{digest}"',
+            stream=iter([payload]),
+            _resources=ExitStack(),
         )
 
 
@@ -258,12 +269,21 @@ class SqliteWorkspaceRepositoryFacade:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.get_upload_revision(upload_revision_id)
 
-    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> PreviewResult | None:
+    def get_preview_result(
+        self,
+        preview_result_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> PreviewResult | None:
         with self._read_uow() as unit_of_work:
-            return unit_of_work.workspace.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=repository_id)
+            return unit_of_work.workspace.get_preview_result(
+                preview_result_id, workspace_id=workspace_id, repository_id=repository_id
+            )
 
-    def find_upload_idempotency(self, workspace_id: str, idempotency_key: str) -> UploadRevision | None:
+    def find_upload_idempotency(
+        self, workspace_id: str, idempotency_key: str
+    ) -> UploadRevision | None:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_upload_idempotency(workspace_id, idempotency_key)
 
@@ -285,7 +305,9 @@ class SqliteWorkspaceRepositoryFacade:
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         with self._write_uow() as unit_of_work:
-            return unit_of_work.workspace.save_workspace(workspace, expected_version=expected_version)
+            return unit_of_work.workspace.save_workspace(
+                workspace, expected_version=expected_version
+            )
 
     def save_upload_revision(self, revision: UploadRevision) -> None:
         with self._write_uow() as unit_of_work:
@@ -409,19 +431,31 @@ def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -
 def _protected_preview_refs(repository_id: str) -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            ),
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_INITIAL),
             raw_sha256=DigestRef(_SHA_INITIAL),
         ),
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            ),
             media_type="application/gzip",
             size_bytes=len(_PAYLOAD_MODIFIED),
             raw_sha256=DigestRef(_SHA_MODIFIED),
         ),
         ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            ),
             media_type="application/json",
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
@@ -460,13 +494,21 @@ def seed_submit_ready_workspace(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    ),
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_INITIAL),
                     raw_sha256=_SHA_INITIAL,
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    ),
                     media_type="application/gzip",
                     size_bytes=len(_PAYLOAD_MODIFIED),
                     raw_sha256=_SHA_MODIFIED,
@@ -502,14 +544,26 @@ def seed_submit_ready_workspace(
             canonical=make_preview_canonical_bindings(repository_id, generated_source_ids=True),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
-            bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
-            ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
+            bundle_artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
+            ),
+            ready_closure_artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+            ),
             operation_id="op-preview-1",
             created_at=TS1,
         )
         from tests.support.review_result_fixtures import closed_review_preview
-        original_refs = tuple(ref for ref in _protected_preview_refs(repository_id)
-            if ref.artifact_id != preview.ready_closure_artifact_id)
+
+        original_refs = tuple(
+            ref
+            for ref in _protected_preview_refs(repository_id)
+            if ref.artifact_id != preview.ready_closure_artifact_id
+        )
         preview, protected_refs, review_payloads = closed_review_preview(preview, original_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
@@ -542,9 +596,21 @@ def seed_submit_ready_workspace(
         )
 
     payload_by_id = {
-        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"): _PAYLOAD_INITIAL,
-        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"): _PAYLOAD_MODIFIED,
-        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"): _PAYLOAD_CLOSURE,
+        build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+        ): _PAYLOAD_INITIAL,
+        build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+        ): _PAYLOAD_MODIFIED,
+        build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        ): _PAYLOAD_CLOSURE,
         **make_canonical_artifact_fixture(repository_id).payloads,
         **review_payloads,
     }
@@ -846,8 +912,11 @@ class WorkspaceHttpTestEnvironment:
 
     def auth_headers(self, *, idempotency_key: str | None = None) -> dict[str, str]:
         from gateway_backend.device_identity import device_route_key
-        headers = {"Authorization": f"Bearer {TEST_BEARER}",
-            "X-Gateway-Device-Key": device_route_key(self.identity.gateway_device_external_key)}
+
+        headers = {
+            "Authorization": f"Bearer {TEST_BEARER}",
+            "X-Gateway-Device-Key": device_route_key(self.identity.gateway_device_external_key),
+        }
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         return headers
@@ -888,9 +957,7 @@ def create_workspace_http_environment(
     baseline_head_read = MutableBaselineHeadReadPort({"repo-1": BASELINE_HEAD})
     repository = SqliteWorkspaceRepositoryFacade(resolved_db_path)
     artifact_store = artifact_store or InMemoryBoundedArtifactStore()
-    resolved_bundle_reader = (
-        bundle_reader if bundle_reader is not None else InMemoryBundleReader()
-    )
+    resolved_bundle_reader = bundle_reader if bundle_reader is not None else InMemoryBundleReader()
 
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(resolved_db_path, read_only=read_only)
@@ -937,6 +1004,7 @@ def create_workspace_http_environment(
     scratch_root = tmp_path / "upload-scratch"
     scratch_root.mkdir(parents=True, exist_ok=True)
     from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
+
     deps = WorkspaceHttpDependencies(
         scratch=ScratchSpace(scratch_root, max_bytes=1024**3),
         session_port=BearerSessionPort(sessions),

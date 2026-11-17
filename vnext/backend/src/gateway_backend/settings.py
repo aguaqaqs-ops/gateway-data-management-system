@@ -66,8 +66,12 @@ class BackendSettings(BaseSettings):
 
     runtime_mode: Literal["container", "host"] = "container"
     maintenance_mode: bool = False
-    storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
-    resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
+    storage_layout_file: Path = Field(
+        validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file")
+    )
+    resource_profile_file: Path = Field(
+        validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file")
+    )
     repository_base_url: str
     repository_bearer_token_file: Path = Field(repr=False)
     internal_bearer_token_file: Path = Field(repr=False)
@@ -178,8 +182,12 @@ class OperationWorkerSettings(BaseSettings):
     )
 
     runtime_mode: Literal["container", "host"] = "container"
-    storage_layout_file: Path = Field(validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file"))
-    resource_profile_file: Path = Field(validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file"))
+    storage_layout_file: Path = Field(
+        validation_alias=AliasChoices("GATEWAY_STORAGE_LAYOUT_FILE", "storage_layout_file")
+    )
+    resource_profile_file: Path = Field(
+        validation_alias=AliasChoices("GATEWAY_RESOURCE_PROFILE_FILE", "resource_profile_file")
+    )
     repository_base_url: str
     repository_bearer_token_file: Path = Field(repr=False)
     repository_timeout_seconds: float = FIXED_REPOSITORY_TIMEOUT_SECONDS
@@ -196,6 +204,7 @@ class OperationWorkerSettings(BaseSettings):
     instance_index: int
     max_in_flight: int = 1
     claim_limit: int = 1
+
     @property
     def kernel_threads(self) -> int:
         return self.deployment_config.resources.worker.kernel_threads

@@ -32,7 +32,10 @@ from gateway_backend.application.submission.review import (
     get_review_facts,
     verify_idempotency_replay,
 )
-from gateway_backend.application.submission.review_contracts import ApplyReviewCommand, ApplyReviewResult
+from gateway_backend.application.submission.review_contracts import (
+    ApplyReviewCommand,
+    ApplyReviewResult,
+)
 from gateway_backend.application.submission.review_transaction import apply_review_transaction
 from gateway_backend.domain.submission.errors import (
     InvalidReviewTransition,
@@ -52,7 +55,10 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     WorkspaceState,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from tests.test_submit_transactions import (
     BASELINE_HEAD,
@@ -182,13 +188,21 @@ def _seed_additional_pending_review_submission(
             input_completeness=InputCompleteness.FULL,
             source_artifacts={
                 SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                    ),
                     media_type="application/gzip",
                     size_bytes=1,
                     raw_sha256="sha256:initial",
                 ),
                 SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                    ),
                     media_type="application/gzip",
                     size_bytes=2,
                     raw_sha256="sha256:modified",
@@ -211,7 +225,8 @@ def _seed_additional_pending_review_submission(
             baseline_head_version=baseline_head.baseline_head_version,
         )
         preview, review_refs, _payloads = closed_review_preview(
-            preview, make_canonical_artifact_fixture(repository_id).refs)
+            preview, make_canonical_artifact_fixture(repository_id).refs
+        )
         protected_refs = (*_protected_preview_refs()[:2], *review_refs)
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
@@ -402,15 +417,15 @@ def test_apply_review_pending_transitions(
         assert occupancy.active_submission_id == review_seed.submission_id
 
 
-
-
 @pytest.mark.parametrize(("status", "action"), REVIEW_DENIED_TERMINAL_CASES)
 def test_apply_review_rejects_terminal_transition(
     review_seed: ReviewSeed,
     status: ReviewStatus,
     action: ReviewAction,
 ) -> None:
-    release_action = ReviewAction.REJECT if status is ReviewStatus.REJECTED else ReviewAction.WITHDRAW
+    release_action = (
+        ReviewAction.REJECT if status is ReviewStatus.REJECTED else ReviewAction.WITHDRAW
+    )
     _apply_review(
         review_seed,
         _apply_command(
@@ -575,7 +590,9 @@ def test_apply_review_fails_closed_on_corrupted_idempotency_fingerprint(
     assert workspace_after == workspace_before
 
 
-def test_apply_review_idempotency_conflict_on_different_fingerprint(review_seed: ReviewSeed) -> None:
+def test_apply_review_idempotency_conflict_on_different_fingerprint(
+    review_seed: ReviewSeed,
+) -> None:
     _apply_review(
         review_seed,
         _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="conflict-key"),
@@ -756,8 +773,6 @@ def test_apply_review_cross_submission_fails_closed_on_record_submission_closure
     assert idempotency_rows_after == idempotency_rows
 
 
-
-
 def test_apply_review_archive_race_barrier_blocks_withdraw_without_occupancy(
     review_seed: ReviewSeed,
 ) -> None:
@@ -797,7 +812,9 @@ def test_apply_review_integrity_failure_on_projection_event_divergence(
         _apply_review(review_seed, _apply_command(review_seed))
 
 
-def test_apply_review_fails_closed_on_seed_bound_idempotency_record(review_seed: ReviewSeed) -> None:
+def test_apply_review_fails_closed_on_seed_bound_idempotency_record(
+    review_seed: ReviewSeed,
+) -> None:
     with ControlDbUnitOfWork(review_seed.db_path) as unit_of_work:
         workspace_before = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
         assert workspace_before is not None
@@ -864,7 +881,9 @@ def test_apply_review_rolls_back_when_cas_projection_fails(review_seed: ReviewSe
     assert workspace == original_workspace
 
 
-def test_apply_review_rolls_back_when_release_occupancy_delete_fails(review_seed: ReviewSeed) -> None:
+def test_apply_review_rolls_back_when_release_occupancy_delete_fails(
+    review_seed: ReviewSeed,
+) -> None:
     with ControlDbUnitOfWork(review_seed.db_path, read_only=True) as unit_of_work:
         original_workspace = unit_of_work.workspace.get_workspace(review_seed.workspace_id)
         assert original_workspace is not None
@@ -923,7 +942,9 @@ def test_get_review_facts_fails_closed_on_corrupted_event_reason(review_seed: Re
     assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
 
 
-def test_apply_review_replay_fails_closed_on_corrupted_event_reason(review_seed: ReviewSeed) -> None:
+def test_apply_review_replay_fails_closed_on_corrupted_event_reason(
+    review_seed: ReviewSeed,
+) -> None:
     command = _apply_command(
         review_seed,
         action=ReviewAction.REJECT,
@@ -1066,7 +1087,9 @@ def test_apply_review_archive_closed_blocks_new_review(db_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-archive-close"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-archive-close"
+        ),
     )
     seed = archive_seed_from_review_seed(review_seed)
     confirmation_sequence = append_selection_confirmation(seed)

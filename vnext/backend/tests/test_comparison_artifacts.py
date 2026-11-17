@@ -12,9 +12,14 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 from gateway_backend.capabilities.comparison import (
-    DetailedFactsResult, RecordsArtifactFamily, RecordsCancelled, RecordsDetailPolicy,
-    RecordsPublicationContext, RecordsPublicationPolicy,
-    open_records_closure, rewrite_closure_refs,
+    DetailedFactsResult,
+    RecordsArtifactFamily,
+    RecordsCancelled,
+    RecordsDetailPolicy,
+    RecordsPublicationContext,
+    RecordsPublicationPolicy,
+    open_records_closure,
+    rewrite_closure_refs,
 )
 from gateway_backend.capabilities.comparison.artifacts import RecordsPublicationError
 from tests.support.comparison_s3_e_live import native_product, publish_product
@@ -48,7 +53,8 @@ def _publish_standard(
     context: RecordsPublicationContext | None = None,
 ) -> tuple[DetailedFactsResult, DetailedFactsResult]:
     product = native_product(
-        _STANDARD_BEFORE, _STANDARD_BEFORE if same else _STANDARD_CURRENT,
+        _STANDARD_BEFORE,
+        _STANDARD_BEFORE if same else _STANDARD_CURRENT,
     )
     try:
         assert isinstance(product.result, DetailedFactsResult)
@@ -76,14 +82,15 @@ def test_publish_and_reopen_standard_records_preserves_typed_null() -> None:
     assert source.facts.comparison_digest == published.facts.comparison_digest
     assert published.facts.records_ref is not None
     assert published.records_closure is not None
-    entry, = published.records_closure.records
+    (entry,) = published.records_closure.records
     assert entry.family is RecordsArtifactFamily.STANDARD
     assert "comparison_digest" not in json.loads(store.locate(entry.records_manifest_ref))
     closure_payload = json.loads(store.locate(published.facts.records_ref))
     assert closure_payload["comparison_digest"] == published.facts.comparison_digest.value
     reopened = open_records_closure(store, published.facts.records_ref)
     rows = [
-        row for batch in standalone_records_batches(store, reopened.records[0])
+        row
+        for batch in standalone_records_batches(store, reopened.records[0])
         for row in batch.to_pylist()
     ]
     assert rows[0]["record_kind"] == "ROW_MODIFIED"
@@ -108,7 +115,8 @@ def test_ordered_publication_uses_independent_record_families() -> None:
         product.close()
     assert published.records_closure is not None
     assert {entry.family for entry in published.records_closure.records} == {
-        RecordsArtifactFamily.ORDERED, RecordsArtifactFamily.BLANK,
+        RecordsArtifactFamily.ORDERED,
+        RecordsArtifactFamily.BLANK,
     }
 
 
@@ -126,11 +134,18 @@ def test_ref_rewrite_keeps_semantic_and_content_digests() -> None:
     _, published = _publish_standard(store)
     assert published.records_closure is not None
     closure = published.records_closure
-    entry, = closure.records
-    rewritten_rows = replace(entry.records_ref, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-ref-rewrite", "rows"))
-    rewritten_manifest = replace(entry.records_manifest_ref, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-ref-rewrite", "manifest"))
+    (entry,) = closure.records
+    rewritten_rows = replace(
+        entry.records_ref,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-ref-rewrite", "rows"),
+    )
+    rewritten_manifest = replace(
+        entry.records_manifest_ref,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-ref-rewrite", "manifest"),
+    )
     rewritten = rewrite_closure_refs(
-        closure, {
+        closure,
+        {
             entry.records_ref: rewritten_rows,
             entry.records_manifest_ref: rewritten_manifest,
         },
@@ -205,7 +220,8 @@ def test_manifest_or_closure_tampering_is_rejected(corrupt_kind: str) -> None:
     assert published.facts is not None and published.facts.records_ref is not None
     store.corrupt_ref = (
         published.records_closure.records[0].records_manifest_ref
-        if corrupt_kind == "manifest" else published.facts.records_ref
+        if corrupt_kind == "manifest"
+        else published.facts.records_ref
     )
     with pytest.raises(ValueError, match="(manifest|closure)"):
         open_records_closure(store, published.facts.records_ref)
@@ -219,7 +235,9 @@ def test_duplicate_closure_entry_is_rejected() -> None:
     payload["records"].append(payload["records"][0])
     duplicate_bytes = canonicalize_json_value(payload)
     duplicate_ref = put_with_built_ref(
-        store, duplicate_bytes, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-closure", "duplicate"),
+        store,
+        duplicate_bytes,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-closure", "duplicate"),
         media_type="application/json",
     )
     with pytest.raises(ValueError, match="repeat|closure"):
@@ -237,7 +255,8 @@ def test_duplicate_closure_entry_is_rejected() -> None:
     ),
 )
 def test_publication_limits_fail_before_returning_a_closure(
-    policy: RecordsPublicationPolicy, tmp_path: Path,
+    policy: RecordsPublicationPolicy,
+    tmp_path: Path,
 ) -> None:
     product = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
     try:
@@ -256,7 +275,8 @@ def test_reopen_enforces_per_table_record_limit() -> None:
     assert published.facts is not None and published.facts.records_ref is not None
     with pytest.raises(ValueError, match="per-table limit"):
         open_records_closure(
-            store, published.facts.records_ref,
+            store,
+            published.facts.records_ref,
             policy=RecordsPublicationPolicy(max_records_per_table=1),
         )
 
@@ -266,7 +286,8 @@ def test_publication_enforces_combined_family_record_limit() -> None:
     try:
         with pytest.raises(RecordsPublicationError, match="record"):
             publish_product(
-                product, InMemoryArtifactStore(),
+                product,
+                InMemoryArtifactStore(),
                 policy=RecordsPublicationPolicy(max_records_per_table=1),
             )
     finally:
@@ -279,7 +300,9 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
 ) -> None:
     store = InMemoryArtifactStore()
     product = native_product(
-        _STANDARD_BEFORE, _STANDARD_CURRENT, detail_policy=detail_policy,
+        _STANDARD_BEFORE,
+        _STANDARD_CURRENT,
+        detail_policy=detail_policy,
     )
     try:
         assert isinstance(product.result, DetailedFactsResult)
@@ -292,17 +315,18 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
     assert published.facts is not None and published.records_closure is not None
     assert published.facts.records_ref is not None
     assert published.facts.comparison_digest == source_digest
-    entry, = published.records_closure.records
+    (entry,) = published.records_closure.records
     payload = json.loads(store.locate(entry.records_manifest_ref))
     assert payload["row_diff_detail_policy"] == detail_policy.value
     reopened = open_records_closure(store, published.facts.records_ref)
     assert reopened.records == (entry,)
     batches = standalone_records_batches(store, entry)
-    row, = [row for batch in batches for row in batch.to_pylist()]
+    (row,) = [row for batch in batches for row in batch.to_pylist()]
     assert batches[0].schema.metadata is not None
-    assert batches[0].schema.metadata[
-        b"gateway-vnext.records.row_diff_detail_policy"
-    ] == detail_policy.value.encode()
+    assert (
+        batches[0].schema.metadata[b"gateway-vnext.records.row_diff_detail_policy"]
+        == detail_policy.value.encode()
+    )
     assert row["changed_columns"] == (
         [] if detail_policy is RecordsDetailPolicy.COUNTS_ONLY else ["note"]
     )
@@ -326,11 +350,14 @@ def test_detail_policy_is_manifested_without_changing_comparison_digest(
 def test_cancellation_and_operation_stop_propagate_without_a_closure() -> None:
     product = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
     try:
+
         def cancelled() -> None:
             raise RecordsCancelled("deadline")
+
         with pytest.raises(RecordsCancelled, match="deadline"):
             publish_product(
-                product, InMemoryArtifactStore(),
+                product,
+                InMemoryArtifactStore(),
                 context=RecordsPublicationContext(checkpoint=cancelled),
             )
         assert product.result.facts is not None
@@ -343,11 +370,14 @@ def test_cancellation_and_operation_stop_propagate_without_a_closure() -> None:
 def test_publication_propagates_operation_stop(error_type: type[Exception]) -> None:
     product = native_product(_STANDARD_BEFORE, _STANDARD_CURRENT)
     try:
+
         def stopped() -> None:
             raise error_type("operation stopped")
+
         with pytest.raises(error_type, match="operation stopped"):
             publish_product(
-                product, InMemoryArtifactStore(),
+                product,
+                InMemoryArtifactStore(),
                 context=RecordsPublicationContext(checkpoint=stopped),
             )
     finally:

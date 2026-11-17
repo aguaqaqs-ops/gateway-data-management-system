@@ -39,8 +39,12 @@ from gateway_backend.domain.archive.models import (
 )
 from gateway_backend.domain.workspace.models import BaselineHead
 from gateway_backend.http.schemas.archive_business import (
-    ArchiveBusinessValidationResponse, ArchiveIssueDetailsResponse, ArchiveAuditSubjectResponse,
-    ArchiveBusinessSubjectResponse, ArchiveSiblingSubjectResponse, ArchiveIdentitySubjectResponse,
+    ArchiveBusinessValidationResponse,
+    ArchiveIssueDetailsResponse,
+    ArchiveAuditSubjectResponse,
+    ArchiveBusinessSubjectResponse,
+    ArchiveSiblingSubjectResponse,
+    ArchiveIdentitySubjectResponse,
 )
 from gateway_backend.http.schemas.constraints import (
     BoundedDiagnosticReason,
@@ -61,9 +65,17 @@ ArchiveSubjectKindLiteral = Literal[
     "CONFIRM_SELECTION",
     "APPROVED_SIBLING_EXCLUDED",
     "PROJECT_IDENTITY_EXCEPTION",
-    "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER",
+    "CONFIGURATION_SOURCE",
+    "CONFIGURATION_TIME_QUALITY",
+    "CONFIGURATION_TIME_ORDER",
 ]
-ArchiveAnomalySubjectKindLiteral = Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"]
+ArchiveAnomalySubjectKindLiteral = Literal[
+    "APPROVED_SIBLING_EXCLUDED",
+    "PROJECT_IDENTITY_EXCEPTION",
+    "CONFIGURATION_SOURCE",
+    "CONFIGURATION_TIME_QUALITY",
+    "CONFIGURATION_TIME_ORDER",
+]
 ArchiveResolutionStatusLiteral = Literal["UNRESOLVED", "ACCEPTED", "REVOKED"]
 
 SubmissionDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
@@ -428,7 +440,9 @@ def preview_plan_to_response(result: PreviewArchivePlanResult) -> PreviewArchive
         blockers=list(result.blockers),
         pending_submission_ids=list(result.pending_submission_ids),
         pending_submission_count=len(result.pending_submission_ids),
-        business_validation=ArchiveBusinessValidationResponse.model_validate(result.business_validation.to_document()),
+        business_validation=ArchiveBusinessValidationResponse.model_validate(
+            result.business_validation.to_document()
+        ),
     )
 
 
@@ -492,7 +506,9 @@ def archive_result_to_response(result: GetArchiveResultResult) -> ArchiveResultR
         ],
         archived_by=plan.accepted_by,
         archived_at=archive_result.archived_at,
-        business_validation=ArchiveBusinessValidationResponse.model_validate(json.loads(plan.frozen_input_json)["business_validation"]),
+        business_validation=ArchiveBusinessValidationResponse.model_validate(
+            json.loads(plan.frozen_input_json)["business_validation"]
+        ),
     )
 
 
@@ -540,11 +556,16 @@ def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomal
         target_submission_id=anomaly.target_submission_id,
         target_candidate_digest=anomaly.target_candidate_digest,
         subject_digest=anomaly.subject_digest,
-        affected_submission_ids=list(anomaly.affected_submission_ids), side=anomaly.side,
-        relations=list(anomaly.relations), details=TypeAdapter(ArchiveIssueDetailsResponse).validate_python(anomaly.details),
-        detected_status=anomaly.detected_status, resolution_status=cast(ArchiveResolutionStatusLiteral, anomaly.resolution_status),
-        latest_sequence=anomaly.latest_sequence, accepted_by=anomaly.accepted_by,
-        accepted_at=anomaly.accepted_at, reason=anomaly.reason,
+        affected_submission_ids=list(anomaly.affected_submission_ids),
+        side=anomaly.side,
+        relations=list(anomaly.relations),
+        details=TypeAdapter(ArchiveIssueDetailsResponse).validate_python(anomaly.details),
+        detected_status=anomaly.detected_status,
+        resolution_status=cast(ArchiveResolutionStatusLiteral, anomaly.resolution_status),
+        latest_sequence=anomaly.latest_sequence,
+        accepted_by=anomaly.accepted_by,
+        accepted_at=anomaly.accepted_at,
+        reason=anomaly.reason,
     )
 
 
@@ -557,11 +578,14 @@ def _disposition_to_response(
     )
 
 
-def submission_disposition_to_response(disposition: SubmissionDisposition) -> SubmissionDispositionResponse:
+def submission_disposition_to_response(
+    disposition: SubmissionDisposition,
+) -> SubmissionDispositionResponse:
     return SubmissionDispositionResponse(
         submission_id=disposition.submission_id,
         disposition=disposition.disposition.value,
-        source_kind=disposition.source_kind.value, result_id=disposition.result_id,
+        source_kind=disposition.source_kind.value,
+        result_id=disposition.result_id,
         closure=closure_summary_to_response(disposition.manual_closure),
     )
 
@@ -603,9 +627,16 @@ def parse_archive_subject_kind(raw_value: str) -> ArchiveSubjectKind:
         raise ValueError("subject_kind is not supported") from None
 
 
-def closure_summary_to_response(closure: ManualSubmissionClosure | None) -> SubmissionClosureSummaryResponse | None:
-    return None if closure is None else SubmissionClosureSummaryResponse(
-        closed_by=closure.closed_by, closed_at=closure.closed_at, reason=closure.reason)
+def closure_summary_to_response(
+    closure: ManualSubmissionClosure | None,
+) -> SubmissionClosureSummaryResponse | None:
+    return (
+        None
+        if closure is None
+        else SubmissionClosureSummaryResponse(
+            closed_by=closure.closed_by, closed_at=closure.closed_at, reason=closure.reason
+        )
+    )
 
 
 def close_submission_to_response(result: CloseSubmissionResult) -> CloseSubmissionResponse:
@@ -613,9 +644,16 @@ def close_submission_to_response(result: CloseSubmissionResult) -> CloseSubmissi
     closure = record.manual_closure
     if closure is None:
         raise ValueError("manual closure source is missing")
-    return CloseSubmissionResponse(submission_id=record.submission_id, disposition="CLOSED_NOT_ARCHIVED",
-        source_kind="MANUAL_CLOSE", closed_by=closure.closed_by, closed_at=closure.closed_at,
-        reason=closure.reason, released_workspace_id=closure.workspace_id, workspace_version=closure.workspace_version + 1)
+    return CloseSubmissionResponse(
+        submission_id=record.submission_id,
+        disposition="CLOSED_NOT_ARCHIVED",
+        source_kind="MANUAL_CLOSE",
+        closed_by=closure.closed_by,
+        closed_at=closure.closed_at,
+        reason=closure.reason,
+        released_workspace_id=closure.workspace_id,
+        workspace_version=closure.workspace_version + 1,
+    )
 
 
 def archive_subject_to_response(value: str) -> ArchiveAuditSubjectResponse:

@@ -1,4 +1,5 @@
 """One table at a time, bind published STANDARD identities to final files."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Generator
@@ -17,10 +18,18 @@ from gateway_backend.capabilities.business_navigation import FilterRecord
 from gateway_backend.capabilities.business_navigation.contracts import RowValues
 from gateway_backend.capabilities.business_navigation import scalar_reason
 from gateway_backend.capabilities.comparison import (
-    ComparisonRecordsHandle, begin_records_operation, standard_identity_scanner, standard_identity_policy,
-    RecordsPublicationContext, RecordsPublicationPolicy, write_arrow_parquet,
+    ComparisonRecordsHandle,
+    begin_records_operation,
+    standard_identity_scanner,
+    standard_identity_policy,
+    RecordsPublicationContext,
+    RecordsPublicationPolicy,
+    write_arrow_parquet,
 )
-from gateway_backend.capabilities.comparison.contracts import RecordsClosureEntry, TableComparisonTask
+from gateway_backend.capabilities.comparison.contracts import (
+    RecordsClosureEntry,
+    TableComparisonTask,
+)
 from gateway_backend.capabilities.snapshot_materialization import canonical_comparison_input
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTable
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTableRefs
@@ -29,6 +38,7 @@ from .inputs import final_parquet_batches
 from .contracts import LOCATOR_SCHEMA, RowLocationResult
 
 _ROW_KINDS = frozenset({"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"})
+
 
 @dataclass(slots=True)
 class _Row:
@@ -48,23 +58,35 @@ def _canonical_batches(table: SnapshotTable) -> Iterator[Iterator[pa.RecordBatch
 
 
 def identity_batches(
-    table: SnapshotTable, policy_json: str, *, ref: ArtifactRef | None = None,
+    table: SnapshotTable,
+    policy_json: str,
+    *,
+    ref: ArtifactRef | None = None,
     store: ArtifactStorePort | None = None,
 ) -> Generator[tuple[pa.RecordBatch, list[str], list[bytes]], None, None]:
     """Keep decoded input/output and occurrence state within one operation M."""
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("row location requires an operation context")
-    source = (_canonical_batches(table) if ref is None else
-        final_parquet_batches(table.descriptor, ref, store) if store is not None else None)
+    source = (
+        _canonical_batches(table)
+        if ref is None
+        else final_parquet_batches(table.descriptor, ref, store)
+        if store is not None
+        else None
+    )
     if source is None:
         raise ValueError("final row location requires an artifact store")
     with source as batches:
         # Input decode is already admitted above. Return the unused native
         # envelope immediately on close; never create a second operation owner.
-        with closing(begin_records_operation(
+        with closing(
+            begin_records_operation(
                 native_budget_bytes=context.memory.available_bytes // 2,
-                cancel_probe=context.cancel_probe, deadline_monotonic=context.deadline_monotonic)) as phase:
+                cancel_probe=context.cancel_probe,
+                deadline_monotonic=context.deadline_monotonic,
+            )
+        ) as phase:
             with closing(standard_identity_scanner(phase, policy_json)) as scanner:
                 for batch in batches:
                     context.checkpoint()
@@ -76,7 +98,9 @@ def identity_batches(
                 context.checkpoint()
 
 
-def _filter_context(batch: pa.RecordBatch, index: int, column: str | None, sql: str | None) -> RowValues:
+def _filter_context(
+    batch: pa.RecordBatch, index: int, column: str | None, sql: str | None
+) -> RowValues:
     if column is None or (position := batch.schema.get_field_index(column)) < 0:
         return {}
     value = batch.column(position)[index].as_py()
@@ -90,25 +114,35 @@ def _filter_context(batch: pa.RecordBatch, index: int, column: str | None, sql: 
 
 
 def prepare_row_locations(
-    task: TableComparisonTask, entry: RecordsClosureEntry | None,
-    handle: ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
-    store: ArtifactStorePort, *, filter_column: str | None = None,
+    task: TableComparisonTask,
+    entry: RecordsClosureEntry | None,
+    handle: ComparisonRecordsHandle | None,
+    refs: SurfaceTableRefs,
+    store: ArtifactStorePort,
+    *,
+    filter_column: str | None = None,
 ) -> RowLocationResult:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("row location requires the operation context")
     with ExitStack() as charges:
-        result = _prepare_row_locations(task, entry, handle, refs, store,
-            filter_column=filter_column, charges=charges)
+        result = _prepare_row_locations(
+            task, entry, handle, refs, store, filter_column=filter_column, charges=charges
+        )
         result.charges = charges.pop_all()
     context.resources.callback(result.close)
     return result
 
 
 def _prepare_row_locations(
-    task: TableComparisonTask, entry: RecordsClosureEntry | None,
-    handle: ComparisonRecordsHandle | None, refs: SurfaceTableRefs,
-    store: ArtifactStorePort, *, filter_column: str | None, charges: ExitStack,
+    task: TableComparisonTask,
+    entry: RecordsClosureEntry | None,
+    handle: ComparisonRecordsHandle | None,
+    refs: SurfaceTableRefs,
+    store: ArtifactStorePort,
+    *,
+    filter_column: str | None,
+    charges: ExitStack,
 ) -> RowLocationResult:
     context = current_kernel_context()
     if context is None:
@@ -141,7 +175,9 @@ def _prepare_row_locations(
                     raise ValueError("published row identities are ambiguous")
                 changed = None if changed_index < 0 else batch.column(changed_index)[index].as_py()
                 if changed:
-                    charges.enter_context(context.memory.reserve(sum(len(column) * 16 + 64 for column in changed)))
+                    charges.enter_context(
+                        context.memory.reserve(sum(len(column) * 16 + 64 for column in changed))
+                    )
                 rows[key] = _Row(kind, tuple(changed or ()))
     if actual_count != entry.record_count:
         raise ValueError("published records count differs from native records")
@@ -149,8 +185,10 @@ def _prepare_row_locations(
         return RowLocationResult((), 0, None)
     policy_json = canonicalize_json_value(standard_identity_policy(task)).decode()
     scanned = 0
-    for side, table, ref in (("before", task.before_table, refs.before_table_ref),
-                             ("current", task.current_table, refs.current_table_ref)):
+    for side, table, ref in (
+        ("before", task.before_table, refs.before_table_ref),
+        ("current", task.current_table, refs.current_table_ref),
+    ):
         if table is None:
             raise ValueError("row location canonical side is unavailable")
         descriptor = table.descriptor
@@ -162,7 +200,9 @@ def _prepare_row_locations(
                 row = rows.get(identity)
                 if row is None:
                     continue
-                if (side == "before" and row.kind == "ROW_ADDED") or (side == "current" and row.kind == "ROW_DELETED"):
+                if (side == "before" and row.kind == "ROW_ADDED") or (
+                    side == "current" and row.kind == "ROW_DELETED"
+                ):
                     raise ValueError("published record contradicts logical side presence")
                 if identity in matched:
                     raise ValueError("row identity matches multiple physical rows")
@@ -179,8 +219,11 @@ def _prepare_row_locations(
             position += batch.num_rows
             del batch, identities, _
         scanned += position
-        expected = {identity for identity, row in rows.items()
-            if row.kind != ("ROW_ADDED" if side == "before" else "ROW_DELETED")}
+        expected = {
+            identity
+            for identity, row in rows.items()
+            if row.kind != ("ROW_ADDED" if side == "before" else "ROW_DELETED")
+        }
         if matched != expected:
             raise ValueError("published record has no unique final/canonical row")
     ordered = sorted(rows)
@@ -194,16 +237,26 @@ def _prepare_row_locations(
         data["current_row_index"].append(row.current_index)
         for side, ref in (("before", refs.before_table_ref), ("current", refs.current_table_ref)):
             values = getattr(row, side)
-            encoded = (canonicalize_json_value(dict(values)).decode() if filter_column is not None
-                and ref is None and values is not None else None)
+            encoded = (
+                canonicalize_json_value(dict(values)).decode()
+                if filter_column is not None and ref is None and values is not None
+                else None
+            )
             data[side + "_filter_context_json"].append(encoded)
-        records.append(FilterRecord(identity, row.kind, row.before, row.current, changed_columns=row.changed_columns))
+        records.append(
+            FilterRecord(
+                identity, row.kind, row.before, row.current, changed_columns=row.changed_columns
+            )
+        )
     batch = pa.RecordBatch.from_pydict(data, schema=LOCATOR_SCHEMA)
     return RowLocationResult(tuple(records), scanned, batch)
 
 
 def publish_row_locations(
-    result: RowLocationResult, store: ArtifactStorePort, *, filtered: bool,
+    result: RowLocationResult,
+    store: ArtifactStorePort,
+    *,
+    filtered: bool,
 ) -> ArtifactRef | None:
     """Publish once, after the actual navigation decides whether contexts apply."""
     context = current_kernel_context()
@@ -213,11 +266,28 @@ def publish_row_locations(
     if batch is None:
         return None
     if not filtered:
-        batch = pa.RecordBatch.from_arrays([batch.column(0), batch.column(1), batch.column(2),
-            pa.nulls(batch.num_rows, type=pa.string()), pa.nulls(batch.num_rows, type=pa.string())], schema=LOCATOR_SCHEMA)
-    raw = write_arrow_parquet((batch,), LOCATOR_SCHEMA, RecordsPublicationPolicy(),
-        RecordsPublicationContext(checkpoint=context.checkpoint))
-    ref = put_with_built_ref(store, raw,
-        artifact_id=build_artifact_id(ArtifactLocation.COMPARISON, "row-locator", raw_blob_digest(raw).value),
-        media_type="application/vnd.apache.parquet")
+        batch = pa.RecordBatch.from_arrays(
+            [
+                batch.column(0),
+                batch.column(1),
+                batch.column(2),
+                pa.nulls(batch.num_rows, type=pa.string()),
+                pa.nulls(batch.num_rows, type=pa.string()),
+            ],
+            schema=LOCATOR_SCHEMA,
+        )
+    raw = write_arrow_parquet(
+        (batch,),
+        LOCATOR_SCHEMA,
+        RecordsPublicationPolicy(),
+        RecordsPublicationContext(checkpoint=context.checkpoint),
+    )
+    ref = put_with_built_ref(
+        store,
+        raw,
+        artifact_id=build_artifact_id(
+            ArtifactLocation.COMPARISON, "row-locator", raw_blob_digest(raw).value
+        ),
+        media_type="application/vnd.apache.parquet",
+    )
     return ref

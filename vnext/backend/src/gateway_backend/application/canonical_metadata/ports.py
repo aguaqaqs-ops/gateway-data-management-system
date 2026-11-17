@@ -29,7 +29,10 @@ class CommitCanonicalScope:
     business_project_id: str
 
     def __post_init__(self) -> None:
-        if type(self.gateway_device_external_key) is not str or not self.gateway_device_external_key:
+        if (
+            type(self.gateway_device_external_key) is not str
+            or not self.gateway_device_external_key
+        ):
             raise ValueError("gateway_device_external_key must be a non-empty string")
         if type(self.business_project_id) is not str or not self.business_project_id:
             raise ValueError("business_project_id must be a non-empty string")

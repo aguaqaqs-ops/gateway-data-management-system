@@ -28,9 +28,7 @@ def surface_digest_payload(surface: ComparisonSurface) -> dict[str, object]:
         "project_identity_assessment": _optional_artifact_integrity(
             surface.refs.project_identity_assessment_ref
         ),
-        "records_closure": _optional_artifact_integrity(
-            surface.refs.records_closure_ref
-        ),
+        "records_closure": _optional_artifact_integrity(surface.refs.records_closure_ref),
         "risk_annotation_closure": _optional_artifact_integrity(
             surface.refs.risk_annotation_closure_ref
         ),
@@ -60,9 +58,7 @@ def surface_digest_payload(surface: ComparisonSurface) -> dict[str, object]:
         }
         table_document["risk_refs"] = {
             "annotation_count": table.risk_refs.annotation_count,
-            "annotation": _optional_artifact_integrity(
-                table.risk_refs.annotation_ref
-            ),
+            "annotation": _optional_artifact_integrity(table.risk_refs.annotation_ref),
             "annotation_manifest": _optional_artifact_integrity(
                 table.risk_refs.annotation_manifest_ref
             ),
@@ -72,9 +68,7 @@ def surface_digest_payload(surface: ComparisonSurface) -> dict[str, object]:
             if table.risk_refs.risk_level is None
             else table.risk_refs.risk_level.value,
         }
-        table_document["ordered_extension"] = _ordered_digest_payload(
-            table.ordered_extension
-        )
+        table_document["ordered_extension"] = _ordered_digest_payload(table.ordered_extension)
         table_documents.append(table_document)
     document.pop("tables", None)
     document["_tables"] = table_documents
@@ -84,9 +78,7 @@ def surface_digest_payload(surface: ComparisonSurface) -> dict[str, object]:
             **projection.to_document(),
             "diagnostics_ref": None,
             "projection_ref": artifact_integrity(projection.projection_ref),
-            "risk_summary_ref": _optional_artifact_integrity(
-                projection.risk_summary_ref
-            ),
+            "risk_summary_ref": _optional_artifact_integrity(projection.risk_summary_ref),
         }
         for projection in surface.projections
     ]

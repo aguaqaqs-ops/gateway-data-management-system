@@ -3,6 +3,7 @@
 Pure parsing and append checks only. Filesystem ownership/mounts and aggregate
 resource validation are performed by the deployment preflight owner.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,11 +27,14 @@ _PROJECT = re.compile(r"[a-z0-9][a-z0-9_-]{0,62}\Z")
 def _document(raw: bytes, limit: int) -> dict[str, object]:
     if type(raw) is not bytes or len(raw) > limit:
         raise ValueError("processing-group document exceeds byte limit")
+
     def invalid_constant(value: str) -> object:
         raise ValueError("non-finite JSON constant")
+
     try:
-        value: object = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs,
-            parse_constant=invalid_constant)
+        value: object = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=invalid_constant
+        )
     except (UnicodeError, RecursionError) as exc:
         raise ValueError("processing-group document is invalid UTF-8 JSON") from exc
     if type(value) is not dict:
@@ -50,8 +54,16 @@ def _read(path: Path, limit: int) -> bytes:
 
 
 def _serialize(model: DeviceDirectory | ProcessingGroupsConfig) -> bytes:
-    return (json.dumps(asdict(model), ensure_ascii=False, allow_nan=False,
-        separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
+    return (
+        json.dumps(
+            asdict(model),
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +85,9 @@ class DeviceDirectory:
 
     @classmethod
     def from_bytes(cls, raw: bytes, *, known_groups: set[str] | frozenset[str]) -> DeviceDirectory:
-        doc = _object(_document(raw, MAX_DIRECTORY_BYTES), {"schema_version", "environment_id", "devices"})
+        doc = _object(
+            _document(raw, MAX_DIRECTORY_BYTES), {"schema_version", "environment_id", "devices"}
+        )
         environment = _header(doc)
         rows = doc["devices"]
         if type(rows) is not list or len(rows) > MAX_DIRECTORY_DEVICES:
@@ -112,7 +126,9 @@ class DeviceDirectory:
         for old in previous.devices:
             new = current.get(old.gateway_device_external_key)
             if new is None or new.group_id != old.group_id or (old.enabled and not new.enabled):
-                raise ValueError("existing device reservation cannot be removed, rebound or disabled")
+                raise ValueError(
+                    "existing device reservation cannot be removed, rebound or disabled"
+                )
 
     def require_reservation(self, device: str, group: str) -> DeviceDirectoryEntry:
         validate_scope_identity(device)
@@ -159,7 +175,12 @@ class GroupDeployment:
 
 
 def _image(value: object) -> str:
-    if type(value) is not str or len(value) > 255 or "://" in value or _IMAGE.fullmatch(value) is None:
+    if (
+        type(value) is not str
+        or len(value) > 255
+        or "://" in value
+        or _IMAGE.fullmatch(value) is None
+    ):
         raise ValueError("image must be an explicit image reference")
     if "@sha256:" not in value:
         tag = value.rsplit("/", 1)[-1].split(":")
@@ -189,45 +210,107 @@ class ProcessingGroupsConfig:
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> ProcessingGroupsConfig:
-        doc = _object(_document(raw, MAX_GROUPS_BYTES), {"schema_version", "environment_id", "host", "entry", "groups"})
+        doc = _object(
+            _document(raw, MAX_GROUPS_BYTES),
+            {"schema_version", "environment_id", "host", "entry", "groups"},
+        )
         environment = _header(doc)
-        host_raw = _object(doc["host"], {"memory_bytes", "cpu_count", "shared_memory_reserve_bytes", "shared_cpu_reserve"})
-        host = HostBudget(_integer(host_raw["memory_bytes"]), _integer(host_raw["cpu_count"]),
+        host_raw = _object(
+            doc["host"],
+            {"memory_bytes", "cpu_count", "shared_memory_reserve_bytes", "shared_cpu_reserve"},
+        )
+        host = HostBudget(
+            _integer(host_raw["memory_bytes"]),
+            _integer(host_raw["cpu_count"]),
             _integer(host_raw["shared_memory_reserve_bytes"], minimum=0),
-            _number(host_raw["shared_cpu_reserve"], allow_zero=True))
-        row = _object(doc["entry"], {"listen_address", "listen_port", "management_port", "image", "memory_limit_bytes", "cpu_limit"})
+            _number(host_raw["shared_cpu_reserve"], allow_zero=True),
+        )
+        row = _object(
+            doc["entry"],
+            {
+                "listen_address",
+                "listen_port",
+                "management_port",
+                "image",
+                "memory_limit_bytes",
+                "cpu_limit",
+            },
+        )
         # Bind literals are deliberately finite; no Nginx, shell or caller URL interpolation.
         address = row["listen_address"]
         if type(address) is not str or address not in {"0.0.0.0", "127.0.0.1", "::", "::1"}:
             raise ValueError("entry listen_address must be a supported IP bind literal")
-        entry = EntryDeployment(address, _port(row["listen_port"]), _port(row["management_port"]),
-            _image(row["image"]), _integer(row["memory_limit_bytes"]), _number(row["cpu_limit"]))
+        entry = EntryDeployment(
+            address,
+            _port(row["listen_port"]),
+            _port(row["management_port"]),
+            _image(row["image"]),
+            _integer(row["memory_limit_bytes"]),
+            _number(row["cpu_limit"]),
+        )
         rows = doc["groups"]
         if type(rows) is not list or not 1 <= len(rows) <= MAX_GROUPS:
             raise ValueError("groups must contain 1..32 groups")
         groups: list[GroupDeployment] = []
         for row in rows:
-            item = _object(row, {"group_id", "project", "backend_port", "storage_config", "resource_config",
-                "session_directory", "internal_token_file", "repository_token_file", "images"})
+            item = _object(
+                row,
+                {
+                    "group_id",
+                    "project",
+                    "backend_port",
+                    "storage_config",
+                    "resource_config",
+                    "session_directory",
+                    "internal_token_file",
+                    "repository_token_file",
+                    "images",
+                },
+            )
             project = item["project"]
             if type(project) is not str or _PROJECT.fullmatch(project) is None:
                 raise ValueError("compose project is invalid")
-            images_raw = _object(item["images"], {"backend", "worker", "repository_service", "revision"})
+            images_raw = _object(
+                item["images"], {"backend", "worker", "repository_service", "revision"}
+            )
             revision = images_raw["revision"]
             if type(revision) is not str or _REVISION.fullmatch(revision) is None:
                 raise ValueError("image revision must be a complete lowercase Git SHA")
-            images = GroupImages(_image(images_raw["backend"]), _image(images_raw["worker"]),
-                _image(images_raw["repository_service"]), revision)
-            groups.append(GroupDeployment(validate_deployment_identity(item["group_id"]), project,
-                _port(item["backend_port"]), _controlled_path(item["storage_config"]),
-                _controlled_path(item["resource_config"]), _controlled_path(item["session_directory"]),
-                _controlled_path(item["internal_token_file"]), _controlled_path(item["repository_token_file"]), images))
-        if len({group.group_id for group in groups}) != len(groups) or len({group.project for group in groups}) != len(groups):
+            images = GroupImages(
+                _image(images_raw["backend"]),
+                _image(images_raw["worker"]),
+                _image(images_raw["repository_service"]),
+                revision,
+            )
+            groups.append(
+                GroupDeployment(
+                    validate_deployment_identity(item["group_id"]),
+                    project,
+                    _port(item["backend_port"]),
+                    _controlled_path(item["storage_config"]),
+                    _controlled_path(item["resource_config"]),
+                    _controlled_path(item["session_directory"]),
+                    _controlled_path(item["internal_token_file"]),
+                    _controlled_path(item["repository_token_file"]),
+                    images,
+                )
+            )
+        if len({group.group_id for group in groups}) != len(groups) or len(
+            {group.project for group in groups}
+        ) != len(groups):
             raise ValueError("group identities and projects must be unique")
-        ports = [entry.listen_port, entry.management_port, *(group.backend_port for group in groups)]
+        ports = [
+            entry.listen_port,
+            entry.management_port,
+            *(group.backend_port for group in groups),
+        ]
         if len(set(ports)) != len(ports):
             raise ValueError("entry and backend ports must be distinct")
-        secret_files = [path for group in groups for path in (group.internal_token_file, group.repository_token_file)]
+        secret_files = [
+            path
+            for group in groups
+            for path in (group.internal_token_file, group.repository_token_file)
+        ]
         if len(set(secret_files)) != len(secret_files):
             raise ValueError("group token files must be distinct")
         if len({group.session_directory for group in groups}) != len(groups):
@@ -247,5 +330,6 @@ class ProcessingGroupsConfig:
 
     def require_directory(self, directory: DeviceDirectory) -> None:
         if directory.environment_id != self.environment_id or any(
-                item.group_id not in self.group_ids for item in directory.devices):
+            item.group_id not in self.group_ids for item in directory.devices
+        ):
             raise ValueError("directory deployment does not match groups configuration")

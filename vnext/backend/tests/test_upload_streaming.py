@@ -42,7 +42,9 @@ pytestmark = pytest.mark.unit
 _BOUNDARY = "----gateway-test-boundary"
 
 
-def test_iter_file_chunks_yields_an_iterator_not_a_joined_list(tmp_path: Path, scratch_space: ScratchSpace) -> None:
+def test_iter_file_chunks_yields_an_iterator_not_a_joined_list(
+    tmp_path: Path, scratch_space: ScratchSpace
+) -> None:
     path = tmp_path / "part.bin"
     path.write_bytes(b"abcdef")
     with scratch_space.file(owner="upload:chunk-test") as (source, output):
@@ -61,9 +63,7 @@ def test_validate_source_package_archive_accepts_file_handle(scratch_space: Scra
 def test_stalled_body_times_out_while_waiting_for_next_chunk(scratch_space: ScratchSpace) -> None:
     async def stalled_stream() -> AsyncIterator[bytes]:
         yield (
-            f"--{_BOUNDARY}\r\n"
-            'Content-Disposition: form-data; name="manifest"\r\n\r\n'
-            "{"
+            f'--{_BOUNDARY}\r\nContent-Disposition: form-data; name="manifest"\r\n\r\n{{'
         ).encode("ascii")
         await asyncio.sleep(0.15)
 
@@ -103,13 +103,10 @@ def test_total_stream_timeout_has_total_reason(scratch_space: ScratchSpace) -> N
 
 
 def test_low_rate_stream_within_size_derived_total_budget_is_accepted(
-    monkeypatch: pytest.MonkeyPatch,
-scratch_space: ScratchSpace
+    monkeypatch: pytest.MonkeyPatch, scratch_space: ScratchSpace
 ) -> None:
     maximum = 32 * 1024 * 1024
-    payload = _multipart_body(
-        [("manifest", b"{}"), ("modified", b"x" * (256 * 1024))]
-    )
+    payload = _multipart_body([("manifest", b"{}"), ("modified", b"x" * (256 * 1024))])
 
     class Clock:
         now = 0.0
@@ -141,7 +138,7 @@ scratch_space: ScratchSpace
             SimpleNamespace(wait_for=advance_per_chunk),
         )
         parsed = await parse_streaming_multipart(
-                scratch=scratch_space,
+            scratch=scratch_space,
             headers=Headers({"content-type": f"multipart/form-data; boundary={_BOUNDARY}"}),
             stream=slow_stream(),
             max_compressed=maximum,
@@ -158,8 +155,7 @@ scratch_space: ScratchSpace
 
 
 def test_idle_stream_timeout_maps_to_http_408_with_reason(
-    monkeypatch: pytest.MonkeyPatch,
-scratch_space: ScratchSpace
+    monkeypatch: pytest.MonkeyPatch, scratch_space: ScratchSpace
 ) -> None:
     async def timeout(**_kwargs: object) -> object:
         raise UploadStreamTimeoutError(UploadStreamTimeoutReason.IDLE)
@@ -222,9 +218,7 @@ scratch_space: ScratchSpace
 
 @pytest.mark.serial
 def test_direct_task_cancellation_waits_for_upload_acceptance_before_cleanup(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-scratch_space: ScratchSpace
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scratch_space: ScratchSpace
 ) -> None:
     resources = ExitStack()
     session = resources.enter_context(scratch_space.session(owner="upload:cancellation-test"))
@@ -236,7 +230,8 @@ scratch_space: ScratchSpace
     parsed = ParsedMultipartUpload(
         manifest_bytes=b"{}",
         file_parts={"modified": StagedUploadPart("modified", source, 17)},
-        resources=resources, scratch=session,
+        resources=resources,
+        scratch=session,
     )
     started = threading.Event()
     finish_transaction = threading.Event()
@@ -265,7 +260,9 @@ scratch_space: ScratchSpace
     def accept_transaction(**kwargs: object) -> object:
         upload = kwargs["parsed"]
         assert isinstance(upload, ParsedMultipartUpload)
-        assert b"".join(iter_file_chunks(upload.file_parts["modified"].source)) == b"transaction-input"
+        assert (
+            b"".join(iter_file_chunks(upload.file_parts["modified"].source)) == b"transaction-input"
+        )
         started.set()
         assert finish_transaction.wait(timeout=5)
         committed.append(b"".join(iter_file_chunks(upload.file_parts["modified"].source)))
@@ -337,7 +334,9 @@ scratch_space: ScratchSpace
     asyncio.run(run())
 
 
-def test_non_multipart_content_type_is_rejected_before_parsing_body(scratch_space: ScratchSpace) -> None:
+def test_non_multipart_content_type_is_rejected_before_parsing_body(
+    scratch_space: ScratchSpace,
+) -> None:
     payload = _multipart_body([("manifest", b"{}"), ("modified", b"abc")])
 
     async def run() -> None:
@@ -354,7 +353,9 @@ def test_non_multipart_content_type_is_rejected_before_parsing_body(scratch_spac
     asyncio.run(run())
 
 
-def test_caller_controlled_part_name_is_rejected_without_pathname_escape(scratch_space: ScratchSpace) -> None:
+def test_caller_controlled_part_name_is_rejected_without_pathname_escape(
+    scratch_space: ScratchSpace,
+) -> None:
     payload = _multipart_body([("x/y", b"not-a-path")])
 
     async def run() -> None:
@@ -400,7 +401,7 @@ def test_file_part_uses_server_owned_staging_name(scratch_space: ScratchSpace) -
 
     async def run() -> None:
         parsed = await parse_streaming_multipart(
-                scratch=scratch_space,
+            scratch=scratch_space,
             headers=Headers({"content-type": f"multipart/form-data; boundary={_BOUNDARY}"}),
             stream=_one_chunk(payload),
         )
@@ -425,11 +426,9 @@ def _multipart_body(parts: list[tuple[str, bytes]]) -> bytes:
     chunks: list[bytes] = []
     for name, body in parts:
         chunks.append(
-            (
-                f"--{_BOUNDARY}\r\n"
-                f'Content-Disposition: form-data; name="{name}"\r\n'
-                "\r\n"
-            ).encode("ascii")
+            (f'--{_BOUNDARY}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n').encode(
+                "ascii"
+            )
             + body
             + b"\r\n"
         )
@@ -437,29 +436,48 @@ def _multipart_body(parts: list[tuple[str, bytes]]) -> bytes:
     return b"".join(chunks)
 
 
-@pytest.mark.parametrize('fault', ('aggregate', 'construction', 'write'))
+@pytest.mark.parametrize("fault", ("aggregate", "construction", "write"))
 def test_multipart_owner_covers_all_parts_and_cleans_every_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
 ) -> None:
     from gateway_backend.http.orchestration.source_package_admission import UploadLimitExceededError
     from gateway_backend.infrastructure.artifact_store.scratch import _BudgetedFile
-    root = tmp_path / 'multipart-scratch'
+
+    root = tmp_path / "multipart-scratch"
     root.mkdir()
     space = ScratchSpace(root, max_bytes=5)
-    body = _multipart_body([('manifest', b'{}'), ('one', b'abc'), ('two', b'def')])
-    if fault == 'construction':
+    body = _multipart_body([("manifest", b"{}"), ("one", b"abc"), ("two", b"def")])
+    if fault == "construction":
+
         def broken_parser(*args: object, **kwargs: object) -> object:
-            raise ValueError('injected parser construction failure')
-        monkeypatch.setattr('gateway_backend.http.orchestration.multipart_stream.multipart.MultipartParser', broken_parser)
-    if fault == 'write':
+            raise ValueError("injected parser construction failure")
+
+        monkeypatch.setattr(
+            "gateway_backend.http.orchestration.multipart_stream.multipart.MultipartParser",
+            broken_parser,
+        )
+    if fault == "write":
+
         def full_disk(self: object, data: object) -> int:
-            raise OSError(28, 'injected ENOSPC')
-        monkeypatch.setattr(_BudgetedFile, 'write', full_disk)
+            raise OSError(28, "injected ENOSPC")
+
+        monkeypatch.setattr(_BudgetedFile, "write", full_disk)
+
     async def run() -> None:
-        error = {'aggregate': UploadLimitExceededError, 'construction': ValueError, 'write': OSError}[fault]
+        error = {
+            "aggregate": UploadLimitExceededError,
+            "construction": ValueError,
+            "write": OSError,
+        }[fault]
         with pytest.raises(error):
-            await parse_streaming_multipart(scratch=space,
-                headers=Headers({'content-type': f'multipart/form-data; boundary={_BOUNDARY}'}),
-                stream=_one_chunk(body), max_compressed=5)
+            await parse_streaming_multipart(
+                scratch=space,
+                headers=Headers({"content-type": f"multipart/form-data; boundary={_BOUNDARY}"}),
+                stream=_one_chunk(body),
+                max_compressed=5,
+            )
+
     asyncio.run(run())
     assert not list(root.iterdir())

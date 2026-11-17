@@ -21,15 +21,27 @@ from gateway_backend.capabilities.table_rules.contracts import (
     table_ruleset_from_document,
     table_ruleset_document,
 )
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules import (
+    comparison_rule_set,
+    migrated_table_ruleset_snapshot,
+)
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 
 
 # Independent Contract vectors: include tables absent from available real dumps.
 CONFIGURATION_TABLE_NAMES = (
-    "cnt_manage_cfg", "iec101_cfg", "iec104_cfg", "iec104gw_cfg",
-    "iec61850c_cfg", "jdxx_cfg", "sc_cfg", "scada_cfg",
-    "sg_manage_cfg", "vqc_cfg", "wave_cfg", "wf_cfg",
+    "cnt_manage_cfg",
+    "iec101_cfg",
+    "iec104_cfg",
+    "iec104gw_cfg",
+    "iec61850c_cfg",
+    "jdxx_cfg",
+    "sc_cfg",
+    "scada_cfg",
+    "sg_manage_cfg",
+    "vqc_cfg",
+    "wave_cfg",
+    "wf_cfg",
 )
 
 
@@ -115,7 +127,9 @@ def standard_rule_record(
 
 def fallback_record() -> TableRuleRecord:
     return TableRuleRecord(
-        selector=TableRuleSelector(kind=TableRuleSelectorKind.FALLBACK, value=FALLBACK_SELECTOR_VALUE),
+        selector=TableRuleSelector(
+            kind=TableRuleSelectorKind.FALLBACK, value=FALLBACK_SELECTOR_VALUE
+        ),
         precedence_class=SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK,
         static_role=TableStaticRole.STANDARD_DIFF,
         table_storage=TableStorageDisposition.PROJECT,
@@ -126,7 +140,9 @@ def fallback_record() -> TableRuleRecord:
     )
 
 
-def protocol_option_record(pattern: str, *, key_columns: tuple[str, ...] = ("page_no", "no")) -> TableRuleRecord:
+def protocol_option_record(
+    pattern: str, *, key_columns: tuple[str, ...] = ("page_no", "no")
+) -> TableRuleRecord:
     return TableRuleRecord(
         selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern),
         precedence_class=SelectorPrecedenceClass.STANDARD_PROTOCOL_OPTION,
@@ -162,6 +178,9 @@ def snapshot_from_records(*records: TableRuleRecord) -> TableRulesetSnapshot:
 
 def comparison_ruleset_for(*records: TableRuleRecord) -> ComparisonRuleSet:
     rules = records
-    if not any(record.precedence_class is SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK for record in rules):
+    if not any(
+        record.precedence_class is SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK
+        for record in rules
+    ):
         rules = (*rules, fallback_record())
     return comparison_rule_set(snapshot_from_records(*rules))

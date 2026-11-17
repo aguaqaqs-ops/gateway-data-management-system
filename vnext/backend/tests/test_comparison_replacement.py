@@ -8,7 +8,10 @@ import pytest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
-from gateway_backend.application.preview_jobs import _comparison_storage_facts, surface_artifact_closure
+from gateway_backend.application.preview_jobs import (
+    _comparison_storage_facts,
+    surface_artifact_closure,
+)
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
     BundleAssemblyInput,
@@ -53,8 +56,9 @@ def _bound(sql: str) -> BoundSnapshotInput:
     assert result.snapshot is not None
     assert result.summary is not None
     assert result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
-        presentation=result.presentation)
+    return BoundSnapshotInput(
+        result.snapshot, result.summary, result.table_set, presentation=result.presentation
+    )
 
 
 def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
@@ -62,23 +66,37 @@ def _artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInpu
     from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
     from gateway_backend.capabilities.table_access import NeverCancel, ParserInvocationContext
     from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+
     raw = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert raw.snapshot is not None and raw.table_set is not None
-    projected = project_canonical_arrow_table_set(raw.table_set, migrated_table_ruleset_snapshot(),
-        presentation=raw.presentation)
+    projected = project_canonical_arrow_table_set(
+        raw.table_set, migrated_table_ruleset_snapshot(), presentation=raw.presentation
+    )
     assert projected.manifest is not None
     try:
-        result = materialize_canonical_snapshot(raw.snapshot, projected.tables, artifact_store=store,
-            context=ParserInvocationContext(NeverCancel()), repository_id="replacement-fixture")
+        result = materialize_canonical_snapshot(
+            raw.snapshot,
+            projected.tables,
+            artifact_store=store,
+            context=ParserInvocationContext(NeverCancel()),
+            repository_id="replacement-fixture",
+        )
     finally:
         for table in (*raw.table_set.tables, *projected.tables):
             if table.reader is not None:
                 table.reader.close()
             if table.batch_reader is not None:
                 table.batch_reader.close()
-    assert result.snapshot is not None and result.summary is not None and result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
-        _comparison_storage_facts(projected.manifest), presentation=projected.manifest.presentation)
+    assert (
+        result.snapshot is not None and result.summary is not None and result.table_set is not None
+    )
+    return BoundSnapshotInput(
+        result.snapshot,
+        result.summary,
+        result.table_set,
+        _comparison_storage_facts(projected.manifest),
+        presentation=projected.manifest.presentation,
+    )
 
 
 def _replacement(
@@ -170,9 +188,7 @@ def test_replacement_risk_is_high_at_pair_scope_without_table_annotations() -> N
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert result.risk_report.overall.risk_level is RiskLevel.HIGH
-    assert result.risk_report.overall.reason_codes == (
-        RiskReasonCode.PROJECT_IDENTITY_MISMATCH,
-    )
+    assert result.risk_report.overall.reason_codes == (RiskReasonCode.PROJECT_IDENTITY_MISMATCH,)
     assert result.risk_report.overall.table_count == 0
     assert result.risk_report.overall.annotation_count == 0
     assert result.risk_report.tables == ()
@@ -198,7 +214,8 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         pair_id=pair_id,
         before=before,
         current=current,
-        before_presentation=before.presentation, current_presentation=current.presentation,
+        before_presentation=before.presentation,
+        current_presentation=current.presentation,
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
@@ -216,7 +233,8 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         pair.records_closure,
         before=before,
         current=current,
-        store=store, repository_id="replacement-fixture",
+        store=store,
+        repository_id="replacement-fixture",
     )
     bundle = assemble_bundle(
         BundleAssemblyInput(
@@ -224,7 +242,9 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
             bundle_profile=BundleProfile.SINGLE_PAIR,
             inputs=(
                 BundleInput(0, "before", "Before", snapshot_digest=before.snapshot.snapshot_digest),
-                BundleInput(1, "current", "Current", snapshot_digest=current.snapshot.snapshot_digest),
+                BundleInput(
+                    1, "current", "Current", snapshot_digest=current.snapshot.snapshot_digest
+                ),
             ),
             pairs=(
                 BundlePairInput(
@@ -244,9 +264,7 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
     assert bundle.bundle is not None
     assert bundle.bundle.artifact_closure_ref is not None
     closure_document = json.loads(store.locate(bundle.bundle.artifact_closure_ref))
-    logical_paths = {
-        item["logical_path"] for item in closure_document["closure_entries"]
-    }
+    logical_paths = {item["logical_path"] for item in closure_document["closure_entries"]}
     assert f"pairs/{pair_id}/tables/before/version_manager.parquet" in logical_paths
     assert f"pairs/{pair_id}/tables/current/version_manager.parquet" in logical_paths
 
@@ -275,7 +293,8 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         pair_id=pair_id,
         before=before,
         current=current,
-        before_presentation=before.presentation, current_presentation=current.presentation,
+        before_presentation=before.presentation,
+        current_presentation=current.presentation,
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
@@ -290,7 +309,8 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         pair.records_closure,
         before=before,
         current=current,
-        store=store, repository_id="replacement-fixture",
+        store=store,
+        repository_id="replacement-fixture",
         include_all_tables=True,
     )
     result = assemble_bundle(
@@ -299,7 +319,9 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
             bundle_profile=BundleProfile.SINGLE_PAIR,
             inputs=(
                 BundleInput(0, "before", "Before", snapshot_digest=before.snapshot.snapshot_digest),
-                BundleInput(1, "current", "Current", snapshot_digest=current.snapshot.snapshot_digest),
+                BundleInput(
+                    1, "current", "Current", snapshot_digest=current.snapshot.snapshot_digest
+                ),
             ),
             pairs=(BundlePairInput(pair_id, 0, 1, pair.surface_result, closure),),
             ref_scope=BundleRefScope.BUNDLE_RELATIVE,
@@ -312,9 +334,7 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
     assert result.bundle.artifact_closure_ref is not None
     closure_document = json.loads(store.locate(result.bundle.artifact_closure_ref))
     snapshot_entries = [
-        item
-        for item in closure_document["closure_entries"]
-        if item["kind"] == "SNAPSHOT_TABLE"
+        item for item in closure_document["closure_entries"] if item["kind"] == "SNAPSHOT_TABLE"
     ]
     assert len(snapshot_entries) == 1
     assert snapshot_entries[0]["shared"] is True
@@ -349,7 +369,8 @@ def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table(
         pair_id=pair_id,
         before=before,
         current=current,
-        before_presentation=before.presentation, current_presentation=current.presentation,
+        before_presentation=before.presentation,
+        current_presentation=current.presentation,
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
@@ -375,4 +396,3 @@ def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table(
         ("shared_table", "current"),
         ("uploaded_table", "current"),
     }
-

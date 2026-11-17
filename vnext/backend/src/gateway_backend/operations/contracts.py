@@ -192,7 +192,9 @@ class OperationDiagnosticDetail:
                 raise ValueError("diagnostic detail side must be INITIAL or MODIFIED") from exc
         elif type(self.side) is not OperationDiagnosticSide:
             raise ValueError("diagnostic detail side must be INITIAL or MODIFIED")
-        _validate_diagnostic_detail_name(self.table_name, "diagnostic detail table_name", optional=True)
+        _validate_diagnostic_detail_name(
+            self.table_name, "diagnostic detail table_name", optional=True
+        )
         _validate_diagnostic_detail_name(
             self.column_name,
             "diagnostic detail column_name",
@@ -284,9 +286,7 @@ class OperationRecord:
                 else None
             ),
             "completed_at": (
-                _format_utc_timestamp(self.completed_at)
-                if self.completed_at is not None
-                else None
+                _format_utc_timestamp(self.completed_at) if self.completed_at is not None else None
             ),
             "contract_version": self.contract_version,
             "created_at": _format_utc_timestamp(self.created_at),
@@ -348,9 +348,7 @@ class StepRecord:
                 else None
             ),
             "completed_at": (
-                _format_utc_timestamp(self.completed_at)
-                if self.completed_at is not None
-                else None
+                _format_utc_timestamp(self.completed_at) if self.completed_at is not None else None
             ),
             "contract_version": self.contract_version,
             "created_at": _format_utc_timestamp(self.created_at),
@@ -382,7 +380,9 @@ class StepRecord:
 
 
 def operation_record_from_document(document: object) -> OperationRecord:
-    document_mapping = _require_closed_document(document, _OPERATION_DOCUMENT_KEYS, "operation document")
+    document_mapping = _require_closed_document(
+        document, _OPERATION_DOCUMENT_KEYS, "operation document"
+    )
     _require_contract_version(document_mapping["contract_version"])
     _require_document_type(document_mapping["document_type"], OPERATION_DOCUMENT_TYPE)
     job_payload_object = document_mapping["job_payload"]
@@ -392,7 +392,9 @@ def operation_record_from_document(document: object) -> OperationRecord:
         job_payload_ref_payload,
     )
     business_refs = _parse_business_refs(document_mapping["business_refs"])
-    artifact_refs = _parse_artifact_ref_list(document_mapping["artifact_refs"], label="artifact_refs")
+    artifact_refs = _parse_artifact_ref_list(
+        document_mapping["artifact_refs"], label="artifact_refs"
+    )
     checkpoint_ref = _parse_optional_artifact_ref(document_mapping["checkpoint_ref"])
     ready_closure_ref = _parse_optional_artifact_ref(document_mapping["ready_closure_ref"])
     _reject_duplicate_artifact_ids(
@@ -418,7 +420,9 @@ def operation_record_from_document(document: object) -> OperationRecord:
         cancel_requested=_require_bool(document_mapping["cancel_requested"], "cancel_requested"),
         created_at=_parse_utc_timestamp(document_mapping["created_at"], "created_at"),
         updated_at=_parse_utc_timestamp(document_mapping["updated_at"], "updated_at"),
-        completed_at=_parse_optional_utc_timestamp(document_mapping["completed_at"], "completed_at"),
+        completed_at=_parse_optional_utc_timestamp(
+            document_mapping["completed_at"], "completed_at"
+        ),
         optimistic_version=_parse_ijson_int(
             document_mapping["optimistic_version"],
             "optimistic_version",
@@ -460,7 +464,9 @@ def step_record_from_document(document: object) -> StepRecord:
         created_at=_parse_utc_timestamp(document_mapping["created_at"], "created_at"),
         updated_at=_parse_utc_timestamp(document_mapping["updated_at"], "updated_at"),
         started_at=_parse_optional_utc_timestamp(document_mapping["started_at"], "started_at"),
-        completed_at=_parse_optional_utc_timestamp(document_mapping["completed_at"], "completed_at"),
+        completed_at=_parse_optional_utc_timestamp(
+            document_mapping["completed_at"], "completed_at"
+        ),
         optimistic_version=_parse_ijson_int(
             document_mapping["optimistic_version"],
             "optimistic_version",
@@ -688,7 +694,9 @@ def _require_closed_document(
     return document
 
 
-def _reject_unknown_keys(payload: Mapping[str, object], allowed: frozenset[str], label: str) -> None:
+def _reject_unknown_keys(
+    payload: Mapping[str, object], allowed: frozenset[str], label: str
+) -> None:
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"{label} contains unknown fields")
@@ -816,7 +824,9 @@ def _validate_diagnostic_detail_name(
     if value is None and optional:
         return
     if type(value) is not str:
-        raise ValueError(f"{label} must be a string" if not optional else f"{label} must be a string or null")
+        raise ValueError(
+            f"{label} must be a string" if not optional else f"{label} must be a string or null"
+        )
     encoded = value.encode("utf-8")
     if not 1 <= len(encoded) <= _MAX_DIAGNOSTIC_DETAIL_NAME_BYTES:
         raise ValueError(f"{label} must be 1..{_MAX_DIAGNOSTIC_DETAIL_NAME_BYTES} UTF-8 bytes")
@@ -1050,7 +1060,9 @@ def _validate_json_structure(value: object, *, depth: int = 1, aggregate: int = 
             next_aggregate += 1
             if next_aggregate > _MAX_JSON_AGGREGATE:
                 raise ValueError("job_payload exceeds maximum JSON aggregate size")
-            next_aggregate = _validate_json_structure(item, depth=depth + 1, aggregate=next_aggregate)
+            next_aggregate = _validate_json_structure(
+                item, depth=depth + 1, aggregate=next_aggregate
+            )
         return next_aggregate
     if isinstance(value, list):
         next_aggregate = aggregate
@@ -1058,7 +1070,9 @@ def _validate_json_structure(value: object, *, depth: int = 1, aggregate: int = 
             next_aggregate += 1
             if next_aggregate > _MAX_JSON_AGGREGATE:
                 raise ValueError("job_payload exceeds maximum JSON aggregate size")
-            next_aggregate = _validate_json_structure(item, depth=depth + 1, aggregate=next_aggregate)
+            next_aggregate = _validate_json_structure(
+                item, depth=depth + 1, aggregate=next_aggregate
+            )
         return next_aggregate
     if type(value) is str:
         if len(value.encode("utf-8")) > _MAX_JSON_STRING_BYTES:
@@ -1067,7 +1081,11 @@ def _validate_json_structure(value: object, *, depth: int = 1, aggregate: int = 
     if value is None or type(value) is bool:
         return aggregate
     if type(value) is int:
-        if isinstance(value, bool) or value < _IJSON_MIN_SAFE_INTEGER or value > _IJSON_MAX_SAFE_INTEGER:
+        if (
+            isinstance(value, bool)
+            or value < _IJSON_MIN_SAFE_INTEGER
+            or value > _IJSON_MAX_SAFE_INTEGER
+        ):
             raise ValueError("job_payload integer outside I-JSON safe range")
         return aggregate
     if type(value) is float:

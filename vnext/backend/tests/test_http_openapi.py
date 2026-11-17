@@ -48,8 +48,16 @@ def test_openapi_archive_candidate_exposes_required_review_version(client: TestC
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
     candidate = schemas["ArchiveCandidateResponse"]
     assert candidate["additionalProperties"] is False
-    assert set(candidate["properties"]) == {"submission_id", "expected_candidate_digest", "review_version"}
-    assert set(candidate["required"]) == {"submission_id", "expected_candidate_digest", "review_version"}
+    assert set(candidate["properties"]) == {
+        "submission_id",
+        "expected_candidate_digest",
+        "review_version",
+    }
+    assert set(candidate["required"]) == {
+        "submission_id",
+        "expected_candidate_digest",
+        "review_version",
+    }
     assert candidate["properties"]["review_version"]["type"] == "integer"
     assert candidate["properties"]["review_version"]["minimum"] == 0
     assert candidate["properties"]["review_version"]["maximum"] == 2**53 - 1
@@ -67,10 +75,13 @@ def test_openapi_documents_the_keyless_fallback_preview_hint(client: TestClient)
     assert "does not affect risk or submission eligibility" in response["description"]
 
 
-@pytest.mark.parametrize("path", (
-    "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
-    "/v1/history-compares/{operation_id}/bundle",
-))
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+        "/v1/history-compares/{operation_id}/bundle",
+    ),
+)
 def test_bundle_openapi_declares_only_complete_tar(client: TestClient, path: str) -> None:
     responses = client.get("/openapi.json").json()["paths"][path]["get"]["responses"]
     assert set(responses["200"]["content"]) == {"application/x-tar"}
@@ -78,7 +89,9 @@ def test_bundle_openapi_declares_only_complete_tar(client: TestClient, path: str
     assert "BUNDLE_INTEGRITY_FAILURE" in responses["503"]["description"]
 
 
-def test_openapi_operation_diagnostic_details_match_the_bounded_contract(client: TestClient) -> None:
+def test_openapi_operation_diagnostic_details_match_the_bounded_contract(
+    client: TestClient,
+) -> None:
     schema = client.get("/openapi.json").json()["components"]["schemas"]
     diagnostic = schema["OperationDiagnosticResponse"]
     detail = schema["OperationDiagnosticDetailResponse"]
@@ -120,9 +133,7 @@ def _non_null_union(schema: dict[str, object]) -> dict[str, object]:
     if not isinstance(alternatives, list):
         return schema
     non_null = next(
-        item
-        for item in alternatives
-        if isinstance(item, dict) and item.get("type") != "null"
+        item for item in alternatives if isinstance(item, dict) and item.get("type") != "null"
     )
     assert isinstance(non_null, dict)
     return non_null
@@ -142,7 +153,10 @@ def test_openapi_schemas_reject_additional_properties(client: TestClient) -> Non
     assert options_schema.get("additionalProperties") is False
     extra_field = client.post(
         "/v1/workspaces",
-        headers={"Authorization": "Bearer test-session-token", "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)},
+        headers={
+            "Authorization": "Bearer test-session-token",
+            "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY),
+        },
         json={
             "gateway_device_external_key": "device-1",
             "business_project_id": "project-1",
@@ -167,9 +181,16 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
         "ACCEPT_DATASET_REPLACEMENT",
         "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
     ]
-    assert "identity_exception" in schema["components"]["schemas"]["ReviewFactsResponse"]["properties"]
-    assert "identity_confirmations" in schema["components"]["schemas"]["ReviewFactsResponse"]["properties"]
-    assert "identity_exception" in schema["components"]["schemas"]["HistoryNodeResponse"]["properties"]
+    assert (
+        "identity_exception" in schema["components"]["schemas"]["ReviewFactsResponse"]["properties"]
+    )
+    assert (
+        "identity_confirmations"
+        in schema["components"]["schemas"]["ReviewFactsResponse"]["properties"]
+    )
+    assert (
+        "identity_exception" in schema["components"]["schemas"]["HistoryNodeResponse"]["properties"]
+    )
     submit_response = schema["components"]["schemas"]["SubmitAcceptedResponse"]
     assert "submit_attempt_id" in submit_response["properties"]
     recovery_request = schema["components"]["schemas"]["OperatorRecoveryRequestBody"]
@@ -184,7 +205,9 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     assert "archive_result_id" in archive_started_response["properties"]
 
 
-def test_openapi_create_statuses_response_models_and_workspace_occupancy(client: TestClient) -> None:
+def test_openapi_create_statuses_response_models_and_workspace_occupancy(
+    client: TestClient,
+) -> None:
     schema = client.get("/openapi.json").json()
     for path, statuses, model in (
         ("/v1/workspaces", ("201", "200"), "WorkspaceResponse"),
@@ -193,23 +216,43 @@ def test_openapi_create_statuses_response_models_and_workspace_occupancy(client:
         responses = schema["paths"][path]["post"]["responses"]
         assert {key for key in responses if key.startswith("2")} == set(statuses)
         for status in statuses:
-            assert responses[status]["content"]["application/json"]["schema"] == {"$ref": f"#/components/schemas/{model}"}
+            assert responses[status]["content"]["application/json"]["schema"] == {
+                "$ref": f"#/components/schemas/{model}"
+            }
     workspace = schema["components"]["schemas"]["WorkspaceResponse"]
-    for field in ("active_preview_operation_id", "active_submit_attempt_id", "active_submission_id"):
+    for field in (
+        "active_preview_operation_id",
+        "active_submit_attempt_id",
+        "active_submission_id",
+    ):
         assert field in workspace["required"]
         assert workspace["properties"][field]["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert "RETURN_FOR_REVISION" not in str(schema)
     assert "RETURNED_FOR_REVISION" not in str(schema)
-    assert "ARCHIVE_PENDING_REVIEW" in schema["paths"]["/v1/archives"]["post"]["responses"]["409"]["description"]
+    assert (
+        "ARCHIVE_PENDING_REVIEW"
+        in schema["paths"]["/v1/archives"]["post"]["responses"]["409"]["description"]
+    )
 
 
-def test_archive_business_diagnostics_closure_and_reference_limits_are_closed_schemas(client: TestClient) -> None:
+def test_archive_business_diagnostics_closure_and_reference_limits_are_closed_schemas(
+    client: TestClient,
+) -> None:
     schema = client.get("/openapi.json").json()
     models = schema["components"]["schemas"]
     assert models["StartArchiveRequest"]["properties"]["confirmation_refs"]["maxItems"] == 1
-    assert models["StartArchiveRequest"]["properties"]["anomaly_resolution_refs"]["maxItems"] == 1601
-    for name in ("ArchiveBusinessValidationResponse", "ArchiveSourceDiagnosticResponse", "ArchiveTimeComparisonResponse",
-        "ArchiveBusinessIssueResponse", "ArchiveBusinessSubjectResponse", "ArchiveSourceIssueDetailsResponse", "CloseSubmissionRequest"):
+    assert (
+        models["StartArchiveRequest"]["properties"]["anomaly_resolution_refs"]["maxItems"] == 1601
+    )
+    for name in (
+        "ArchiveBusinessValidationResponse",
+        "ArchiveSourceDiagnosticResponse",
+        "ArchiveTimeComparisonResponse",
+        "ArchiveBusinessIssueResponse",
+        "ArchiveBusinessSubjectResponse",
+        "ArchiveSourceIssueDetailsResponse",
+        "CloseSubmissionRequest",
+    ):
         assert models[name]["additionalProperties"] is False
     assert "submission_disposition" in models["ReviewFactsResponse"]["properties"]
     assert "submission_disposition" in models["HistoryNodeResponse"]["properties"]
@@ -235,31 +278,59 @@ def test_history_compare_openapi_freezes_discovery_and_errors(client: TestClient
     item = schema["components"]["schemas"]["HistoryCompareListItemResponse"]
     assert item["additionalProperties"] is False
     assert set(item["properties"]) == {
-        "operation_id", "nodes", "status", "accepted_at", "completed_at", "result_expires_at",
+        "operation_id",
+        "nodes",
+        "status",
+        "accepted_at",
+        "completed_at",
+        "result_expires_at",
     }
     assert set(item["required"]) == set(item["properties"])
     for field in ("completed_at", "result_expires_at"):
-        assert {entry.get("type") for entry in item["properties"][field]["anyOf"]} == {"string", "null"}
+        assert {entry.get("type") for entry in item["properties"][field]["anyOf"]} == {
+            "string",
+            "null",
+        }
     post = paths["/v1/history-compares"]["post"]
     key_header = next(item for item in post["parameters"] if item["name"] == "Idempotency-Key")
     assert key_header["required"] is True
     expected = {
         ("post", "/v1/history-compares", "404"): {"RESOURCE_NOT_FOUND", "ARTIFACT_UNAVAILABLE"},
         ("post", "/v1/history-compares", "409"): {
-            "IDEMPOTENCY_CONFLICT", "HISTORY_COMPARE_REQUEST_EXPIRED", "HISTORY_COMPARE_SCOPE_LIMIT",
+            "IDEMPOTENCY_CONFLICT",
+            "HISTORY_COMPARE_REQUEST_EXPIRED",
+            "HISTORY_COMPARE_SCOPE_LIMIT",
         },
-        ("post", "/v1/history-compares", "429"): {"HISTORY_COMPARE_ALIAS_LIMIT", "OPERATION_QUEUE_FULL"},
+        ("post", "/v1/history-compares", "429"): {
+            "HISTORY_COMPARE_ALIAS_LIMIT",
+            "OPERATION_QUEUE_FULL",
+        },
         ("post", "/v1/history-compares", "503"): {
-            "SERVICE_NOT_READY", "HISTORY_INTEGRITY_FAILURE", "BUNDLE_INTEGRITY_FAILURE",
+            "SERVICE_NOT_READY",
+            "HISTORY_INTEGRITY_FAILURE",
+            "BUNDLE_INTEGRITY_FAILURE",
         },
         ("get", "/v1/history-compares/{operation_id}", "410"): {"HISTORY_COMPARE_RESULT_EXPIRED"},
-        ("get", "/v1/history-compares/{operation_id}/bundle", "410"): {"HISTORY_COMPARE_RESULT_EXPIRED"},
-        ("get", "/v1/history-compares/{operation_id}", "503"): {"HISTORY_INTEGRITY_FAILURE", "BUNDLE_INTEGRITY_FAILURE"},
-        ("get", "/v1/history-compares/{operation_id}/bundle", "503"): {"HISTORY_INTEGRITY_FAILURE", "BUNDLE_INTEGRITY_FAILURE"},
+        ("get", "/v1/history-compares/{operation_id}/bundle", "410"): {
+            "HISTORY_COMPARE_RESULT_EXPIRED"
+        },
+        ("get", "/v1/history-compares/{operation_id}", "503"): {
+            "HISTORY_INTEGRITY_FAILURE",
+            "BUNDLE_INTEGRITY_FAILURE",
+        },
+        ("get", "/v1/history-compares/{operation_id}/bundle", "503"): {
+            "HISTORY_INTEGRITY_FAILURE",
+            "BUNDLE_INTEGRITY_FAILURE",
+        },
     }
     for (method, path, status), codes in expected.items():
         response = paths[path][method]["responses"][status]
         assert all(code in response["description"] for code in codes)
-        assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ErrorResponse"}
-    for path in ("/v1/workspaces/{workspace_id}/preview-operations", "/v1/workspaces/{workspace_id}/submit-attempts"):
+        assert response["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/ErrorResponse"
+        }
+    for path in (
+        "/v1/workspaces/{workspace_id}/preview-operations",
+        "/v1/workspaces/{workspace_id}/submit-attempts",
+    ):
         assert "OPERATION_QUEUE_FULL" in paths[path]["post"]["responses"]["429"]["description"]

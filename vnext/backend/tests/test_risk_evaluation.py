@@ -193,18 +193,24 @@ def test_ordered_moves_generate_row_risk_from_native_records() -> None:
     class OrderedView:
         def risk_record_batches(self, family: str) -> pa.RecordBatchReader:
             assert family == "ORDERED"
-            batch = pa.record_batch({
-                "record_kind": ["ORDERED_ROW_MOVED"],
-                "row_identity": [bytes.fromhex(identity.value.removeprefix("sha256:"))],
-                "current_position": [2],
-            })
+            batch = pa.record_batch(
+                {
+                    "record_kind": ["ORDERED_ROW_MOVED"],
+                    "row_identity": [bytes.fromhex(identity.value.removeprefix("sha256:"))],
+                    "current_position": [2],
+                }
+            )
             return pa.RecordBatchReader.from_batches(batch.schema, [batch])
 
     store = InMemoryArtifactStore()
-    result = evaluate_risk(RiskEvaluationInput(
-        comparison_facts=_facts(table), risk_ruleset=_ruleset(),
-        ordered_record_views={table.table_name: OrderedView()},
-    ), artifact_store=store)
+    result = evaluate_risk(
+        RiskEvaluationInput(
+            comparison_facts=_facts(table),
+            risk_ruleset=_ruleset(),
+            ordered_record_views={table.table_name: OrderedView()},
+        ),
+        artifact_store=store,
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
@@ -216,9 +222,11 @@ def test_ordered_moves_generate_row_risk_from_native_records() -> None:
 
 def test_ordered_move_without_records_requires_review() -> None:
     table = ComparisonTableFact(
-        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        table_name="b1_n2_iec104_syx_list",
+        status=ComparisonTableStatus.MODIFIED,
         ordered_extension=OrderedExtension(
-            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(row_moved_count=1),
+            status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(row_moved_count=1),
         ),
     )
     result = _evaluate(table, store=InMemoryArtifactStore())
@@ -228,7 +236,8 @@ def test_ordered_move_without_records_requires_review() -> None:
 
 def test_blank_interval_without_position_evidence_fails_closed() -> None:
     table = ComparisonTableFact(
-        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        table_name="b1_n2_iec104_syx_list",
+        status=ComparisonTableStatus.MODIFIED,
         blank_extension=BlankExtension(
             status=OrderedStatus.CHANGED,
             blank_summary=BlankSummary(interval_inserted_count=1, blank_changed_count=1),
@@ -239,8 +248,11 @@ def test_blank_interval_without_position_evidence_fails_closed() -> None:
 
 def test_blank_interval_without_maximum_requires_review() -> None:
     table = ComparisonTableFact(
-        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
-        ordered_extension=OrderedExtension(status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary()),
+        table_name="b1_n2_iec104_syx_list",
+        status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary()
+        ),
         blank_extension=BlankExtension(
             status=OrderedStatus.CHANGED,
             blank_summary=BlankSummary(interval_inserted_count=1, blank_changed_count=1),
@@ -254,9 +266,11 @@ def test_blank_interval_without_maximum_requires_review() -> None:
 
 def test_unreliable_ordered_replay_requires_review() -> None:
     table = ComparisonTableFact(
-        table_name="b1_n2_iec104_syx_list", status=ComparisonTableStatus.MODIFIED,
+        table_name="b1_n2_iec104_syx_list",
+        status=ComparisonTableStatus.MODIFIED,
         ordered_extension=OrderedExtension(
-            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(position_changed_count=1),
+            status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(position_changed_count=1),
             replay_guarantee=ReplayGuarantee.PARTIAL,
         ),
     )
@@ -269,12 +283,21 @@ def test_unreliable_ordered_replay_requires_review() -> None:
 def test_ordered_update_without_changed_columns_requires_review() -> None:
     name = "b1_n2_iec104_syx_list"
     table = ComparisonTableFact(
-        table_name=name, status=ComparisonTableStatus.MODIFIED,
+        table_name=name,
+        status=ComparisonTableStatus.MODIFIED,
         ordered_extension=OrderedExtension(
-            status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary(row_modified_count=1),
-            records=(OrderedRecord(table_name=name, record_kind=OrderedRecordKind.ROW_MODIFIED,
-                semantic_kind=OrderedSemanticKind.CONTENT_UPDATE, row_identity=raw_blob_digest(b"point"),
-                before_position=1, current_position=1),),
+            status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(row_modified_count=1),
+            records=(
+                OrderedRecord(
+                    table_name=name,
+                    record_kind=OrderedRecordKind.ROW_MODIFIED,
+                    semantic_kind=OrderedSemanticKind.CONTENT_UPDATE,
+                    row_identity=raw_blob_digest(b"point"),
+                    before_position=1,
+                    current_position=1,
+                ),
+            ),
         ),
     )
     result = _evaluate(table, store=InMemoryArtifactStore())
@@ -330,12 +353,14 @@ def test_added_columns_do_not_emit_schema_change_risk() -> None:
     from contextlib import closing
     from tests.support.comparison_s3_e_live import native_product
 
-    with closing(native_product(
-        "CREATE TABLE orders(id INT PRIMARY KEY,v INT); INSERT INTO orders VALUES(1,10);",
-        "CREATE TABLE orders(id INT PRIMARY KEY,v INT,note TEXT); INSERT INTO orders VALUES(1,10,'new');",
-    )) as product:
+    with closing(
+        native_product(
+            "CREATE TABLE orders(id INT PRIMARY KEY,v INT); INSERT INTO orders VALUES(1,10);",
+            "CREATE TABLE orders(id INT PRIMARY KEY,v INT,note TEXT); INSERT INTO orders VALUES(1,10,'new');",
+        )
+    ) as product:
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         result = _evaluate(table, store=InMemoryArtifactStore())
 
     assert result.status is RiskEvaluationStatus.READY
@@ -387,76 +412,155 @@ def test_standard_rows_are_row_targeted_and_digest_is_stable() -> None:
     assert first.status is RiskEvaluationStatus.READY
     assert first.risk_evaluation is not None
     assert second.risk_evaluation is not None
-    assert first.risk_evaluation.risk_evaluation_digest == second.risk_evaluation.risk_evaluation_digest
+    assert (
+        first.risk_evaluation.risk_evaluation_digest
+        == second.risk_evaluation.risk_evaluation_digest
+    )
     assert first.risk_report is not None
     assert first.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
 
 
-@pytest.mark.parametrize(("name", "columns", "level", "reason"), (
-    ("device_mx", ("name",), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
-    ("device_cfg", ("description",), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
-    ("orders", ("description", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
-    ("orders", ("name", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
-    ("device_mx", (), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
-    ("device_mx", ("dev_addr", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
-    ("device_mx", ("dev_addr", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
-    ("device", ("dev_addr",), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
-    ("device_cfg", ("dev_addr",), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
-))
+@pytest.mark.parametrize(
+    ("name", "columns", "level", "reason"),
+    (
+        ("device_mx", ("name",), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+        ("device_cfg", ("description",), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+        ("orders", ("description", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+        ("orders", ("name", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+        ("device_mx", (), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+        ("device_mx", ("dev_addr", "name"), RiskLevel.LOW, RiskReasonCode.STANDARD_NAME_UPDATE),
+        ("device_mx", ("dev_addr", "value"), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+        ("device", ("dev_addr",), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+        ("device_cfg", ("dev_addr",), RiskLevel.MEDIUM_HIGH, RiskReasonCode.ROW_MODIFIED),
+    ),
+)
 def test_standard_updates_classify_only_descriptive_changes(
-    name: str, columns: tuple[str, ...], level: RiskLevel, reason: RiskReasonCode,
+    name: str,
+    columns: tuple[str, ...],
+    level: RiskLevel,
+    reason: RiskReasonCode,
 ) -> None:
-    record = ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_MODIFIED,
-        row_identity=raw_blob_digest(b"point"), changed_columns=columns)
-    result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        row_modified_count=1, records=(record,)), store=InMemoryArtifactStore())
+    record = ComparisonRecord(
+        table_name=name,
+        record_kind=ComparisonRecordKind.ROW_MODIFIED,
+        row_identity=raw_blob_digest(b"point"),
+        changed_columns=columns,
+    )
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name=name,
+            status=ComparisonTableStatus.MODIFIED,
+            row_modified_count=1,
+            records=(record,),
+        ),
+        store=InMemoryArtifactStore(),
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert result.risk_report.tables[0].risk_level is level
     assert result.risk_report.tables[0].reason_codes == (reason,)
 
 
-@pytest.mark.parametrize("name", ("device_st", "device_mx", "device_co", "device_sg", "device_sp", "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb"))
+@pytest.mark.parametrize(
+    "name",
+    (
+        "device_st",
+        "device_mx",
+        "device_co",
+        "device_sg",
+        "device_sp",
+        "device_cnt",
+        "device_sn",
+        "device_tap",
+        "device_other",
+        "device_disturb",
+    ),
+)
 def test_device_point_address_only_has_no_row_risk(name: str) -> None:
-    record = ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_MODIFIED,
-        row_identity=raw_blob_digest(b"point"), changed_columns=("dev_addr",))
-    result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        row_modified_count=1, records=(record,)), store=InMemoryArtifactStore())
+    record = ComparisonRecord(
+        table_name=name,
+        record_kind=ComparisonRecordKind.ROW_MODIFIED,
+        row_identity=raw_blob_digest(b"point"),
+        changed_columns=("dev_addr",),
+    )
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name=name,
+            status=ComparisonTableStatus.MODIFIED,
+            row_modified_count=1,
+            records=(record,),
+        ),
+        store=InMemoryArtifactStore(),
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert not result.risk_report.tables
 
 
 def test_device_point_counts_only_does_not_guess_changed_columns() -> None:
-    table = ComparisonTableFact(table_name="device_st", status=ComparisonTableStatus.MODIFIED,
-        row_modified_count=1)
-    result = _evaluate(table, options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
-                       store=InMemoryArtifactStore())
+    table = ComparisonTableFact(
+        table_name="device_st", status=ComparisonTableStatus.MODIFIED, row_modified_count=1
+    )
+    result = _evaluate(
+        table,
+        options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
+        store=InMemoryArtifactStore(),
+    )
     assert result.risk_report is not None
     assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
 
 
-@pytest.mark.parametrize("name", (
-    "device_st", "device_mx", "device_co", "device_sg", "device_sp", "device_cnt",
-    "device_sn", "device_tap", "device_other", "device_disturb", "device_cfg",
-))
-@pytest.mark.parametrize("policy", (AnnotationDetailPolicy.COUNTS_ONLY, AnnotationDetailPolicy.TARGETS_WITH_EVIDENCE))
+@pytest.mark.parametrize(
+    "name",
+    (
+        "device_st",
+        "device_mx",
+        "device_co",
+        "device_sg",
+        "device_sp",
+        "device_cnt",
+        "device_sn",
+        "device_tap",
+        "device_other",
+        "device_disturb",
+        "device_cfg",
+    ),
+)
+@pytest.mark.parametrize(
+    "policy", (AnnotationDetailPolicy.COUNTS_ONLY, AnnotationDetailPolicy.TARGETS_WITH_EVIDENCE)
+)
 def test_shared_standard_additions_and_deletions_have_no_risk(
-    name: str, policy: AnnotationDetailPolicy,
+    name: str,
+    policy: AnnotationDetailPolicy,
 ) -> None:
-    table = ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        row_added_count=1, row_deleted_count=1, suppressed_added_count=1, suppressed_deleted_count=1)
-    result = _evaluate(table, options=RiskOptions(annotation_detail_policy=policy), store=InMemoryArtifactStore())
+    table = ComparisonTableFact(
+        table_name=name,
+        status=ComparisonTableStatus.MODIFIED,
+        row_added_count=1,
+        row_deleted_count=1,
+        suppressed_added_count=1,
+        suppressed_deleted_count=1,
+    )
+    result = _evaluate(
+        table, options=RiskOptions(annotation_detail_policy=policy), store=InMemoryArtifactStore()
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert result.risk_report.tables == ()
 
 
 def test_unrelated_standard_additions_keep_risk() -> None:
-    table = ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.MODIFIED,
-        row_added_count=1, suppressed_added_count=1)
-    result = _evaluate(table, options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
-        store=InMemoryArtifactStore())
+    table = ComparisonTableFact(
+        table_name="orders",
+        status=ComparisonTableStatus.MODIFIED,
+        row_added_count=1,
+        suppressed_added_count=1,
+    )
+    result = _evaluate(
+        table,
+        options=RiskOptions(annotation_detail_policy=AnnotationDetailPolicy.COUNTS_ONLY),
+        store=InMemoryArtifactStore(),
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ROW_ADDED,)
@@ -466,37 +570,73 @@ def test_shared_table_addition_and_address_only_change_have_no_risk() -> None:
     name = "device_mx"
     observed: list[tuple[str, object, bool]] = []
     records = (
-        ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_ADDED,
-            row_identity=raw_blob_digest(b"added")),
-        ComparisonRecord(table_name=name, record_kind=ComparisonRecordKind.ROW_MODIFIED,
-            row_identity=raw_blob_digest(b"modified"), changed_columns=("dev_addr",)),
+        ComparisonRecord(
+            table_name=name,
+            record_kind=ComparisonRecordKind.ROW_ADDED,
+            row_identity=raw_blob_digest(b"added"),
+        ),
+        ComparisonRecord(
+            table_name=name,
+            record_kind=ComparisonRecordKind.ROW_MODIFIED,
+            row_identity=raw_blob_digest(b"modified"),
+            changed_columns=("dev_addr",),
+        ),
     )
-    result = _evaluate(ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        row_added_count=1, row_modified_count=1, records=records), store=InMemoryArtifactStore(),
-        context=RiskExecutionContext(attribution_observer=lambda table, annotations, complete:
-            observed.append((table, annotations, complete))))
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name=name,
+            status=ComparisonTableStatus.MODIFIED,
+            row_added_count=1,
+            row_modified_count=1,
+            records=records,
+        ),
+        store=InMemoryArtifactStore(),
+        context=RiskExecutionContext(
+            attribution_observer=lambda table, annotations, complete: observed.append(
+                (table, annotations, complete)
+            )
+        ),
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
     assert result.risk_report.tables == ()
     assert observed == [(name, (), True)]
 
 
-@pytest.mark.parametrize(("columns", "level", "reason"), (
-    (("name",), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
-    (("description",), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
-    (("description", "name"), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
-    (("name", "value"), RiskLevel.MEDIUM_LOW, RiskReasonCode.ORDERED_CONTENT_UPDATE),
-))
+@pytest.mark.parametrize(
+    ("columns", "level", "reason"),
+    (
+        (("name",), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
+        (("description",), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
+        (("description", "name"), RiskLevel.LOW, RiskReasonCode.ORDERED_NAME_UPDATE),
+        (("name", "value"), RiskLevel.MEDIUM_LOW, RiskReasonCode.ORDERED_CONTENT_UPDATE),
+    ),
+)
 def test_ordered_updates_classify_only_descriptive_changes(
-    columns: tuple[str, ...], level: RiskLevel, reason: RiskReasonCode,
+    columns: tuple[str, ...],
+    level: RiskLevel,
+    reason: RiskReasonCode,
 ) -> None:
     name = "b1_n2_iec104_syx_list"
-    table = ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        ordered_extension=OrderedExtension(status=OrderedStatus.CHANGED,
+    table = ComparisonTableFact(
+        table_name=name,
+        status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.CHANGED,
             ordered_summary=OrderedSummary(row_modified_count=1),
-            records=(OrderedRecord(table_name=name, record_kind=OrderedRecordKind.ROW_MODIFIED,
-                semantic_kind=OrderedSemanticKind.CONTENT_UPDATE, row_identity=raw_blob_digest(b"point"),
-                before_position=1, current_position=1, changed_columns=columns),)))
+            records=(
+                OrderedRecord(
+                    table_name=name,
+                    record_kind=OrderedRecordKind.ROW_MODIFIED,
+                    semantic_kind=OrderedSemanticKind.CONTENT_UPDATE,
+                    row_identity=raw_blob_digest(b"point"),
+                    before_position=1,
+                    current_position=1,
+                    changed_columns=columns,
+                ),
+            ),
+        ),
+    )
     result = _evaluate(table, store=InMemoryArtifactStore())
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None
@@ -638,9 +778,7 @@ def test_pair_annotation_cap_discards_partial_annotation_closure() -> None:
     assert result.risk_report.tables[0].table_name == "orders"
     assert result.risk_report.tables[0].risk_level is RiskLevel.UNKNOWN
     assert result.risk_report.tables[0].annotation_count == 0
-    assert result.risk_report.tables[0].diagnostics == (
-        "RISK_ANNOTATION_LIMIT_EXCEEDED",
-    )
+    assert result.risk_report.tables[0].diagnostics == ("RISK_ANNOTATION_LIMIT_EXCEEDED",)
     assert result.annotation_artifacts == ()
     assert result.risk_closure is None
 
@@ -733,9 +871,7 @@ def test_intentionally_suppressed_rows_keep_count_risk_without_record_closure() 
     assert result.risk_report is not None
     assert result.risk_report.tables[0].annotation_count == 2
     assert len(result.annotation_artifacts) == 1
-    annotation_payload = json.loads(
-        store.locate(result.annotation_artifacts[0].content_ref)
-    )
+    annotation_payload = json.loads(store.locate(result.annotation_artifacts[0].content_ref))
     row_annotation = next(
         item
         for item in annotation_payload["annotations"]
@@ -851,35 +987,68 @@ def test_annotation_document_validator_rejects_malformed_record_fields() -> None
         )
 
 
-@pytest.mark.parametrize("table", (
-    ComparisonTableFact(table_name="new_table", status=ComparisonTableStatus.ADDED_TABLE, row_count_current=3),
-    ComparisonTableFact(table_name="composite_signal_point", status=ComparisonTableStatus.ADDED_TABLE, row_count_current=1),
-    ComparisonTableFact(table_name="unreadable", status=ComparisonTableStatus.DEGRADED,
-                        diagnostics=("COMPARISON_INTERNAL_ERROR",)),
-))
-def test_empty_baseline_publishes_no_risk_marks_and_complete_attribution(table: ComparisonTableFact) -> None:
+@pytest.mark.parametrize(
+    "table",
+    (
+        ComparisonTableFact(
+            table_name="new_table", status=ComparisonTableStatus.ADDED_TABLE, row_count_current=3
+        ),
+        ComparisonTableFact(
+            table_name="composite_signal_point",
+            status=ComparisonTableStatus.ADDED_TABLE,
+            row_count_current=1,
+        ),
+        ComparisonTableFact(
+            table_name="unreadable",
+            status=ComparisonTableStatus.DEGRADED,
+            diagnostics=("COMPARISON_INTERNAL_ERROR",),
+        ),
+    ),
+)
+def test_empty_baseline_publishes_no_risk_marks_and_complete_attribution(
+    table: ComparisonTableFact,
+) -> None:
     observed: list[tuple[str, object, bool]] = []
-    result = _evaluate(table, options=RiskOptions(empty_baseline=True), store=InMemoryArtifactStore(),
-        context=RiskExecutionContext(attribution_observer=lambda name, annotations, complete:
-            observed.append((name, annotations, complete))))
+    result = _evaluate(
+        table,
+        options=RiskOptions(empty_baseline=True),
+        store=InMemoryArtifactStore(),
+        context=RiskExecutionContext(
+            attribution_observer=lambda name, annotations, complete: observed.append(
+                (name, annotations, complete)
+            )
+        ),
+    )
     assert result.status is RiskEvaluationStatus.READY
     assert result.risk_report is not None and result.risk_report.tables == ()
     assert result.annotation_artifacts == ()
     assert observed == [(table.table_name, (), True)]
 
 
-@pytest.mark.parametrize("name", ("b1_n2_iec104_yk_list", "b2_c7_yk", "b1_n2_iec104_yx_list", "nonchannel_yk"))
+@pytest.mark.parametrize(
+    "name", ("b1_n2_iec104_yk_list", "b2_c7_yk", "b1_n2_iec104_yx_list", "nonchannel_yk")
+)
 @pytest.mark.parametrize("blank", (False, True))
 @pytest.mark.parametrize("added", (False, True))
-@pytest.mark.parametrize("tail,expected", (
-    (False, RiskLevel.HIGH),
-    (True, RiskLevel.LOW),
-))
+@pytest.mark.parametrize(
+    "tail,expected",
+    (
+        (False, RiskLevel.HIGH),
+        (True, RiskLevel.LOW),
+    ),
+)
 def test_channel_yk_middle_insert_delete_risk(
-    name: str, blank: bool, added: bool, tail: bool, expected: RiskLevel,
+    name: str,
+    blank: bool,
+    added: bool,
+    tail: bool,
+    expected: RiskLevel,
 ) -> None:
     from gateway_backend.capabilities.comparison.contracts import (
-        BlankRecord, BlankRecordKind, BlankSemanticKind, OrderedInterval,
+        BlankRecord,
+        BlankRecordKind,
+        BlankSemanticKind,
+        OrderedInterval,
     )
     from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
 
@@ -887,31 +1056,72 @@ def test_channel_yk_middle_insert_delete_risk(
         expected = RiskLevel.MEDIUM_HIGH
     position = 4 if tail else 2
     if blank:
-        record = BlankRecord(table_name=name,
-            record_kind=BlankRecordKind.INSERT_INTERVAL if added else BlankRecordKind.DELETE_INTERVAL,
-            semantic_kind=BlankSemanticKind.INSERT_INTERVAL if added else BlankSemanticKind.DELETE_INTERVAL,
-            interval=OrderedInterval(current_start=position if added else None,
-                current_end=position if added else None, before_start=None if added else position,
-                before_end=None if added else position, row_count=1))
+        record = BlankRecord(
+            table_name=name,
+            record_kind=BlankRecordKind.INSERT_INTERVAL
+            if added
+            else BlankRecordKind.DELETE_INTERVAL,
+            semantic_kind=BlankSemanticKind.INSERT_INTERVAL
+            if added
+            else BlankSemanticKind.DELETE_INTERVAL,
+            interval=OrderedInterval(
+                current_start=position if added else None,
+                current_end=position if added else None,
+                before_start=None if added else position,
+                before_end=None if added else position,
+                row_count=1,
+            ),
+        )
         ordered = OrderedExtension(status=OrderedStatus.CHANGED, ordered_summary=OrderedSummary())
-        blanks = BlankExtension(status=OrderedStatus.CHANGED,
-            blank_summary=BlankSummary(interval_inserted_count=int(added),
-                interval_deleted_count=int(not added), blank_changed_count=1), records=(record,))
+        blanks = BlankExtension(
+            status=OrderedStatus.CHANGED,
+            blank_summary=BlankSummary(
+                interval_inserted_count=int(added),
+                interval_deleted_count=int(not added),
+                blank_changed_count=1,
+            ),
+            records=(record,),
+        )
     else:
-        row = OrderedRecord(table_name=name,
+        row = OrderedRecord(
+            table_name=name,
             record_kind=OrderedRecordKind.ROW_ADDED if added else OrderedRecordKind.ROW_DELETED,
-            semantic_kind=OrderedSemanticKind.DATA_INSERT if added else OrderedSemanticKind.DATA_DELETE,
+            semantic_kind=OrderedSemanticKind.DATA_INSERT
+            if added
+            else OrderedSemanticKind.DATA_DELETE,
             row_identity=raw_blob_digest(b"yk point"),
-            current_position=position if added else None, before_position=None if added else position)
-        ordered = OrderedExtension(status=OrderedStatus.CHANGED,
-            ordered_summary=OrderedSummary(row_added_count=int(added), row_deleted_count=int(not added)),
-            records=(row,))
+            current_position=position if added else None,
+            before_position=None if added else position,
+        )
+        ordered = OrderedExtension(
+            status=OrderedStatus.CHANGED,
+            ordered_summary=OrderedSummary(
+                row_added_count=int(added), row_deleted_count=int(not added)
+            ),
+            records=(row,),
+        )
         blanks = None
-    table = ComparisonTableFact(table_name=name, status=ComparisonTableStatus.MODIFIED,
-        ordered_extension=ordered, blank_extension=blanks)
-    result = evaluate_risk(RiskEvaluationInput(comparison_facts=_facts(table), risk_ruleset=_ruleset(),
-        ordered_tail_bounds={name: OrderedTailBounds(
-            3 if tail and not blank and added else 4,
-            3 if tail and not blank and not added else 4, 3, 3, True)}), artifact_store=InMemoryArtifactStore())
+    table = ComparisonTableFact(
+        table_name=name,
+        status=ComparisonTableStatus.MODIFIED,
+        ordered_extension=ordered,
+        blank_extension=blanks,
+    )
+    result = evaluate_risk(
+        RiskEvaluationInput(
+            comparison_facts=_facts(table),
+            risk_ruleset=_ruleset(),
+            ordered_tail_bounds={
+                name: OrderedTailBounds(
+                    3 if tail and not blank and added else 4,
+                    3 if tail and not blank and not added else 4,
+                    3,
+                    3,
+                    True,
+                )
+            },
+        ),
+        artifact_store=InMemoryArtifactStore(),
+    )
     assert result.risk_report is not None
     assert result.risk_report.tables[0].risk_level is expected

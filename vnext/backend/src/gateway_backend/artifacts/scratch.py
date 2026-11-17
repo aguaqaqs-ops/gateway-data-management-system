@@ -1,4 +1,5 @@
 """Temporary storage capability, explicitly scoped to one request or execution."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -21,7 +22,9 @@ class ScratchSessionPort(Protocol):
     @property
     def owner(self) -> str: ...
 
-    def file(self, *, byte_limit: int) -> ContextManager[tuple[ArtifactFileSourcePort, BinaryIO]]: ...
+    def file(
+        self, *, byte_limit: int
+    ) -> ContextManager[tuple[ArtifactFileSourcePort, BinaryIO]]: ...
 
 
 class ScratchSpacePort(Protocol):

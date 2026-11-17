@@ -35,7 +35,7 @@ class ArtifactBackedCanonicalizationManifestReader:
             return open_canonicalization_manifest(self._artifact_store, ref)
         except ManifestArtifactUnavailable:
             raise
-        except (ManifestVerificationError, OSError, ValueError, PublicationError):
+        except ManifestVerificationError, OSError, ValueError, PublicationError:
             raise ManifestArtifactUnavailable("canonicalization manifest is unavailable") from None
 
 

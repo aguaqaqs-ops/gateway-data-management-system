@@ -53,7 +53,10 @@ def validate_matching_result_for_finalize(
         raise FinalizeBindingMismatch("manifest digest does not match attempt checkpoint")
     if attempt.repository_import_artifact_ref is None:
         raise FinalizeBindingMismatch("attempt backend import artifact ref is missing")
-    if facts.repository_import_artifact_raw_sha256 != attempt.repository_import_artifact_ref.raw_sha256:
+    if (
+        facts.repository_import_artifact_raw_sha256
+        != attempt.repository_import_artifact_ref.raw_sha256
+    ):
         raise FinalizeBindingMismatch("package raw sha does not match attempt checkpoint")
     if attempt.repository_artifact_ref is None:
         raise FinalizeBindingMismatch("attempt repository artifact ref is missing")

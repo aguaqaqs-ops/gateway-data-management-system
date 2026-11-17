@@ -97,8 +97,9 @@ def _rule_view(
         return None
     primary_key = descriptor.primary_key_columns
     assert bound.presentation is not None
-    comment = next((item.comment for item in bound.presentation.tables
-                    if item.table_name == table_name), None)
+    comment = next(
+        (item.comment for item in bound.presentation.tables if item.table_name == table_name), None
+    )
     return resolve_comparison_rule_view(
         request.rule_set,
         table_name,
@@ -117,12 +118,15 @@ def _comparison_policy(
     storage_facts_before: ComparisonStorageFacts | None,
     storage_facts_current: ComparisonStorageFacts | None,
 ) -> _ComparisonTablePolicy:
-    keyless_fallback = view.compare_key_mode is TableCompareKeyMode.FULL_ROW_MULTISET or (view.comparison_role is ComparisonRole.STANDARD and any(
-        facts is not None
-        and facts.storage_rule_view.canonical_key_policy
-        is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
-        for facts in (storage_facts_before, storage_facts_current)
-    ))
+    keyless_fallback = view.compare_key_mode is TableCompareKeyMode.FULL_ROW_MULTISET or (
+        view.comparison_role is ComparisonRole.STANDARD
+        and any(
+            facts is not None
+            and facts.storage_rule_view.canonical_key_policy
+            is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+            for facts in (storage_facts_before, storage_facts_current)
+        )
+    )
     ordered_policy = None
     if view.comparison_role is ComparisonRole.ORDERED:
         ordered = view.ordered
@@ -163,8 +167,12 @@ def _comparison_policy(
         effective_key_before=() if before_view is None else before_view.effective_key_columns,
         effective_key_current=() if current_view is None else current_view.effective_key_columns,
         comparison_role=view.comparison_role.value,
-        rule_digest_before=None if before_view is None else before_view.comparison_rule_digest.value,
-        rule_digest_current=None if current_view is None else current_view.comparison_rule_digest.value,
+        rule_digest_before=None
+        if before_view is None
+        else before_view.comparison_rule_digest.value,
+        rule_digest_current=None
+        if current_view is None
+        else current_view.comparison_rule_digest.value,
         storage_facts_before=storage_facts_before,
         storage_facts_current=storage_facts_current,
     )
@@ -184,21 +192,26 @@ def _shared_columns(
     *,
     excluded: set[str],
 ) -> tuple[str, ...]:
-    before_names = set() if before is None else {
-        canonicalize_identifier(column.name) for column in before.columns
-    }
-    current_names = set() if current is None else {
-        canonicalize_identifier(column.name) for column in current.columns
-    }
-    names = before_names & current_names if before is not None and current is not None else before_names | current_names
+    before_names = (
+        set()
+        if before is None
+        else {canonicalize_identifier(column.name) for column in before.columns}
+    )
+    current_names = (
+        set()
+        if current is None
+        else {canonicalize_identifier(column.name) for column in current.columns}
+    )
+    names = (
+        before_names & current_names
+        if before is not None and current is not None
+        else before_names | current_names
+    )
     return tuple(sorted(names - excluded))
 
 
 def _descriptor_map(bound: BoundSnapshotInput) -> dict[str, SnapshotTableDescriptor]:
-    return {
-        canonicalize_identifier(table.table_name): table
-        for table in bound.summary.tables
-    }
+    return {canonicalize_identifier(table.table_name): table for table in bound.summary.tables}
 
 
 def _table_map(bound: BoundSnapshotInput) -> dict[str, SnapshotTable]:
@@ -206,8 +219,7 @@ def _table_map(bound: BoundSnapshotInput) -> dict[str, SnapshotTable]:
     if table_set is None:
         return {}
     return {
-        canonicalize_identifier(table.descriptor.table_name): table
-        for table in table_set.tables
+        canonicalize_identifier(table.descriptor.table_name): table for table in table_set.tables
     }
 
 

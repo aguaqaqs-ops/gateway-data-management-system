@@ -3,6 +3,7 @@
 Creation/verification and connections are owned by the statistics store. A schema
 mismatch disables telemetry and requires explicit operator repair, never migration.
 """
+
 SCHEMA_VERSION = 1
 PAGE_SIZE = 4096
 

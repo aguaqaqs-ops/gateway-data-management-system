@@ -37,19 +37,25 @@ def validate_risk_ruleset(snapshot: RiskRulesetSnapshot) -> dict[RiskRuleId, Ris
         actual = actual_by_id[rule_id]
         if actual.rule_version != RISK_RULE_VERSION:
             raise InvalidRiskRuleset(f"unsupported rule version for {rule_id.value}")
-        if actual.target_scope is not expected.target_scope or actual.reason_code is not expected.reason_code:
+        if (
+            actual.target_scope is not expected.target_scope
+            or actual.reason_code is not expected.reason_code
+        ):
             raise InvalidRiskRuleset(f"frozen rule identity mismatch for {rule_id.value}")
-        if (tuple(key for key, _ in actual.params) != tuple(key for key, _ in expected.params)
-                or any(value is not True for _, value in actual.params)):
+        if tuple(key for key, _ in actual.params) != tuple(
+            key for key, _ in expected.params
+        ) or any(value is not True for _, value in actual.params):
             raise InvalidRiskRuleset(f"invalid frozen rule parameters for {rule_id.value}")
     return actual_by_id
 
 
 def standard_rule_applicability(
-    snapshot: RiskRulesetSnapshot, table_name: str,
+    snapshot: RiskRulesetSnapshot,
+    table_name: str,
 ) -> tuple[bool, bool, bool, bool]:
     """Resolve standard-row rules for both evaluation and candidate identity."""
     rules = {rule.rule_id: rule for rule in snapshot.rules}
+
     def has(rule_id: RiskRuleId, prefix: str) -> bool:
         return (f"{prefix}:{table_name}", True) in rules[rule_id].params
 
@@ -63,10 +69,17 @@ def standard_rule_applicability(
 
 def ordered_yk_name_applies(snapshot: RiskRulesetSnapshot, table_name: str) -> bool:
     """Resolve the frozen literal selector shared by evaluation and cache keys."""
-    rule = next(rule for rule in snapshot.rules if rule.rule_id is RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE)
-    return (("channel_table_name", True) in rule.params
-            and ("name_contains:yk", True) in rule.params
-            and "yk" in table_name and parse_channel_table_name(table_name) is not None)
+    rule = next(
+        rule
+        for rule in snapshot.rules
+        if rule.rule_id is RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE
+    )
+    return (
+        ("channel_table_name", True) in rule.params
+        and ("name_contains:yk", True) in rule.params
+        and "yk" in table_name
+        and parse_channel_table_name(table_name) is not None
+    )
 
 
 def level_for(rule: RiskRuleSpec) -> RiskLevel:

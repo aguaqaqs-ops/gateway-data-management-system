@@ -50,6 +50,8 @@ from gateway_shared_kernel import (
 from gateway_shared_kernel import DigestRef
 
 _ZERO_DIGEST = DigestRef("sha256:" + "00" * 32)
+
+
 def sql_request(
     sql: str | bytes,
     context: ParserInvocationContext | None = None,
@@ -129,9 +131,7 @@ def _table_from_native(value: dict[str, Any]) -> ParsedTable:
             logical_type=SqlLogicalType(column["logical_type"]),
             declared_type=_declared_type(column["declared_type"]),
             nullable=column["nullable"],
-            enum_or_set_labels=(
-                tuple(column["labels"]) if column["labels"] is not None else None
-            ),
+            enum_or_set_labels=(tuple(column["labels"]) if column["labels"] is not None else None),
         )
         for column in value["columns"]
     )
@@ -241,6 +241,8 @@ def consumed_rows(result: ParseResult) -> tuple[tuple[SourceRow, ...], ...]:
 
 
 def tiny_budgets(**overrides: int) -> ResourceBudgets:
-    values = {field: getattr(RESOURCE_BUDGETS, field) for field in RESOURCE_BUDGETS.__dataclass_fields__}
+    values = {
+        field: getattr(RESOURCE_BUDGETS, field) for field in RESOURCE_BUDGETS.__dataclass_fields__
+    }
     values.update(overrides)
     return ResourceBudgets(**values)

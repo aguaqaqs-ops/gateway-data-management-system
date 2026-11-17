@@ -46,7 +46,9 @@ def compare_dataset_replacement(plan: ComparisonPlan) -> DatasetReplacementResul
         unchanged_table_count=0,
         changed_table_count=len(tables),
         added_table_count=sum(item.status is ComparisonTableStatus.ADDED_TABLE for item in tables),
-        deleted_table_count=sum(item.status is ComparisonTableStatus.DELETED_TABLE for item in tables),
+        deleted_table_count=sum(
+            item.status is ComparisonTableStatus.DELETED_TABLE for item in tables
+        ),
         schema_changed_table_count=0,
         degraded_table_count=0,
         row_added_count=sum(item.row_added_count for item in tables),
@@ -136,4 +138,3 @@ def _replacement_table_fact(
         content_changed=True,
     )
     return _with_table_digest(fact)
-

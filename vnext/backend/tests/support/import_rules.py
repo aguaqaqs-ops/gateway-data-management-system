@@ -23,7 +23,13 @@ PRODUCTION_ENTRYPOINTS = (
 )
 # Package-root modules that belong to process composition rather than to an unowned bucket.
 COMPOSITION_MODULES = frozenset(
-    {"gateway_backend", "gateway_backend.app", "gateway_backend.settings", "gateway_backend.deployment_config", "gateway_backend.runtime_preflight"}
+    {
+        "gateway_backend",
+        "gateway_backend.app",
+        "gateway_backend.settings",
+        "gateway_backend.deployment_config",
+        "gateway_backend.runtime_preflight",
+    }
 )
 
 # Exact shared owners: identity is a domain value; host documents are composition.
@@ -87,7 +93,9 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "artifacts": frozenset({"artifacts"}),
     "operations": frozenset({"operations", "artifacts"}),
     "statistics": frozenset({"statistics", "operations", "ext:repository_wire"}),
-    "infrastructure:statistics": frozenset({"statistics", "operations", "ext:repository_wire", "ext:sqlite"}),
+    "infrastructure:statistics": frozenset(
+        {"statistics", "operations", "ext:repository_wire", "ext:sqlite"}
+    ),
     "capabilities": frozenset(),
     "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
@@ -106,28 +114,41 @@ COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
 # exemption. Other owners, whole-module imports and wildcard imports still fail.
 NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
     "gateway_backend.bootstrap.compute_kernel": frozenset({"_init_kernel_native"}),
-    "gateway_backend.capabilities.comparison.native": frozenset({
-        "_begin_comparison_operation_native",
-        "_standard_identity_scanner_native",
-        "_compare_records_native",
-        "_facts_core_digest_native",
-        "_summarize_unchanged_ordered_native",
-        "_validate_records_batches_native",
-        "_restore_comparison_table_native",
-        "_comparison_format_versions_native",
-    }),
-    "gateway_backend.capabilities.mutation_planning.native": frozenset({
-        "_begin_storage_operation_native", "_prepare_storage_table_native", "_render_change_set_native",
-    }),
+    "gateway_backend.capabilities.comparison.native": frozenset(
+        {
+            "_begin_comparison_operation_native",
+            "_standard_identity_scanner_native",
+            "_compare_records_native",
+            "_facts_core_digest_native",
+            "_summarize_unchanged_ordered_native",
+            "_validate_records_batches_native",
+            "_restore_comparison_table_native",
+            "_comparison_format_versions_native",
+        }
+    ),
+    "gateway_backend.capabilities.mutation_planning.native": frozenset(
+        {
+            "_begin_storage_operation_native",
+            "_prepare_storage_table_native",
+            "_render_change_set_native",
+        }
+    ),
     "gateway_backend.capabilities.table_access.native": frozenset({"_parse_sql_native"}),
     "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
         {"_sql_materialize_native", "_catalog_filter_native"}
     ),
-    "gateway_backend.capabilities.storage_projection.native": frozenset({
-        "_canonical_project_native", "_render_storage_schema_native",
-    }),
+    "gateway_backend.capabilities.storage_projection.native": frozenset(
+        {
+            "_canonical_project_native",
+            "_render_storage_schema_native",
+        }
+    ),
     "gateway_backend.capabilities.snapshot_materialization.canonical_store": frozenset(
-        {"_canonical_comparison_profile_native", "_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
+        {
+            "_canonical_comparison_profile_native",
+            "_encode_canonical_ipc_native",
+            "_inspect_canonical_ipc_native",
+        }
     ),
 }
 
@@ -377,8 +398,10 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         and target_zone != source_zone
         and source_zone not in COMPOSITION_ZONES
     ):
-        allowed_key = source_zone if source_zone in ALLOWED_ZONE_EDGES else (
-            "capability" if source_zone.startswith("capability:") else source_zone
+        allowed_key = (
+            source_zone
+            if source_zone in ALLOWED_ZONE_EDGES
+            else ("capability" if source_zone.startswith("capability:") else source_zone)
         )
         allowed = ALLOWED_ZONE_EDGES.get(allowed_key, frozenset())
         approved_native_call = (
@@ -394,28 +417,43 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
             and edge.names == ("parse_artifact_id",)
         )
         approved_telemetry_hook = edge.target == "gateway_backend.statistics.metrics"
-        approved_telemetry_port = (source_zone == "operations" and edge.target == "gateway_backend.statistics.ports")
-        approved_statistics_model = (source_zone == "http" and edge.target in {
-            "gateway_backend.statistics.models", "gateway_backend.statistics.queries"})
-        approved_statistics_wire = (edge.source == "gateway_backend.http.schemas.statistics"
-                                    and edge.target == "gateway_repository_contracts.statistics")
+        approved_telemetry_port = (
+            source_zone == "operations" and edge.target == "gateway_backend.statistics.ports"
+        )
+        approved_statistics_model = source_zone == "http" and edge.target in {
+            "gateway_backend.statistics.models",
+            "gateway_backend.statistics.queries",
+        }
+        approved_statistics_wire = (
+            edge.source == "gateway_backend.http.schemas.statistics"
+            and edge.target == "gateway_repository_contracts.statistics"
+        )
         # The storage telemetry adapter reads only the owning fixed ref decoders and
         # live stat; it cannot call application/capabilities or mutate business state.
         approved_statistics_storage = (
             edge.source == "gateway_backend.infrastructure.statistics.storage"
-            and edge.target in {
-                "gateway_backend.artifacts.computation_cache", "gateway_backend.artifacts.location",
-                "gateway_backend.artifacts.serialize", "gateway_backend.artifacts.store",
+            and edge.target
+            in {
+                "gateway_backend.artifacts.computation_cache",
+                "gateway_backend.artifacts.location",
+                "gateway_backend.artifacts.serialize",
+                "gateway_backend.artifacts.store",
                 "gateway_backend.infrastructure.artifact_store.local_store",
                 "gateway_backend.infrastructure.control_db.computation_cache",
                 "gateway_backend.infrastructure.control_db.sqlite_workspace",
                 "gateway_backend.infrastructure.control_db.sqlite_submission",
             }
         )
-        if (not _target_category_allowed(allowed, target_zone, edge.target)
-                and not approved_native_call and not approved_artifact_id_codec
-                and not approved_telemetry_hook and not approved_telemetry_port and not approved_statistics_model
-                and not approved_statistics_wire and not approved_statistics_storage):
+        if (
+            not _target_category_allowed(allowed, target_zone, edge.target)
+            and not approved_native_call
+            and not approved_artifact_id_codec
+            and not approved_telemetry_hook
+            and not approved_telemetry_port
+            and not approved_statistics_model
+            and not approved_statistics_wire
+            and not approved_statistics_storage
+        ):
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

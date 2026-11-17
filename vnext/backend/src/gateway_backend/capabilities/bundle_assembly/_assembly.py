@@ -169,11 +169,7 @@ def assemble_bundle(
         closure = _closure_manifest(generated)
         status = BundleAssemblyStatus.DEGRADED if failures else BundleAssemblyStatus.READY
         diagnostics = tuple(
-            sorted(
-                message
-                for failure in failures
-                for message in failure.diagnostics
-            )
+            sorted(message for failure in failures for message in failure.diagnostics)
         )
         pairs = tuple(item.pair for item in published_pairs)
         bundle_digest = compute_bundle_digest(
@@ -285,7 +281,7 @@ def assemble_bundle(
             status=BundleAssemblyStatus.CANCELLED,
             diagnostics=("BUNDLE_ASSEMBLY_CANCELLED",),
         )
-    except (InterruptedError, TimeoutError, MemoryError):
+    except InterruptedError, TimeoutError, MemoryError:
         raise
     except Exception as exc:
         return BundleAssemblyResult(
@@ -340,10 +336,7 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
     entries = _entries_from_document(closure_document)
     closure = BundleArtifactManifest(entries=entries)
     expected_closure_payload = closure_semantic_payload(closure)
-    if any(
-        closure_document.get(key) != value
-        for key, value in expected_closure_payload.items()
-    ):
+    if any(closure_document.get(key) != value for key, value in expected_closure_payload.items()):
         raise BundleAssemblyError("BUNDLE_CLOSURE_SEMANTIC_PAYLOAD_MISMATCH")
     manifest_entries = _entries_from_document(manifest)
     if manifest_entries != entries:
@@ -389,9 +382,7 @@ def validate_bundle(bundle: ComparisonBundle, store: ArtifactStorePort) -> None:
     )
     if any(manifest.get(key) != value for key, value in expected_manifest_payload.items()):
         raise BundleAssemblyError("BUNDLE_MANIFEST_SEMANTIC_PAYLOAD_MISMATCH")
-    expected_manifest_digest = raw_blob_digest(
-        canonicalize_json_value(expected_manifest_payload)
-    )
+    expected_manifest_digest = raw_blob_digest(canonicalize_json_value(expected_manifest_payload))
     if closure_document.get("bundle_manifest_digest") != expected_manifest_digest.value:
         raise BundleAssemblyError("BUNDLE_CLOSURE_MANIFEST_DIGEST_MISMATCH")
     entry_refs = {entry.artifact_ref for entry in entries}
@@ -457,7 +448,9 @@ def _promote_binding_to_shared(binding: BundleArtifactBinding) -> BundleArtifact
         binding,
         logical_path=_shared_logical_path_for_binding(binding),
         pair_id=None,
-        table_name=None if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE else binding.table_name,
+        table_name=None
+        if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE
+        else binding.table_name,
         shared=True,
     )
 
@@ -571,10 +564,13 @@ def _plan_artifacts(
             key = (binding.logical_path, ref.media_type, ref.size_bytes, ref.raw_sha256.value)
             snapshot_sources.setdefault(key, []).append(ref)
     snapshot_representatives = {
-        source_ref: min(refs, key=lambda ref: (
-            parse_artifact_id(ref.artifact_id) is ArtifactLocation.CANONICAL,
-            ref.artifact_id,
-        ))
+        source_ref: min(
+            refs,
+            key=lambda ref: (
+                parse_artifact_id(ref.artifact_id) is ArtifactLocation.CANONICAL,
+                ref.artifact_id,
+            ),
+        )
         for refs in snapshot_sources.values()
         for source_ref in refs
     }
@@ -590,7 +586,7 @@ def _plan_artifacts(
         checkpoint()
         try:
             raw = store.locate(source_ref)
-        except (InterruptedError, TimeoutError, MemoryError):
+        except InterruptedError, TimeoutError, MemoryError:
             raise
         except Exception as exc:
             raise BundleAssemblyError("SOURCE_ARTIFACT_NOT_FOUND") from exc
@@ -652,7 +648,9 @@ def _rewrite_pairs(
         surface_bytes = canonicalize_json_value(surface.to_document())
         surface_ref = _build_final_ref(
             ArtifactRef(
-                artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "surface-source", surface.surface_digest.value),
+                artifact_id=build_artifact_id(
+                    ArtifactLocation.EXPORT, "surface-source", surface.surface_digest.value
+                ),
                 media_type="application/json",
                 size_bytes=len(surface_bytes),
                 raw_sha256=raw_blob_digest(surface_bytes),
@@ -660,10 +658,7 @@ def _rewrite_pairs(
             surface_bytes,
         )
         summary = tuple(
-            sorted(
-                (key, str(value))
-                for key, value in surface.summary.to_document().items()
-            )
+            sorted((key, str(value)) for key, value in surface.summary.to_document().items())
         )
         result.append(
             _PublishedPair(
@@ -708,7 +703,10 @@ def _deduplicate_generated(generated: Iterable[_PlannedArtifact]) -> list[_Plann
     for item in generated:
         previous = by_path.get(item.binding.logical_path)
         if previous is not None:
-            if previous.final_ref != item.final_ref or previous.binding.kind is not item.binding.kind:
+            if (
+                previous.final_ref != item.final_ref
+                or previous.binding.kind is not item.binding.kind
+            ):
                 raise BundleAssemblyError("DUPLICATE_FINAL_LOGICAL_PATH")
             continue
         by_path[item.binding.logical_path] = item
@@ -722,7 +720,7 @@ def _is_json_ref_bearing(ref: ArtifactRef) -> bool:
 def _json_object(raw: bytes, label: str) -> dict[str, object]:
     try:
         value = json.loads(raw)
-    except (InterruptedError, TimeoutError, MemoryError):
+    except InterruptedError, TimeoutError, MemoryError:
         raise
     except Exception as exc:
         raise BundleAssemblyError(f"{label}_NOT_JSON") from exc
@@ -734,15 +732,13 @@ def _json_object(raw: bytes, label: str) -> dict[str, object]:
 def _json_object_or_value(raw: bytes) -> object:
     try:
         return json.loads(raw)
-    except (InterruptedError, TimeoutError, MemoryError):
+    except InterruptedError, TimeoutError, MemoryError:
         raise
     except Exception as exc:
         raise BundleAssemblyError("JSON_ARTIFACT_NOT_JSON") from exc
 
 
-def _require_exact_keys(
-    document: dict[str, object], expected: set[str], error: str
-) -> None:
+def _require_exact_keys(document: dict[str, object], expected: set[str], error: str) -> None:
     if set(document) != expected:
         raise BundleAssemblyError(error)
 
@@ -753,7 +749,7 @@ def _embedded_refs(value: object) -> tuple[ArtifactRef, ...]:
         if set(value) == {"artifact_id", "media_type", "size_bytes", "raw_sha256"}:
             try:
                 found.append(artifact_ref_from_dict(value))
-            except (InterruptedError, TimeoutError, MemoryError):
+            except InterruptedError, TimeoutError, MemoryError:
                 raise
             except Exception as exc:
                 raise BundleAssemblyError("EMBEDDED_ARTIFACT_REF_INVALID") from exc
@@ -766,7 +762,9 @@ def _embedded_refs(value: object) -> tuple[ArtifactRef, ...]:
     return tuple(dict.fromkeys(found))
 
 
-def _rewrite_embedded_refs(value: object, planned: Mapping[ArtifactRef, _PlannedArtifact]) -> object:
+def _rewrite_embedded_refs(
+    value: object, planned: Mapping[ArtifactRef, _PlannedArtifact]
+) -> object:
     if isinstance(value, dict):
         if set(value) == {"artifact_id", "media_type", "size_bytes", "raw_sha256"}:
             source_ref = artifact_ref_from_dict(value)
@@ -791,7 +789,9 @@ def _build_final_ref(source_ref: ArtifactRef, raw_bytes: bytes) -> ArtifactRef:
     )
 
 
-def _bundle_artifact_id(kind: str, raw_bytes: bytes, *, media_type: str = "application/octet-stream") -> str:
+def _bundle_artifact_id(
+    kind: str, raw_bytes: bytes, *, media_type: str = "application/octet-stream"
+) -> str:
     identity_digest = raw_blob_digest(
         canonicalize_json_value(
             {
@@ -802,7 +802,9 @@ def _bundle_artifact_id(kind: str, raw_bytes: bytes, *, media_type: str = "appli
             }
         )
     )
-    return build_artifact_id(ArtifactLocation.EXPORT, "bundle", f"{kind}-{identity_digest.value.removeprefix('sha256:')}")
+    return build_artifact_id(
+        ArtifactLocation.EXPORT, "bundle", f"{kind}-{identity_digest.value.removeprefix('sha256:')}"
+    )
 
 
 def _bundle_id(bundle_digest: DigestRef) -> str:
@@ -884,7 +886,7 @@ def _entries_from_document(document: dict[str, object]) -> tuple[BundleClosureEn
                     table_bindings=tuple(table_bindings),
                 )
             )
-        except (InterruptedError, TimeoutError, MemoryError):
+        except InterruptedError, TimeoutError, MemoryError:
             raise
         except Exception as exc:
             raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID") from exc

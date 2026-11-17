@@ -37,7 +37,11 @@ from gateway_backend.http.orchestration.source_package_admission import (
     assert_supported_source_media_type,
     validate_source_package_archive,
 )
-from gateway_backend.http.schemas.upload import ArtifactManifestPart, UploadManifestPart, UploadRevisionResponse
+from gateway_backend.http.schemas.upload import (
+    ArtifactManifestPart,
+    UploadManifestPart,
+    UploadRevisionResponse,
+)
 from gateway_backend.application.workspace.contracts import FIXED_UPLOAD_MAX_COMPRESSED_BYTES
 
 
@@ -93,6 +97,7 @@ async def accept_multipart_upload(
 
 def _accept_in_scratch(**kwargs: object) -> UploadRevisionResponse:
     from typing import cast, Any
+
     parsed = cast(ParsedMultipartUpload, kwargs["parsed"])
     with scratch_scope(parsed.scratch):
         return _accept_staged_upload(**cast(Any, kwargs))
@@ -175,7 +180,8 @@ def _accept_staged_upload(
                 status_code=422,
             )
         try:
-            ref = artifact_store.put_stream(ArtifactLocation.DURABLE,
+            ref = artifact_store.put_stream(
+                ArtifactLocation.DURABLE,
                 "source-package",
                 iter_file_chunks(staged.source),
                 declared_size=declared.size_bytes,

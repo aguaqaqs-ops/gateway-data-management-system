@@ -38,7 +38,9 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.channel import (
-    ChannelTableName, is_ordered_reference_table, parse_channel_table_name,
+    ChannelTableName,
+    is_ordered_reference_table,
+    parse_channel_table_name,
 )
 
 
@@ -52,6 +54,7 @@ def resolve_table_rule(
     from gateway_backend.capabilities.table_rules.resolver import (
         resolve_table_rule as resolve_against_snapshot,
     )
+
     return resolve_against_snapshot(
         snapshot,
         table_name,
@@ -79,7 +82,9 @@ def resolve_comparison_rule_view(
         resolve_comparison_rule_view as resolve_view,
     )
 
-    return resolve_view(rule_set, table_name, table_comment=table_comment, primary_key_columns=primary_key_columns)
+    return resolve_view(
+        rule_set, table_name, table_comment=table_comment, primary_key_columns=primary_key_columns
+    )
 
 
 __all__ = [

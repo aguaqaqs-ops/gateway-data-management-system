@@ -19,7 +19,8 @@ from gateway_backend.operations.persistence import LEASE_DURATION, OperationLife
 from gateway_backend.operations.recovery import RecoveryTransitionIntent
 from gateway_backend.operations.state import (
     DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
-    DIAGNOSTIC_PURE_DRAIN_HANDOFF, DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR,
+    DIAGNOSTIC_PURE_DRAIN_HANDOFF,
+    DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR,
     DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
     DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
     TransitionDisposition,
@@ -32,7 +33,8 @@ from gateway_backend.operations.store import (
     StaleWrite,
 )
 from gateway_backend.operations.worker import (
-    CheckpointGeneration, CooperativeExecutionStopped,
+    CheckpointGeneration,
+    CooperativeExecutionStopped,
     ExecutionControl,
     ExecutorAcknowledgment,
     WorkerEvent,
@@ -40,6 +42,7 @@ from gateway_backend.operations.worker import (
     WorkerObserver,
     WriteUnitOfWorkFactory,
 )
+
 
 class LeaseSession:
     """One live lease's sole serialized channel for durable mutations.
@@ -116,28 +119,55 @@ class LeaseSession:
                     if self._control.cancel_requested:
                         return None
                     now = unit_of_work.operations.transaction_now
-                    operator = current.diagnostic is not None and current.diagnostic.code == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
-                    candidate = dataclasses.replace(current, status=StepStatus.RETRY_WAIT,
+                    operator = (
+                        current.diagnostic is not None
+                        and current.diagnostic.code == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
+                    )
+                    candidate = dataclasses.replace(
+                        current,
+                        status=StepStatus.RETRY_WAIT,
                         diagnostic=OperationDiagnostic(
-                            code=DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR if operator else DIAGNOSTIC_PURE_DRAIN_HANDOFF,
-                            message=current.diagnostic.message if operator and current.diagnostic is not None
-                                else "PURE_RECOMPUTE yielded for worker drain"),
-                        retry_not_before=now, updated_at=now, worker_id=None, lease_token=None,
-                        lease_expires_at=None, completed_at=None, optimistic_version=current.optimistic_version + 1)
+                            code=DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR
+                            if operator
+                            else DIAGNOSTIC_PURE_DRAIN_HANDOFF,
+                            message=current.diagnostic.message
+                            if operator and current.diagnostic is not None
+                            else "PURE_RECOMPUTE yielded for worker drain",
+                        ),
+                        retry_not_before=now,
+                        updated_at=now,
+                        worker_id=None,
+                        lease_token=None,
+                        lease_expires_at=None,
+                        completed_at=None,
+                        optimistic_version=current.optimistic_version + 1,
+                    )
                     self._validate_retry_wait_release_candidate(current, candidate, now)
-                    self._actions(unit_of_work).mutate_live_step(candidate, self._step_precondition(current))
+                    self._actions(unit_of_work).mutate_live_step(
+                        candidate, self._step_precondition(current)
+                    )
             except (StaleWrite, LeaseExpired) as exc:
                 self._lose_lease(exc)
                 raise
             self._closed = True
             self._completion_acknowledgment = ExecutorAcknowledgment.SAFE_HANDOFF
-            self._emit(WorkerEvent(code=WorkerEventCode.SAFE_HANDOFF, operation_id=self._operation_id,
-                step_id=self._step_id, worker_id=self._worker_id))
+            self._emit(
+                WorkerEvent(
+                    code=WorkerEventCode.SAFE_HANDOFF,
+                    operation_id=self._operation_id,
+                    step_id=self._step_id,
+                    worker_id=self._worker_id,
+                )
+            )
             return ExecutorAcknowledgment.SAFE_HANDOFF
 
     def _check_pure_publication_control(self, candidate: StepRecord) -> None:
         if self._pure_recompute and candidate.status in (StepStatus.RUNNING, StepStatus.SUCCEEDED):
-            if self._control.cancel_requested or self._control.drain_requested or self._control.lease_lost:
+            if (
+                self._control.cancel_requested
+                or self._control.drain_requested
+                or self._control.lease_lost
+            ):
                 raise CooperativeExecutionStopped("pure computation stopped before publication")
 
     def refresh_control(self) -> None:
@@ -219,9 +249,7 @@ class LeaseSession:
 
     def publish_successor(
         self,
-        builder: Callable[
-            [OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]
-        ],
+        builder: Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]],
     ) -> tuple[TransitionDisposition, TransitionDisposition]:
         """Commit a terminal Step and pending successor in one UoW."""
 
@@ -322,8 +350,7 @@ class LeaseSession:
                         transaction_now = unit_of_work.operations.transaction_now
                         operator_session_active = (
                             current_step.diagnostic is not None
-                            and current_step.diagnostic.code
-                            == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
+                            and current_step.diagnostic.code == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
                         )
                         diagnostic = OperationDiagnostic(
                             code=(
@@ -408,9 +435,7 @@ class LeaseSession:
                         lease_token=None,
                         lease_expires_at=None,
                         optimistic_version=current_step.optimistic_version + 1,
-                        completed_at=(
-                            transaction_now if step_target.is_final_terminal() else None
-                        ),
+                        completed_at=(transaction_now if step_target.is_final_terminal() else None),
                     )
                     validate_step_transition(current_step, step_candidate)
 
@@ -443,9 +468,7 @@ class LeaseSession:
                             updated_at=transaction_now,
                             optimistic_version=operation.optimistic_version + 1,
                             completed_at=(
-                                transaction_now
-                                if operation_target.is_final_terminal()
-                                else None
+                                transaction_now if operation_target.is_final_terminal() else None
                             ),
                         )
                         self._validate_terminal_step_candidate(
@@ -531,7 +554,10 @@ class LeaseSession:
     ) -> None:
         if type(candidate) is not StepRecord:
             raise ValueError("checkpoint builder must return StepRecord")
-        if candidate.step_id != current_step.step_id or candidate.operation_id != self._operation_id:
+        if (
+            candidate.step_id != current_step.step_id
+            or candidate.operation_id != self._operation_id
+        ):
             raise ValueError("checkpoint candidate identity does not match the lease session")
         if candidate.status is not StepStatus.RUNNING:
             raise ValueError("checkpoint candidate must remain RUNNING")
@@ -554,7 +580,10 @@ class LeaseSession:
     ) -> None:
         if type(candidate) is not StepRecord:
             raise ValueError("publication builder must return StepRecord")
-        if candidate.step_id != current_step.step_id or candidate.operation_id != self._operation_id:
+        if (
+            candidate.step_id != current_step.step_id
+            or candidate.operation_id != self._operation_id
+        ):
             raise ValueError("terminal step identity does not match the lease session")
         if not candidate.status.is_final_terminal() and not (
             allow_manual and candidate.status.requires_manual_recovery()
@@ -595,7 +624,10 @@ class LeaseSession:
     ) -> None:
         if type(candidate) is not StepRecord:
             raise ValueError("recovery release builder must return StepRecord")
-        if candidate.step_id != current_step.step_id or candidate.operation_id != self._operation_id:
+        if (
+            candidate.step_id != current_step.step_id
+            or candidate.operation_id != self._operation_id
+        ):
             raise ValueError("recovery release step identity does not match the lease session")
         if candidate.status is not StepStatus.RETRY_WAIT:
             raise ValueError("recovery release candidate must target RETRY_WAIT")

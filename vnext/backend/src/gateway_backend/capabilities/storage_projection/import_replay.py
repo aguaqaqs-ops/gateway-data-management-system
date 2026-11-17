@@ -10,7 +10,10 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     RepositoryImportArtifactInput,
 )
 from gateway_backend.capabilities.storage_projection.native import render_storage_schema_native
-from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext, require_active_kernel_context
+from gateway_backend.capabilities.snapshot_materialization import (
+    KernelExecutionContext,
+    require_active_kernel_context,
+)
 
 
 class ImportReplayError(ValueError):
@@ -47,30 +50,41 @@ def render_repository_import_schema_replay_sql(
         columns_count += len(table.columns)
         key_count += len(table.primary_key)
         names_bytes_upper += len(table.name) * 4
-        names_bytes_upper += sum((len(column.name) + len(column.sql_type)) * 4
-                           for column in table.columns)
+        names_bytes_upper += sum(
+            (len(column.name) + len(column.sql_type)) * 4 for column in table.columns
+        )
         names_bytes_upper += sum(len(key) * 4 for key in table.primary_key)
     # Reserve conversion graph and UTF8/escape expansion before making JSON.
     conversion = active.memory.reserve(
         names_bytes_upper * 32 + 4096 * (len(import_input.tables) + columns_count + key_count + 1)
     )
     try:
-        payload = json.dumps({
-            "removed_tables": removed_tables,
-            "tables": [{
-                "name": table.name,
-                "columns": [{"name": col.name, "sql_type": col.sql_type, "nullable": col.nullable}
-                            for col in table.columns],
-                "primary_key": table.primary_key,
-            } for table in sorted(import_input.tables, key=lambda item: item.name)],
-        }, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        payload = json.dumps(
+            {
+                "removed_tables": removed_tables,
+                "tables": [
+                    {
+                        "name": table.name,
+                        "columns": [
+                            {"name": col.name, "sql_type": col.sql_type, "nullable": col.nullable}
+                            for col in table.columns
+                        ],
+                        "primary_key": table.primary_key,
+                    }
+                    for table in sorted(import_input.tables, key=lambda item: item.name)
+                ],
+            },
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
         # This is a memory envelope only: the SQL policy cap remains the
         # frozen 200 MiB. Names may repeat in DROP and CREATE and double in
         # identifier escaping; each declaration adds bounded punctuation.
         output_upper = min(
             MAX_REPLAY_SQL_BYTES,
             names_bytes_upper * 4
-            + 256 * (len(removed_tables) + len(import_input.tables) + columns_count + key_count + 1),
+            + 256
+            * (len(removed_tables) + len(import_input.tables) + columns_count + key_count + 1),
         )
         try:
             return render_storage_schema_native(payload, active, MAX_REPLAY_SQL_BYTES, output_upper)

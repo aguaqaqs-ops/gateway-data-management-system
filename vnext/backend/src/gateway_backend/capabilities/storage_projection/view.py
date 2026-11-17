@@ -29,7 +29,10 @@ def derive_storage_rule_view(
     record: TableRuleRecord,
     descriptor: SnapshotTableDescriptor,
 ) -> StorageRuleView | None:
-    if record.static_role is TableStaticRole.SKIP or record.table_storage is TableStorageDisposition.OMIT:
+    if (
+        record.static_role is TableStaticRole.SKIP
+        or record.table_storage is TableStorageDisposition.OMIT
+    ):
         return None
     dropped = record.dropped_columns
     dropped_names = {item.name for item in dropped}
@@ -38,13 +41,15 @@ def derive_storage_rule_view(
         for column in descriptor.columns
         if canonicalize_rule_identifier(column.name) not in dropped_names
     )
-    descriptor_names = {
-        canonicalize_rule_identifier(column.name) for column in descriptor.columns
-    }
-    missing_ordered_columns = (record.ordered_policy is OrderedPolicy.GID_NO_V1
-                               and not {"gid", "no"} <= descriptor_names)
-    policy = (CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
-              if missing_ordered_columns else record.canonical_key_policy)
+    descriptor_names = {canonicalize_rule_identifier(column.name) for column in descriptor.columns}
+    missing_ordered_columns = (
+        record.ordered_policy is OrderedPolicy.GID_NO_V1 and not {"gid", "no"} <= descriptor_names
+    )
+    policy = (
+        CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+        if missing_ordered_columns
+        else record.canonical_key_policy
+    )
     if policy is CanonicalKeyPolicy.EXPLICIT:
         key_columns = record.compare_key_columns
     elif policy in {

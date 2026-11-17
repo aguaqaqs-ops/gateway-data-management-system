@@ -46,16 +46,30 @@ from gateway_backend.capabilities.table_access.kernel import (
     merge_kernel_control,
 )
 from gateway_backend.capabilities.table_access.native import (
-    ArrowSourceTableReader, parse_arrow_sql, source_arrow_metadata,
-    source_cell_from_arrow, source_descriptor_from_arrow,
+    ArrowSourceTableReader,
+    parse_arrow_sql,
+    source_arrow_metadata,
+    source_cell_from_arrow,
+    source_descriptor_from_arrow,
 )
 from gateway_backend.capabilities.table_access.xml import parse_xml
 
 __all__ = [
-    "ArrowSourceTableReader", "parse_arrow_sql", "source_arrow_metadata",
-    "source_cell_from_arrow", "source_descriptor_from_arrow",
-    "KernelExecutionContext", "KernelMemoryLimit", "KernelStopped", "OperationMemoryBudget",
-    "Reservation", "current_kernel_context", "require_active_kernel_context", "kernel_execution_scope", "kernel_control_scope", "merge_kernel_control",
+    "ArrowSourceTableReader",
+    "parse_arrow_sql",
+    "source_arrow_metadata",
+    "source_cell_from_arrow",
+    "source_descriptor_from_arrow",
+    "KernelExecutionContext",
+    "KernelMemoryLimit",
+    "KernelStopped",
+    "OperationMemoryBudget",
+    "Reservation",
+    "current_kernel_context",
+    "require_active_kernel_context",
+    "kernel_execution_scope",
+    "kernel_control_scope",
+    "merge_kernel_control",
     "PARSER_INPUT_CONTRACT_VERSION",
     "PARSER_VERSION",
     "RESOURCE_BUDGETS",

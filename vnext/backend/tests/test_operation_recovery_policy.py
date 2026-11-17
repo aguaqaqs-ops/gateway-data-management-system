@@ -524,9 +524,7 @@ def test_reconcile_pending_uses_three_recovery_sessions(
         if expected_step_status is StepStatus.MANUAL_RECOVERY_REQUIRED
         else None
     )
-    assert intent.retain_occupancy is (
-        expected_step_status is StepStatus.MANUAL_RECOVERY_REQUIRED
-    )
+    assert intent.retain_occupancy is (expected_step_status is StepStatus.MANUAL_RECOVERY_REQUIRED)
 
 
 @pytest.mark.parametrize(
@@ -669,10 +667,17 @@ def test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostic
         assert calls == 2
 
 
-@pytest.mark.parametrize("error_type, code", ((RuntimeError, "OPERATION.PURE_RECOMPUTE_FAILED"),
-    (MemoryError, "OPERATION.RESOURCE_LIMIT_EXCEEDED")))
+@pytest.mark.parametrize(
+    "error_type, code",
+    (
+        (RuntimeError, "OPERATION.PURE_RECOMPUTE_FAILED"),
+        (MemoryError, "OPERATION.RESOURCE_LIMIT_EXCEEDED"),
+    ),
+)
 def test_unexpected_pure_recompute_handler_exception_is_logged_without_exiting_worker(
-    caplog: pytest.LogCaptureFixture, error_type: type[Exception], code: str,
+    caplog: pytest.LogCaptureFixture,
+    error_type: type[Exception],
+    code: str,
 ) -> None:
     def handler(
         _operation: OperationRecord,
@@ -715,10 +720,30 @@ EXPIRED_LEASE_MATRIX: tuple[
     tuple[str, RecoveryCapabilityValue, int, RecoveryPolicyDecisionDisposition],
     ...,
 ] = (
-    ("pure_retry", RecoveryCapabilityValue.PURE_RECOMPUTE, 1, RecoveryPolicyDecisionDisposition.MOVE_TO_RETRY_WAIT),
-    ("external_reconcile", RecoveryCapabilityValue.EXTERNAL_EFFECT, 1, RecoveryPolicyDecisionDisposition.CLAIM_FOR_RECONCILE),
-    ("non_retryable_manual", RecoveryCapabilityValue.NON_RETRYABLE, 1, RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY),
-    ("budget_exhausted", RecoveryCapabilityValue.PURE_RECOMPUTE, 3, RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY),
+    (
+        "pure_retry",
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        1,
+        RecoveryPolicyDecisionDisposition.MOVE_TO_RETRY_WAIT,
+    ),
+    (
+        "external_reconcile",
+        RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        1,
+        RecoveryPolicyDecisionDisposition.CLAIM_FOR_RECONCILE,
+    ),
+    (
+        "non_retryable_manual",
+        RecoveryCapabilityValue.NON_RETRYABLE,
+        1,
+        RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY,
+    ),
+    (
+        "budget_exhausted",
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        3,
+        RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY,
+    ),
 )
 
 
@@ -1000,9 +1025,19 @@ DECISION_TRANSITION_MATRIX: tuple[
     (RecoveryPolicyDecisionDisposition.NO_ACTION, None, None, False),
     (RecoveryPolicyDecisionDisposition.MOVE_TO_RETRY_WAIT, StepStatus.RETRY_WAIT, None, False),
     (RecoveryPolicyDecisionDisposition.CLAIM_FOR_RECONCILE, StepStatus.RETRY_WAIT, None, False),
-    (RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED, True),
+    (
+        RecoveryPolicyDecisionDisposition.MARK_MANUAL_RECOVERY,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+        OperationStatus.MANUAL_RECOVERY_REQUIRED,
+        True,
+    ),
     (RecoveryPolicyDecisionDisposition.BLOCK_STARTUP_RETRYABLE, StepStatus.RETRY_WAIT, None, False),
-    (RecoveryPolicyDecisionDisposition.BLOCK_STARTUP_FATAL, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED, True),
+    (
+        RecoveryPolicyDecisionDisposition.BLOCK_STARTUP_FATAL,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+        OperationStatus.MANUAL_RECOVERY_REQUIRED,
+        True,
+    ),
 )
 
 
@@ -1016,7 +1051,11 @@ def test_transition_for_decision_matrix(
     operation_target: OperationStatus | None,
     retain_occupancy: bool,
 ) -> None:
-    retry_not_before = RETRY_NOT_BEFORE if disposition is RecoveryPolicyDecisionDisposition.MOVE_TO_RETRY_WAIT else None
+    retry_not_before = (
+        RETRY_NOT_BEFORE
+        if disposition is RecoveryPolicyDecisionDisposition.MOVE_TO_RETRY_WAIT
+        else None
+    )
     decision = RecoveryPolicyDecision(
         disposition=disposition,
         diagnostic_code=DIAGNOSTIC_RETRY_SCHEDULED,
@@ -1049,9 +1088,36 @@ OUTCOME_TRANSITION_MATRIX: tuple[
     ],
     ...,
 ] = (
-    ("published", RecoveryPolicyOutcomeDisposition.PUBLISHED, 1, False, False, StepStatus.SUCCEEDED, OperationStatus.SUCCEEDED, False),
-    ("retryable_with_budget", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 1, False, False, StepStatus.RETRY_WAIT, None, False),
-    ("retryable_exhausted", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 3, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
+    (
+        "published",
+        RecoveryPolicyOutcomeDisposition.PUBLISHED,
+        1,
+        False,
+        False,
+        StepStatus.SUCCEEDED,
+        OperationStatus.SUCCEEDED,
+        False,
+    ),
+    (
+        "retryable_with_budget",
+        RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE,
+        1,
+        False,
+        False,
+        StepStatus.RETRY_WAIT,
+        None,
+        False,
+    ),
+    (
+        "retryable_exhausted",
+        RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE,
+        3,
+        False,
+        False,
+        StepStatus.FAILED,
+        OperationStatus.FAILED,
+        False,
+    ),
     (
         "operator_session_failure",
         RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE,
@@ -1062,7 +1128,16 @@ OUTCOME_TRANSITION_MATRIX: tuple[
         OperationStatus.MANUAL_RECOVERY_REQUIRED,
         True,
     ),
-    ("reconcile_pending", RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING, 1, False, False, StepStatus.RETRY_WAIT, None, False),
+    (
+        "reconcile_pending",
+        RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
+        1,
+        False,
+        False,
+        StepStatus.RETRY_WAIT,
+        None,
+        False,
+    ),
     (
         "reconcile_pending_session_exhausted",
         RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
@@ -1073,10 +1148,46 @@ OUTCOME_TRANSITION_MATRIX: tuple[
         OperationStatus.MANUAL_RECOVERY_REQUIRED,
         True,
     ),
-    ("permanent_failure", RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE, 1, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
-    ("manual_recovery", RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY, 1, False, False, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED, True),
-    ("cancel_before_boundary", RecoveryPolicyOutcomeDisposition.CANCELLED, 1, False, False, StepStatus.CANCELLED, OperationStatus.CANCELLED, False),
-    ("cancel_after_boundary_reconcile", RecoveryPolicyOutcomeDisposition.CANCELLED, 1, True, True, StepStatus.RETRY_WAIT, None, False),
+    (
+        "permanent_failure",
+        RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
+        1,
+        False,
+        False,
+        StepStatus.FAILED,
+        OperationStatus.FAILED,
+        False,
+    ),
+    (
+        "manual_recovery",
+        RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
+        1,
+        False,
+        False,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+        OperationStatus.MANUAL_RECOVERY_REQUIRED,
+        True,
+    ),
+    (
+        "cancel_before_boundary",
+        RecoveryPolicyOutcomeDisposition.CANCELLED,
+        1,
+        False,
+        False,
+        StepStatus.CANCELLED,
+        OperationStatus.CANCELLED,
+        False,
+    ),
+    (
+        "cancel_after_boundary_reconcile",
+        RecoveryPolicyOutcomeDisposition.CANCELLED,
+        1,
+        True,
+        True,
+        StepStatus.RETRY_WAIT,
+        None,
+        False,
+    ),
 )
 
 
@@ -1123,11 +1234,15 @@ def test_recovery_capability_value_matches_application() -> None:
 
 
 def test_recovery_policy_decision_disposition_matches_application() -> None:
-    assert {item.value for item in RecoveryPolicyDecisionDisposition} == EXPECTED_DECISION_DISPOSITIONS
+    assert {
+        item.value for item in RecoveryPolicyDecisionDisposition
+    } == EXPECTED_DECISION_DISPOSITIONS
 
 
 def test_recovery_policy_outcome_disposition_matches_application() -> None:
-    assert {item.value for item in RecoveryPolicyOutcomeDisposition} == EXPECTED_OUTCOME_DISPOSITIONS
+    assert {
+        item.value for item in RecoveryPolicyOutcomeDisposition
+    } == EXPECTED_OUTCOME_DISPOSITIONS
 
 
 # --- S2c operator recovery command port ---
@@ -1157,14 +1272,54 @@ OPERATOR_COMMAND_CAPABILITY_MATRIX: tuple[
     ],
     ...,
 ] = (
-    ("resume_external", OperatorRecoveryCommand.RESUME_RECONCILE, RecoveryCapabilityValue.EXTERNAL_EFFECT, True),
-    ("resume_pure", OperatorRecoveryCommand.RESUME_RECONCILE, RecoveryCapabilityValue.PURE_RECOMPUTE, False),
-    ("resume_non_retryable", OperatorRecoveryCommand.RESUME_RECONCILE, RecoveryCapabilityValue.NON_RETRYABLE, False),
-    ("retry_pure", OperatorRecoveryCommand.RETRY_FROM_CHECKPOINT, RecoveryCapabilityValue.PURE_RECOMPUTE, True),
-    ("retry_external", OperatorRecoveryCommand.RETRY_FROM_CHECKPOINT, RecoveryCapabilityValue.EXTERNAL_EFFECT, False),
-    ("abort_pure", OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE, RecoveryCapabilityValue.PURE_RECOMPUTE, True),
-    ("abort_external", OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE, RecoveryCapabilityValue.EXTERNAL_EFFECT, True),
-    ("abort_non_retryable", OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE, RecoveryCapabilityValue.NON_RETRYABLE, True),
+    (
+        "resume_external",
+        OperatorRecoveryCommand.RESUME_RECONCILE,
+        RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        True,
+    ),
+    (
+        "resume_pure",
+        OperatorRecoveryCommand.RESUME_RECONCILE,
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        False,
+    ),
+    (
+        "resume_non_retryable",
+        OperatorRecoveryCommand.RESUME_RECONCILE,
+        RecoveryCapabilityValue.NON_RETRYABLE,
+        False,
+    ),
+    (
+        "retry_pure",
+        OperatorRecoveryCommand.RETRY_FROM_CHECKPOINT,
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        True,
+    ),
+    (
+        "retry_external",
+        OperatorRecoveryCommand.RETRY_FROM_CHECKPOINT,
+        RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        False,
+    ),
+    (
+        "abort_pure",
+        OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE,
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        True,
+    ),
+    (
+        "abort_external",
+        OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE,
+        RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        True,
+    ),
+    (
+        "abort_non_retryable",
+        OperatorRecoveryCommand.ABORT_CONFIRMED_FAILURE,
+        RecoveryCapabilityValue.NON_RETRYABLE,
+        True,
+    ),
 )
 
 
@@ -1202,7 +1357,12 @@ OPERATOR_COMMAND_SOURCE_STATE_MATRIX: tuple[
     tuple[str, OperationStatus, StepStatus, str],
     ...,
 ] = (
-    ("running_operation", OperationStatus.RUNNING, StepStatus.MANUAL_RECOVERY_REQUIRED, "operation"),
+    (
+        "running_operation",
+        OperationStatus.RUNNING,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+        "operation",
+    ),
     ("running_step", OperationStatus.MANUAL_RECOVERY_REQUIRED, StepStatus.RUNNING, "step"),
 )
 
@@ -1341,7 +1501,10 @@ def test_authorize_operator_abort_allows_terminal_replay() -> None:
 
 def test_operator_recovery_transition_intents_subset_of_allowed_transitions() -> None:
     from gateway_backend.operations.recovery import transition_for_operator_command
-    from gateway_backend.operations.state import validate_operation_transition, validate_step_transition
+    from gateway_backend.operations.state import (
+        validate_operation_transition,
+        validate_step_transition,
+    )
 
     for command in OperatorRecoveryCommand:
         intent = transition_for_operator_command(command)
@@ -1401,15 +1564,14 @@ def test_operator_recovery_transition_intents_subset_of_allowed_transitions() ->
                 status=intent.operation_target,
                 diagnostic=(
                     MANUAL_DIAGNOSTIC
-                    if intent.operation_target in {
+                    if intent.operation_target
+                    in {
                         OperationStatus.FAILED,
                         OperationStatus.MANUAL_RECOVERY_REQUIRED,
                     }
                     else None
                 ),
-                completed_at=(
-                    BASE_TIME if intent.operation_target.is_final_terminal() else None
-                ),
+                completed_at=(BASE_TIME if intent.operation_target.is_final_terminal() else None),
                 optimistic_version=current_operation.optimistic_version + 1,
             )
             validate_operation_transition(

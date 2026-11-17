@@ -98,8 +98,11 @@ class HttpArrowRepositoryTableAccessProvider:
             ),
             repository_id=self._repository_id,
             commit_id=self._commit_id,
-            deadline_monotonic=(None if timeout_policy is None or timeout_policy.operation_timeout_ms is None
-                else time.monotonic() + timeout_policy.operation_timeout_ms / 1000.0),
+            deadline_monotonic=(
+                None
+                if timeout_policy is None or timeout_policy.operation_timeout_ms is None
+                else time.monotonic() + timeout_policy.operation_timeout_ms / 1000.0
+            ),
         )
 
 
@@ -160,8 +163,13 @@ class HttpArrowRepositoryRefSession:
 
     @contextmanager
     def open_arrow_table_reader(
-        self, table_name: str, *, max_input_bytes: int, max_rows: int,
-        max_columns: int, max_batches: int,
+        self,
+        table_name: str,
+        *,
+        max_input_bytes: int,
+        max_rows: int,
+        max_columns: int,
+        max_batches: int,
     ) -> Iterator[pa.RecordBatchReader]:
         """Borrow bounded wire batches from this session's exact pinned commit."""
         self._ensure_open()
@@ -172,7 +180,8 @@ class HttpArrowRepositoryRefSession:
         if selected is None:
             raise RepositoryProviderError(
                 MaterializationDiagnosticCode.REPOSITORY_TABLE_NOT_FOUND,
-                "table is not in the pinned catalog", table=table_name,
+                "table is not in the pinned catalog",
+                table=table_name,
             )
         if len(selected.columns) > max_columns or (selected.row_count or 0) > max_rows:
             raise MemoryError("repository Arrow catalog exceeds reader budget")
@@ -184,17 +193,22 @@ class HttpArrowRepositoryRefSession:
             # Admit response/chunk buffering before the spool operation. The
             # output file itself is temporary disk storage, not retained RAM.
             with context.memory.reserve(max_input_bytes + 128 * 1024):
-                spool = cast(_ArrowSpool, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+                spool = cast(
+                    _ArrowSpool, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes))
+                )
                 path = spool.path
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             context.checkpoint()
             raise
         except RepositoryClientTimeoutError as exc:
             context.checkpoint()
             raise TimeoutError("repository Arrow deadline exceeded") from exc
         except (
-            RepositoryClientError, RepositoryProtocolError, RepositoryStreamError,
-            httpx.HTTPError, OSError,
+            RepositoryClientError,
+            RepositoryProtocolError,
+            RepositoryStreamError,
+            httpx.HTTPError,
+            OSError,
         ) as exc:
             context.checkpoint()
             raise _repository_read_error("table row read", exc, table=table_name) from exc
@@ -215,6 +229,7 @@ class HttpArrowRepositoryRefSession:
             resources.callback(wire.close)
             if len(wire.schema) > max_columns:
                 raise MemoryError("repository Arrow column limit exceeded")
+
             def batches() -> Iterator[pa.RecordBatch]:
                 rows = total_bytes = count = 0
                 for batch in wire:
@@ -228,6 +243,7 @@ class HttpArrowRepositoryRefSession:
                     batch.validate(full=True)
                     yield batch
                 context.checkpoint()
+
             reader = pa.RecordBatchReader.from_batches(wire.schema, batches())
             resources.callback(reader.close)
             yield reader
@@ -263,7 +279,7 @@ class HttpArrowRepositoryRefSession:
                     "catalog commit does not match the pinned exact commit",
                 )
             return response
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             if context is not None:
                 context.checkpoint()
             raise
@@ -280,7 +296,7 @@ class HttpArrowRepositoryRefSession:
         try:
             spool = cast(_ArrowSpool, _run(self._spool_table_ipc(table_name)))
             ipc_path = spool.path
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             context = current_kernel_context()
             if context is not None:
                 context.checkpoint()
@@ -307,7 +323,7 @@ class HttpArrowRepositoryRefSession:
                 if context is not None:
                     context.checkpoint()
                 yield row
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             raise
         except (OSError, pa.ArrowException, ValueError) as exc:
             raise RepositoryProviderError(
@@ -318,7 +334,9 @@ class HttpArrowRepositoryRefSession:
         finally:
             spool.close()
 
-    async def _spool_table_ipc(self, table_name: str, *, max_bytes: int | None = None) -> _ArrowSpool:
+    async def _spool_table_ipc(
+        self, table_name: str, *, max_bytes: int | None = None
+    ) -> _ArrowSpool:
         context = current_kernel_context()
         if context is not None:
             context.checkpoint()
@@ -336,7 +354,11 @@ class HttpArrowRepositoryRefSession:
         operation = None if context is None else context.deadline_monotonic
         if operation is None:
             return self._deadline_monotonic
-        return operation if self._deadline_monotonic is None else min(operation, self._deadline_monotonic)
+        return (
+            operation
+            if self._deadline_monotonic is None
+            else min(operation, self._deadline_monotonic)
+        )
 
 
 class HttpArrowRepositoryTableReader:
@@ -431,9 +453,8 @@ def _repository_read_error(
     )
     if isinstance(exc, RepositoryClientError):
         wire_code = exc.error.code
-        retryable = (
-            wire_code == SERVICE_NOT_READY_CODE
-            or (exc.status_code >= 500 and wire_code != RESPONSE_LIMIT_EXCEEDED_CODE)
+        retryable = wire_code == SERVICE_NOT_READY_CODE or (
+            exc.status_code >= 500 and wire_code != RESPONSE_LIMIT_EXCEEDED_CODE
         )
         detail = f"{wire_code}: {exc.error.message}"
     elif isinstance(exc, RepositoryProtocolError):
@@ -468,14 +489,17 @@ class _ArrowSpool:
         self.resources.close()
 
 
-async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None = None) -> _ArrowSpool:
+async def _spool_arrow_ipc(
+    stream: ArrowIpcByteStream, *, max_bytes: int | None = None
+) -> _ArrowSpool:
     context = current_kernel_context()
     if context is not None:
         context.checkpoint()
     resources = ExitStack()
     try:
-        source, handle = resources.enter_context(current_scratch().file(
-            byte_limit=1024**3 if max_bytes is None else max_bytes))
+        source, handle = resources.enter_context(
+            current_scratch().file(byte_limit=1024**3 if max_bytes is None else max_bytes)
+        )
         async with stream:
             async for chunk in stream.aiter_bytes():
                 if context is not None:

@@ -37,7 +37,9 @@ pytestmark = pytest.mark.unit
 
 def _request() -> tuple[FakeRepositoryTableAccessProvider, RepositoryRefMaterializationRequest]:
     provider = FakeRepositoryTableAccessProvider(
-        catalog=make_catalog((catalog_table("a", (int_id_column(),)), catalog_table("z", (int_id_column(),)))),
+        catalog=make_catalog(
+            (catalog_table("a", (int_id_column(),)), catalog_table("z", (int_id_column(),)))
+        ),
         rows={"a": ((1,),), "z": ((2,), (3,))},
     )
     return provider, make_request(provider, policy=MaterializationPolicy.READERS_REQUIRED)
@@ -53,17 +55,34 @@ def test_complete_description_opens_no_rows_then_ensure_opens_only_the_merged_de
     assert all(table.reader is None for table in result.table_set.tables)
     assert all(not session.table_readers for session in provider.sessions)
     assert request.committed_tables is not None
-    supplied = ensure_committed_tables(result.table_set,
-        repository_ref=request.repository_ref, canonical_binding=request.canonical_binding,
-        committed_tables=request.committed_tables, requested_tables=("z",), context=request.context)
+    supplied = ensure_committed_tables(
+        result.table_set,
+        repository_ref=request.repository_ref,
+        canonical_binding=request.canonical_binding,
+        committed_tables=request.committed_tables,
+        requested_tables=("z",),
+        context=request.context,
+    )
     assert supplied.snapshot_digest == result.table_set.snapshot_digest
     assert supplied.tables[0] is result.table_set.tables[0]
     assert supplied.tables[1].reader is not None
-    assert tuple(supplied.tables[1].reader.iter_rows()) == ((SignedIntegerScalar("2"),), (SignedIntegerScalar("3"),))
-    assert [reader.catalog_table().table_name for session in provider.sessions for reader in session.table_readers] == ["z"]
-    again = ensure_committed_tables(supplied, repository_ref=request.repository_ref,
-        canonical_binding=request.canonical_binding, committed_tables=request.committed_tables,
-        requested_tables=("z",), context=request.context)
+    assert tuple(supplied.tables[1].reader.iter_rows()) == (
+        (SignedIntegerScalar("2"),),
+        (SignedIntegerScalar("3"),),
+    )
+    assert [
+        reader.catalog_table().table_name
+        for session in provider.sessions
+        for reader in session.table_readers
+    ] == ["z"]
+    again = ensure_committed_tables(
+        supplied,
+        repository_ref=request.repository_ref,
+        canonical_binding=request.canonical_binding,
+        committed_tables=request.committed_tables,
+        requested_tables=("z",),
+        context=request.context,
+    )
     assert again.tables[1] is supplied.tables[1]
     assert len(provider.sessions) == 2
     supplied.tables[1].reader.close()
@@ -75,8 +94,13 @@ def test_bad_unrequested_manifest_is_rejected_before_any_selected_rows() -> None
     provider, request = _request()
     identities = request.canonical_binding.table_identities
     broken = replace(identities[1], canonical_schema_digest=raw_blob_digest(b"wrong-schema"))
-    request = replace(request, requested_tables=("a",),
-        canonical_binding=replace(request.canonical_binding, table_identities=(identities[0], broken)))
+    request = replace(
+        request,
+        requested_tables=("a",),
+        canonical_binding=replace(
+            request.canonical_binding, table_identities=(identities[0], broken)
+        ),
+    )
     result = materialize_repository_ref(request)
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.table_set is None
@@ -86,16 +110,22 @@ def test_bad_unrequested_manifest_is_rejected_before_any_selected_rows() -> None
 
 @pytest.mark.parametrize("failure", ("metadata", "cancel-at-return"))
 def test_ensure_failed_return_closes_new_borrows_and_preserves_existing_reader(
-    monkeypatch: pytest.MonkeyPatch, failure: str,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
 ) -> None:
     _provider, request = _request()
     stop = Event()
     request = replace(request, context=ParserInvocationContext(stop))
     described = describe_repository_ref(request)
     assert described.table_set is not None and request.committed_tables is not None
-    first = ensure_committed_tables(described.table_set, repository_ref=request.repository_ref,
-        canonical_binding=request.canonical_binding, committed_tables=request.committed_tables,
-        requested_tables=("a",), context=request.context)
+    first = ensure_committed_tables(
+        described.table_set,
+        repository_ref=request.repository_ref,
+        canonical_binding=request.canonical_binding,
+        committed_tables=request.committed_tables,
+        requested_tables=("a",),
+        context=request.context,
+    )
     active = current_kernel_context()
     assert active is not None
     existing_mappings = set(active.memory._mappings)
@@ -110,9 +140,14 @@ def test_ensure_failed_return_closes_new_borrows_and_preserves_existing_reader(
 
     monkeypatch.setattr(active.memory, "retain_metadata", reject_result)
     with pytest.raises(MemoryError if failure == "metadata" else InterruptedError):
-        ensure_committed_tables(first, repository_ref=request.repository_ref,
-            canonical_binding=request.canonical_binding, committed_tables=request.committed_tables,
-            requested_tables=("a", "z"), context=request.context)
+        ensure_committed_tables(
+            first,
+            repository_ref=request.repository_ref,
+            canonical_binding=request.canonical_binding,
+            committed_tables=request.committed_tables,
+            requested_tables=("a", "z"),
+            context=request.context,
+        )
     stop.clear()
     assert set(active.memory._mappings) == existing_mappings
     assert first.tables[0].reader is not None and first.tables[0].batch_reader is not None
@@ -127,12 +162,22 @@ def test_ensure_rechecks_the_complete_frozen_metadata_before_admitting_new_rows(
     result = describe_repository_ref(request)
     assert result.table_set is not None and request.committed_tables is not None
     first, second = request.canonical_binding.table_identities
-    changed_binding = replace(request.canonical_binding, table_identities=(first,
-        replace(second, raw_content_digest=raw_blob_digest(b"different-authority"))))
+    changed_binding = replace(
+        request.canonical_binding,
+        table_identities=(
+            first,
+            replace(second, raw_content_digest=raw_blob_digest(b"different-authority")),
+        ),
+    )
     with pytest.raises(RepositoryProviderError, match="manifest schema/content"):
-        ensure_committed_tables(result.table_set, repository_ref=request.repository_ref,
-            canonical_binding=changed_binding, committed_tables=request.committed_tables,
-            requested_tables=("a",), context=request.context)
+        ensure_committed_tables(
+            result.table_set,
+            repository_ref=request.repository_ref,
+            canonical_binding=changed_binding,
+            committed_tables=request.committed_tables,
+            requested_tables=("a",),
+            context=request.context,
+        )
     assert all(not session.table_readers for session in provider.sessions)
 
 
@@ -144,28 +189,40 @@ def test_metadata_description_cannot_accept_a_different_scope_or_commit(mismatch
     elif mismatch == "moved-ref":
         provider.current_commit = "another-immutable-commit"
     else:
-        request = replace(request, repository_ref=RepositoryRef("other-repository", request.repository_ref.ref))
+        request = replace(
+            request, repository_ref=RepositoryRef("other-repository", request.repository_ref.ref)
+        )
     result = describe_repository_ref(request)
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.table_set is None
     assert all(not session.table_readers for session in provider.sessions)
 
 
-@pytest.mark.parametrize('entrypoint', ('materialize', 'ensure'))
+@pytest.mark.parametrize("entrypoint", ("materialize", "ensure"))
 def test_demand_batch_repairs_later_table_before_first_local_mapping(
-    tmp_path: Path, db_path: Path, entrypoint: str,
+    tmp_path: Path,
+    db_path: Path,
+    entrypoint: str,
 ) -> None:
-    from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
-    from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_table_key
+    from gateway_backend.application.canonical_metadata.table_access import (
+        build_committed_table_access,
+    )
+    from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+        canonical_table_key,
+    )
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
     from tests.support.artifact_layout import open_test_store
 
     provider, request = _request()
-    local = open_test_store(tmp_path / 'canonical-batch')
-    access = build_committed_table_access(store=local,
-        unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path, artifact_borrow=local.read_session),
+    local = open_test_store(tmp_path / "canonical-batch")
+    access = build_committed_table_access(
+        store=local,
+        unit_of_work_factory=lambda: ControlDbUnitOfWork(
+            db_path, artifact_borrow=local.read_session
+        ),
         repository_provider_factory=lambda _repository, _commit: provider,
-        repository_id=request.repository_ref.repository_id)
+        repository_id=request.repository_ref.repository_id,
+    )
     request = replace(request, committed_tables=access)
     cold = materialize_repository_ref(request)
     assert cold.table_set is not None
@@ -178,22 +235,34 @@ def test_demand_batch_repairs_later_table_before_first_local_mapping(
         ref = uow.canonical_tables.lookup(canonical_table_key(access.repository_id, bound))
     assert ref is not None
     original = local.locate(ref)
-    local.payload_path(ref.artifact_id).write_bytes(b'corrupt')
-    if entrypoint == 'materialize':
+    local.payload_path(ref.artifact_id).write_bytes(b"corrupt")
+    if entrypoint == "materialize":
         repaired = materialize_repository_ref(request)
-        assert repaired.status is SnapshotMaterializationStatus.COMPLETE and repaired.table_set is not None
+        assert (
+            repaired.status is SnapshotMaterializationStatus.COMPLETE
+            and repaired.table_set is not None
+        )
         tables = repaired.table_set
     else:
         described = describe_repository_ref(request)
         assert described.table_set is not None
-        tables = ensure_committed_tables(described.table_set, repository_ref=request.repository_ref,
-            canonical_binding=request.canonical_binding, committed_tables=access,
-            requested_tables=('a', 'z'), context=request.context)
+        tables = ensure_committed_tables(
+            described.table_set,
+            repository_ref=request.repository_ref,
+            canonical_binding=request.canonical_binding,
+            committed_tables=access,
+            requested_tables=("a", "z"),
+            context=request.context,
+        )
     try:
         assert local.locate(ref) == original
         assert tables.snapshot_digest == cold.table_set.snapshot_digest
-        assert [tuple(table.reader.iter_rows()) for table in tables.tables if table.reader is not None] == [
-            ((SignedIntegerScalar('1'),),), ((SignedIntegerScalar('2'),), (SignedIntegerScalar('3'),))]
+        assert [
+            tuple(table.reader.iter_rows()) for table in tables.tables if table.reader is not None
+        ] == [
+            ((SignedIntegerScalar("1"),),),
+            ((SignedIntegerScalar("2"),), (SignedIntegerScalar("3"),)),
+        ]
     finally:
         for table in tables.tables:
             assert table.reader is not None and table.batch_reader is not None

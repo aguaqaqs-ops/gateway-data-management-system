@@ -78,16 +78,32 @@ COMMIT_ID = "commit-c1"
 
 @pytest.mark.serial
 @pytest.mark.parametrize("endpoint", ("catalog", "rows", "parent-catalog"))
-def test_repository_read_adapters_pass_current_controls_without_an_outer_retry(endpoint: str) -> None:
-    from gateway_backend.capabilities.table_access import KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope
+def test_repository_read_adapters_pass_current_controls_without_an_outer_retry(
+    endpoint: str,
+) -> None:
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        kernel_execution_scope,
+    )
     from gateway_backend.infrastructure.repository_read import HttpRepositoryParentCatalogPort
 
     stop = Event()
     requests: list[str] = []
     timeouts: list[float] = []
     responses: list[httpx.Response] = []
-    catalog = {"commit_id": COMMIT_ID, "tables": [{"name": "items", "columns": [
-        {"name": "id", "sql_type": "INT", "nullable": False}], "primary_key": ["id"], "row_count": 1}]}
+    catalog = {
+        "commit_id": COMMIT_ID,
+        "tables": [
+            {
+                "name": "items",
+                "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
+                "primary_key": ["id"],
+                "row_count": 1,
+            }
+        ],
+    }
+
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request.url.path)
         timeout = request.extensions["timeout"]
@@ -96,27 +112,50 @@ def test_repository_read_adapters_pass_current_controls_without_an_outer_retry(e
         assert isinstance(read, float) and 0 < read <= 10.0
         timeouts.append(read)
         if endpoint == "rows" and request.url.path.endswith("/catalog"):
-            response = httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "current-catalog"})
+            response = httpx.Response(
+                200, json={"catalog": catalog}, headers={"X-Request-ID": "current-catalog"}
+            )
         else:
             stop.set()
-            response = httpx.Response(503, json={"code": SERVICE_NOT_READY_CODE, "message": "not ready"},
-                headers={"X-Request-ID": "cancelled-attempt"})
+            response = httpx.Response(
+                503,
+                json={"code": SERVICE_NOT_READY_CODE, "message": "not ready"},
+                headers={"X-Request-ID": "cancelled-attempt"},
+            )
         responses.append(response)
         return response
-    factory = build_http_repository_provider_factory(base_url="http://repository.test", bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0, transport=httpx.MockTransport(handler))
-    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(256 * 1024**2), stop, 1,
-            deadline_monotonic=time.monotonic() + 10.0), new_operation=True):
-        session = factory(str(REPO_ID), COMMIT_ID).open_ref(RepositoryRef(str(REPO_ID), COMMIT_ID), None)
+
+    factory = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )
+    with kernel_execution_scope(
+        KernelExecutionContext(
+            OperationMemoryBudget(256 * 1024**2),
+            stop,
+            1,
+            deadline_monotonic=time.monotonic() + 10.0,
+        ),
+        new_operation=True,
+    ):
+        session = factory(str(REPO_ID), COMMIT_ID).open_ref(
+            RepositoryRef(str(REPO_ID), COMMIT_ID), None
+        )
         with pytest.raises(InterruptedError):
             if endpoint == "parent-catalog":
-                HttpRepositoryParentCatalogPort(base_url="http://repository.test", bearer_token=TEST_REPOSITORY_TOKEN,
-                    transport=httpx.MockTransport(handler)).get_table_names(repository_id=str(REPO_ID), commit_id=COMMIT_ID)
+                HttpRepositoryParentCatalogPort(
+                    base_url="http://repository.test",
+                    bearer_token=TEST_REPOSITORY_TOKEN,
+                    transport=httpx.MockTransport(handler),
+                ).get_table_names(repository_id=str(REPO_ID), commit_id=COMMIT_ID)
             elif endpoint == "catalog":
                 session.get_catalog()
             else:
-                with session.open_arrow_table_reader("items", max_input_bytes=1024**2, max_rows=10,
-                        max_columns=10, max_batches=10):
+                with session.open_arrow_table_reader(
+                    "items", max_input_bytes=1024**2, max_rows=10, max_columns=10, max_batches=10
+                ):
                     pytest.fail("cancelled read must not return a table")
         assert len(requests) == (2 if endpoint == "rows" else 1)
         assert timeouts and all(response.is_closed for response in responses)
@@ -125,12 +164,20 @@ def test_repository_read_adapters_pass_current_controls_without_an_outer_retry(e
 
 def test_http_arrow_policy_deadline_is_a_control_failure_before_any_request() -> None:
     requests: list[httpx.Request] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         raise AssertionError("expired session must not make an HTTP attempt")
-    provider = build_http_repository_provider_factory(base_url="http://repository.test", bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0, transport=httpx.MockTransport(handler))(str(REPO_ID), COMMIT_ID)
-    session = provider.open_ref(RepositoryRef(str(REPO_ID), COMMIT_ID), RepositoryRefTimeoutPolicy(operation_timeout_ms=0))
+
+    provider = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )(str(REPO_ID), COMMIT_ID)
+    session = provider.open_ref(
+        RepositoryRef(str(REPO_ID), COMMIT_ID), RepositoryRefTimeoutPolicy(operation_timeout_ms=0)
+    )
     with pytest.raises(TimeoutError):
         session.get_catalog()
     assert requests == []
@@ -174,8 +221,13 @@ def test_prepare_backend_runtime_uses_provisioned_identity_ports(tmp_path: Path)
         assert resolved.handler_identity == definition.handler_identity
 
 
-def test_production_worker_wires_http_arrow_adapter_and_mapping_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("gateway_backend.bootstrap.operation_worker.assert_repository_identity", lambda *args, **kwargs: None)
+def test_production_worker_wires_http_arrow_adapter_and_mapping_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "gateway_backend.bootstrap.operation_worker.assert_repository_identity",
+        lambda *args, **kwargs: None,
+    )
     prepare_backend_runtime_paths(tmp_path)
     settings = make_operation_worker_settings(
         tmp_path,
@@ -331,7 +383,9 @@ def test_http_arrow_streams_record_batches_without_session_row_cache() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == catalog_path:
-            return httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"})
+            return httpx.Response(
+                200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"}
+            )
         if request.url.path == rows_path:
             row_requests["count"] += 1
             return httpx.Response(
@@ -393,7 +447,9 @@ def _repository_catalog_transport(
                 headers={"X-Request-ID": "req-main"},
             )
         if request.url.path == catalog_path:
-            return httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"})
+            return httpx.Response(
+                200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"}
+            )
         if request.url.path == rows_path:
             return httpx.Response(
                 200,
@@ -455,7 +511,9 @@ def test_http_arrow_repository_session_only_streams_requested_table() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == catalog_path:
-            return httpx.Response(200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"})
+            return httpx.Response(
+                200, json={"catalog": catalog}, headers={"X-Request-ID": "req-catalog"}
+            )
         if request.url.path == rows_path:
             table_name = request.url.params.get("table_name")
             requested.append(str(table_name))
@@ -516,7 +574,9 @@ def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
     records_manifest_ref = _ref("hidden-records-manifest")
     records_closure_ref = _ref("hidden-records-closure")
     result = assemble_surface(
-        _surface_request(_facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED)))
+        _surface_request(
+            _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED))
+        )
     )
     assert result.surface is not None
     table = replace(
@@ -526,7 +586,8 @@ def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
     surface = replace(
         result.surface,
         tables=(table,),
-        projections=(*result.surface.projections,
+        projections=(
+            *result.surface.projections,
             SurfaceProjectionRef(
                 projection_id="proj-1",
                 projection_kind="summary",
@@ -567,7 +628,9 @@ def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
         assert ref in covered
 
 
-def _seed_protected_artifacts(store: LocalArtifactStore, refs: tuple[ArtifactRef, ...], payloads: dict[str, bytes]) -> None:
+def _seed_protected_artifacts(
+    store: LocalArtifactStore, refs: tuple[ArtifactRef, ...], payloads: dict[str, bytes]
+) -> None:
     for ref in refs:
         store.put(payloads[ref.artifact_id], ref)
 
@@ -742,8 +805,10 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             intent="preview-operation",
         )
     _seed_protected_artifacts(
-        LocalArtifactStore(artifact_layout_from_config(settings.deployment_config.storage),
-            staging_max_bytes=settings.deployment_config.resources.temporary.staging_max_bytes_per_object),
+        LocalArtifactStore(
+            artifact_layout_from_config(settings.deployment_config.storage),
+            staging_max_bytes=settings.deployment_config.resources.temporary.staging_max_bytes_per_object,
+        ),
         protected_refs,
         payloads,
     )

@@ -165,7 +165,9 @@ def test_validate_artifact_root_requires_existing_directory(tmp_path: Path) -> N
 
 def test_runtime_metadata_identity_loss_blocks_readiness_and_new_work(tmp_path: Path) -> None:
     prepare_backend_runtime_paths(tmp_path)
-    settings = make_backend_settings(tmp_path, control_db_path=tmp_path / "control" / "control.sqlite3")
+    settings = make_backend_settings(
+        tmp_path, control_db_path=tmp_path / "control" / "control.sqlite3"
+    )
     metadata = settings.control_db_path.parent
     with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
         with TestClient(create_app(settings)) as client:
@@ -173,7 +175,9 @@ def test_runtime_metadata_identity_loss_blocks_readiness_and_new_work(tmp_path: 
             previous = metadata.with_name("retained-metadata")
             metadata.rename(previous)
             metadata.mkdir()
-            (metadata / ".gateway-storage.json").write_bytes((previous / ".gateway-storage.json").read_bytes())
+            (metadata / ".gateway-storage.json").write_bytes(
+                (previous / ".gateway-storage.json").read_bytes()
+            )
             assert client.get("/readyz").status_code == 503
             response = client.post("/v1/workspaces", json={})
             assert response.status_code == 503

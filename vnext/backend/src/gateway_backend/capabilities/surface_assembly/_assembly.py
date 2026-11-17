@@ -93,7 +93,10 @@ def assemble_surface(
         facts = visible_comparison_facts(request.comparison_facts)
         if facts.summary.status.value in {"FAILED", "CANCELLED"}:
             raise _AssemblyError(f"COMPARISON_{facts.summary.status.value}")
-        if facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT and facts.records_ref is not None:
+        if (
+            facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT
+            and facts.records_ref is not None
+        ):
             raise _AssemblyError("REPLACEMENT_MUST_NOT_CARRY_RECORDS_REF")
         _validate_records_closure(facts, request.records_closure)
         risk_by_name, risk_entry_by_name = _validate_risk_inputs(
@@ -101,7 +104,9 @@ def assemble_surface(
         )
         artifact_by_name = {item.table_name: item for item in request.table_artifacts}
         before_presentation = {item.table_name: item for item in request.before_presentation.tables}
-        current_presentation = {item.table_name: item for item in request.current_presentation.tables}
+        current_presentation = {
+            item.table_name: item for item in request.current_presentation.tables
+        }
         tables: list[SurfaceTable] = []
         for table in facts.tables:
             checkpoint()
@@ -158,7 +163,9 @@ def assemble_surface(
             changed_table_count=summary.changed_table_count,
             degraded_table_count=summary.degraded_table_count,
             failed_table_count=summary.failed_table_count,
-            risk_level=None if request.risk_report is None else request.risk_report.overall.risk_level,
+            risk_level=None
+            if request.risk_report is None
+            else request.risk_report.overall.risk_level,
             diagnostics_summary=root_diagnostics,
         )
         surface = ComparisonSurface(
@@ -335,11 +342,7 @@ def _validate_risk_inputs(
 def _requires_records(table: ComparisonTableFact) -> bool:
     if table.status in {ComparisonTableStatus.ADDED_TABLE, ComparisonTableStatus.DELETED_TABLE}:
         return False
-    return (
-        table.row_added_count > 0
-        or table.row_deleted_count > 0
-        or table.row_modified_count > 0
-    )
+    return table.row_added_count > 0 or table.row_deleted_count > 0 or table.row_modified_count > 0
 
 
 def _project_table(
@@ -373,12 +376,22 @@ def _project_table(
     schema = None
     if table.schema_changes != type(table.schema_changes)():
         schema = SurfaceSchemaSummary.from_comparison(table.schema_changes)
-    columns = _columns(table.table_name, before_descriptor, current_descriptor, before_presentation, current_presentation)
+    columns = _columns(
+        table.table_name,
+        before_descriptor,
+        current_descriptor,
+        before_presentation,
+        current_presentation,
+    )
     replacement_summary = None
     if replacement:
         replacement_summary = SurfaceReplacementSummary(
-            before=_replacement_side(table.table_name, before_descriptor, before_presentation, "BEFORE"),
-            current=_replacement_side(table.table_name, current_descriptor, current_presentation, "CURRENT"),
+            before=_replacement_side(
+                table.table_name, before_descriptor, before_presentation, "BEFORE"
+            ),
+            current=_replacement_side(
+                table.table_name, current_descriptor, current_presentation, "CURRENT"
+            ),
         )
         schema = None
         records = SurfaceRecordsRefs()
@@ -395,9 +408,10 @@ def _project_table(
         diagnostics_summary=_stable_messages(messages),
     )
     compare_key = _compare_key(current_descriptor or before_descriptor)
-    effective = () if replacement else (
-        table.schema_changes.selected_columns
-        or tuple(item.name for item in columns)
+    effective = (
+        ()
+        if replacement
+        else (table.schema_changes.selected_columns or tuple(item.name for item in columns))
     )
     compare = SurfaceCompare(
         artifact_scope=None,
@@ -423,8 +437,11 @@ def _project_table(
         schema_summary=schema,
         columns=columns,
         table_refs=table_refs,
-        table_content_bindings=(SurfaceTableContentBindings() if artifact_entry is None
-                                else artifact_entry.table_content_bindings),
+        table_content_bindings=(
+            SurfaceTableContentBindings()
+            if artifact_entry is None
+            else artifact_entry.table_content_bindings
+        ),
         row_locator_ref=None if artifact_entry is None else artifact_entry.row_locator_ref,
         records_refs=records,
         risk_refs=risk_refs,
@@ -443,7 +460,9 @@ def table_change_kind(table: ComparisonTableFact, *, replacement: bool) -> Surfa
 
     table = visible_table_fact(table)
     unsupported = _ordered_unsupported(table)
-    kind = _display_projection(table, SurfaceTableRefs(), SurfaceRecordsRefs(), replacement, unsupported)[0]
+    kind = _display_projection(
+        table, SurfaceTableRefs(), SurfaceRecordsRefs(), replacement, unsupported
+    )[0]
     if unsupported:
         return SurfaceChangeKind.DEGRADED
     if table.content_changed and kind is SurfaceChangeKind.UNCHANGED:
@@ -457,7 +476,9 @@ def _display_projection(
     records: SurfaceRecordsRefs,
     replacement: bool,
     ordered_unsupported: bool,
-) -> tuple[SurfaceChangeKind, SurfaceDisplayStrategy, SurfaceTableProcessingMode, SurfaceReplayGuarantee]:
+) -> tuple[
+    SurfaceChangeKind, SurfaceDisplayStrategy, SurfaceTableProcessingMode, SurfaceReplayGuarantee
+]:
     if replacement:
         if table.before_descriptor is not None and table.current_descriptor is not None:
             kind = SurfaceChangeKind.REPLACED
@@ -465,30 +486,92 @@ def _display_projection(
             kind = SurfaceChangeKind.ADDED
         else:
             kind = SurfaceChangeKind.DELETED
-        return kind, SurfaceDisplayStrategy.REPLACEMENT_SIDE_BY_SIDE, SurfaceTableProcessingMode.DATASET_REPLACEMENT, SurfaceReplayGuarantee.EXACT
+        return (
+            kind,
+            SurfaceDisplayStrategy.REPLACEMENT_SIDE_BY_SIDE,
+            SurfaceTableProcessingMode.DATASET_REPLACEMENT,
+            SurfaceReplayGuarantee.EXACT,
+        )
     if ordered_unsupported:
-        return SurfaceChangeKind.DEGRADED, SurfaceDisplayStrategy.DEGRADED_NOTICE, SurfaceTableProcessingMode.DEGRADED, SurfaceReplayGuarantee.UNSUPPORTED
+        return (
+            SurfaceChangeKind.DEGRADED,
+            SurfaceDisplayStrategy.DEGRADED_NOTICE,
+            SurfaceTableProcessingMode.DEGRADED,
+            SurfaceReplayGuarantee.UNSUPPORTED,
+        )
     mapping = {
-        ComparisonTableStatus.UNCHANGED: (SurfaceChangeKind.UNCHANGED, SurfaceDisplayStrategy.SUMMARY_ONLY),
-        ComparisonTableStatus.BUSINESS_EQUIVALENT: (SurfaceChangeKind.BUSINESS_EQUIVALENT, SurfaceDisplayStrategy.SUMMARY_ONLY),
-        ComparisonTableStatus.ADDED_TABLE: (SurfaceChangeKind.ADDED, SurfaceDisplayStrategy.TABLE_BROWSE if refs.current_table_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
-        ComparisonTableStatus.DELETED_TABLE: (SurfaceChangeKind.DELETED, SurfaceDisplayStrategy.TABLE_BROWSE if refs.before_table_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
-        ComparisonTableStatus.MODIFIED: (SurfaceChangeKind.UPDATED, SurfaceDisplayStrategy.CURRENT_WITH_RECORDS if refs.current_table_ref and records.records_ref else SurfaceDisplayStrategy.TABLE_BROWSE if refs.current_table_ref else SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
-        ComparisonTableStatus.SCHEMA_CHANGED: (SurfaceChangeKind.SCHEMA_CHANGED, SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.DEGRADED_NOTICE),
-        ComparisonTableStatus.SCHEMA_ONLY_CHANGED: (SurfaceChangeKind.SCHEMA_CHANGED, SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.DEGRADED_NOTICE),
-        ComparisonTableStatus.DEGRADED: (SurfaceChangeKind.DEGRADED, SurfaceDisplayStrategy.DEGRADED_NOTICE),
+        ComparisonTableStatus.UNCHANGED: (
+            SurfaceChangeKind.UNCHANGED,
+            SurfaceDisplayStrategy.SUMMARY_ONLY,
+        ),
+        ComparisonTableStatus.BUSINESS_EQUIVALENT: (
+            SurfaceChangeKind.BUSINESS_EQUIVALENT,
+            SurfaceDisplayStrategy.SUMMARY_ONLY,
+        ),
+        ComparisonTableStatus.ADDED_TABLE: (
+            SurfaceChangeKind.ADDED,
+            SurfaceDisplayStrategy.TABLE_BROWSE
+            if refs.current_table_ref
+            else SurfaceDisplayStrategy.SUMMARY_ONLY,
+        ),
+        ComparisonTableStatus.DELETED_TABLE: (
+            SurfaceChangeKind.DELETED,
+            SurfaceDisplayStrategy.TABLE_BROWSE
+            if refs.before_table_ref
+            else SurfaceDisplayStrategy.SUMMARY_ONLY,
+        ),
+        ComparisonTableStatus.MODIFIED: (
+            SurfaceChangeKind.UPDATED,
+            SurfaceDisplayStrategy.CURRENT_WITH_RECORDS
+            if refs.current_table_ref and records.records_ref
+            else SurfaceDisplayStrategy.TABLE_BROWSE
+            if refs.current_table_ref
+            else SurfaceDisplayStrategy.RECORDS_ONLY
+            if records.records_ref
+            else SurfaceDisplayStrategy.SUMMARY_ONLY,
+        ),
+        ComparisonTableStatus.SCHEMA_CHANGED: (
+            SurfaceChangeKind.SCHEMA_CHANGED,
+            SurfaceDisplayStrategy.RECORDS_ONLY
+            if records.records_ref
+            else SurfaceDisplayStrategy.DEGRADED_NOTICE,
+        ),
+        ComparisonTableStatus.SCHEMA_ONLY_CHANGED: (
+            SurfaceChangeKind.SCHEMA_CHANGED,
+            SurfaceDisplayStrategy.RECORDS_ONLY
+            if records.records_ref
+            else SurfaceDisplayStrategy.DEGRADED_NOTICE,
+        ),
+        ComparisonTableStatus.DEGRADED: (
+            SurfaceChangeKind.DEGRADED,
+            SurfaceDisplayStrategy.DEGRADED_NOTICE,
+        ),
     }
     kind, strategy = mapping[table.status]
-    processing = SurfaceTableProcessingMode.DEGRADED if kind is SurfaceChangeKind.DEGRADED else SurfaceTableProcessingMode.SCHEMA_ONLY if kind is SurfaceChangeKind.SCHEMA_CHANGED else SurfaceTableProcessingMode.STANDARD
-    replay = SurfaceReplayGuarantee.EXACT if refs.current_table_ref or refs.before_table_ref or records.records_ref else SurfaceReplayGuarantee.SUMMARY_ONLY
+    processing = (
+        SurfaceTableProcessingMode.DEGRADED
+        if kind is SurfaceChangeKind.DEGRADED
+        else SurfaceTableProcessingMode.SCHEMA_ONLY
+        if kind is SurfaceChangeKind.SCHEMA_CHANGED
+        else SurfaceTableProcessingMode.STANDARD
+    )
+    replay = (
+        SurfaceReplayGuarantee.EXACT
+        if refs.current_table_ref or refs.before_table_ref or records.records_ref
+        else SurfaceReplayGuarantee.SUMMARY_ONLY
+    )
     return kind, strategy, processing, replay
 
 
-def _records_refs(table: ComparisonTableFact, closure: ComparisonRecordsClosure | None) -> SurfaceRecordsRefs:
+def _records_refs(
+    table: ComparisonTableFact, closure: ComparisonRecordsClosure | None
+) -> SurfaceRecordsRefs:
     if closure is None:
         return SurfaceRecordsRefs()
     candidates = [item for item in closure.records if item.table_name == table.table_name]
-    standard = next((item for item in candidates if item.family is RecordsArtifactFamily.STANDARD), None)
+    standard = next(
+        (item for item in candidates if item.family is RecordsArtifactFamily.STANDARD), None
+    )
     if standard is None:
         return SurfaceRecordsRefs()
     return SurfaceRecordsRefs(
@@ -498,20 +581,29 @@ def _records_refs(table: ComparisonTableFact, closure: ComparisonRecordsClosure 
     )
 
 
-def _ordered_extension(table: ComparisonTableFact, closure: ComparisonRecordsClosure | None) -> dict[str, object] | None:
+def _ordered_extension(
+    table: ComparisonTableFact, closure: ComparisonRecordsClosure | None
+) -> dict[str, object] | None:
     extension = table.ordered_extension
     if extension is None:
         return None
     ordered_entry = None
     if closure is not None:
         ordered_entry = next(
-            (item for item in closure.records if item.table_name == table.table_name and item.family is RecordsArtifactFamily.ORDERED),
+            (
+                item
+                for item in closure.records
+                if item.table_name == table.table_name
+                and item.family is RecordsArtifactFamily.ORDERED
+            ),
             None,
         )
     summary = extension.ordered_summary
     value: dict[str, object] = {
         "contract_version": extension.contract_version,
-        "current_ordered_digest": None if extension.current_ordered_digest is None else extension.current_ordered_digest.value,
+        "current_ordered_digest": None
+        if extension.current_ordered_digest is None
+        else extension.current_ordered_digest.value,
         "diagnostics": list(extension.diagnostics),
         "ordered_summary": {
             "degraded_count": summary.degraded_count,
@@ -571,38 +663,54 @@ def _display_name(table: ComparisonTableFact) -> str:
 
 
 def _columns(
-    table_name: str, before: SnapshotTableDescriptor | None,
+    table_name: str,
+    before: SnapshotTableDescriptor | None,
     current: SnapshotTableDescriptor | None,
     before_presentation: TablePresentation | None,
     current_presentation: TablePresentation | None,
-    *, side: str | None = None,
+    *,
+    side: str | None = None,
 ) -> tuple[SurfaceColumn, ...]:
-    return tuple(SurfaceColumn(
-        name=item.name, display_name=item.display_name, scalar_type=item.scalar_type,
-        nullable=item.nullable, present_in=item.present_in, pinned=item.pinned,
-        display_order=item.display_order,
-    ) for item in present_columns(
-        table_name, () if before is None else before.columns,
-        () if current is None else current.columns,
-        before_presentation=before_presentation, current_presentation=current_presentation,
-        side=side,
-    ))
+    return tuple(
+        SurfaceColumn(
+            name=item.name,
+            display_name=item.display_name,
+            scalar_type=item.scalar_type,
+            nullable=item.nullable,
+            present_in=item.present_in,
+            pinned=item.pinned,
+            display_order=item.display_order,
+        )
+        for item in present_columns(
+            table_name,
+            () if before is None else before.columns,
+            () if current is None else current.columns,
+            before_presentation=before_presentation,
+            current_presentation=current_presentation,
+            side=side,
+        )
+    )
 
 
 def _replacement_side(
-    table_name: str, descriptor: SnapshotTableDescriptor | None,
-    presentation: TablePresentation | None, side: str,
+    table_name: str,
+    descriptor: SnapshotTableDescriptor | None,
+    presentation: TablePresentation | None,
+    side: str,
 ) -> SurfaceReplacementSide | None:
     if descriptor is None:
         return None
     return SurfaceReplacementSide(
         display_name=table_display_name(table_name, presentation, None),
         row_count=descriptor.row_count,
-        columns=_columns(table_name,
+        columns=_columns(
+            table_name,
             descriptor if side == "BEFORE" else None,
             descriptor if side == "CURRENT" else None,
             presentation if side == "BEFORE" else None,
-            presentation if side == "CURRENT" else None, side=side),
+            presentation if side == "CURRENT" else None,
+            side=side,
+        ),
     )
 
 
@@ -617,6 +725,7 @@ def _stable_messages(messages: Iterable[str]) -> tuple[str, ...]:
         if value.startswith("DUPLICATE_EFFECTIVE_KEY:"):
             return "DUPLICATE_EFFECTIVE_KEY"
         return value if re.fullmatch(r"[A-Z][A-Z0-9_]*", value) else "COMPARISON_INTERNAL_ERROR"
+
     return tuple(sorted({stable(item) for item in messages if item}))
 
 
@@ -652,7 +761,9 @@ def _referenced_artifacts(surface: ComparisonSurface) -> tuple[ArtifactRef, ...]
         surface.refs.diagnostics_ref,
     ]
     for projection in surface.projections:
-        values.extend((projection.projection_ref, projection.risk_summary_ref, projection.diagnostics_ref))
+        values.extend(
+            (projection.projection_ref, projection.risk_summary_ref, projection.diagnostics_ref)
+        )
     for ref in values:
         if ref is not None:
             refs[(ref.artifact_id, ref.raw_sha256.value)] = ref

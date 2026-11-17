@@ -35,6 +35,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     XmlParseResult,
 )
 from gateway_backend.capabilities.table_rules.contracts import StorageRuleView, TableRulesetSnapshot
+
 if TYPE_CHECKING:
     import pyarrow as pa
 
@@ -68,9 +69,7 @@ _SQL_INTEGER_DISPLAY = re.compile(
 )
 _SQL_FLOAT_DISPLAY = re.compile(r"^(FLOAT|DOUBLE|REAL)\(\d+(?:\s*,\s*\d+)?\)$")
 _SQL_ZERO_FSP = re.compile(r"^(TIME|DATETIME|TIMESTAMP)\(0+\)$")
-_SQL_DECIMAL_NORMALIZED = re.compile(
-    r"^DECIMAL\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\)$"
-)
+_SQL_DECIMAL_NORMALIZED = re.compile(r"^DECIMAL\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\)$")
 _SQL_BIT_NORMALIZED = re.compile(r"^BIT\(\s*(\d+)\s*\)$")
 
 
@@ -462,9 +461,7 @@ def enum_set_labels_for_sql_spelling(spelling: str) -> tuple[str, tuple[str, ...
     match = re.match(r"^(ENUM|SET)\(", normalized)
     if match is None:
         if normalized.startswith(("ENUM", "SET")):
-            raise SqlDeclaredTypeMappingError(
-                f"malformed ENUM/SET SQL type spelling: {spelling}"
-            )
+            raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
         return None
     kind = match.group(1)
     labels = _parse_enum_set_labels(normalized[match.end() :], spelling)
@@ -511,9 +508,7 @@ def _parse_enum_set_labels(body: str, spelling: str) -> tuple[str, ...]:
         while cursor < len(body) and body[cursor].isspace():
             cursor += 1
         if cursor >= len(body):
-            raise SqlDeclaredTypeMappingError(
-                f"malformed ENUM/SET SQL type spelling: {spelling}"
-            )
+            raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
         if body[cursor] == ")":
             if labels or cursor != len(body) - 1:
                 raise SqlDeclaredTypeMappingError(
@@ -521,9 +516,7 @@ def _parse_enum_set_labels(body: str, spelling: str) -> tuple[str, ...]:
                 )
             break
         if body[cursor] != "'":
-            raise SqlDeclaredTypeMappingError(
-                f"malformed ENUM/SET SQL type spelling: {spelling}"
-            )
+            raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
         cursor += 1
         label: list[str] = []
         while cursor < len(body):
@@ -538,9 +531,7 @@ def _parse_enum_set_labels(body: str, spelling: str) -> tuple[str, ...]:
             label.append(char)
             cursor += 1
         else:
-            raise SqlDeclaredTypeMappingError(
-                f"malformed ENUM/SET SQL type spelling: {spelling}"
-            )
+            raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
         labels.append("".join(label))
         while cursor < len(body) and body[cursor].isspace():
             cursor += 1
@@ -549,18 +540,14 @@ def _parse_enum_set_labels(body: str, spelling: str) -> tuple[str, ...]:
             continue
         if cursor < len(body) and body[cursor] == ")" and cursor == len(body) - 1:
             break
-        raise SqlDeclaredTypeMappingError(
-            f"malformed ENUM/SET SQL type spelling: {spelling}"
-        )
+        raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
     if not labels:
         raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
     return tuple(labels)
 
 
 def _validate_enum_set_labels(kind: str, labels: tuple[str, ...], spelling: str) -> None:
-    if kind == "SET" and (
-        any(label == "" or "," in label for label in labels) or len(labels) > 64
-    ):
+    if kind == "SET" and (any(label == "" or "," in label for label in labels) or len(labels) > 64):
         raise SqlDeclaredTypeMappingError(f"malformed SET SQL type spelling: {spelling}")
     if kind == "ENUM" and len(labels) > 65535:
         raise SqlDeclaredTypeMappingError(f"malformed ENUM SQL type spelling: {spelling}")
@@ -673,9 +660,7 @@ def snapshot_from_document(raw: object) -> Snapshot:
         ),
         repository_id=_document_optional_string(context_raw.get("repository_id")),
         repository_ref=_document_optional_string(context_raw.get("repository_ref")),
-        resolved_commit_hash=_document_optional_string(
-            context_raw.get("resolved_commit_hash")
-        ),
+        resolved_commit_hash=_document_optional_string(context_raw.get("resolved_commit_hash")),
     )
     snapshot = Snapshot(
         snapshot_id=_document_string(raw.get("snapshot_id"), "snapshot_id"),
@@ -697,9 +682,7 @@ def snapshot_from_document(raw: object) -> Snapshot:
         materialization_stage=MaterializationStage(
             _document_string(raw.get("materialization_stage"), "materialization_stage")
         ),
-        snapshot_digest=DigestRef(
-            _document_string(raw.get("snapshot_digest"), "snapshot_digest")
-        ),
+        snapshot_digest=DigestRef(_document_string(raw.get("snapshot_digest"), "snapshot_digest")),
         raw_state_digest=DigestRef(
             _document_string(raw.get("raw_state_digest"), "raw_state_digest")
         ),
@@ -941,7 +924,10 @@ class SnapshotTableArtifactManifest:
             raise ValueError("artifact_content_digest must be DigestRef")
         _require_non_empty(self.created_at, "created_at")
         _require_diagnostics(self.diagnostics)
-        if self.ordered_metadata is not None and type(self.ordered_metadata) is not SnapshotTableOrderedMetadata:
+        if (
+            self.ordered_metadata is not None
+            and type(self.ordered_metadata) is not SnapshotTableOrderedMetadata
+        ):
             raise ValueError("ordered_metadata must be SnapshotTableOrderedMetadata or None")
 
 
@@ -1035,9 +1021,14 @@ class SnapshotTable:
         _require_diagnostics(self.diagnostics)
         if self.artifact is not None and type(self.artifact) is not SnapshotTableArtifact:
             raise ValueError("artifact must be SnapshotTableArtifact or None")
-        if self.batch_reader is not None and not isinstance(self.batch_reader, SnapshotTableBatchReader):
+        if self.batch_reader is not None and not isinstance(
+            self.batch_reader, SnapshotTableBatchReader
+        ):
             raise ValueError("batch_reader must implement SnapshotTableBatchReader or be None")
-        if self.ordered_metadata is not None and type(self.ordered_metadata) is not SnapshotTableOrderedMetadata:
+        if (
+            self.ordered_metadata is not None
+            and type(self.ordered_metadata) is not SnapshotTableOrderedMetadata
+        ):
             raise ValueError("ordered_metadata must be SnapshotTableOrderedMetadata or None")
         if self.descriptor.degraded_reason is DegradedReason.TABLE_FAILED:
             if self.reader is not None:
@@ -1325,19 +1316,23 @@ class CanonicalBinding:
             _require_non_empty(value, label)
         if type(self.ruleset_digest) is not DigestRef:
             raise ValueError("ruleset_digest must be DigestRef")
-        if type(self.tables) is not tuple or any(type(item) is not StorageRuleView for item in self.tables):
+        if type(self.tables) is not tuple or any(
+            type(item) is not StorageRuleView for item in self.tables
+        ):
             raise ValueError("tables must contain StorageRuleView")
         names = tuple(item.canonical_table for item in self.tables)
-        if names != tuple(sorted(names, key=lambda item: item.encode(_UTF8))) or len(set(names)) != len(names):
+        if names != tuple(sorted(names, key=lambda item: item.encode(_UTF8))) or len(
+            set(names)
+        ) != len(names):
             raise ValueError("tables must use sorted unique canonical names")
         if type(self.table_identities) is not tuple or any(
             type(item) is not CanonicalTableIdentity for item in self.table_identities
         ):
             raise ValueError("table_identities must contain CanonicalTableIdentity")
         identity_names = tuple(item.canonical_table for item in self.table_identities)
-        if identity_names != tuple(sorted(identity_names, key=lambda item: item.encode(_UTF8))) or len(
-            set(identity_names)
-        ) != len(identity_names):
+        if identity_names != tuple(
+            sorted(identity_names, key=lambda item: item.encode(_UTF8))
+        ) or len(set(identity_names)) != len(identity_names):
             raise ValueError("table_identities must use sorted unique canonical names")
         if identity_names and identity_names != names:
             raise ValueError("table_identities must cover the same tables as the storage views")
@@ -1371,8 +1366,13 @@ class RepositoryRefSession(Protocol):
         """Eager-load and memoize the business-table catalog."""
 
     def open_arrow_table_reader(
-        self, table_name: str, *, max_input_bytes: int, max_rows: int,
-        max_columns: int, max_batches: int,
+        self,
+        table_name: str,
+        *,
+        max_input_bytes: int,
+        max_rows: int,
+        max_columns: int,
+        max_batches: int,
     ) -> ContextManager[pa.RecordBatchReader]:
         """Borrow bounded wire Arrow for this session’s pinned commit."""
 
@@ -1403,22 +1403,38 @@ class CommittedCanonicalTablesPort(Protocol):
     def repository_id(self) -> str: ...
 
     def describe_table(
-        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity,
-        storage_view: StorageRuleView, context: ParserInvocationContext,
+        self,
+        *,
+        commit_id: str,
+        descriptor: SnapshotTableDescriptor,
+        identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView,
+        context: ParserInvocationContext,
         timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> SnapshotTable:
         """Verify the exact catalog/manifest binding without opening any rows."""
 
     def prepare_table(
-        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity,
-        storage_view: StorageRuleView, context: ParserInvocationContext,
+        self,
+        *,
+        commit_id: str,
+        descriptor: SnapshotTableDescriptor,
+        identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView,
+        context: ParserInvocationContext,
         timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> None:
         """Repair a demanded exact-commit object before retaining any batch readers."""
 
     def load_table(
-        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
-        context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
+        self,
+        *,
+        commit_id: str,
+        descriptor: SnapshotTableDescriptor,
+        identity: CanonicalTableIdentity,
+        storage_view: StorageRuleView,
+        context: ParserInvocationContext,
+        timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> SnapshotTable: ...
 
     def lookup(self, key: CanonicalTableKey) -> ArtifactRef | None: ...
@@ -1469,7 +1485,10 @@ class RepositoryRefMaterializationRequest:
             raise ValueError("policy must be MaterializationPolicy")
         if type(self.context) is not ParserInvocationContext:
             raise ValueError("context must be ParserInvocationContext")
-        if self.timeout_policy is not None and type(self.timeout_policy) is not RepositoryRefTimeoutPolicy:
+        if (
+            self.timeout_policy is not None
+            and type(self.timeout_policy) is not RepositoryRefTimeoutPolicy
+        ):
             raise ValueError("timeout_policy must be RepositoryRefTimeoutPolicy or None")
         if self.digest_contract_version != DIGEST_CONTRACT_VERSION:
             raise ValueError("digest_contract_version must be 1")

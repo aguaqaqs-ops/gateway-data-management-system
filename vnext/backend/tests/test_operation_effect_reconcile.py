@@ -182,7 +182,12 @@ def _job_state_for_identity(
 
 
 IDENTITY_VALIDATION_CASES: tuple[
-    tuple[str, dict[str, object], str, type[ExternalEffectRequestIdentity] | RecoveryOutcomeDisposition],
+    tuple[
+        str,
+        dict[str, object],
+        str,
+        type[ExternalEffectRequestIdentity] | RecoveryOutcomeDisposition,
+    ],
     ...,
 ] = (
     (
@@ -197,7 +202,7 @@ IDENTITY_VALIDATION_CASES: tuple[
     (
         "idempotency_mismatch",
         {
-            ** _job_state_for_identity(
+            **_job_state_for_identity(
                 request_artifact_id=request_artifact_id(_request_bytes()),
                 operation_identity=_expected_identity(),
             ),

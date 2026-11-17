@@ -36,14 +36,21 @@ def dirty_git_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "init"], cwd=repo_root, check=True, capture_output=True, text=True)
     tracked = repo_root / "tracked.txt"
     tracked.write_text("initial\n", encoding="utf-8")
-    subprocess.run(["git", "add", "tracked.txt"], cwd=repo_root, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "tracked.txt"], cwd=repo_root, check=True, capture_output=True, text=True
+    )
     subprocess.run(
         ["git", "commit", "-m", "initial"],
         cwd=repo_root,
         check=True,
         capture_output=True,
         text=True,
-        env={"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com", "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com"},
+        env={
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.com",
+        },
     )
     tracked.write_text("dirty\n", encoding="utf-8")
     return repo_root

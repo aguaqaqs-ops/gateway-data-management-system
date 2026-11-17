@@ -62,17 +62,35 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     "table_rules": frozenset(),
     "table_presentation": frozenset(),
     "business_navigation": frozenset({"comparison", "risk_evaluation", "table_rules"}),
-    "row_location": frozenset({"comparison", "snapshot_materialization", "business_navigation", "surface_assembly", "table_access"}),
+    "row_location": frozenset(
+        {
+            "comparison",
+            "snapshot_materialization",
+            "business_navigation",
+            "surface_assembly",
+            "table_access",
+        }
+    ),
     "source_package_staging": frozenset(),
     "composite_signal": frozenset({"table_access"}),
     "snapshot_materialization": frozenset(
-        {"table_access", "table_rules", "source_package_staging", "composite_signal", "table_presentation"}
+        {
+            "table_access",
+            "table_rules",
+            "source_package_staging",
+            "composite_signal",
+            "table_presentation",
+        }
     ),
-    "storage_projection": frozenset({"table_rules", "snapshot_materialization", "table_presentation"}),
+    "storage_projection": frozenset(
+        {"table_rules", "snapshot_materialization", "table_presentation"}
+    ),
     "comparison": frozenset({"snapshot_materialization", "table_rules", "table_presentation"}),
     # Risk's ordered YK selector consumes Table Rules' public channel parser.
     "risk_evaluation": frozenset({"comparison", "table_rules"}),
-    "surface_assembly": frozenset({"comparison", "risk_evaluation", "snapshot_materialization", "table_presentation"}),
+    "surface_assembly": frozenset(
+        {"comparison", "risk_evaluation", "snapshot_materialization", "table_presentation"}
+    ),
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),
     "external_target_sync": frozenset({"mutation_planning"}),
@@ -198,8 +216,12 @@ def test_capability_modules_respect_import_dag() -> None:
             if isinstance(class_node, ast.ClassDef):
                 assert class_node.name not in FORBIDDEN_PROVIDER_BASE_NAMES, source
     for edge in _backend_edges():
-        if edge.source == "gateway_backend.capabilities" or edge.source.startswith(CAPABILITIES_PREFIX):
-            _assert_capability_import_allowed(edge.path, _owner_from_module(edge.source), edge.target)
+        if edge.source == "gateway_backend.capabilities" or edge.source.startswith(
+            CAPABILITIES_PREFIX
+        ):
+            _assert_capability_import_allowed(
+                edge.path, _owner_from_module(edge.source), edge.target
+            )
 
 
 def test_capability_contracts_are_importable() -> None:
@@ -725,9 +747,7 @@ def _assert_capability_import_allowed(
     )
 
 
-def _assert_capability_edge_allowed(
-    source: Path, current_owner: str | None, imported: str
-) -> None:
+def _assert_capability_edge_allowed(source: Path, current_owner: str | None, imported: str) -> None:
     if imported == "gateway_backend.capabilities":
         assert current_owner is None, f"{source} must not import the capabilities package root"
         return
@@ -777,7 +797,11 @@ _BASELINE_HINT = (
 def test_import_rules_match_frozen_baseline() -> None:
     violations = find_violations(_backend_edges(), backend_modules())
     new = sorted(
-        {violation.describe() for violation in violations if violation.key not in IMPORT_RULE_BASELINE}
+        {
+            violation.describe()
+            for violation in violations
+            if violation.key not in IMPORT_RULE_BASELINE
+        }
     )
     current_keys = {violation.key for violation in violations}
     stale = sorted(str(key) for key in IMPORT_RULE_BASELINE - current_keys)
@@ -814,11 +838,15 @@ def test_production_reachability_matches_frozen_baseline() -> None:
 
 def test_statistics_http_dtos_and_reader_have_production_consumers() -> None:
     current = unreachable_modules(_backend_edges(), backend_modules())
-    assert not current.intersection({
-        'gateway_backend.http.schemas.statistics', 'gateway_backend.http.routes.statistics',
-        'gateway_backend.http.statistics', 'gateway_backend.statistics.queries',
-        'gateway_backend.infrastructure.statistics.queries',
-    })
+    assert not current.intersection(
+        {
+            "gateway_backend.http.schemas.statistics",
+            "gateway_backend.http.routes.statistics",
+            "gateway_backend.http.statistics",
+            "gateway_backend.statistics.queries",
+            "gateway_backend.infrastructure.statistics.queries",
+        }
+    )
 
 
 REACHABILITY_MODULE_SHAPES: tuple[tuple[str, bool], ...] = (
@@ -888,26 +916,85 @@ def test_facade_lazy_import_reachability_depends_on_imported_symbol(
         ]
 
     current = unreachable_modules(edges, modules)
-    assert all((name in current) is expect_composite_unreachable for name in COMPOSITE_FACADE_MODULES)
+    assert all(
+        (name in current) is expect_composite_unreachable for name in COMPOSITE_FACADE_MODULES
+    )
 
 
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
-    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.location", ("parse_artifact_id",), None),
-    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.location", ("build_artifact_id",), RULE_LAYER),
-    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.location", ("*",), RULE_LAYER),
-    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.types", ("validate_artifact_id",), RULE_LAYER),
-    ("gateway_backend.bootstrap.compute_kernel", "gateway_compute._native", ("_init_kernel_native",), None),
-    ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
-    ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),
-    ("gateway_backend.bootstrap.composition", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
+    (
+        "gateway_backend.domain.workspace.models",
+        "gateway_backend.artifacts.location",
+        ("parse_artifact_id",),
+        None,
+    ),
+    (
+        "gateway_backend.domain.workspace.models",
+        "gateway_backend.artifacts.location",
+        ("build_artifact_id",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.domain.workspace.models",
+        "gateway_backend.artifacts.location",
+        ("*",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.domain.workspace.models",
+        "gateway_backend.artifacts.types",
+        ("validate_artifact_id",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.bootstrap.compute_kernel",
+        "gateway_compute._native",
+        ("_init_kernel_native",),
+        None,
+    ),
+    (
+        "gateway_backend.bootstrap.operation_worker",
+        "gateway_compute._native",
+        ("_init_kernel_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.bootstrap.operation_worker",
+        "gateway_compute._native",
+        ("_parse_sql_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.bootstrap.composition",
+        "gateway_compute._native",
+        ("_init_kernel_native",),
+        RULE_LAYER,
+    ),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("*",), RULE_LAYER),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute", ("_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.table_access.native", "gateway_compute._native", ("_parse_sql_native",), None),
-    ("gateway_backend.capabilities.mutation_planning.native", "gateway_compute._native",
-     ("_begin_storage_operation_native", "_prepare_storage_table_native", "_render_change_set_native"), None),
-    ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native",
-     ("_begin_storage_operation_native",), RULE_LAYER),
+    (
+        "gateway_backend.capabilities.table_access.native",
+        "gateway_compute._native",
+        ("_parse_sql_native",),
+        None,
+    ),
+    (
+        "gateway_backend.capabilities.mutation_planning.native",
+        "gateway_compute._native",
+        (
+            "_begin_storage_operation_native",
+            "_prepare_storage_table_native",
+            "_render_change_set_native",
+        ),
+        None,
+    ),
+    (
+        "gateway_backend.capabilities.storage_projection.native",
+        "gateway_compute._native",
+        ("_begin_storage_operation_native",),
+        RULE_LAYER,
+    ),
     (
         "gateway_backend.capabilities.comparison.native",
         "gateway_compute._native",
@@ -922,43 +1009,173 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
         ),
         None,
     ),
-    ("gateway_backend.capabilities.comparison.native", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.comparison.native", "gateway_compute._native", ("*",), RULE_LAYER),
-    ("gateway_backend.capabilities.comparison.standard", "gateway_compute._native", ("_compare_records_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.risk_evaluation._engine", "gateway_compute._native", ("_restore_comparison_table_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.table_access.native", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_sql_materialize_native", "_catalog_filter_native"), None),
-    ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native", ("_canonical_project_native", "_render_storage_schema_native"), None),
-    ("gateway_backend.capabilities.snapshot_materialization.canonical_store", "gateway_compute._native", ("_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"), None),
-    ("gateway_backend.capabilities.comparison.standard", "gateway_compute._native", ("_sql_materialize_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute.other", ("_sql_materialize_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", (), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("*",), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute", ("_native",), RULE_LAYER),
-    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_sql_materialize_native", "_parse_sql_native"), RULE_LAYER),
-    ("gateway_backend.domain.workspace.models", "gateway_backend.application.workspace.contracts", (), RULE_LAYER),
+    (
+        "gateway_backend.capabilities.comparison.native",
+        "gateway_compute._native",
+        ("_parse_sql_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.comparison.native",
+        "gateway_compute._native",
+        ("*",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.comparison.standard",
+        "gateway_compute._native",
+        ("_compare_records_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.risk_evaluation._engine",
+        "gateway_compute._native",
+        ("_restore_comparison_table_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.table_access.native",
+        "gateway_compute._native",
+        ("_init_kernel_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute._native",
+        ("_sql_materialize_native", "_catalog_filter_native"),
+        None,
+    ),
+    (
+        "gateway_backend.capabilities.storage_projection.native",
+        "gateway_compute._native",
+        ("_canonical_project_native", "_render_storage_schema_native"),
+        None,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.canonical_store",
+        "gateway_compute._native",
+        ("_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"),
+        None,
+    ),
+    (
+        "gateway_backend.capabilities.comparison.standard",
+        "gateway_compute._native",
+        ("_sql_materialize_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute._native",
+        ("_parse_sql_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute.other",
+        ("_sql_materialize_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute._native",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute._native",
+        ("*",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute",
+        ("_native",),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.snapshot_materialization.native",
+        "gateway_compute._native",
+        ("_sql_materialize_native", "_parse_sql_native"),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.domain.workspace.models",
+        "gateway_backend.application.workspace.contracts",
+        (),
+        RULE_LAYER,
+    ),
     ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.types", (), RULE_LAYER),
     ("gateway_backend.artifacts.types", "gateway_backend.domain.submission.models", (), RULE_LAYER),
-    ("gateway_backend.operations.contracts", "gateway_backend.capabilities.comparison", (), RULE_LAYER),
+    (
+        "gateway_backend.operations.contracts",
+        "gateway_backend.capabilities.comparison",
+        (),
+        RULE_LAYER,
+    ),
     ("gateway_backend.operations.contracts", "gateway_backend.artifacts.types", (), None),
-    ("gateway_backend.capabilities.comparison.standard", "gateway_backend.application.payloads", (), RULE_LAYER),
-    ("gateway_backend.capabilities.comparison.standard", "gateway_backend.settings", (), RULE_LAYER),
-    ("gateway_backend.application.preview_jobs", "gateway_backend.capabilities.comparison", (), None),
-    ("gateway_backend.application.preview_jobs", "gateway_backend.capabilities.comparison.contracts", (), None),
+    (
+        "gateway_backend.capabilities.comparison.standard",
+        "gateway_backend.application.payloads",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.capabilities.comparison.standard",
+        "gateway_backend.settings",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.application.preview_jobs",
+        "gateway_backend.capabilities.comparison",
+        (),
+        None,
+    ),
+    (
+        "gateway_backend.application.preview_jobs",
+        "gateway_backend.capabilities.comparison.contracts",
+        (),
+        None,
+    ),
     (
         "gateway_backend.application.preview_jobs",
         "gateway_backend.capabilities.comparison.standard",
         (),
         RULE_CAPABILITY_SURFACE,
     ),
-    ("gateway_backend.application.preview_jobs", "gateway_backend.infrastructure.control_db.database", (), RULE_LAYER),
+    (
+        "gateway_backend.application.preview_jobs",
+        "gateway_backend.infrastructure.control_db.database",
+        (),
+        RULE_LAYER,
+    ),
     ("gateway_backend.application.preview_jobs", "gateway_repository_contracts", (), RULE_LAYER),
     ("gateway_backend.application.preview_jobs", "gateway_backend.settings", (), RULE_LAYER),
-    ("gateway_backend.application.preview_jobs", "gateway_backend.operations.contracts", ("_validate_opaque_id",), RULE_PRIVATE),
-    ("gateway_backend.http.routes.history", "gateway_backend.infrastructure.control_db.sqlite_history", (), RULE_LAYER),
-    ("gateway_backend.http.routes.history", "gateway_backend.capabilities.comparison.contracts", (), RULE_LAYER),
-    ("gateway_backend.http.routes.history", "gateway_backend.application.history.queries", (), None),
+    (
+        "gateway_backend.application.preview_jobs",
+        "gateway_backend.operations.contracts",
+        ("_validate_opaque_id",),
+        RULE_PRIVATE,
+    ),
+    (
+        "gateway_backend.http.routes.history",
+        "gateway_backend.infrastructure.control_db.sqlite_history",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.http.routes.history",
+        "gateway_backend.capabilities.comparison.contracts",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.http.routes.history",
+        "gateway_backend.application.history.queries",
+        (),
+        None,
+    ),
     ("gateway_backend.http.routes.history", "fastapi", (), None),
     (
         "gateway_backend.infrastructure.repository_read.http_arrow",
@@ -966,9 +1183,24 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
         (),
         RULE_PRIVATE,
     ),
-    ("gateway_backend.infrastructure.repository_read.http_arrow", "gateway_repository_client", (), None),
-    ("gateway_backend.infrastructure.control_db.database", "gateway_repository_client", (), RULE_LAYER),
-    ("gateway_backend.infrastructure.control_db.database", "gateway_backend.application.history.ports", (), None),
+    (
+        "gateway_backend.infrastructure.repository_read.http_arrow",
+        "gateway_repository_client",
+        (),
+        None,
+    ),
+    (
+        "gateway_backend.infrastructure.control_db.database",
+        "gateway_repository_client",
+        (),
+        RULE_LAYER,
+    ),
+    (
+        "gateway_backend.infrastructure.control_db.database",
+        "gateway_backend.application.history.ports",
+        (),
+        None,
+    ),
     (
         "gateway_backend.infrastructure.control_db.database",
         "gateway_backend.application.history.compare_bindings",
@@ -982,8 +1214,18 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
         (),
         RULE_CONTRACTS_LEAF,
     ),
-    ("gateway_backend.capabilities.comparison.ordered", "gateway_backend.capabilities.comparison.standard", ("_row_digest",), None),
-    ("gateway_backend.bootstrap.operation_worker", "gateway_backend.infrastructure.control_db", (), None),
+    (
+        "gateway_backend.capabilities.comparison.ordered",
+        "gateway_backend.capabilities.comparison.standard",
+        ("_row_digest",),
+        None,
+    ),
+    (
+        "gateway_backend.bootstrap.operation_worker",
+        "gateway_backend.infrastructure.control_db",
+        (),
+        None,
+    ),
     ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
 )
 

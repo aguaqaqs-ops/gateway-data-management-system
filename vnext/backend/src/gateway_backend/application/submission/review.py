@@ -21,7 +21,11 @@ from gateway_backend.application.submission.ports import (
     ReviewApplyControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
-from gateway_backend.domain.submission.models import Submission, SubmissionAccessBinding, WorkspaceSubmitOccupancy
+from gateway_backend.domain.submission.models import (
+    Submission,
+    SubmissionAccessBinding,
+    WorkspaceSubmitOccupancy,
+)
 from gateway_backend.domain.submission.review import (
     ReviewAction,
     ReviewEvent,
@@ -48,12 +52,15 @@ def assert_review_permission(context: IdentityContext, action: ReviewAction | No
     assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
 
 
-def assert_review_target_authorized(context: IdentityContext, submission: Submission | SubmissionAccessBinding) -> None:
+def assert_review_target_authorized(
+    context: IdentityContext, submission: Submission | SubmissionAccessBinding
+) -> None:
     if (
         PERMISSION_REVIEW_SUBMISSION not in context.permissions
         and submission.created_by != context.actor_id
     ):
         raise ScopeForbidden
+
 
 _RELEASE_ACTIONS = frozenset(
     {
@@ -104,17 +111,13 @@ def assert_review_workspace_bindings(
     except WorkspaceNotOpen:
         raise ReviewWorkspaceOccupancyConflict("workspace is not open") from None
     if workspace.generation != submission.workspace_generation:
-        raise ReviewWorkspaceOccupancyConflict(
-            "workspace generation does not match submission"
-        )
+        raise ReviewWorkspaceOccupancyConflict("workspace generation does not match submission")
     if workspace.current_upload_revision_id != submission.upload_revision_id:
         raise ReviewWorkspaceOccupancyConflict(
             "workspace upload revision does not match submission"
         )
     if workspace.current_preview_result_id != submission.preview_result_id:
-        raise ReviewWorkspaceOccupancyConflict(
-            "workspace preview result does not match submission"
-        )
+        raise ReviewWorkspaceOccupancyConflict("workspace preview result does not match submission")
     if occupancy is None or occupancy.active_submission_id != submission.submission_id:
         raise ReviewWorkspaceOccupancyConflict(
             "workspace submit occupancy does not match submission"
@@ -213,13 +216,17 @@ def assert_fresh_scope_matches(fresh_scope: ResolvedScope, expected_scope: Resol
 
 
 def load_review_submission(
-    unit_of_work: ReviewApplyTransaction, submission_id: str, *,
-    workspace_id: str | None = None, repository_id: str | None = None,
+    unit_of_work: ReviewApplyTransaction,
+    submission_id: str,
+    *,
+    workspace_id: str | None = None,
+    repository_id: str | None = None,
 ) -> Submission | None:
     """Decode an already-authorized target or an internal idempotency reference."""
     try:
-        return unit_of_work.submission.get_submission(submission_id,
-            workspace_id=workspace_id, repository_id=repository_id)
+        return unit_of_work.submission.get_submission(
+            submission_id, workspace_id=workspace_id, repository_id=repository_id
+        )
     except (ValueError, TypeError, KeyError) as exc:
         raise ReviewIntegrityFailure("submission facts are invalid") from exc
 
@@ -240,8 +247,12 @@ def load_review_scope_facts(
         raise ScopeForbidden
     assert_review_scope(binding, workspace, fresh_scope, context)
     assert_review_target_authorized(context, binding)
-    submission = load_review_submission(unit_of_work, submission_id,
-        workspace_id=workspace.workspace_id, repository_id=fresh_scope.repository_id)
+    submission = load_review_submission(
+        unit_of_work,
+        submission_id,
+        workspace_id=workspace.workspace_id,
+        repository_id=fresh_scope.repository_id,
+    )
     if submission is None:
         raise ScopeForbidden
     assert_review_scope(submission, workspace, fresh_scope, context)

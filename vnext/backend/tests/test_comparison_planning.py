@@ -48,12 +48,17 @@ def _bound(sql: str) -> BoundSnapshotInput:
         assert isinstance(table.reader, BoundSnapshotTableReader)
         with closing(canonical_stream(table)) as stream:
             backing = stream.read_all()
-        tables.append(snapshot_table_from_arrow(
-            table.descriptor, backing, table.reader.source_descriptor(),
-            ordered=table.ordered_metadata,
-        ))
+        tables.append(
+            snapshot_table_from_arrow(
+                table.descriptor,
+                backing,
+                table.reader.source_descriptor(),
+                ordered=table.ordered_metadata,
+            )
+        )
     return BoundSnapshotInput(
-        result.snapshot, result.summary,
+        result.snapshot,
+        result.summary,
         replace(result.table_set, tables=tuple(tables)),
         presentation=result.presentation,
     )
@@ -138,7 +143,9 @@ def test_comparison_aligns_values_by_column_name_and_uses_runtime_effective_keys
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
         table = product.result.facts.tables[0]
-        changed_columns = tuple(record.changed_columns for record in RiskRecordView(product.handles["t"]))
+        changed_columns = tuple(
+            record.changed_columns for record in RiskRecordView(product.handles["t"])
+        )
     finally:
         product.close()
 
@@ -150,7 +157,15 @@ def test_comparison_aligns_values_by_column_name_and_uses_runtime_effective_keys
 
 
 @pytest.mark.parametrize(
-    ("before_sql", "current_sql", "before_view", "current_view", "before_source", "current_source", "expected"),
+    (
+        "before_sql",
+        "current_sql",
+        "before_view",
+        "current_view",
+        "before_source",
+        "current_source",
+        "expected",
+    ),
     (
         (
             "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT);",
@@ -183,7 +198,9 @@ def test_comparison_aligns_values_by_column_name_and_uses_runtime_effective_keys
             "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, aux INT);",
             "CREATE TABLE t (code INT NOT NULL PRIMARY KEY, value INT);",
             _storage_view(key_policy=CanonicalKeyPolicy.EXPLICIT, key_columns=("id",)),
-            _storage_view(key_policy=CanonicalKeyPolicy.EXPLICIT, key_columns=("code",), dropped=("aux",)),
+            _storage_view(
+                key_policy=CanonicalKeyPolicy.EXPLICIT, key_columns=("code",), dropped=("aux",)
+            ),
             "source-before",
             "source-current",
             SchemaChangeSource.BOTH,
@@ -229,7 +246,9 @@ def test_source_ddl_primary_key_change_does_not_masquerade_as_rule_change() -> N
         "source-current",
     )
 
-    table = _facts(_request(before, current, comparison_ruleset_for(standard_rule_record("t")))).tables[0]
+    table = _facts(
+        _request(before, current, comparison_ruleset_for(standard_rule_record("t")))
+    ).tables[0]
 
     assert table.schema_changes.change_source is SchemaChangeSource.SOURCE_SCHEMA
 
@@ -238,7 +257,9 @@ def test_schema_change_source_is_unknown_without_both_persisted_storage_facts() 
     before = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT);")
     current = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, note TEXT);")
 
-    table = _facts(_request(before, current, comparison_ruleset_for(standard_rule_record("t")))).tables[0]
+    table = _facts(
+        _request(before, current, comparison_ruleset_for(standard_rule_record("t")))
+    ).tables[0]
 
     assert table.schema_changes.current_only_columns == ("note",)
     assert table.schema_changes.change_source is None

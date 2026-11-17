@@ -16,7 +16,9 @@ from contextlib import ExitStack
 
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.computation_cache import InvalidComputationCachePayload
-from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteArtifactProtectionStore
+from gateway_backend.infrastructure.control_db.sqlite_protection import (
+    SQLiteArtifactProtectionStore,
+)
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
@@ -33,11 +35,15 @@ if TYPE_CHECKING:
     from gateway_backend.domain.workspace.models import ResolvedScope
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
     from gateway_backend.infrastructure.control_db.sqlite_review import SQLiteReviewRepository
-    from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+    from gateway_backend.infrastructure.control_db.sqlite_submission import (
+        SQLiteSubmissionRepository,
+    )
     from gateway_backend.infrastructure.control_db.sqlite_snapshot_export_cache import (
         SQLiteSnapshotTableExportCache,
     )
-    from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
+    from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import (
+        SQLiteCanonicalTableCache,
+    )
     from gateway_backend.infrastructure.control_db.computation_cache import SQLiteComputationCache
 
 from gateway_backend.infrastructure.control_db.control_db_connect import (
@@ -199,7 +205,10 @@ class ControlDbUnitOfWork:
         return self._computation_cache
 
     def touch_computation_cache_producer(
-        self, *, producer_operation_id: str, repository_id: str,
+        self,
+        *,
+        producer_operation_id: str,
+        repository_id: str,
     ) -> None:
         """Keep optional cache payload failure within T3's still-active transaction.
 
@@ -212,7 +221,8 @@ class ControlDbUnitOfWork:
         connection.execute("SAVEPOINT submit_computation_cache_touch")
         try:
             self.computation_cache.touch_producer(
-                producer_operation_id=producer_operation_id, repository_id=repository_id,
+                producer_operation_id=producer_operation_id,
+                repository_id=repository_id,
             )
         except InvalidComputationCachePayload:
             connection.execute("ROLLBACK TO SAVEPOINT submit_computation_cache_touch")
@@ -271,7 +281,9 @@ class ControlDbUnitOfWork:
         return SQLiteCommitCanonicalMetadataPort(self.connection, manifest_reader=reader)
 
     def count_queued_operations(self) -> int:
-        row = self.connection.execute("SELECT COUNT(*) FROM operation_records WHERE status = 'QUEUED'").fetchone()
+        row = self.connection.execute(
+            "SELECT COUNT(*) FROM operation_records WHERE status = 'QUEUED'"
+        ).fetchone()
         return int(row[0])
 
     def set_artifact_protection(
@@ -357,8 +369,11 @@ class ControlDbUnitOfWork:
         if self._artifact_borrow is not None:
             self._borrow_stack.enter_context(self._artifact_borrow())
         try:
-            connection = (connect_control_db(self._db_path, require_existing=True) if self._require_existing
-                else connect_control_db(self._db_path))
+            connection = (
+                connect_control_db(self._db_path, require_existing=True)
+                if self._require_existing
+                else connect_control_db(self._db_path)
+            )
         except BaseException:
             self._borrow_stack.close()
             raise
@@ -414,10 +429,15 @@ class ControlDbUnitOfWork:
                 transaction_now=transaction_now,
                 read_only=self._read_only,
             )
-            from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
+            from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import (
+                SQLiteCanonicalTableCache,
+            )
 
             self._canonical_tables = SQLiteCanonicalTableCache(
-                connection, protection=self._protection, now=transaction_now, read_only=self._read_only,
+                connection,
+                protection=self._protection,
+                now=transaction_now,
+                read_only=self._read_only,
             )
             self._baseline = SQLiteBaselineRepository(
                 connection,
@@ -444,11 +464,15 @@ class ControlDbUnitOfWork:
                 now=transaction_now,
                 read_only=self._read_only,
             )
-            from gateway_backend.infrastructure.control_db.computation_cache import SQLiteComputationCache
+            from gateway_backend.infrastructure.control_db.computation_cache import (
+                SQLiteComputationCache,
+            )
 
             self._computation_cache = SQLiteComputationCache(
-                connection, protection=self._protection,
-                now=transaction_now, read_only=self._read_only,
+                connection,
+                protection=self._protection,
+                now=transaction_now,
+                read_only=self._read_only,
             )
         except BaseException as exc:
             try:
@@ -553,7 +577,11 @@ def _is_busy_error(exc: sqlite3.OperationalError) -> bool:
 
 
 def _validate_utc_datetime(value: object, label: str) -> None:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != UTC.utcoffset(value)
+    ):
         raise ValueError(f"{label} must be an aware UTC datetime")
 
 

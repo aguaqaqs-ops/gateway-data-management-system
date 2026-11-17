@@ -12,7 +12,11 @@ from gateway_backend.application.workspace.contracts import AcceptUploadCommand
 from gateway_backend.application.workspace.errors import IdempotencyConflict
 from gateway_backend.application.workspace.services import accept_upload, create_or_get_workspace
 from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict
-from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactBinding, SourceArtifactRole
+from gateway_backend.domain.workspace.models import (
+    InputCompleteness,
+    SourceArtifactBinding,
+    SourceArtifactRole,
+)
 from tests.support.workspace_fixtures import (
     FixedScopeResolutionPort,
     InMemoryWorkspaceRepository,
@@ -71,13 +75,17 @@ def test_create_or_get_workspace_is_idempotent_for_exact_scope() -> None:
     created = create_or_get_workspace(
         context=context,
         scope_resolution=scope_resolution,
-        transaction=SimpleNamespace(workspace=repository, submission=SimpleNamespace(get_workspace_occupancy=lambda _: None)),
+        transaction=SimpleNamespace(
+            workspace=repository, submission=SimpleNamespace(get_workspace_occupancy=lambda _: None)
+        ),
         created_at=TS0,
     )
     replay = create_or_get_workspace(
         context=context,
         scope_resolution=scope_resolution,
-        transaction=SimpleNamespace(workspace=repository, submission=SimpleNamespace(get_workspace_occupancy=lambda _: None)),
+        transaction=SimpleNamespace(
+            workspace=repository, submission=SimpleNamespace(get_workspace_occupancy=lambda _: None)
+        ),
         created_at=TS0,
     )
 
@@ -130,7 +138,9 @@ def test_accept_upload_same_key_different_fingerprint_conflicts() -> None:
     repository = InMemoryWorkspaceRepository()
     scope_resolution = FixedScopeResolutionPort(baseline_head=make_baseline_head())
     workspace = seed_open_workspace(repository)
-    first_command = _accept_command(workspace_id=workspace.workspace_id, expected_workspace_version=0)
+    first_command = _accept_command(
+        workspace_id=workspace.workspace_id, expected_workspace_version=0
+    )
     accept_upload(command=first_command, scope_resolution=scope_resolution, repository=repository)
 
     conflicting = AcceptUploadCommand(
@@ -173,7 +183,9 @@ def test_accept_upload_clears_current_preview_pointer() -> None:
     )
     command = _accept_command(workspace_id=workspace.workspace_id, expected_workspace_version=1)
 
-    result = accept_upload(command=command, scope_resolution=scope_resolution, repository=repository)
+    result = accept_upload(
+        command=command, scope_resolution=scope_resolution, repository=repository
+    )
 
     assert result.workspace.current_preview_result_id is None
     assert result.workspace.generation == 2

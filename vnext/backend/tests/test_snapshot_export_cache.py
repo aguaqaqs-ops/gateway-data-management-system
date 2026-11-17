@@ -157,13 +157,19 @@ def test_export_cache_expiry_releases_cache_protection(tmp_path: Path) -> None:
         assert not unit_of_work.protection.is_protected(cached_ref.artifact_id)
 
 
-def test_export_cache_old_ref_cannot_discard_a_replacement_or_its_protection(tmp_path: Path) -> None:
+def test_export_cache_old_ref_cannot_discard_a_replacement_or_its_protection(
+    tmp_path: Path,
+) -> None:
     from dataclasses import replace
 
     db_path = tmp_path / "control.sqlite"
     initialize_control_db(db_path)
     key, old_ref = _key(), _ref()
-    replacement = replace(old_ref, artifact_id='a1:durable:2578ba4987d642c9f49e76f0696b08874c51b2000434c6a11a88d83c10f65afd', raw_sha256=raw_blob_digest(b"replacement"))
+    replacement = replace(
+        old_ref,
+        artifact_id="a1:durable:2578ba4987d642c9f49e76f0696b08874c51b2000434c6a11a88d83c10f65afd",
+        raw_sha256=raw_blob_digest(b"replacement"),
+    )
     with _uow(db_path) as unit_of_work:
         cache = unit_of_work.snapshot_table_export_cache
         cache.store_many(((key, old_ref),))
@@ -266,19 +272,23 @@ def test_invalid_cached_parquet_falls_back_to_canonical_source_export() -> None:
     assert tuple(opened.reader.iter_rows()) == tuple(source.reader.reopen().iter_rows())
 
 
-
 @pytest.mark.serial
-@pytest.mark.parametrize('same_key', (True, False))
-def test_export_cache_process_writers_keep_exact_complete_index(db_path: Path, same_key: bool) -> None:
+@pytest.mark.parametrize("same_key", (True, False))
+def test_export_cache_process_writers_keep_exact_complete_index(
+    db_path: Path, same_key: bool
+) -> None:
     from tests.support.process_concurrency import run_processes
     from dataclasses import replace
+
     first_key = _key()
-    second_key = first_key if same_key else _key(layout=b'other-layout')
+    second_key = first_key if same_key else _key(layout=b"other-layout")
     first = _ref()
-    second = replace(first, artifact_id='a1:durable:' + 'a' * 64)
+    second = replace(first, artifact_id="a1:durable:" + "a" * 64)
+
     def store(key: SnapshotTableArtifactCacheKey, ref: ArtifactRef) -> None:
         with _uow(db_path) as uow:
             uow.snapshot_table_export_cache.store_many(((key, ref),))
+
     run_processes((lambda: store(first_key, first), lambda: store(second_key, second)))
     with _uow(db_path) as uow:
         cache = uow.snapshot_table_export_cache

@@ -155,7 +155,9 @@ def _evict_optional_risk_only(cache: object | None) -> bool:
 
 
 def _reserve_risk_output(
-    operation: RiskOperationPort, size: int, cache: object | None,
+    operation: RiskOperationPort,
+    size: int,
+    cache: object | None,
 ) -> RiskReservationPort:
     try:
         return operation.memory.reserve(size)
@@ -175,7 +177,11 @@ def _optional_risk_cache_key(
 ) -> tuple[str | None, RiskReservationPort | None]:
     """The current Comparison task identifies neutral facts and record content."""
     candidate, charge = optional_candidate_input(
-        item, evaluation_input, policy, task_key, operation,
+        item,
+        evaluation_input,
+        policy,
+        task_key,
+        operation,
     )
     if candidate is None or charge is None:
         return None, None
@@ -194,7 +200,10 @@ class _RiskCandidateRecorder:
     """Store complete neutral events only; the session decides retention uses."""
 
     def __init__(
-        self, cache: object, task_key: str, risk_key: str,
+        self,
+        cache: object,
+        task_key: str,
+        risk_key: str,
         operation: RiskOperationPort | None,
     ) -> None:
         self.cache = cache
@@ -216,8 +225,7 @@ class _RiskCandidateRecorder:
         if isinstance(event, RiskEmitEvent):
             size += len(event.target.table_name or "") * 16
             size += sum(len(column) * 16 + 128 for column in event.target.changed_columns)
-            size += sum((len(name) + len(str(value))) * 16 + 128
-                        for name, value in event.evidence)
+            size += sum((len(name) + len(str(value))) * 16 + 128 for name, value in event.evidence)
         try:
             self.charges.enter_context(operation.memory.reserve(size))
         except MemoryError:
@@ -269,10 +277,13 @@ def evaluate_risk(
                 len(evaluation_input.comparison_facts.tables),
                 execution_policy.max_risk_tables_per_pair,
             )
-            operation.resources.enter_context(_reserve_risk_output(operation,
-                16 * 1024**2 + table_count * 8192,
-                evaluation_input.risk_cache_session,
-            ))
+            operation.resources.enter_context(
+                _reserve_risk_output(
+                    operation,
+                    16 * 1024**2 + table_count * 8192,
+                    evaluation_input.risk_cache_session,
+                )
+            )
         rules_started = perf_counter()
         rules = validate_risk_ruleset(evaluation_input.risk_ruleset)
         _record_timing(evaluation_input, "ruleset_validation_seconds", rules_started)
@@ -321,7 +332,9 @@ def evaluate_risk(
                 total_annotations += len(outcome.annotations)
             except _TableBudgetExceeded:
                 degraded = _degraded_table(
-                    item, "RISK_TABLE_BUDGET_EXCEEDED", rules,
+                    item,
+                    "RISK_TABLE_BUDGET_EXCEEDED",
+                    rules,
                     evaluation_input.risk_cache_session,
                     context.operation,
                 )
@@ -386,8 +399,14 @@ def _evaluate_table(
 ) -> _TableOutcome:
     with ExitStack() as charges:
         outcome = _evaluate_table_impl(
-            item, rules, evaluation_input, policy, context, pair_started,
-            annotation_limit=annotation_limit, charges=charges,
+            item,
+            rules,
+            evaluation_input,
+            policy,
+            context,
+            pair_started,
+            annotation_limit=annotation_limit,
+            charges=charges,
         )
         charges.enter_context(outcome.charges)
         return replace(outcome, charges=charges.pop_all())
@@ -420,7 +439,9 @@ def _evaluate_table_impl(
         > policy.max_diagnostics_bytes_per_table
     ):
         return _degraded_table(
-            item, "RISK_DIAGNOSTICS_TRUNCATED", rules,
+            item,
+            "RISK_DIAGNOSTICS_TRUNCATED",
+            rules,
             evaluation_input.risk_cache_session,
             context.operation,
         )
@@ -433,7 +454,10 @@ def _evaluate_table_impl(
         except MemoryError:
             if recorder is not None:
                 recorder.close()
-            if not _evict_optional_risk_only(evaluation_input.risk_cache_session) and recorder is None:
+            if (
+                not _evict_optional_risk_only(evaluation_input.risk_cache_session)
+                and recorder is None
+            ):
                 raise
             operation.checkpoint()
             return operation.memory.reserve(size)
@@ -487,7 +511,11 @@ def _evaluate_table_impl(
     task_key = None if task_keys is None else task_keys.get(item.table_fact.table_name)
     if cache is not None and task_key is not None and not item.composite_signal:
         risk_key, key_charge = _optional_risk_cache_key(
-            item, evaluation_input, policy, context.operation, task_key,
+            item,
+            evaluation_input,
+            policy,
+            context.operation,
+            task_key,
         )
         if risk_key is not None and key_charge is not None:
             try:
@@ -501,10 +529,13 @@ def _evaluate_table_impl(
                     for event in cached_events:
                         if isinstance(event, RiskEmitEvent):
                             upper += 2048 + len(item.table_fact.table_name) * 16
-                            upper += sum(len(column) * 16 + 128
-                                         for column in event.target.changed_columns)
-                            upper += sum((len(name) + len(str(value))) * 16 + 128
-                                         for name, value in event.evidence)
+                            upper += sum(
+                                len(column) * 16 + 128 for column in event.target.changed_columns
+                            )
+                            upper += sum(
+                                (len(name) + len(str(value))) * 16 + 128
+                                for name, value in event.evidence
+                            )
                     operation = context.operation
                     if operation is not None:
                         try:
@@ -518,9 +549,15 @@ def _evaluate_table_impl(
                             cache_rejected = True
                 if cached_events is None:
                     remaining = getattr(cache, "remaining_uses")
-                    if (remaining.get(task_key, 0) > 1 or getattr(cache, "persistent_retention", False)) and not cache_rejected:
+                    if (
+                        remaining.get(task_key, 0) > 1
+                        or getattr(cache, "persistent_retention", False)
+                    ) and not cache_rejected:
                         recorder = _RiskCandidateRecorder(
-                            cache, task_key, risk_key, context.operation,
+                            cache,
+                            task_key,
+                            risk_key,
+                            context.operation,
                         )
                         recorder.charges.enter_context(key_charge)
                         key_charge = None
@@ -554,7 +591,9 @@ def _evaluate_table_impl(
             allow_artifact=not item.comparison_facts.degraded,
         )
 
-    table_target = RiskTarget(target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name)
+    table_target = RiskTarget(
+        target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name
+    )
     if item.composite_signal:
         emit(
             RiskRuleId.COMPOSITE_SIGNAL_POINT,
@@ -593,10 +632,16 @@ def _evaluate_table_impl(
             )
         ordered_counts: dict[RiskRuleId, int] = {}
 
-        def emit_ordered(rule_id: RiskRuleId, target: RiskTarget,
-                         evidence: tuple[tuple[str, str | int | bool | None], ...] = ()) -> None:
-            if (evaluation_input.risk_options.annotation_detail_policy is AnnotationDetailPolicy.COUNTS_ONLY
-                    and target.target_type is not RiskTargetType.TABLE):
+        def emit_ordered(
+            rule_id: RiskRuleId,
+            target: RiskTarget,
+            evidence: tuple[tuple[str, str | int | bool | None], ...] = (),
+        ) -> None:
+            if (
+                evaluation_input.risk_options.annotation_detail_policy
+                is AnnotationDetailPolicy.COUNTS_ONLY
+                and target.target_type is not RiskTargetType.TABLE
+            ):
                 count = next((value for key, value in evidence if key == "count"), 1)
                 assert isinstance(count, int)
                 ordered_counts[rule_id] = ordered_counts.get(rule_id, 0) + count
@@ -615,17 +660,33 @@ def _evaluate_table_impl(
                 if blank is not None and blank.replay_guarantee is not ReplayGuarantee.EXACT:
                     emit(RiskRuleId.ORDERED_RISK_UNKNOWN, table_target)
                 else:
-                    _emit_blank_intervals(item, emit_ordered, evaluation_input, context, reserve_required)
-                if (summary.position_changed_count and not (summary.row_added_count or summary.row_deleted_count
-                        or summary.row_moved_count or (blank is not None and blank.blank_summary.blank_changed_count))):
+                    _emit_blank_intervals(
+                        item, emit_ordered, evaluation_input, context, reserve_required
+                    )
+                if summary.position_changed_count and not (
+                    summary.row_added_count
+                    or summary.row_deleted_count
+                    or summary.row_moved_count
+                    or (blank is not None and blank.blank_summary.blank_changed_count)
+                ):
                     emit(RiskRuleId.ORDERED_RISK_UNKNOWN, table_target)
         elif ordered is None:
-            if item.table_fact.blank_extension is not None and item.table_fact.blank_extension.blank_summary.blank_changed_count:
+            if (
+                item.table_fact.blank_extension is not None
+                and item.table_fact.blank_extension.blank_summary.blank_changed_count
+            ):
                 raise _PairFailure("blank comparison lacks ordered extension")
             _emit_row_risks(item, emit, evaluation_input, policy, require_closure)
         for rule_id, count in ordered_counts.items():
-            emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE,
-                 table_name=item.table_fact.table_name, coverage="ROW_COUNTS"), (("count", count),))
+            emit(
+                rule_id,
+                RiskTarget(
+                    target_type=RiskTargetType.TABLE,
+                    table_name=item.table_fact.table_name,
+                    coverage="ROW_COUNTS",
+                ),
+                (("count", count),),
+            )
         for record in item.records:
             if record.record_kind in {
                 ComparisonRecordKind.SCHEMA_CHANGE,
@@ -666,10 +727,15 @@ def _emit_ordered_moves(
         nonlocal count
         if identity is None:
             raise _PairFailure("ordered move missing row identity")
-        emit(RiskRuleId.ORDERED_MOVE, RiskTarget(
-            target_type=RiskTargetType.ROW, table_name=item.table_fact.table_name,
-            row_identity=identity, position=position,
-        ))
+        emit(
+            RiskRuleId.ORDERED_MOVE,
+            RiskTarget(
+                target_type=RiskTargetType.ROW,
+                table_name=item.table_fact.table_name,
+                row_identity=identity,
+                position=position,
+            ),
+        )
         count += 1
 
     views = evaluation_input.ordered_record_views
@@ -680,24 +746,39 @@ def _emit_ordered_moves(
             for batch in reader:
                 if context.operation is not None:
                     context.operation.checkpoint()
-                scratch = (nullcontext() if context.operation is None else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512))
+                scratch = (
+                    nullcontext()
+                    if context.operation is None
+                    else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512)
+                )
                 with scratch:
                     kinds = batch.column(batch.schema.get_field_index("record_kind")).to_pylist()
-                    identities = batch.column(batch.schema.get_field_index("row_identity")).to_pylist()
-                    positions = batch.column(batch.schema.get_field_index("current_position")).to_pylist()
+                    identities = batch.column(
+                        batch.schema.get_field_index("row_identity")
+                    ).to_pylist()
+                    positions = batch.column(
+                        batch.schema.get_field_index("current_position")
+                    ).to_pylist()
                     for kind, identity, position in zip(kinds, identities, positions, strict=True):
                         if kind == OrderedRecordKind.ROW_MOVED.value:
-                            emit_move(None if identity is None else DigestRef("sha256:" + identity.hex()), position)
+                            emit_move(
+                                None if identity is None else DigestRef("sha256:" + identity.hex()),
+                                position,
+                            )
     else:
         records = extension.records
         if not records and evaluation_input.records_access is not None:
-            records = evaluation_input.records_access.get_ordered_records(item.table_fact.table_name)
+            records = evaluation_input.records_access.get_ordered_records(
+                item.table_fact.table_name
+            )
         for record in records:
             if record.record_kind is OrderedRecordKind.ROW_MOVED:
                 emit_move(record.row_identity, record.current_position)
     if count != expected:
-        emit(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskTarget(
-            target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name))
+        emit(
+            RiskRuleId.ORDERED_RISK_UNKNOWN,
+            RiskTarget(target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name),
+        )
 
 
 def _emit_ordered_rows(
@@ -718,26 +799,46 @@ def _emit_ordered_rows(
     added: dict[int, tuple[DigestRef, DigestRef | None, int | None]] = {}
     deleted: dict[int, DigestRef] = {}
 
-    def consume(kind: str, identity: DigestRef | None, before: int | None,
-                current: int | None, columns: tuple[str, ...],
-                replacement_identity: DigestRef | None, replacement_position: int | None) -> None:
+    def consume(
+        kind: str,
+        identity: DigestRef | None,
+        before: int | None,
+        current: int | None,
+        columns: tuple[str, ...],
+        replacement_identity: DigestRef | None,
+        replacement_position: int | None,
+    ) -> None:
         if kind not in counts:
             return
         counts[kind] += 1
         if identity is None:
             raise _PairFailure("ordered row missing identity")
         if kind == "ORDERED_ROW_MODIFIED":
-            rule = (RiskRuleId.ORDERED_NAME_UPDATE if columns and set(columns) <= {"name", "description"}
-                    else RiskRuleId.ORDERED_CONTENT_UPDATE if columns
-                    else RiskRuleId.ORDERED_RISK_UNKNOWN)
-            emit(rule, RiskTarget(target_type=RiskTargetType.ROW, table_name=name,
-                 row_identity=identity, position=current, changed_columns=columns))
+            rule = (
+                RiskRuleId.ORDERED_NAME_UPDATE
+                if columns and set(columns) <= {"name", "description"}
+                else RiskRuleId.ORDERED_CONTENT_UPDATE
+                if columns
+                else RiskRuleId.ORDERED_RISK_UNKNOWN
+            )
+            emit(
+                rule,
+                RiskTarget(
+                    target_type=RiskTargetType.ROW,
+                    table_name=name,
+                    row_identity=identity,
+                    position=current,
+                    changed_columns=columns,
+                ),
+            )
             return
         position = current if kind == "ORDERED_ROW_ADDED" else before
         if position is None or position < 1:
             raise _PairFailure("ordered row missing position")
         if kind == "ORDERED_ROW_ADDED":
-            if position in added or ((replacement_identity is None) != (replacement_position is None)):
+            if position in added or (
+                (replacement_identity is None) != (replacement_position is None)
+            ):
                 raise _PairFailure("invalid ordered replacement evidence")
             added[position] = (identity, replacement_identity, replacement_position)
         else:
@@ -747,7 +848,9 @@ def _emit_ordered_rows(
 
     with ExitStack() as charges:
         if context.operation is not None:
-            charges.enter_context(reserve_required(4096 + (summary.row_added_count + summary.row_deleted_count) * 512))
+            charges.enter_context(
+                reserve_required(4096 + (summary.row_added_count + summary.row_deleted_count) * 512)
+            )
         views = evaluation_input.ordered_record_views
         handle = None if views is None else views.get(name)
         if handle is not None:
@@ -756,50 +859,116 @@ def _emit_ordered_rows(
                 for batch in reader:
                     if context.operation is not None:
                         context.operation.checkpoint()
-                    scratch = (nullcontext() if context.operation is None else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512))
+                    scratch = (
+                        nullcontext()
+                        if context.operation is None
+                        else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512)
+                    )
                     with scratch:
-                        names = ("record_kind", "row_identity", "before_position", "current_position",
-                                 "changed_columns", "replacement_before_identity", "replacement_before_position")
-                        values = [batch.column(batch.schema.get_field_index(key)).to_pylist() for key in names]
-                        for kind, identity, before, current, columns, partner, partner_position in zip(*values, strict=True):
-                            consume(kind, None if identity is None else DigestRef("sha256:" + identity.hex()),
-                                    before, current, tuple(columns or ()),
-                                    None if partner is None else DigestRef("sha256:" + partner.hex()), partner_position)
+                        names = (
+                            "record_kind",
+                            "row_identity",
+                            "before_position",
+                            "current_position",
+                            "changed_columns",
+                            "replacement_before_identity",
+                            "replacement_before_position",
+                        )
+                        values = [
+                            batch.column(batch.schema.get_field_index(key)).to_pylist()
+                            for key in names
+                        ]
+                        for (
+                            kind,
+                            identity,
+                            before,
+                            current,
+                            columns,
+                            partner,
+                            partner_position,
+                        ) in zip(*values, strict=True):
+                            consume(
+                                kind,
+                                None if identity is None else DigestRef("sha256:" + identity.hex()),
+                                before,
+                                current,
+                                tuple(columns or ()),
+                                None if partner is None else DigestRef("sha256:" + partner.hex()),
+                                partner_position,
+                            )
         else:
             records = extension.records
             if not records and evaluation_input.records_access is not None:
                 records = evaluation_input.records_access.get_ordered_records(name)
             for record in records:
                 partner = record.replacement_before
-                consume(record.record_kind.value, record.row_identity, record.before_position,
-                        record.current_position, record.changed_columns,
-                        None if partner is None else partner[0], None if partner is None else partner[1])
-        if (counts["ORDERED_ROW_ADDED"] != summary.row_added_count
-                or counts["ORDERED_ROW_DELETED"] != summary.row_deleted_count
-                or counts["ORDERED_ROW_MODIFIED"] != summary.row_modified_count):
-            emit(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskTarget(target_type=RiskTargetType.TABLE, table_name=name))
-        for position, (current_identity, partner_identity, partner_position) in sorted(added.items()):
+                consume(
+                    record.record_kind.value,
+                    record.row_identity,
+                    record.before_position,
+                    record.current_position,
+                    record.changed_columns,
+                    None if partner is None else partner[0],
+                    None if partner is None else partner[1],
+                )
+        if (
+            counts["ORDERED_ROW_ADDED"] != summary.row_added_count
+            or counts["ORDERED_ROW_DELETED"] != summary.row_deleted_count
+            or counts["ORDERED_ROW_MODIFIED"] != summary.row_modified_count
+        ):
+            emit(
+                RiskRuleId.ORDERED_RISK_UNKNOWN,
+                RiskTarget(target_type=RiskTargetType.TABLE, table_name=name),
+            )
+        for position, (current_identity, partner_identity, partner_position) in sorted(
+            added.items()
+        ):
             if partner_identity is None:
                 continue
             if partner_position is None or deleted.get(partner_position) != partner_identity:
                 raise _PairFailure("ordered replacement partner does not match deleted row")
-            emit(RiskRuleId.ORDERED_REPLACEMENT, RiskTarget(
-                target_type=RiskTargetType.ROW_PAIR, table_name=name, position=position,
-                before_row_identity=partner_identity, current_row_identity=current_identity))
+            emit(
+                RiskRuleId.ORDERED_REPLACEMENT,
+                RiskTarget(
+                    target_type=RiskTargetType.ROW_PAIR,
+                    table_name=name,
+                    position=position,
+                    before_row_identity=partner_identity,
+                    current_row_identity=current_identity,
+                ),
+            )
             deleted.pop(partner_position)
             added.pop(position)
         blank = item.table_fact.blank_extension
-        fallback_positions = (added.keys() & deleted.keys()) if (
-            blank is None or blank.blank_summary.blank_changed_count == 0) else ()
+        fallback_positions = (
+            (added.keys() & deleted.keys())
+            if (blank is None or blank.blank_summary.blank_changed_count == 0)
+            else ()
+        )
         for position in sorted(fallback_positions):
-            emit(RiskRuleId.ORDERED_REPLACEMENT, RiskTarget(
-                target_type=RiskTargetType.ROW_PAIR, table_name=name, position=position,
-                before_row_identity=deleted.pop(position), current_row_identity=added.pop(position)[0]))
+            emit(
+                RiskRuleId.ORDERED_REPLACEMENT,
+                RiskTarget(
+                    target_type=RiskTargetType.ROW_PAIR,
+                    table_name=name,
+                    position=position,
+                    before_row_identity=deleted.pop(position),
+                    current_row_identity=added.pop(position)[0],
+                ),
+            )
         maxima_map = evaluation_input.ordered_tail_bounds
         maxima = None if maxima_map is None else maxima_map.get(name)
-        for rows, side in (({position: value[0] for position, value in added.items()}, "current"),
-                           (deleted, "before")):
-            opposite_max = None if maxima is None else (maxima.before_max_position if side == "current" else maxima.current_max_position)
+        for rows, side in (
+            ({position: value[0] for position, value in added.items()}, "current"),
+            (deleted, "before"),
+        ):
+            opposite_max = (
+                None
+                if maxima is None
+                else (
+                    maxima.before_max_position if side == "current" else maxima.current_max_position
+                )
+            )
             for position, identity in sorted(rows.items()):
                 if maxima is None:
                     rule = RiskRuleId.ORDERED_RISK_UNKNOWN
@@ -809,8 +978,16 @@ def _emit_ordered_rows(
                     rule = RiskRuleId.ORDERED_MIDDLE_INSERT_DELETE
                     if ordered_yk_name_applies(evaluation_input.risk_ruleset, name):
                         rule = RiskRuleId.ORDERED_MIDDLE_YK_INSERT_DELETE
-                emit(rule, RiskTarget(target_type=RiskTargetType.ROW, table_name=name,
-                     row_identity=identity, position=position), (("side", side.upper()),))
+                emit(
+                    rule,
+                    RiskTarget(
+                        target_type=RiskTargetType.ROW,
+                        table_name=name,
+                        row_identity=identity,
+                        position=position,
+                    ),
+                    (("side", side.upper()),),
+                )
 
 
 def _emit_blank_intervals(
@@ -826,32 +1003,65 @@ def _emit_blank_intervals(
     maxima_map = evaluation_input.ordered_tail_bounds
     maxima = None if maxima_map is None else maxima_map.get(item.table_fact.table_name)
     if maxima is None or not maxima.complete:
-        emit(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskTarget(
-            target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name))
+        emit(
+            RiskRuleId.ORDERED_RISK_UNKNOWN,
+            RiskTarget(target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name),
+        )
         return
     inserted = deleted = 0
 
     def emit_interval(kind: str, interval: Mapping[str, object]) -> None:
         nonlocal inserted, deleted
         if kind == "BLANK_INSERT_INTERVAL":
-            side, maximum, last = "current", maxima.current_max_position, maxima.current_last_retained_position
+            side, maximum, last = (
+                "current",
+                maxima.current_max_position,
+                maxima.current_last_retained_position,
+            )
             inserted += 1
         elif kind == "BLANK_DELETE_INTERVAL":
-            side, maximum, last = "before", maxima.before_max_position, maxima.before_last_retained_position
+            side, maximum, last = (
+                "before",
+                maxima.before_max_position,
+                maxima.before_last_retained_position,
+            )
             deleted += 1
         else:
             raise _PairFailure("unexpected blank interval record")
-        start, end, count = interval.get(f"{side}_start"), interval.get(f"{side}_end"), interval.get("row_count")
-        if (type(start) is not int or type(end) is not int or type(count) is not int
-                or start < 1 or end < start or count < 1 or maximum is None or end > maximum):
+        start, end, count = (
+            interval.get(f"{side}_start"),
+            interval.get(f"{side}_end"),
+            interval.get("row_count"),
+        )
+        if (
+            type(start) is not int
+            or type(end) is not int
+            or type(count) is not int
+            or start < 1
+            or end < start
+            or count < 1
+            or maximum is None
+            or end > maximum
+        ):
             raise _PairFailure("invalid blank interval position")
-        rule = (RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL if last is None or last < start
-                else RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL)
-        if rule is RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL and ordered_yk_name_applies(evaluation_input.risk_ruleset, item.table_fact.table_name):
+        rule = (
+            RiskRuleId.ORDERED_TAIL_BLANK_INTERVAL
+            if last is None or last < start
+            else RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL
+        )
+        if rule is RiskRuleId.ORDERED_MIDDLE_BLANK_INTERVAL and ordered_yk_name_applies(
+            evaluation_input.risk_ruleset, item.table_fact.table_name
+        ):
             rule = RiskRuleId.ORDERED_MIDDLE_YK_BLANK_INTERVAL
-        emit(rule, RiskTarget(target_type=RiskTargetType.ROW_INTERVAL,
-             table_name=item.table_fact.table_name, position_range=(start, end)),
-             (("count", count), ("side", side.upper())))
+        emit(
+            rule,
+            RiskTarget(
+                target_type=RiskTargetType.ROW_INTERVAL,
+                table_name=item.table_fact.table_name,
+                position_range=(start, end),
+            ),
+            (("count", count), ("side", side.upper())),
+        )
 
     views = evaluation_input.ordered_record_views
     handle = None if views is None else views.get(item.table_fact.table_name)
@@ -861,25 +1071,46 @@ def _emit_blank_intervals(
             for batch in reader:
                 if context.operation is not None:
                     context.operation.checkpoint()
-                scratch = (nullcontext() if context.operation is None else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512))
+                scratch = (
+                    nullcontext()
+                    if context.operation is None
+                    else reserve_required(8192 + batch.nbytes * 16 + batch.num_rows * 512)
+                )
                 with scratch:
                     kinds = batch.column(batch.schema.get_field_index("record_kind")).to_pylist()
-                    names = ("before_start", "before_end", "current_start", "current_end", "row_count")
-                    values = [batch.column(batch.schema.get_field_index(key)).to_pylist() for key in names]
+                    names = (
+                        "before_start",
+                        "before_end",
+                        "current_start",
+                        "current_end",
+                        "row_count",
+                    )
+                    values = [
+                        batch.column(batch.schema.get_field_index(key)).to_pylist() for key in names
+                    ]
                     for kind, row in zip(kinds, zip(*values, strict=True), strict=True):
                         emit_interval(kind, dict(zip(names, row, strict=True)))
     else:
         for record in extension.records:
             interval = record.interval
-            emit_interval(record.record_kind.value, {
-                "before_start": interval.before_start, "before_end": interval.before_end,
-                "current_start": interval.current_start, "current_end": interval.current_end,
-                "row_count": interval.row_count,
-            })
-    if (inserted != extension.blank_summary.interval_inserted_count
-            or deleted != extension.blank_summary.interval_deleted_count):
-        emit(RiskRuleId.ORDERED_RISK_UNKNOWN, RiskTarget(
-            target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name))
+            emit_interval(
+                record.record_kind.value,
+                {
+                    "before_start": interval.before_start,
+                    "before_end": interval.before_end,
+                    "current_start": interval.current_start,
+                    "current_end": interval.current_end,
+                    "row_count": interval.row_count,
+                },
+            )
+    if (
+        inserted != extension.blank_summary.interval_inserted_count
+        or deleted != extension.blank_summary.interval_deleted_count
+    ):
+        emit(
+            RiskRuleId.ORDERED_RISK_UNKNOWN,
+            RiskTarget(target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name),
+        )
 
 
 def _emit_row_risks(
@@ -891,7 +1122,8 @@ def _emit_row_risks(
 ) -> None:
     table = item.table_fact
     emit_added, emit_deleted, name_low, ignore_address = standard_rule_applicability(
-        evaluation_input.risk_ruleset, table.table_name,
+        evaluation_input.risk_ruleset,
+        table.table_name,
     )
     counts = {
         ComparisonRecordKind.ROW_ADDED: table.row_added_count,
@@ -906,16 +1138,28 @@ def _emit_row_risks(
     for record_kind, count in counts.items():
         if count <= 0:
             continue
-        if ((record_kind is ComparisonRecordKind.ROW_ADDED and not emit_added)
-                or (record_kind is ComparisonRecordKind.ROW_DELETED and not emit_deleted)):
+        if (record_kind is ComparisonRecordKind.ROW_ADDED and not emit_added) or (
+            record_kind is ComparisonRecordKind.ROW_DELETED and not emit_deleted
+        ):
             continue
         rule_id = {
             ComparisonRecordKind.ROW_ADDED: RiskRuleId.ROW_ADDED,
             ComparisonRecordKind.ROW_DELETED: RiskRuleId.ROW_DELETED,
             ComparisonRecordKind.ROW_MODIFIED: RiskRuleId.ROW_MODIFIED,
         }[record_kind]
-        if evaluation_input.risk_options.annotation_detail_policy is AnnotationDetailPolicy.COUNTS_ONLY:
-            emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_COUNTS"), (("count", count),))
+        if (
+            evaluation_input.risk_options.annotation_detail_policy
+            is AnnotationDetailPolicy.COUNTS_ONLY
+        ):
+            emit(
+                rule_id,
+                RiskTarget(
+                    target_type=RiskTargetType.TABLE,
+                    table_name=table.table_name,
+                    coverage="ROW_COUNTS",
+                ),
+                (("count", count),),
+            )
             continue
         matching_count = 0
         for record in item.records:
@@ -923,7 +1167,11 @@ def _emit_row_risks(
                 continue
             matching_count += 1
             effective_columns = set(record.changed_columns)
-            if record_kind is ComparisonRecordKind.ROW_MODIFIED and ignore_address and effective_columns:
+            if (
+                record_kind is ComparisonRecordKind.ROW_MODIFIED
+                and ignore_address
+                and effective_columns
+            ):
                 effective_columns.discard("dev_addr")
                 if not effective_columns:
                     continue
@@ -933,10 +1181,14 @@ def _emit_row_risks(
                 row_identity=record.row_identity,
                 changed_columns=record.changed_columns,
             )
-            actual_rule = (RiskRuleId.STANDARD_NAME_UPDATE
+            actual_rule = (
+                RiskRuleId.STANDARD_NAME_UPDATE
                 if record_kind is ComparisonRecordKind.ROW_MODIFIED
-                and name_low and bool(record.changed_columns)
-                and effective_columns <= {"name", "description"} else rule_id)
+                and name_low
+                and bool(record.changed_columns)
+                and effective_columns <= {"name", "description"}
+                else rule_id
+            )
             emit(actual_rule, target)
         if not matching_count:
             if suppressed_counts[record_kind] == count:
@@ -951,14 +1203,30 @@ def _emit_row_risks(
                 )
                 continue
             require_closure()
-            emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_UNAVAILABLE"), (("count", count),))
+            emit(
+                rule_id,
+                RiskTarget(
+                    target_type=RiskTargetType.TABLE,
+                    table_name=table.table_name,
+                    coverage="ROW_RECORDS_UNAVAILABLE",
+                ),
+                (("count", count),),
+            )
         if matching_count < count:
             emit(
                 rule_id,
-                RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_SUPPRESSED"),
+                RiskTarget(
+                    target_type=RiskTargetType.TABLE,
+                    table_name=table.table_name,
+                    coverage="ROW_RECORDS_SUPPRESSED",
+                ),
                 (("count", count - matching_count),),
             )
-def _require_records_closure(item: ExtractedRiskFacts, evaluation_input: RiskEvaluationInput) -> None:
+
+
+def _require_records_closure(
+    item: ExtractedRiskFacts, evaluation_input: RiskEvaluationInput
+) -> None:
     access = evaluation_input.records_access
     if access is None:
         raise _PairFailure("records closure is required for requested row annotation detail")
@@ -993,15 +1261,25 @@ def _publish_result(
             if context.attribution_observer is not None:
                 context.attribution_observer(outcome.table_name, (), not outcome.degraded)
             continue
-        level = max((item.risk_level for item in outcome.annotations), key=lambda value: _LEVEL_RANK[value])
+        level = max(
+            (item.risk_level for item in outcome.annotations), key=lambda value: _LEVEL_RANK[value]
+        )
         reason_codes = tuple(
             sorted(
-                {reason.reason_code for annotation in outcome.annotations for reason in annotation.reasons},
+                {
+                    reason.reason_code
+                    for annotation in outcome.annotations
+                    for reason in annotation.reasons
+                },
                 key=lambda value: value.value,
             )
         )
         artifact: RiskAnnotationArtifact | None = None
-        if outcome.allow_artifact and evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY:
+        if (
+            outcome.allow_artifact
+            and evaluation_input.risk_options.annotation_detail_policy
+            is not AnnotationDetailPolicy.COUNTS_ONLY
+        ):
             if artifact_store is None:
                 raise _PairFailure("artifact store is required for annotation details")
             artifact_started = perf_counter()
@@ -1026,13 +1304,16 @@ def _publish_result(
             if artifact is not None:
                 artifacts.append(artifact)
                 manifest_digests.append(artifact.manifest_digest)
-        artifact_requested = evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY
+        artifact_requested = (
+            evaluation_input.risk_options.annotation_detail_policy
+            is not AnnotationDetailPolicy.COUNTS_ONLY
+        )
         if context.attribution_observer is not None:
             context.attribution_observer(
-                outcome.table_name, outcome.annotations,
-                not outcome.degraded and not (
-                    artifact_requested and outcome.allow_artifact and artifact is None
-                ),
+                outcome.table_name,
+                outcome.annotations,
+                not outcome.degraded
+                and not (artifact_requested and outcome.allow_artifact and artifact is None),
             )
         table_risks.append(
             RiskTableRisk(
@@ -1043,7 +1324,11 @@ def _publish_result(
                 source_table_status=outcome.source_table_status,
                 annotation_ref=None if artifact is None else artifact.content_ref,
                 diagnostics=outcome.diagnostics
-                + (("RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED",) if artifact is None and outcome.allow_artifact and artifact_requested else ()),
+                + (
+                    ("RISK_ANNOTATION_ARTIFACT_BUDGET_EXCEEDED",)
+                    if artifact is None and outcome.allow_artifact and artifact_requested
+                    else ()
+                ),
             )
         )
         if artifact_requested:
@@ -1080,17 +1365,26 @@ def _finish_result(
     context: RiskExecutionContext,
 ) -> RiskEvaluationResult:
     operation = context.operation
-    publication = (nullcontext() if operation is None else _reserve_risk_output(
-        operation,
-        8 * (policy.max_risk_evaluation_json_bytes
-             + policy.max_risk_report_json_bytes)
-        + len(table_risks) * 8192,
-        evaluation_input.risk_cache_session,
-    ))
+    publication = (
+        nullcontext()
+        if operation is None
+        else _reserve_risk_output(
+            operation,
+            8 * (policy.max_risk_evaluation_json_bytes + policy.max_risk_report_json_bytes)
+            + len(table_risks) * 8192,
+            evaluation_input.risk_cache_session,
+        )
+    )
     with publication:
         return _finish_result_admitted(
-            evaluation_input, table_risks, artifacts, closure_entries,
-            manifest_digests, artifact_store, policy, degraded,
+            evaluation_input,
+            table_risks,
+            artifacts,
+            closure_entries,
+            manifest_digests,
+            artifact_store,
+            policy,
+            degraded,
         )
 
 
@@ -1123,7 +1417,10 @@ def _finish_result_admitted(
         )
     else:
         reason_codes = tuple(
-            sorted({code for item in table_risks for code in item.reason_codes}, key=lambda value: value.value)
+            sorted(
+                {code for item in table_risks for code in item.reason_codes},
+                key=lambda value: value.value,
+            )
         )
         summary = RiskSummary(
             risk_level=None if not levels else max(levels, key=lambda value: _LEVEL_RANK[value]),
@@ -1146,7 +1443,9 @@ def _finish_result_admitted(
         annotation_manifest_digests=manifest_refs,
     )
     _record_timing(evaluation_input, "digest_jcs_seconds", digest_started)
-    annotation_refs = tuple(item.annotation_ref for item in table_risks if item.annotation_ref is not None)
+    annotation_refs = tuple(
+        item.annotation_ref for item in table_risks if item.annotation_ref is not None
+    )
     evaluation = RiskEvaluation(
         risk_evaluation_digest=evaluation_digest,
         risk_contract_version=evaluation_input.risk_contract_version,
@@ -1220,10 +1519,17 @@ def _build_pair_degraded_without_annotations(
                 # rather than an unknown collection of partial row annotations.
                 # Expose that actual typed outcome transiently; the published
                 # payload above deliberately keeps annotation_count=0.
-                outcome = _degraded_table(item, "RISK_ANNOTATION_LIMIT_EXCEEDED", rules,
-                    evaluation_input.risk_cache_session, context.operation)
+                outcome = _degraded_table(
+                    item,
+                    "RISK_ANNOTATION_LIMIT_EXCEEDED",
+                    rules,
+                    evaluation_input.risk_cache_session,
+                    context.operation,
+                )
                 with outcome.charges:
-                    context.attribution_observer(item.table_fact.table_name, outcome.annotations, False)
+                    context.attribution_observer(
+                        item.table_fact.table_name, outcome.annotations, False
+                    )
             else:
                 context.attribution_observer(item.table_fact.table_name, (), False)
     # Discard every partial annotation and preserve an explicit degraded table-level risk for
@@ -1253,15 +1559,19 @@ def _degraded_table(
     reason_code = reason_for(rule)
     with ExitStack() as charges:
         if operation is not None:
-            charges.enter_context(_reserve_risk_output(
-                operation,
-                4096 + (len(item.table_fact.table_name) + len(diagnostic)) * 32,
-                cache,
-            ))
+            charges.enter_context(
+                _reserve_risk_output(
+                    operation,
+                    4096 + (len(item.table_fact.table_name) + len(diagnostic)) * 32,
+                    cache,
+                )
+            )
         annotation = RiskAnnotation(
             annotation_id=f"{item.table_fact.table_name}:degraded",
             risk_level=level_for(rule),
-            target=RiskTarget(target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name),
+            target=RiskTarget(
+                target_type=RiskTargetType.TABLE, table_name=item.table_fact.table_name
+            ),
             reasons=(
                 RiskReason(
                     reason_code=reason_code,
@@ -1285,7 +1595,10 @@ def _degraded_table(
 def _include_level(level: RiskLevel, evaluation_input: RiskEvaluationInput) -> bool:
     if level is RiskLevel.UNKNOWN and not evaluation_input.risk_options.include_unknown:
         return False
-    if level in {RiskLevel.LOW, RiskLevel.MEDIUM_LOW} and not evaluation_input.risk_options.include_low_risk:
+    if (
+        level in {RiskLevel.LOW, RiskLevel.MEDIUM_LOW}
+        and not evaluation_input.risk_options.include_low_risk
+    ):
         return False
     return True
 
@@ -1318,7 +1631,9 @@ def _check_table(
         raise _TableBudgetExceeded
 
 
-def _check_pair(context: RiskExecutionContext, pair_started: float, policy: RiskExecutionPolicy) -> None:
+def _check_pair(
+    context: RiskExecutionContext, pair_started: float, policy: RiskExecutionPolicy
+) -> None:
     if context.cancellation_requested():
         raise _PairCancelled("risk evaluation cancelled")
     if context.deadline_expired():

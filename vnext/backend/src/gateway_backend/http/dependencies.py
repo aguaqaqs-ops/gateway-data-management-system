@@ -33,7 +33,10 @@ from gateway_backend.application.workspace.ports import (
     WorkspaceRepository,
 )
 from gateway_backend.application.control_transactions import ControlDbSession
-from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
+from gateway_backend.application.history.ports import (
+    HistoryControlUnitOfWorkFactory,
+    HistorySnapshotLoaderPort,
+)
 from gateway_backend.http.errors import ApiError
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.recovery import OperatorRecoveryRequest
@@ -65,12 +68,22 @@ class ReadOnlyControlDbUnitOfWorkFactory(Protocol):
 
 @runtime_checkable
 class SubmissionReaderPort(Protocol):
-    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> SubmitAttempt | None:
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None:
         """Load one SubmitAttempt."""
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                       repository_id: str | None = None) -> Submission | None:
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None:
         """Load one Submission."""
 
 
@@ -96,14 +109,20 @@ class AdmissionGatePort(Protocol):
 def request_scratch(scratch: ScratchSpacePort) -> Iterator[None]:
     """Bind service-owned temporary storage before a request publishes objects."""
     from contextlib import ExitStack
+
     resources = ExitStack()
     try:
         session = resources.enter_context(scratch.session(owner="request:" + uuid4().hex))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         resources.close()
         from gateway_backend.http.errors import ApiError
-        raise ApiError(code="SERVICE_NOT_READY", message="temporary storage unavailable",
-                       status_code=503, details={"reason": "root_unavailable"}) from None
+
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="temporary storage unavailable",
+            status_code=503,
+            details={"reason": "root_unavailable"},
+        ) from None
     with resources, scratch_scope(session):
         yield
 
@@ -225,13 +244,23 @@ class FailClosedOperatorRecoveryPort:
 
 
 class FailClosedSubmissionReader:
-    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> SubmitAttempt | None:
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None:
         del submit_attempt_id
         return None
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                       repository_id: str | None = None) -> Submission | None:
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None:
         del submission_id
         return None
 
@@ -257,9 +286,7 @@ class WorkspaceHttpDependencies:
     operation_queue_limit: int = 32
     submission_reader: SubmissionReaderPort = field(default_factory=FailClosedSubmissionReader)
     artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
-    internal_bearer_port: InternalBearerPort = field(
-        default_factory=_default_internal_bearer_port
-    )
+    internal_bearer_port: InternalBearerPort = field(default_factory=_default_internal_bearer_port)
     main_resolve: RepositoryMainResolvePort = field(
         default_factory=FailClosedRepositoryMainResolvePort
     )
@@ -358,15 +385,29 @@ class ReadOnlySubmissionStore:
     def __init__(self, unit_of_work_factory: ReadOnlyControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
-    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> SubmitAttempt | None:
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            return unit_of_work.submission.get_submit_attempt(submit_attempt_id, workspace_id=workspace_id, repository_id=repository_id)
+            return unit_of_work.submission.get_submit_attempt(
+                submit_attempt_id, workspace_id=workspace_id, repository_id=repository_id
+            )
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                       repository_id: str | None = None) -> Submission | None:
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            return unit_of_work.submission.get_submission(submission_id, workspace_id=workspace_id, repository_id=repository_id)
+            return unit_of_work.submission.get_submission(
+                submission_id, workspace_id=workspace_id, repository_id=repository_id
+            )
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -400,7 +441,11 @@ class ArchiveRequestBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        is_closure = path.startswith("/v1/submissions/") and path.endswith("/closure") and path.count("/") == 4
+        is_closure = (
+            path.startswith("/v1/submissions/")
+            and path.endswith("/closure")
+            and path.count("/") == 4
+        )
         is_registration = path == "/internal/v1/devices/register"
         if path not in BODY_LIMIT_POST_PATHS and not is_closure and not is_registration:
             await self.app(scope, receive, send)
@@ -412,6 +457,7 @@ class ArchiveRequestBodyLimitMiddleware:
         from gateway_backend.http.errors import error_response
 
         from gateway_backend.device_identity import MAX_REGISTRATION_BODY_BYTES
+
         body_limit = MAX_REGISTRATION_BODY_BYTES if is_registration else ARCHIVE_MAX_REQUEST_BYTES
         body = b""
         more_body = True
@@ -439,7 +485,7 @@ class ArchiveRequestBodyLimitMiddleware:
                     body.decode("utf-8"),
                     object_pairs_hook=reject_duplicate_json_keys,
                 )
-            except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
+            except json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError:
                 response = error_response(
                     code="REQUEST_VALIDATION_FAILED",
                     message="request validation failed",

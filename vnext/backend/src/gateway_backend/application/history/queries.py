@@ -8,8 +8,14 @@ from gateway_backend.application.history.contracts import (
     PERMISSION_READ_PROJECT_HISTORY,
     HistoryTreeProjection,
 )
-from gateway_backend.application.history.errors import HistoryIntegrityFailure, HistoryRequestValidation
-from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
+from gateway_backend.application.history.errors import (
+    HistoryIntegrityFailure,
+    HistoryRequestValidation,
+)
+from gateway_backend.application.history.ports import (
+    HistoryControlUnitOfWorkFactory,
+    HistorySnapshotLoaderPort,
+)
 from gateway_backend.application.history.projection import _decode_cursor, project_history_page
 from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -26,7 +32,11 @@ def get_project_history(
 ) -> HistoryTreeProjection:
     assert_permission(context, PERMISSION_READ_PROJECT_HISTORY)
     resolved_limit = DEFAULT_HISTORY_PAGE_LIMIT if limit is None else limit
-    if type(resolved_limit) is not int or resolved_limit < 1 or resolved_limit > MAX_HISTORY_PAGE_LIMIT:
+    if (
+        type(resolved_limit) is not int
+        or resolved_limit < 1
+        or resolved_limit > MAX_HISTORY_PAGE_LIMIT
+    ):
         raise HistoryRequestValidation("limit must be an integer between 1 and 500")
     cursor_order_key = _decode_cursor(cursor)
     try:

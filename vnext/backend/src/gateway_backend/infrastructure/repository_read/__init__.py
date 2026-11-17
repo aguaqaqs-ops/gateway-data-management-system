@@ -10,7 +10,9 @@ from gateway_backend.infrastructure.repository_read.http_arrow import (
     HttpArrowRepositoryTableAccessProvider,
     build_http_repository_provider_factory,
 )
-from gateway_backend.infrastructure.repository_read.parent_catalog import HttpRepositoryParentCatalogPort
+from gateway_backend.infrastructure.repository_read.parent_catalog import (
+    HttpRepositoryParentCatalogPort,
+)
 
 
 def load_repository_bearer_token(token_file: Path) -> str:

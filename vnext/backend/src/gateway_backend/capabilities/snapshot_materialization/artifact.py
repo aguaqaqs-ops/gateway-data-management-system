@@ -33,11 +33,20 @@ from gateway_backend.artifacts.snapshot_table_export_cache import (
 )
 from gateway_backend.artifacts.store import ArtifactBufferStorePort
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
-from gateway_backend.capabilities.snapshot_materialization.canonical_store import CanonicalTableStore, canonical_columns, canonical_table_key
-from gateway_backend.capabilities.snapshot_materialization.arrow import (
-    ArrowSnapshotTableReader, operation_codec_budgets, snapshot_table_from_arrow,
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+    CanonicalTableStore,
+    canonical_columns,
+    canonical_table_key,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context, source_descriptor_from_arrow
+from gateway_backend.capabilities.snapshot_materialization.arrow import (
+    ArrowSnapshotTableReader,
+    operation_codec_budgets,
+    snapshot_table_from_arrow,
+)
+from gateway_backend.capabilities.table_access import (
+    current_kernel_context,
+    source_descriptor_from_arrow,
+)
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     encode_cell_frame,
     raw_content_digest_of,
@@ -58,7 +67,9 @@ from gateway_backend.capabilities.snapshot_materialization.batch import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ARTIFACT_COMPRESSION_ZSTD,
     MANIFEST_MEDIA_TYPE,
-    ROW_FORMAT_PARQUET, ROW_FORMAT_CANONICAL_IPC, ARTIFACT_COMPRESSION_NONE,
+    ROW_FORMAT_PARQUET,
+    ROW_FORMAT_CANONICAL_IPC,
+    ARTIFACT_COMPRESSION_NONE,
     ROW_MATERIALIZATION_PROFILE,
     SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
     DegradedReason,
@@ -194,7 +205,7 @@ def _publish_snapshot_table_artifact(
             row_ref = cached_row_ref
             stored_parquet = candidate
             cache_hit("snapshot_export")
-        except (ArtifactPublishError, ManifestVerificationError):
+        except ArtifactPublishError, ManifestVerificationError:
             # Cache contents are derived and recoverable. A corrupt or mismatched
             # cached row file behaves like a miss; the canonical reader remains
             # the authority for the new export.
@@ -255,9 +266,7 @@ def _publish_snapshot_table_artifact(
             table=table.descriptor.table_name,
         ) from exc
     assert (
-        stored_parquet is not None
-        and validated_columns is not None
-        and validated_rows is not None
+        stored_parquet is not None and validated_columns is not None and validated_rows is not None
     )
     created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     artifact_digest = artifact_content_digest_of(
@@ -344,7 +353,9 @@ def _publish_snapshot_table_artifact(
 def open_snapshot_table_artifact(
     store: ArtifactStorePort,
     manifest_ref: ArtifactRef,
-    *, repository_id: str | None = None, canonical_required: bool = False,
+    *,
+    repository_id: str | None = None,
+    canonical_required: bool = False,
 ) -> SnapshotTable:
     context = current_kernel_context()
     if context is not None:
@@ -366,13 +377,19 @@ def open_snapshot_table_artifact(
             MaterializationDiagnosticCode.ARTIFACT_MANIFEST_CORRUPT,
             str(exc) or "manifest JSON is corrupt",
         ) from exc
-    if canonical_required and (manifest.row_format != ROW_FORMAT_CANONICAL_IPC or repository_id is None):
-        raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
-                                   "canonical caller requires scoped canonical IPC")
+    if canonical_required and (
+        manifest.row_format != ROW_FORMAT_CANONICAL_IPC or repository_id is None
+    ):
+        raise ArtifactPublishError(
+            MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
+            "canonical caller requires scoped canonical IPC",
+        )
     if manifest.row_format == ROW_FORMAT_CANONICAL_IPC:
         if repository_id is None or manifest.repository_id != repository_id:
-            raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
-                                       "canonical artifact repository binding mismatch")
+            raise ArtifactPublishError(
+                MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
+                "canonical artifact repository binding mismatch",
+            )
         return _open_canonical_artifact(store, manifest_ref, manifest, repository_id=repository_id)
     if len(manifest.row_file_refs) != 1:
         raise ArtifactPublishError(
@@ -430,54 +447,85 @@ def open_snapshot_table_artifact(
         reader=reader,
         diagnostics=manifest.descriptor.diagnostics,
         artifact=artifact,
-            batch_reader=ParquetSnapshotTableBatchReader(
-                manifest.descriptor,
-                parquet_bytes,
-                metadata=SnapshotTableBatchMetadata(
-                    blank_provenance=(
-                        BlankRowProvenance.NONE
-                        if manifest.ordered_metadata is None
-                        else manifest.ordered_metadata.blank_provenance
-                    )
-                ),
+        batch_reader=ParquetSnapshotTableBatchReader(
+            manifest.descriptor,
+            parquet_bytes,
+            metadata=SnapshotTableBatchMetadata(
+                blank_provenance=(
+                    BlankRowProvenance.NONE
+                    if manifest.ordered_metadata is None
+                    else manifest.ordered_metadata.blank_provenance
+                )
             ),
-            ordered_metadata=manifest.ordered_metadata,
+        ),
+        ordered_metadata=manifest.ordered_metadata,
     )
 
 
-
 def _open_canonical_artifact(
-    store: ArtifactStorePort, manifest_ref: ArtifactRef, manifest: SnapshotTableArtifactManifest,
-    *, repository_id: str, opened_handle: Any | None = None,
+    store: ArtifactStorePort,
+    manifest_ref: ArtifactRef,
+    manifest: SnapshotTableArtifactManifest,
+    *,
+    repository_id: str,
+    opened_handle: Any | None = None,
 ) -> SnapshotTable:
     if len(manifest.row_file_refs) != 1:
-        raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_MANIFEST_CORRUPT,
-                                   "canonical IPC requires exactly one row file")
-    expected = artifact_content_digest_of(row_file_refs=manifest.row_file_refs, descriptor=manifest.descriptor,
-                                          row_format=manifest.row_format, repository_id=repository_id)
+        raise ArtifactPublishError(
+            MaterializationDiagnosticCode.ARTIFACT_MANIFEST_CORRUPT,
+            "canonical IPC requires exactly one row file",
+        )
+    expected = artifact_content_digest_of(
+        row_file_refs=manifest.row_file_refs,
+        descriptor=manifest.descriptor,
+        row_format=manifest.row_format,
+        repository_id=repository_id,
+    )
     if expected != manifest.artifact_content_digest:
-        raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_DIGEST_MISMATCH,
-                                   "canonical artifact physical digest mismatch")
+        raise ArtifactPublishError(
+            MaterializationDiagnosticCode.ARTIFACT_DIGEST_MISMATCH,
+            "canonical artifact physical digest mismatch",
+        )
     if not callable(getattr(store, "open_buffer", None)):
-        raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_STORE_REQUIRED,
-                                   "canonical artifact store requires bounded buffer reads")
+        raise ArtifactPublishError(
+            MaterializationDiagnosticCode.ARTIFACT_STORE_REQUIRED,
+            "canonical artifact store requires bounded buffer reads",
+        )
     context = current_kernel_context()
     if context is None:
         raise ValueError("canonical artifact reads require an operation kernel context")
-    canonical = CanonicalTableStore(cast(ArtifactBufferStorePort, store), repository_id=repository_id,
-                                    budgets=operation_codec_budgets())
-    handle = opened_handle if opened_handle is not None else canonical.open(manifest.row_file_refs[0], manifest.descriptor)
+    canonical = CanonicalTableStore(
+        cast(ArtifactBufferStorePort, store),
+        repository_id=repository_id,
+        budgets=operation_codec_budgets(),
+    )
+    handle = (
+        opened_handle
+        if opened_handle is not None
+        else canonical.open(manifest.row_file_refs[0], manifest.descriptor)
+    )
     try:
         with handle.borrow_stream() as stream:
             arrays = stream.read_all()
-        source = source_descriptor_from_arrow({
-            "canonical_name": manifest.table_name, "display_name": manifest.descriptor.display_table_name,
-            "columns": canonical_columns(manifest.descriptor), "primary_key": list(manifest.descriptor.primary_key_columns),
-            "reader_ready": True,
-        })
-        result = snapshot_table_from_arrow(manifest.descriptor, arrays, source,
-            ordered=manifest.ordered_metadata, close=handle.close)
-        layout = row_layout_digest_of(manifest.descriptor, source.columns, manifest.ordered_metadata)
+        source = source_descriptor_from_arrow(
+            {
+                "canonical_name": manifest.table_name,
+                "display_name": manifest.descriptor.display_table_name,
+                "columns": canonical_columns(manifest.descriptor),
+                "primary_key": list(manifest.descriptor.primary_key_columns),
+                "reader_ready": True,
+            }
+        )
+        result = snapshot_table_from_arrow(
+            manifest.descriptor,
+            arrays,
+            source,
+            ordered=manifest.ordered_metadata,
+            close=handle.close,
+        )
+        layout = row_layout_digest_of(
+            manifest.descriptor, source.columns, manifest.ordered_metadata
+        )
         context.checkpoint()
         assert isinstance(result.reader, ArrowSnapshotTableReader)
         # CanonicalTableStore.open verified the content ref, IPC and bound descriptor.
@@ -489,20 +537,28 @@ def _open_canonical_artifact(
 
 
 def publish_canonical_tables(
-    tables: tuple[SnapshotTable, ...], *, snapshot_digest: DigestRef,
-    store: ArtifactStorePort, repository_id: str,
+    tables: tuple[SnapshotTable, ...],
+    *,
+    snapshot_digest: DigestRef,
+    store: ArtifactStorePort,
+    repository_id: str,
     lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
     before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> tuple[SnapshotTable, ...]:
     """Publish only Rust-produced canonical IPC; raw/client Parquet has its owner."""
     if not callable(getattr(store, "open_buffer", None)):
-        raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_STORE_REQUIRED,
-                                   "canonical artifact store requires bounded buffer reads")
+        raise ArtifactPublishError(
+            MaterializationDiagnosticCode.ARTIFACT_STORE_REQUIRED,
+            "canonical artifact store requires bounded buffer reads",
+        )
     context = current_kernel_context()
     if context is None:
         raise ValueError("canonical artifact publication requires an operation kernel context")
-    canonical = CanonicalTableStore(cast(ArtifactBufferStorePort, store), repository_id=repository_id,
-                                    budgets=operation_codec_budgets())
+    canonical = CanonicalTableStore(
+        cast(ArtifactBufferStorePort, store),
+        repository_id=repository_id,
+        budgets=operation_codec_budgets(),
+    )
     published: list[SnapshotTable] = []
     try:
         for table in tables:
@@ -517,9 +573,9 @@ def publish_canonical_tables(
                 try:
                     with canonical.open(ref, table.descriptor):
                         pass
-                except (InterruptedError, TimeoutError):
+                except InterruptedError, TimeoutError:
                     raise
-                except (ManifestVerificationError, ValueError, OSError):
+                except ManifestVerificationError, ValueError, OSError:
                     context.checkpoint()
                     ref = None
             if ref is not None:
@@ -533,23 +589,38 @@ def publish_canonical_tables(
                     isolated.close()
             manifest = SnapshotTableArtifactManifest(
                 artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
-                snapshot_digest=snapshot_digest, table_name=table.descriptor.table_name,
-                descriptor=table.descriptor, row_file_refs=(ref,), row_format=ROW_FORMAT_CANONICAL_IPC,
-                compression=ARTIFACT_COMPRESSION_NONE, repository_id=repository_id,
+                snapshot_digest=snapshot_digest,
+                table_name=table.descriptor.table_name,
+                descriptor=table.descriptor,
+                row_file_refs=(ref,),
+                row_format=ROW_FORMAT_CANONICAL_IPC,
+                compression=ARTIFACT_COMPRESSION_NONE,
+                repository_id=repository_id,
                 row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-                artifact_content_digest=artifact_content_digest_of(row_file_refs=(ref,), descriptor=table.descriptor,
-                    row_format=ROW_FORMAT_CANONICAL_IPC, repository_id=repository_id),
-                created_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), diagnostics=table.diagnostics,
+                artifact_content_digest=artifact_content_digest_of(
+                    row_file_refs=(ref,),
+                    descriptor=table.descriptor,
+                    row_format=ROW_FORMAT_CANONICAL_IPC,
+                    repository_id=repository_id,
+                ),
+                created_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                diagnostics=table.diagnostics,
                 ordered_metadata=table.ordered_metadata,
             )
             raw = canonicalize_json_value(manifest_to_payload(manifest))
             context.checkpoint()
-            manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id(ArtifactLocation.CANONICAL, "sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
+            manifest_ref = put_with_built_ref(
+                store,
+                raw,
+                artifact_id=_opaque_id(ArtifactLocation.CANONICAL, "sta-manifest"),
+                media_type=MANIFEST_MEDIA_TYPE,
+            )
             # The writer already validated this Arrow input and the IPC output.
             # Give this operation independent readers over its retained backing;
             # the next real artifact consumer opens/validates the persisted IPC.
-            layout = row_layout_digest_of(table.descriptor, table.reader.source_descriptor().columns,
-                                         table.ordered_metadata)
+            layout = row_layout_digest_of(
+                table.descriptor, table.reader.source_descriptor().columns, table.ordered_metadata
+            )
             reader = table.reader.reopen()
             try:
                 batch = None if table.batch_reader is None else table.batch_reader.reopen()
@@ -557,8 +628,14 @@ def publish_canonical_tables(
                 reader.close()
                 raise
             reader.mark_canonical_comparison_verified()
-            published.append(replace(table, reader=reader, batch_reader=batch,
-                artifact=SnapshotTableArtifact(manifest_ref, manifest, layout)))
+            published.append(
+                replace(
+                    table,
+                    reader=reader,
+                    batch_reader=batch,
+                    artifact=SnapshotTableArtifact(manifest_ref, manifest, layout),
+                )
+            )
         context.checkpoint()
         return tuple(published)
     except BaseException:
@@ -568,6 +645,7 @@ def publish_canonical_tables(
             if table.batch_reader is not None:
                 table.batch_reader.close()
         raise
+
 
 def open_cached_snapshot_table(
     row_file_ref: ArtifactRef,
@@ -602,7 +680,9 @@ def open_cached_snapshot_table(
         table_name,
     )
     if effective_key_columns:
-        column_indexes = {column.canonical_name: index for index, column in enumerate(source_columns)}
+        column_indexes = {
+            column.canonical_name: index for index, column in enumerate(source_columns)
+        }
         if any(name not in column_indexes for name in effective_key_columns):
             raise ArtifactPublishError(
                 MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
@@ -614,8 +694,7 @@ def open_cached_snapshot_table(
         duplicate_key = False
         for row in rows:
             key = tuple(
-                encode_cell_frame(source_columns[index], row[index])
-                for index in key_indexes
+                encode_cell_frame(source_columns[index], row[index]) for index in key_indexes
             )
             if key in seen_keys:
                 duplicate_key = True
@@ -783,7 +862,8 @@ def artifact_content_digest_of(
     *,
     row_file_refs: tuple[ArtifactRef, ...],
     descriptor: SnapshotTableDescriptor,
-    row_format: str = ROW_FORMAT_PARQUET, repository_id: str | None = None,
+    row_format: str = ROW_FORMAT_PARQUET,
+    repository_id: str | None = None,
 ) -> DigestRef:
     payload: dict[str, Any] = {
         "kind": _ARTIFACT_CONTENT_KIND,
@@ -875,7 +955,9 @@ def manifest_from_bytes(raw: bytes) -> SnapshotTableArtifactManifest:
     )
 
 
-def _ordered_metadata_payload(metadata: SnapshotTableOrderedMetadata | None) -> dict[str, str] | None:
+def _ordered_metadata_payload(
+    metadata: SnapshotTableOrderedMetadata | None,
+) -> dict[str, str] | None:
     if metadata is None:
         return None
     return {"blank_provenance": metadata.blank_provenance.value}
@@ -970,9 +1052,7 @@ def _validate_parquet_against_descriptor(
             table=table_name,
         )
     if descriptor.raw_content_digest is not None:
-        recomputed = raw_content_digest_of(
-            tuple(row_content_hash(columns, row) for row in rows)
-        )
+        recomputed = raw_content_digest_of(tuple(row_content_hash(columns, row) for row in rows))
         if recomputed != descriptor.raw_content_digest:
             raise ArtifactPublishError(
                 MaterializationDiagnosticCode.ARTIFACT_DIGEST_MISMATCH,

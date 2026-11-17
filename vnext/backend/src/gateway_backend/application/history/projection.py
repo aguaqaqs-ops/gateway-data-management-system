@@ -30,7 +30,10 @@ from gateway_backend.application.history.contracts import (
     HistorySubmissionFact,
     HistoryTreeProjection,
 )
-from gateway_backend.application.history.errors import HistoryIntegrityFailure, HistoryRequestValidation
+from gateway_backend.application.history.errors import (
+    HistoryIntegrityFailure,
+    HistoryRequestValidation,
+)
 from gateway_backend.domain.baseline.models import BaselineNode
 from gateway_backend.domain.submission.review import ReviewStatus
 from gateway_backend.domain.workspace.models import BaselineHead
@@ -50,7 +53,11 @@ def project_history_tree(
     cursor: str | None = None,
 ) -> HistoryTreeProjection:
     resolved_limit = DEFAULT_HISTORY_PAGE_LIMIT if limit is None else limit
-    if type(resolved_limit) is not int or resolved_limit < 1 or resolved_limit > MAX_HISTORY_PAGE_LIMIT:
+    if (
+        type(resolved_limit) is not int
+        or resolved_limit < 1
+        or resolved_limit > MAX_HISTORY_PAGE_LIMIT
+    ):
         raise HistoryRequestValidation("limit must be an integer between 1 and 500")
     head = HistoryHead.from_baseline_head(facts.head)
     promoted_by_submission = _promoted_baseline_nodes(facts.baseline_nodes)
@@ -128,11 +135,12 @@ def _page_entry_to_node(
         ),
         review_status=entry.review_status,
         submission_disposition=entry.submission_disposition,
-        disposition_source_kind=entry.disposition_source_kind, disposition_result_id=entry.disposition_result_id,
+        disposition_source_kind=entry.disposition_source_kind,
+        disposition_result_id=entry.disposition_result_id,
         closure=entry.closure,
         promoted_baseline_node_id=promoted_by_submission.get(entry.ref_id),
         eligibility_note=eligibility_note,
-            identity_exception=entry.identity_exception,
+        identity_exception=entry.identity_exception,
     )
 
 
@@ -170,7 +178,11 @@ def _build_nodes(
             )
         )
     for submission_fact in facts.submissions:
-        nodes.append(_submission_node(submission_fact, head=head, promoted_by_submission=promoted_by_submission))
+        nodes.append(
+            _submission_node(
+                submission_fact, head=head, promoted_by_submission=promoted_by_submission
+            )
+        )
     return nodes
 
 
@@ -198,9 +210,15 @@ def _submission_node(
         ),
         review_status=submission_fact.review_status,
         submission_disposition=submission_fact.disposition,
-        disposition_source_kind=None if submission_fact.disposition_record is None else submission_fact.disposition_record.source_kind,
-        disposition_result_id=None if submission_fact.disposition_record is None else submission_fact.disposition_record.result_id,
-        closure=None if submission_fact.disposition_record is None else submission_fact.disposition_record.manual_closure,
+        disposition_source_kind=None
+        if submission_fact.disposition_record is None
+        else submission_fact.disposition_record.source_kind,
+        disposition_result_id=None
+        if submission_fact.disposition_record is None
+        else submission_fact.disposition_record.result_id,
+        closure=None
+        if submission_fact.disposition_record is None
+        else submission_fact.disposition_record.manual_closure,
         promoted_baseline_node_id=promoted_by_submission.get(submission.submission_id),
         eligibility_note=eligibility_note,
         identity_exception=bool(submission.identity_confirmations),

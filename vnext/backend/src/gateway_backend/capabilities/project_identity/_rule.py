@@ -117,12 +117,8 @@ def assess_project_identity(
         before_distinct_entry_count=before_distinct_entry_count,
         current_distinct_entry_count=current_distinct_entry_count,
         matched_entry_count=matched_entry_count,
-        before_entry_set_digest=(
-            None if before_entries is None else before_entries.digest
-        ),
-        current_entry_set_digest=(
-            None if current_entries is None else current_entries.digest
-        ),
+        before_entry_set_digest=(None if before_entries is None else before_entries.digest),
+        current_entry_set_digest=(None if current_entries is None else current_entries.digest),
         diagnostics=tuple(sorted(diagnostics)),
     )
 

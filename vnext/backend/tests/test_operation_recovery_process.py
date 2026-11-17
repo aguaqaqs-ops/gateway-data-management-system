@@ -41,7 +41,7 @@ def test_process_startup_takeover_moves_expired_running_to_retry_wait(tmp_path: 
     """P4-R5-S3c process owner: expired RUNNING lease -> RETRY_WAIT via startup recovery."""
     db_path = tmp_path / "process-takeover" / "control.sqlite3"
     db_path.parent.mkdir(parents=True)
-    child_code = r'''
+    child_code = r"""
 import dataclasses
 import os
 import sys
@@ -152,9 +152,12 @@ assert persisted.started_at == started_at
 assert persisted.worker_id is None
 assert persisted.lease_token is None
 print("TAKEOVER_OK", flush=True)
-'''
-    for mode, expected_exit, marker in (("seed", 23, "CLAIMED"), ("peer", 0, "PEER_OK"),
-                                       ("own", 0, "TAKEOVER_OK")):
+"""
+    for mode, expected_exit, marker in (
+        ("seed", 23, "CLAIMED"),
+        ("peer", 0, "PEER_OK"),
+        ("own", 0, "TAKEOVER_OK"),
+    ):
         process = subprocess.run(
             [sys.executable, "-c", child_code, str(db_path), mode],
             cwd=BACKEND_ROOT,

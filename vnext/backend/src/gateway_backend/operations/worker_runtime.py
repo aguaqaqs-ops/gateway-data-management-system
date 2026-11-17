@@ -369,7 +369,9 @@ class WorkerRuntime:
                     if outcome.error is None:
                         outcome.error = telemetry_error
                     else:
-                        _add_secondary_failure_note(outcome.error, "telemetry shutdown", telemetry_error)
+                        _add_secondary_failure_note(
+                            outcome.error, "telemetry shutdown", telemetry_error
+                        )
                 finally:
                     completed.set()
                     self._wake_event.set()
@@ -502,7 +504,7 @@ class WorkerRuntime:
                 self._observe_drain_intent(drain_requested, control)
                 pending_drain = pending_drain or self._lifecycle.state is WorkerLifecycle.DRAINING
                 continue
-            except (StaleWrite, LeaseExpired):
+            except StaleWrite, LeaseExpired:
                 if session.completion_acknowledgment() is not None:
                     completed.wait()
                     return pending_drain, False, None

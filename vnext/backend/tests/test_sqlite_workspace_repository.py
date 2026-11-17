@@ -17,8 +17,15 @@ from gateway_backend.domain.workspace.models import (
     SourceArtifactBinding,
     SourceArtifactRole,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
-from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_baseline_head, make_identity
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
+from tests.support.workspace_fixtures import (
+    FixedScopeResolutionPort,
+    make_baseline_head,
+    make_identity,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -219,7 +226,10 @@ def test_accept_upload_stale_workspace_version_does_not_persist_revision(
             )
 
     with ControlDbUnitOfWork(db_path) as unit_of_work:
-        assert unit_of_work.workspace.find_upload_idempotency(workspace.workspace_id, "upload-key-1") is None
+        assert (
+            unit_of_work.workspace.find_upload_idempotency(workspace.workspace_id, "upload-key-1")
+            is None
+        )
 
 
 def test_upload_publication_rolls_back_when_revision_insert_fails(
@@ -239,6 +249,7 @@ def test_upload_publication_rolls_back_when_revision_insert_fails(
 
     with pytest.raises(RuntimeError, match="synthetic revision failure"):
         with ControlDbUnitOfWork(db_path) as unit_of_work:
+
             def fail_revision(_revision: object) -> None:
                 raise RuntimeError("synthetic revision failure")
 

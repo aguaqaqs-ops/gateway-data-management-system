@@ -41,7 +41,9 @@ def test_backend_settings_require_absolute_paths_and_http_url(tmp_path: Path) ->
 
 def test_backend_settings_freeze_upload_admission_and_cleanup_budgets(tmp_path: Path) -> None:
     settings = make_backend_settings(tmp_path)
-    assert settings.upload_max_compressed_bytes == RESOURCE_BUDGETS.max_source_package_compressed_bytes
+    assert (
+        settings.upload_max_compressed_bytes == RESOURCE_BUDGETS.max_source_package_compressed_bytes
+    )
     assert settings.upload_max_expanded_bytes == RESOURCE_BUDGETS.max_source_package_expanded_bytes
     assert settings.upload_max_entries == RESOURCE_BUDGETS.max_source_package_entries
     assert settings.upload_max_path_bytes == RESOURCE_BUDGETS.max_normalized_path_bytes

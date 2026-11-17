@@ -93,24 +93,42 @@ class HistoryComparePort(Protocol):
         """Return durable acceptance for one scope/idempotency key."""
 
     def find_candidates(
-        self, *, gateway_device_external_key: str, business_project_id: str,
-        request_fingerprint: str, now: datetime,
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        request_fingerprint: str,
+        now: datetime,
     ) -> tuple[HistoryCompareAcceptanceRecord, ...]: ...
 
-    def save_alias(self, *, record: HistoryCompareAcceptanceRecord, idempotency_key: str) -> None: ...
+    def save_alias(
+        self, *, record: HistoryCompareAcceptanceRecord, idempotency_key: str
+    ) -> None: ...
 
     def list_acceptances(
-        self, *, gateway_device_external_key: str, business_project_id: str, repository_id: str,
-        now: datetime, after: tuple[datetime, str] | None, limit: int,
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        repository_id: str,
+        now: datetime,
+        after: tuple[datetime, str] | None,
+        limit: int,
     ) -> tuple[HistoryCompareAcceptanceRecord, ...]: ...
 
-    def active_operation_ids(self, *, gateway_device_external_key: str, business_project_id: str) -> tuple[str, ...]: ...
+    def active_operation_ids(
+        self, *, gateway_device_external_key: str, business_project_id: str
+    ) -> tuple[str, ...]: ...
 
     def count_aliases(self, operation_id: str) -> int: ...
 
-    def result_protection_matches(self, operation_id: str, artifact_ids: frozenset[str], expires_at: datetime) -> bool: ...
+    def result_protection_matches(
+        self, operation_id: str, artifact_ids: frozenset[str], expires_at: datetime
+    ) -> bool: ...
 
-    def get_acceptance_by_operation_id(self, operation_id: str) -> HistoryCompareAcceptanceRecord | None:
+    def get_acceptance_by_operation_id(
+        self, operation_id: str
+    ) -> HistoryCompareAcceptanceRecord | None:
         """Return durable acceptance for one operation id."""
 
     def save_acceptance(self, record: HistoryCompareAcceptanceRecord) -> None:
@@ -126,6 +144,7 @@ class HistoryComparePort(Protocol):
         ref_id: str,
     ) -> str | None:
         """Resolve one node ref to a commit id or None."""
+
 
 @runtime_checkable
 class HistorySnapshotLoaderPort(Protocol):

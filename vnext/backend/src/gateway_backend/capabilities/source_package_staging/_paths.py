@@ -13,7 +13,9 @@ _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 class PathFault(Exception):
-    def __init__(self, code: StagingDiagnosticCode, message: str, *, budget_name: str | None = None) -> None:
+    def __init__(
+        self, code: StagingDiagnosticCode, message: str, *, budget_name: str | None = None
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message

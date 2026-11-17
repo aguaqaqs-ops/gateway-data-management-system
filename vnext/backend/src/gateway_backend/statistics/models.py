@@ -1,4 +1,5 @@
 """Typed telemetry records. A claim version identifies one execution window."""
+
 from __future__ import annotations
 
 from typing import Annotated, Literal, Self
@@ -6,8 +7,13 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, model_validator
 
 from gateway_repository_contracts.statistics import (
-    Counter, Identifier, ObservationQuality, ResourceValues, StatisticsModel,
-    StorageValues, WriteValues,
+    Counter,
+    Identifier,
+    ObservationQuality,
+    ResourceValues,
+    StatisticsModel,
+    StorageValues,
+    WriteValues,
 )
 
 METRICS_MAX_BYTES = 12 * 1024

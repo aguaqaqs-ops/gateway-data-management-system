@@ -40,7 +40,8 @@ pytestmark = pytest.mark.integration
 
 
 def _canonical_records_state(
-    store: InMemoryArtifactStore, repository_id: str,
+    store: InMemoryArtifactStore,
+    repository_id: str,
 ) -> tuple[ArtifactRef, ArtifactRef, tuple[ArtifactRef, ...], str, str]:
     materialized = materialize_sql(
         "CREATE TABLE records (id BIGINT NOT NULL PRIMARY KEY); INSERT INTO records VALUES (1);",
@@ -53,8 +54,11 @@ def _canonical_records_state(
     projection = project_canonical_fixture(materialized.table_set, ruleset)
     assert materialized.snapshot is not None
     canonical = materialize_canonical_snapshot(
-        materialized.snapshot, projection.tables, artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()), repository_id=repository_id,
+        materialized.snapshot,
+        projection.tables,
+        artifact_store=store,
+        context=ParserInvocationContext(NeverCancel()),
+        repository_id=repository_id,
     )
     assert canonical.table_set is not None
     table = canonical.table_set.tables[0]
@@ -129,10 +133,13 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
             base_url=service.base_url,
             bearer_token=service.bearer_token,
         )
-        assert parent_catalog.get_table_names(
-            repository_id=seeded.repository_id,
-            commit_id=seeded.initial_commit_id,
-        ) == ()
+        assert (
+            parent_catalog.get_table_names(
+                repository_id=seeded.repository_id,
+                commit_id=seeded.initial_commit_id,
+            )
+            == ()
+        )
         first_input = PrepareImportBuildInput(
             submit_attempt_id="sa-submit-table-removal-create",
             builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
@@ -263,7 +270,10 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         )
         assert second_operation.status.value == "SUCCEEDED", second_operation.error
         assert second_operation.result is not None
-        assert parent_catalog.get_table_names(
-            repository_id=seeded.repository_id,
-            commit_id=second_operation.result.commit_id,
-        ) == ()
+        assert (
+            parent_catalog.get_table_names(
+                repository_id=seeded.repository_id,
+                commit_id=second_operation.result.commit_id,
+            )
+            == ()
+        )

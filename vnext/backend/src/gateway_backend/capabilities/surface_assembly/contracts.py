@@ -9,7 +9,11 @@ from typing import TypeAlias
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier
 
-from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict, assert_no_host_path_identity
+from gateway_backend.artifacts import (
+    ArtifactRef,
+    artifact_ref_to_dict,
+    assert_no_host_path_identity,
+)
 from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.capabilities.comparison.contracts import (
     ArtifactScope,
@@ -146,7 +150,9 @@ def _require_sorted_unique_strings(value: object, label: str) -> tuple[str, ...]
 
 def _require_unique_identifiers_in_order(value: object, label: str) -> tuple[str, ...]:
     result = _require_string_tuple(value, label)
-    if any(_require_identifier(item, label) != item for item in result) or len(set(result)) != len(result):
+    if any(_require_identifier(item, label) != item for item in result) or len(set(result)) != len(
+        result
+    ):
         raise ValueError(f"{label} must contain canonical unique identifiers")
     return result
 
@@ -248,9 +254,13 @@ class SurfaceSchemaSummary:
             "selected_columns",
             "incompatible_columns",
         ):
-            object.__setattr__(self, label, _require_sorted_unique_strings(getattr(self, label), label))
+            object.__setattr__(
+                self, label, _require_sorted_unique_strings(getattr(self, label), label)
+            )
         for label in ("effective_compare_key_before", "effective_compare_key_current"):
-            object.__setattr__(self, label, _require_unique_identifiers_in_order(getattr(self, label), label))
+            object.__setattr__(
+                self, label, _require_unique_identifiers_in_order(getattr(self, label), label)
+            )
         if type(self.effective_compare_key_changed) is not bool:
             raise ValueError("effective_compare_key_changed must be bool")
         if type(self.schema_evolution) is not SchemaEvolution:
@@ -297,7 +307,9 @@ class SurfaceReplacementSide:
     def __post_init__(self) -> None:
         _require_text(self.display_name, "display_name")
         _require_non_negative(self.row_count, "row_count")
-        if type(self.columns) is not tuple or any(type(item) is not SurfaceColumn for item in self.columns):
+        if type(self.columns) is not tuple or any(
+            type(item) is not SurfaceColumn for item in self.columns
+        ):
             raise ValueError("columns must contain SurfaceColumn")
         names = tuple(item.name for item in self.columns)
         if names != tuple(sorted(names)) or len(set(names)) != len(names):
@@ -356,8 +368,13 @@ class TableContentBinding:
     storage_projection_version: str
 
     def __post_init__(self) -> None:
-        for name in ("business_schema_digest", "raw_content_digest", "source_schema_digest",
-                     "canonical_schema_digest", "storage_rule_digest"):
+        for name in (
+            "business_schema_digest",
+            "raw_content_digest",
+            "source_schema_digest",
+            "canonical_schema_digest",
+            "storage_rule_digest",
+        ):
             _require_digest(getattr(self, name), name)
         _require_non_negative(self.row_count, "row_count")
         _require_text(self.storage_projection_version, "storage_projection_version")
@@ -369,8 +386,12 @@ class TableContentBinding:
         content was derived. Keep their per-side provenance even when distinct
         derivations produce the same exported canonical table.
         """
-        return (self.business_schema_digest, self.raw_content_digest, self.row_count,
-                self.canonical_schema_digest)
+        return (
+            self.business_schema_digest,
+            self.raw_content_digest,
+            self.row_count,
+            self.canonical_schema_digest,
+        )
 
     def to_document(self) -> dict[str, object]:
         return {
@@ -391,8 +412,10 @@ class SurfaceTableContentBindings:
     browse: TableContentBinding | None = None
 
     def __post_init__(self) -> None:
-        if any(value is not None and type(value) is not TableContentBinding
-               for value in (self.before, self.current, self.browse)):
+        if any(
+            value is not None and type(value) is not TableContentBinding
+            for value in (self.before, self.current, self.browse)
+        ):
             raise ValueError("invalid table content binding")
 
     def validate_refs(self, refs: SurfaceTableRefs) -> None:
@@ -404,14 +427,18 @@ class SurfaceTableContentBindings:
                 raise ValueError("table ref and content binding must have matching nullability")
             if ref is not None:
                 assert binding is not None
-                if (ref in seen and seen[ref].exported_content_identity()
-                        != binding.exported_content_identity()):
+                if (
+                    ref in seen
+                    and seen[ref].exported_content_identity() != binding.exported_content_identity()
+                ):
                     raise ValueError("shared table ref has incompatible content bindings")
                 seen[ref] = binding
 
     def to_document(self) -> dict[str, object]:
-        return {side: None if (value := getattr(self, side)) is None else value.to_document()
-                for side in ("before", "current", "browse")}
+        return {
+            side: None if (value := getattr(self, side)) is None else value.to_document()
+            for side in ("before", "current", "browse")
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,7 +557,9 @@ class SurfaceCompare:
         if self.artifact_scope is not None and type(self.artifact_scope) is not ArtifactScope:
             raise ValueError("artifact_scope must be ArtifactScope or None")
         for label in ("compare_key_columns", "ignored_columns", "effective_columns"):
-            object.__setattr__(self, label, _require_sorted_unique_strings(getattr(self, label), label))
+            object.__setattr__(
+                self, label, _require_sorted_unique_strings(getattr(self, label), label)
+            )
         for label in ("projection_schema_digest", "projection_logical_digest"):
             value = getattr(self, label)
             if value is not None:
@@ -584,9 +613,14 @@ class SurfaceTable:
             raise ValueError("change_kind must be SurfaceChangeKind")
         if type(self.row_change_stats) is not SurfaceRowChangeStats:
             raise ValueError("row_change_stats must be SurfaceRowChangeStats")
-        if self.schema_summary is not None and type(self.schema_summary) is not SurfaceSchemaSummary:
+        if (
+            self.schema_summary is not None
+            and type(self.schema_summary) is not SurfaceSchemaSummary
+        ):
             raise ValueError("schema_summary must be SurfaceSchemaSummary or None")
-        if type(self.columns) is not tuple or any(type(item) is not SurfaceColumn for item in self.columns):
+        if type(self.columns) is not tuple or any(
+            type(item) is not SurfaceColumn for item in self.columns
+        ):
             raise ValueError("columns must contain SurfaceColumn")
         names = tuple(item.name for item in self.columns)
         if names != tuple(sorted(names)) or len(set(names)) != len(names):
@@ -611,7 +645,10 @@ class SurfaceTable:
             raise ValueError("diagnostics must be SurfaceDiagnostics")
         if type(self.content_changed) is not bool:
             raise ValueError("content_changed must be bool")
-        if self.replacement_summary is not None and type(self.replacement_summary) is not SurfaceReplacementSummary:
+        if (
+            self.replacement_summary is not None
+            and type(self.replacement_summary) is not SurfaceReplacementSummary
+        ):
             raise ValueError("replacement_summary must be SurfaceReplacementSummary or None")
         if self.ordered_extension is not None:
             assert_no_host_path_identity(self.ordered_extension, label="ordered_extension")
@@ -638,7 +675,9 @@ class SurfaceTable:
             ),
             "risk_refs": self.risk_refs.to_document(),
             "row_change_stats": self.row_change_stats.to_document(),
-            "schema_summary": None if self.schema_summary is None else self.schema_summary.to_document(),
+            "schema_summary": None
+            if self.schema_summary is None
+            else self.schema_summary.to_document(),
             "table_id": self.table_id,
             "table_name": self.table_name,
             "table_refs": self.table_refs.to_document(),
@@ -659,12 +698,17 @@ class SurfaceProjectionRef:
     diagnostics_ref: ArtifactRef | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "projection_id", _require_identifier(self.projection_id, "projection_id"))
+        object.__setattr__(
+            self, "projection_id", _require_identifier(self.projection_id, "projection_id")
+        )
         _require_text(self.projection_kind, "projection_kind")
         _require_ref(self.projection_ref, "projection_ref")
         _require_digest(self.projection_digest, "projection_digest")
         if type(self.projection_summary) is not tuple or any(
-            type(item) is not tuple or len(item) != 2 or type(item[0]) is not str or type(item[1]) is not str
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not str
             for item in self.projection_summary
         ):
             raise ValueError("projection_summary must contain string pairs")
@@ -678,7 +722,9 @@ class SurfaceProjectionRef:
             "projection_id": self.projection_id,
             "projection_kind": self.projection_kind,
             "projection_ref": artifact_ref_to_dict(self.projection_ref),
-            "projection_summary": [{"key": key, "value": value} for key, value in self.projection_summary],
+            "projection_summary": [
+                {"key": key, "value": value} for key, value in self.projection_summary
+            ],
             "risk_summary_ref": _optional_ref(self.risk_summary_ref),
         }
 
@@ -852,14 +898,18 @@ class ComparisonSurface:
         }:
             raise ValueError("project_identity_status must be supported")
         if self.project_identity_assessment_digest is not None:
-            _require_digest(self.project_identity_assessment_digest, "project_identity_assessment_digest")
+            _require_digest(
+                self.project_identity_assessment_digest, "project_identity_assessment_digest"
+            )
         if type(self.requires_submit_confirmation) is not bool:
             raise ValueError("requires_submit_confirmation must be bool")
         if self.risk_evaluation_digest is not None:
             _require_digest(self.risk_evaluation_digest, "risk_evaluation_digest")
         if type(self.view) is not SurfaceView:
             raise ValueError("view must be SurfaceView")
-        if type(self.tables) is not tuple or any(type(item) is not SurfaceTable for item in self.tables):
+        if type(self.tables) is not tuple or any(
+            type(item) is not SurfaceTable for item in self.tables
+        ):
             raise ValueError("tables must contain SurfaceTable")
         table_names = tuple(item.table_name for item in self.tables)
         if table_names != tuple(sorted(table_names)) or len(set(table_names)) != len(table_names):
@@ -869,13 +919,22 @@ class ComparisonSurface:
         ):
             raise ValueError("projections must contain SurfaceProjectionRef")
         projection_ids = tuple(item.projection_id for item in self.projections)
-        if projection_ids != tuple(sorted(projection_ids)) or len(set(projection_ids)) != len(projection_ids):
+        if projection_ids != tuple(sorted(projection_ids)) or len(set(projection_ids)) != len(
+            projection_ids
+        ):
             raise ValueError("projections must use canonical unique order")
-        navigation = tuple(p for p in self.projections if p.projection_id == "business_navigation"
-            or p.projection_kind == "BUSINESS_NAVIGATION")
-        if (len(navigation) != 1 or navigation[0].projection_id != "business_navigation"
-                or navigation[0].projection_kind != "BUSINESS_NAVIGATION"
-                or navigation[0].risk_summary_ref is not None):
+        navigation = tuple(
+            p
+            for p in self.projections
+            if p.projection_id == "business_navigation"
+            or p.projection_kind == "BUSINESS_NAVIGATION"
+        )
+        if (
+            len(navigation) != 1
+            or navigation[0].projection_id != "business_navigation"
+            or navigation[0].projection_kind != "BUSINESS_NAVIGATION"
+            or navigation[0].risk_summary_ref is not None
+        ):
             raise ValueError("surface requires exactly one BUSINESS_NAVIGATION projection")
         if type(self.summary) is not SurfaceSummary:
             raise ValueError("summary must be SurfaceSummary")
@@ -884,7 +943,10 @@ class ComparisonSurface:
         if type(self.diagnostics) is not SurfaceDiagnostics:
             raise ValueError("diagnostics must be SurfaceDiagnostics")
         if type(self.reserved_extensions) is not tuple or any(
-            type(item) is not tuple or len(item) != 2 or type(item[0]) is not str or type(item[1]) is not str
+            type(item) is not tuple
+            or len(item) != 2
+            or type(item[0]) is not str
+            or type(item[1]) is not str
             for item in self.reserved_extensions
         ):
             raise ValueError("reserved_extensions must contain string pairs")
@@ -947,7 +1009,9 @@ class SurfaceAssemblyInput:
     risk_annotation_closure: RiskAnnotationClosure | None = None
     table_artifacts: tuple[SurfaceArtifactIndexEntry, ...] = ()
     keyless_fallback_tables: tuple[str, ...] = ()
-    identity_annotation: SurfaceIdentityAnnotation = field(default_factory=SurfaceIdentityAnnotation)
+    identity_annotation: SurfaceIdentityAnnotation = field(
+        default_factory=SurfaceIdentityAnnotation
+    )
     risk_report_ref: ArtifactRef | None = None
     risk_annotation_closure_ref: ArtifactRef | None = None
     diagnostics_ref: ArtifactRef | None = None
@@ -968,23 +1032,36 @@ class SurfaceAssemblyInput:
         _require_text(self.current_role, "current_role")
         if self.label is not None:
             _require_text(self.label, "label")
-        if self.records_closure is not None and type(self.records_closure) is not ComparisonRecordsClosure:
+        if (
+            self.records_closure is not None
+            and type(self.records_closure) is not ComparisonRecordsClosure
+        ):
             raise ValueError("records_closure must be ComparisonRecordsClosure or None")
         if self.risk_report is not None and type(self.risk_report) is not RiskReport:
             raise ValueError("risk_report must be RiskReport or None")
-        if self.risk_annotation_closure is not None and type(self.risk_annotation_closure) is not RiskAnnotationClosure:
+        if (
+            self.risk_annotation_closure is not None
+            and type(self.risk_annotation_closure) is not RiskAnnotationClosure
+        ):
             raise ValueError("risk_annotation_closure must be RiskAnnotationClosure or None")
         if type(self.table_artifacts) is not tuple or any(
             type(item) is not SurfaceArtifactIndexEntry for item in self.table_artifacts
         ):
             raise ValueError("table_artifacts must contain SurfaceArtifactIndexEntry")
         artifact_names = tuple(item.table_name for item in self.table_artifacts)
-        if artifact_names != tuple(sorted(artifact_names)) or len(set(artifact_names)) != len(artifact_names):
+        if artifact_names != tuple(sorted(artifact_names)) or len(set(artifact_names)) != len(
+            artifact_names
+        ):
             raise ValueError("table_artifacts must use canonical unique order")
         if type(self.keyless_fallback_tables) is not tuple:
             raise ValueError("keyless_fallback_tables must be a tuple")
-        keyless_names = tuple(_require_identifier(item, "keyless_fallback_table") for item in self.keyless_fallback_tables)
-        if keyless_names != tuple(sorted(keyless_names)) or len(set(keyless_names)) != len(keyless_names):
+        keyless_names = tuple(
+            _require_identifier(item, "keyless_fallback_table")
+            for item in self.keyless_fallback_tables
+        )
+        if keyless_names != tuple(sorted(keyless_names)) or len(set(keyless_names)) != len(
+            keyless_names
+        ):
             raise ValueError("keyless_fallback_tables must use canonical unique order")
         object.__setattr__(self, "keyless_fallback_tables", keyless_names)
         for label in (
@@ -1011,9 +1088,14 @@ class SurfaceAssemblyPolicy:
     def __post_init__(self) -> None:
         if type(self.max_surface_json_bytes) is not int or self.max_surface_json_bytes < 1:
             raise ValueError("max_surface_json_bytes must be positive")
-        if type(self.max_surface_wall_time_seconds) not in {int, float} or self.max_surface_wall_time_seconds <= 0:
+        if (
+            type(self.max_surface_wall_time_seconds) not in {int, float}
+            or self.max_surface_wall_time_seconds <= 0
+        ):
             raise ValueError("max_surface_wall_time_seconds must be positive float")
-        object.__setattr__(self, "max_surface_wall_time_seconds", float(self.max_surface_wall_time_seconds))
+        object.__setattr__(
+            self, "max_surface_wall_time_seconds", float(self.max_surface_wall_time_seconds)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1044,7 +1126,9 @@ class SurfaceAssemblyResult:
             type(item) is not ArtifactRef for item in self.referenced_artifacts
         ):
             raise ValueError("referenced_artifacts must contain ArtifactRef")
-        identities = tuple((item.artifact_id, item.raw_sha256.value) for item in self.referenced_artifacts)
+        identities = tuple(
+            (item.artifact_id, item.raw_sha256.value) for item in self.referenced_artifacts
+        )
         if identities != tuple(sorted(set(identities))):
             raise ValueError("referenced_artifacts must use canonical unique order")
         _require_string_tuple(self.diagnostics, "diagnostics")

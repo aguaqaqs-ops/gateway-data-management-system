@@ -159,12 +159,12 @@ def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, A
     candidates = client.get("/v1/archive-candidates")
     assert candidates.status_code == 200, candidates.text
     candidate = next(
-        item
-        for item in candidates.json()["candidates"]
-        if item["submission_id"] == submission_id
+        item for item in candidates.json()["candidates"] if item["submission_id"] == submission_id
     )
-    selected = {"submission_id": candidate["submission_id"],
-        "expected_candidate_digest": candidate["expected_candidate_digest"]}
+    selected = {
+        "submission_id": candidate["submission_id"],
+        "expected_candidate_digest": candidate["expected_candidate_digest"],
+    }
     preview = client.post("/v1/archive-plan-preview", json={"selected": selected})
     assert preview.status_code == 200, preview.text
     preview_body = cast(dict[str, Any], preview.json())
@@ -172,7 +172,9 @@ def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, A
     head = cast(dict[str, Any], preview_body["head"])
     confirmation = client.post(
         "/v1/archive-confirmations",
-        headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key="ordered-archive-confirm"),
+        headers=compose_auth_headers(
+            token=ARCHIVER_TOKEN, idempotency_key="ordered-archive-confirm"
+        ),
         json={
             "expected_baseline_node_id": head["business_baseline_node_id"],
             "expected_baseline_head_version": head["baseline_head_version"],
@@ -291,9 +293,7 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             commit_id=main_after_a,
         )
         assert baseline_catalog["tables"]
-        assert "b1_n1_iec104_syx_list" in {
-            table["name"] for table in baseline_catalog["tables"]
-        }
+        assert "b1_n1_iec104_syx_list" in {table["name"] for table in baseline_catalog["tables"]}
 
         rule_preview = run_accept_to_submission_read_journey(
             env,
@@ -402,11 +402,7 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
                 repository_id=repository_id,
             )
             tables = cast(list[dict[str, object]], facts["tables"])
-            syx = next(
-                table
-                for table in tables
-                if table["table_name"] == "b1_n1_iec104_syx_list"
-            )
+            syx = next(table for table in tables if table["table_name"] == "b1_n1_iec104_syx_list")
             assert syx["status"] != "DEGRADED"
             ordered_records = cast(list[dict[str, object]], syx["ordered_records"])
             assert ordered_records
@@ -429,9 +425,6 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
         if provenance:
             normalized = normalize_running_images(provenance, env["COMPOSE_PROJECT_NAME"])
             provenance_path = persist_compose_gate_provenance(env, provenance)
-            print(
-                "ordered_compare_gate_running_images="
-                f"{json.dumps(normalized, indent=2)}"
-            )
+            print(f"ordered_compare_gate_running_images={json.dumps(normalized, indent=2)}")
             print(f"compose gate provenance written to {provenance_path}")
         cleanup_compose_project_artifacts(env)

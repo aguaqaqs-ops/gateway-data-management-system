@@ -148,9 +148,7 @@ def load_history_page_from_connection(
     )
     has_next_page = len(rows) > limit
     page_rows = rows[:limit]
-    submission_ids = tuple(
-        row.ref_id for row in page_rows if row.ref_kind == "submission"
-    )
+    submission_ids = tuple(row.ref_id for row in page_rows if row.ref_kind == "submission")
     promoted_by_submission = _load_promoted_by_submission_for_submissions(
         connection,
         repository_id=repository_id,
@@ -297,12 +295,22 @@ def _load_history_page_rows(
     dispositions: dict[str, SubmissionDisposition] = {}
     if submission_ids:
         placeholders = ",".join("?" for _ in submission_ids)
-        dispositions = {record["submission_id"]: disposition_from_row(record) for record in
-            connection.execute(f"SELECT * FROM submission_disposition_records WHERE submission_id IN ({placeholders})", submission_ids).fetchall()}
-    return tuple(_history_page_row_from_row(row, disposition_record=dispositions.get(row["ref_id"])) for row in rows)
+        dispositions = {
+            record["submission_id"]: disposition_from_row(record)
+            for record in connection.execute(
+                f"SELECT * FROM submission_disposition_records WHERE submission_id IN ({placeholders})",
+                submission_ids,
+            ).fetchall()
+        }
+    return tuple(
+        _history_page_row_from_row(row, disposition_record=dispositions.get(row["ref_id"]))
+        for row in rows
+    )
 
 
-def _history_page_row_from_row(row: sqlite3.Row, *, disposition_record: SubmissionDisposition | None = None) -> HistoryPageRow:
+def _history_page_row_from_row(
+    row: sqlite3.Row, *, disposition_record: SubmissionDisposition | None = None
+) -> HistoryPageRow:
     created_at_us = row["created_at_us"]
     if type(created_at_us) is not int:
         raise ValueError("created_at_us must be an integer")
@@ -332,7 +340,9 @@ def _history_page_row_from_row(row: sqlite3.Row, *, disposition_record: Submissi
             None if based_on_baseline_node_id is None else str(based_on_baseline_node_id)
         ),
         review_status=None if review_status is None else str(review_status),
-        submission_disposition=None if submission_disposition is None else str(submission_disposition),
+        submission_disposition=None
+        if submission_disposition is None
+        else str(submission_disposition),
         disposition_record=disposition_record,
         identity_exception=(
             False
@@ -385,16 +395,27 @@ def _load_submission_rows(
         """,
         (repository_id,),
     ).fetchall()
-    dispositions = {record["submission_id"]: disposition_from_row(record) for record in
-        connection.execute("SELECT * FROM submission_disposition_records WHERE repository_id = ?", (repository_id,)).fetchall()}
-    return tuple(_submission_row_from_row(row, disposition_record=dispositions.get(row["submission_id"])) for row in rows)
+    dispositions = {
+        record["submission_id"]: disposition_from_row(record)
+        for record in connection.execute(
+            "SELECT * FROM submission_disposition_records WHERE repository_id = ?", (repository_id,)
+        ).fetchall()
+    }
+    return tuple(
+        _submission_row_from_row(row, disposition_record=dispositions.get(row["submission_id"]))
+        for row in rows
+    )
 
 
-def _submission_row_from_row(row: sqlite3.Row, *, disposition_record: SubmissionDisposition | None = None) -> HistorySubmissionRow:
+def _submission_row_from_row(
+    row: sqlite3.Row, *, disposition_record: SubmissionDisposition | None = None
+) -> HistorySubmissionRow:
     mapping = row_mapping(row)
     submission_mapping = {name: mapping[name] for name in _SUBMISSION_COLUMN_NAMES}
     disposition_value = mapping["submission_disposition"]
-    disposition = None if disposition_value is None else SubmissionDispositionKind(str(disposition_value))
+    disposition = (
+        None if disposition_value is None else SubmissionDispositionKind(str(disposition_value))
+    )
     review_status_value = mapping["review_status"]
     if type(review_status_value) is not str or not review_status_value:
         raise ValueError("review_status must be a non-empty string")

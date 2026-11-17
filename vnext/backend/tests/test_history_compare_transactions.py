@@ -31,7 +31,10 @@ from gateway_backend.application.history.compare_jobs import history_compare_job
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.http.dependencies import OpenAdmissionGate
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.orchestration.history_compare import HistoryCompareAcceptanceResult, accept_compare_operation
+from gateway_backend.http.orchestration.history_compare import (
+    HistoryCompareAcceptanceResult,
+    accept_compare_operation,
+)
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_history_compare import save_acceptance
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
@@ -164,14 +167,18 @@ def test_accept_binding_fingerprint_freezes_comparison_ruleset_digest() -> None:
     assert with_ruleset_b != fingerprint
     assert with_ruleset_a != with_ruleset_b
     assert fingerprint != compute_accept_binding_fingerprint(
-        gateway_device_external_key="device-1", business_project_id="project-1",
-        repository_id="repo-1", nodes=nodes,
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        repository_id="repo-1",
+        nodes=nodes,
         comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         history_job_contract_version="different-history-version",
     )
     assert fingerprint != compute_accept_binding_fingerprint(
-        gateway_device_external_key="device-1", business_project_id="project-1",
-        repository_id="repo-1", nodes=nodes,
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        repository_id="repo-1",
+        nodes=nodes,
         comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         comparison_contract_version="different-comparison-version",
     )
@@ -190,7 +197,8 @@ def test_acceptance_timestamp_preserves_microseconds() -> None:
     from datetime import UTC, datetime
 
     from gateway_backend.infrastructure.control_db.sqlite_history_compare import (
-        _datetime_to_epoch_us, _epoch_us_to_datetime,
+        _datetime_to_epoch_us,
+        _epoch_us_to_datetime,
     )
 
     timestamp = datetime(2026, 11, 15, 12, 0, 0, 987654, tzinfo=UTC)
@@ -239,12 +247,17 @@ def test_idempotent_replay_returns_existing_acceptance(db_path: Path) -> None:
     assert result.operation_id == operation_id
 
 
-@pytest.mark.parametrize("old_ruleset,old_job", [
-    ("sha256:old-ruleset", HISTORY_COMPARE_JOB_CONTRACT_VERSION),
-    (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v4"),
-])
+@pytest.mark.parametrize(
+    "old_ruleset,old_job",
+    [
+        ("sha256:old-ruleset", HISTORY_COMPARE_JOB_CONTRACT_VERSION),
+        (RUNTIME_RULESET_DIGEST, "backend-vnext/history-compare/v4"),
+    ],
+)
 def test_semantic_drift_replay_raises_idempotency_conflict(
-    db_path: Path, old_ruleset: str, old_job: str,
+    db_path: Path,
+    old_ruleset: str,
+    old_job: str,
 ) -> None:
     _seed_scope(db_path)
     nodes = (
@@ -372,7 +385,9 @@ def test_concurrent_accept_with_same_idempotency_key_has_single_winner(db_path: 
     def attempt() -> object:
         return accept_compare_operation(
             command=command,
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
             comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -397,9 +412,7 @@ def test_concurrent_accept_with_same_idempotency_key_has_single_winner(db_path: 
     fresh = [item for item in outcomes if not getattr(item, "replay", False)]
     replays = [item for item in outcomes if getattr(item, "replay", False)]
     idempotency_conflicts = [
-        exc
-        for exc in errors
-        if isinstance(exc, ApiError) and exc.code == "IDEMPOTENCY_CONFLICT"
+        exc for exc in errors if isinstance(exc, ApiError) and exc.code == "IDEMPOTENCY_CONFLICT"
     ]
     other_errors = [exc for exc in errors if exc not in idempotency_conflicts]
     assert len(fresh) == 1
@@ -427,7 +440,9 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
     )
     accept_compare_operation(
         command=_accept_command(idempotency_key="idem-replay-auth", nodes=nodes),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
         comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -441,7 +456,9 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
                 idempotency_key="idem-replay-auth",
                 node_refs=nodes,
             ),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
             comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -453,7 +470,9 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
     with pytest.raises(ApiError) as first_rebind_exc:
         accept_compare_operation(
             command=_accept_command(idempotency_key="idem-replay-auth", nodes=nodes),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
             comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -462,7 +481,9 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
     with pytest.raises(ApiError) as second_rebind_exc:
         accept_compare_operation(
             command=_accept_command(idempotency_key="idem-replay-auth", nodes=nodes),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
             comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -475,7 +496,10 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
 
 
 def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -> None:
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_STEP_MATERIALIZE, history_compare_step_id
+    from gateway_backend.application.history.compare_jobs import (
+        HISTORY_COMPARE_STEP_MATERIALIZE,
+        history_compare_step_id,
+    )
 
     _seed_scope(db_path)
     seed_archived_baseline_node(
@@ -491,7 +515,9 @@ def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -
     )
     first = accept_compare_operation(
         command=_accept_command(idempotency_key="idem-distinct-a", nodes=nodes),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
         comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -499,7 +525,9 @@ def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -
     )
     second = accept_compare_operation(
         command=_accept_command(idempotency_key="idem-distinct-b", nodes=nodes),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
         comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
@@ -511,7 +539,8 @@ def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -
     assert _history_accept_row_counts(db_path) == (1, 1, 1)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         acceptance = unit_of_work.history_compare.find_acceptance_by_idempotency(
-            gateway_device_external_key="device-1", business_project_id="project-1",
+            gateway_device_external_key="device-1",
+            business_project_id="project-1",
             idempotency_key="idem-distinct-b",
         )
         assert acceptance is not None
@@ -523,16 +552,21 @@ def test_distinct_keys_reuse_active_operation_and_alias_replays(db_path: Path) -
         assert step.step_name == HISTORY_COMPARE_STEP_MATERIALIZE
     replay = accept_compare_operation(
         command=_accept_command(idempotency_key="idem-distinct-b", nodes=nodes),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-        job_registry=job_registry, admission_gate=OpenAdmissionGate(),
-        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=TS,
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
+        job_registry=job_registry,
+        admission_gate=OpenAdmissionGate(),
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+        now=TS,
     )
     assert replay.replay and replay.response.operation_id == first.response.operation_id
 
 
 @pytest.mark.parametrize("fingerprint_matches_current", (False, True))
 def test_new_history_key_does_not_reuse_old_successful_job(
-    db_path: Path, fingerprint_matches_current: bool,
+    db_path: Path,
+    fingerprint_matches_current: bool,
 ) -> None:
     _seed_scope(db_path)
     registry = JobDefinitionRegistry.build(history_compare_job_definitions())
@@ -541,9 +575,13 @@ def test_new_history_key_does_not_reuse_old_successful_job(
     def accept(key: str) -> HistoryCompareAcceptanceResult:
         return accept_compare_operation(
             command=_accept_command(idempotency_key=key),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-            job_registry=registry, admission_gate=OpenAdmissionGate(),
-            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=now,
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
+            job_registry=registry,
+            admission_gate=OpenAdmissionGate(),
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+            now=now,
         )
 
     old = accept("old-job-key")
@@ -553,8 +591,11 @@ def test_new_history_key_does_not_reuse_old_successful_job(
         HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE, HEAD_COMMIT),
     )
     old_fingerprint = compute_accept_binding_fingerprint(
-        gateway_device_external_key="device-1", business_project_id="project-1",
-        repository_id="repo-1", nodes=bindings, comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        repository_id="repo-1",
+        nodes=bindings,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         history_job_contract_version="backend-vnext/history-compare/v3",
     )
     with ControlDbUnitOfWork(db_path) as uow:
@@ -571,11 +612,16 @@ def test_new_history_key_does_not_reuse_old_successful_job(
         else:
             # A matching fingerprint must still pass the operation's own version check.
             candidates = uow.history_compare.find_candidates(
-                gateway_device_external_key="device-1", business_project_id="project-1",
+                gateway_device_external_key="device-1",
+                business_project_id="project-1",
                 request_fingerprint=compute_accept_binding_fingerprint(
-                    gateway_device_external_key="device-1", business_project_id="project-1",
-                    repository_id="repo-1", nodes=bindings, comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
-                ), now=uow.transaction_now,
+                    gateway_device_external_key="device-1",
+                    business_project_id="project-1",
+                    repository_id="repo-1",
+                    nodes=bindings,
+                    comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+                ),
+                now=uow.transaction_now,
             )
             assert any(candidate.operation_id == old_id for candidate in candidates)
 
@@ -591,17 +637,25 @@ def test_new_history_key_does_not_reuse_old_successful_job(
 
 def test_scope_limit_allows_existing_reuse_before_rejecting_new_input(db_path: Path) -> None:
     _seed_scope(db_path)
-    seed_archived_baseline_node(db_path, node_id="bn-limit-b", commit_id="commit-limit-b", created_at_us=2)
+    seed_archived_baseline_node(
+        db_path, node_id="bn-limit-b", commit_id="commit-limit-b", created_at_us=2
+    )
     registry = JobDefinitionRegistry.build(history_compare_job_definitions())
-    first_nodes = (HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE),
-                   HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, "bn-limit-b"))
+    first_nodes = (
+        HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE),
+        HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, "bn-limit-b"),
+    )
 
     def accept(key: str, nodes: tuple[HistoryNodeRef, ...]) -> HistoryCompareAcceptanceResult:
         return accept_compare_operation(
             command=_accept_command(idempotency_key=key, nodes=nodes),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-            job_registry=registry, admission_gate=OpenAdmissionGate(),
-            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=TS,
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
+            job_registry=registry,
+            admission_gate=OpenAdmissionGate(),
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+            now=TS,
         )
 
     first = accept("limit-first", first_nodes)
@@ -626,9 +680,13 @@ def test_concurrent_distinct_keys_share_one_active_history_operation(db_path: Pa
         ready.wait()
         return accept_compare_operation(
             command=_accept_command(idempotency_key=key),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-            job_registry=registry, admission_gate=OpenAdmissionGate(),
-            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=TS,
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
+            job_registry=registry,
+            admission_gate=OpenAdmissionGate(),
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+            now=TS,
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -640,24 +698,35 @@ def test_concurrent_distinct_keys_share_one_active_history_operation(db_path: Pa
 
 def test_global_queue_limit_counts_other_job_kinds_but_allows_replay(db_path: Path) -> None:
     _seed_scope(db_path)
-    seed_archived_baseline_node(db_path, node_id="bn-queue-b", commit_id="commit-queue-b", created_at_us=2)
+    seed_archived_baseline_node(
+        db_path, node_id="bn-queue-b", commit_id="commit-queue-b", created_at_us=2
+    )
     registry = JobDefinitionRegistry.build(history_compare_job_definitions())
-    first_nodes = (HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE),
-                   HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, "bn-queue-b"))
+    first_nodes = (
+        HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE),
+        HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, "bn-queue-b"),
+    )
 
     def accept(key: str, nodes: tuple[HistoryNodeRef, ...]) -> HistoryCompareAcceptanceResult:
         return accept_compare_operation(
             command=_accept_command(idempotency_key=key, nodes=nodes),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-            job_registry=registry, admission_gate=OpenAdmissionGate(),
-            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST, now=TS, operation_queue_limit=1,
+            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+                db_path, read_only=read_only
+            ),
+            job_registry=registry,
+            admission_gate=OpenAdmissionGate(),
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
+            now=TS,
+            operation_queue_limit=1,
         )
 
     first = accept("queue-first", first_nodes)
     assert accept("queue-first", first_nodes).response.operation_id == first.response.operation_id
     with ControlDbUnitOfWork(db_path) as uow:
-        uow.connection.execute("UPDATE operation_records SET job_kind = 'another-job-kind' WHERE operation_id = ?",
-                               (first.response.operation_id,))
+        uow.connection.execute(
+            "UPDATE operation_records SET job_kind = 'another-job-kind' WHERE operation_id = ?",
+            (first.response.operation_id,),
+        )
     with pytest.raises(ApiError) as error:
         accept("queue-second", tuple(reversed(first_nodes)))
     assert error.value.code == "OPERATION_QUEUE_FULL"

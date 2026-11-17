@@ -33,10 +33,17 @@ class ArchiveClosureReadPort(Protocol):
 
 
 class ArchiveSubmissionPort(Protocol):
-    def get_submission_access_binding(self, submission_id: str) -> SubmissionAccessBinding | None: ...
+    def get_submission_access_binding(
+        self, submission_id: str
+    ) -> SubmissionAccessBinding | None: ...
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-        repository_id: str | None = None) -> Submission | None: ...
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None: ...
 
     def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None: ...
 
@@ -69,7 +76,9 @@ class ArchiveSubmissionPort(Protocol):
         """Read bounded unclosed current-baseline pending facts, including broken closure."""
         ...
 
-    def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]: ...
+    def list_active_submit_attempts(
+        self, repository_id: str
+    ) -> tuple[ArchiveActiveAttemptFacts, ...]: ...
 
 
 class ArchiveReviewPort(Protocol):

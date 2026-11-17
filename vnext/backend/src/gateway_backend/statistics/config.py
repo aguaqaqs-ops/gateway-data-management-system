@@ -1,4 +1,5 @@
 """Restart-scoped telemetry budgets, independent of business resource settings."""
+
 from __future__ import annotations
 
 from pathlib import Path

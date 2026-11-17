@@ -53,7 +53,9 @@ RAW_SHA = "sha256:" + "a" * 64
 
 def _artifact_ref_dict(identifier: str) -> dict[str, object]:
     return {
-        "artifact_id": build_artifact_id(ArtifactLocation.DURABLE, "test-sqlite-operation", identifier),
+        "artifact_id": build_artifact_id(
+            ArtifactLocation.DURABLE, "test-sqlite-operation", identifier
+        ),
         "media_type": "application/octet-stream",
         "size_bytes": 3,
         "raw_sha256": RAW_SHA,
@@ -229,7 +231,10 @@ def test_timestamp_mapping_preserves_microsecond_boundaries() -> None:
 CORRUPT_OPERATION_ROWS = (
     ("business blob is not JSON", {"business_refs": b"not-json"}),
     ("business JSON has wrong root", {"business_refs": b"{}"}),
-    ("non-canonical JSON blob", {"business_refs": b'[{"kind":"workspace", "value":"workspace-1"}]'}),
+    (
+        "non-canonical JSON blob",
+        {"business_refs": b'[{"kind":"workspace", "value":"workspace-1"}]'},
+    ),
     ("scalar has wrong type", {"optimistic_version": "0"}),
     ("scalar is outside the R1 range", {"optimistic_version": -1}),
     ("boolean has invalid integer", {"cancel_requested": 2}),
@@ -294,7 +299,10 @@ def test_pending_step_uses_created_time_and_terminal_step_has_no_eligibility() -
             updated_at=TIMESTAMP,
         )
     )
-    assert step_record_to_row(pending)["eligible_at_us"] == step_record_to_row(pending)["created_at_us"]
+    assert (
+        step_record_to_row(pending)["eligible_at_us"]
+        == step_record_to_row(pending)["created_at_us"]
+    )
 
     terminal = step_record_from_document(
         _step_document(
@@ -360,10 +368,13 @@ def test_active_integrity_scan_rejects_corruption_without_repairing_the_row() ->
 
         with pytest.raises(CorruptPersistedRecord, match="operation row"):
             store.scan_active_integrity()
-        assert connection.execute(
-            "SELECT business_refs FROM operation_records WHERE operation_id = ?",
-            (operation.operation_id,),
-        ).fetchone()[0] == b"not-json"
+        assert (
+            connection.execute(
+                "SELECT business_refs FROM operation_records WHERE operation_id = ?",
+                (operation.operation_id,),
+            ).fetchone()[0]
+            == b"not-json"
+        )
     finally:
         connection.close()
 
@@ -511,8 +522,7 @@ def test_store_create_readback_and_claim_candidate_round_trip() -> None:
         step = _initial_step_record()
 
         assert (
-            store.insert_operation_with_initial_step(operation, step)
-            is TransitionDisposition.APPLY
+            store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
         )
         assert store.get_operation(operation.operation_id) == operation
         assert store.get_step(step.step_id) == step
@@ -536,7 +546,9 @@ def test_create_is_exactly_idempotent_and_rejects_conflicting_duplicates() -> No
     try:
         operation = _operation_record()
         step = _initial_step_record()
-        assert store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
+        assert (
+            store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
+        )
         assert (
             store.insert_operation_with_initial_step(operation, step)
             is TransitionDisposition.IDEMPOTENT
@@ -552,7 +564,9 @@ def test_create_is_exactly_idempotent_and_rejects_conflicting_duplicates() -> No
     try:
         operation = _operation_record()
         step = _initial_step_record()
-        assert store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
+        assert (
+            store.insert_operation_with_initial_step(operation, step) is TransitionDisposition.APPLY
+        )
         conflicting_step = dataclasses.replace(step, step_name="other")
         with pytest.raises(ConflictingDuplicate):
             store.insert_operation_with_initial_step(operation, conflicting_step)

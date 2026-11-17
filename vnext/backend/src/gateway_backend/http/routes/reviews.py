@@ -10,7 +10,11 @@ from gateway_backend.http.dependencies import request_scratch
 
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
+from gateway_backend.http.dependencies import (
+    WorkspaceHttpDependencies,
+    acquire_new_work,
+    get_workspace_http,
+)
 from gateway_backend.http.orchestration.review import (
     apply_review_operation,
     build_apply_review_command,
@@ -19,8 +23,11 @@ from gateway_backend.http.orchestration.review import (
     read_submission_result_operation,
 )
 from gateway_backend.http.schemas.review import (
-    ApplyReviewRequest, ReviewAppliedResponse, ReviewFactsResponse,
-    SubmissionResultResponse, SubmissionResultPairResponse,
+    ApplyReviewRequest,
+    ReviewAppliedResponse,
+    ReviewFactsResponse,
+    SubmissionResultResponse,
+    SubmissionResultPairResponse,
 )
 from fastapi.responses import StreamingResponse
 from gateway_backend.http.bundle_response import BundleStreamingResponse
@@ -108,37 +115,61 @@ _RESULT_ERRORS: dict[int | str, dict[str, Any]] = {
 }
 
 
-@router.get("/v1/submissions/{submission_id}/result",
-    response_model=SubmissionResultResponse, responses=_RESULT_ERRORS)
+@router.get(
+    "/v1/submissions/{submission_id}/result",
+    response_model=SubmissionResultResponse,
+    responses=_RESULT_ERRORS,
+)
 def get_submission_result_route(
     submission_id: str,
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> SubmissionResultResponse:
-    preview = read_submission_result_operation(context=context, submission_id=submission_id, deps=deps)
-    return SubmissionResultResponse(submission_id=submission_id,
-        preview_result_id=preview.preview_result_id, bundle_digest=preview.digests.bundle_digest,
+    preview = read_submission_result_operation(
+        context=context, submission_id=submission_id, deps=deps
+    )
+    return SubmissionResultResponse(
+        submission_id=submission_id,
+        preview_result_id=preview.preview_result_id,
+        bundle_digest=preview.digests.bundle_digest,
         default_pair_id="initial_to_modified",
         input_completeness=("FULL" if len(preview.comparison_pairs) == 2 else "MODIFIED_ONLY"),
-        pairs=[SubmissionResultPairResponse(pair_id=pair.pair_id,
-            comparison_digest=pair.comparison_digest, risk_digest=pair.risk_digest,
-            surface_digest=pair.surface_digest) for pair in preview.comparison_pairs])
+        pairs=[
+            SubmissionResultPairResponse(
+                pair_id=pair.pair_id,
+                comparison_digest=pair.comparison_digest,
+                risk_digest=pair.risk_digest,
+                surface_digest=pair.surface_digest,
+            )
+            for pair in preview.comparison_pairs
+        ],
+    )
 
 
-@router.get("/v1/submissions/{submission_id}/result/bundle",
-    response_class=StreamingResponse, responses={**_RESULT_ERRORS, 200: {
-        "description": "Immutable submission-bound Preview bundle",
-        "content": {"application/x-tar": {}},
-        "headers": {"Content-Length": {"schema": {"type": "integer"}},
-            "ETag": {"schema": {"type": "string"}},
-            "Content-Disposition": {"schema": {"type": "string"}}},
-    }})
+@router.get(
+    "/v1/submissions/{submission_id}/result/bundle",
+    response_class=StreamingResponse,
+    responses={
+        **_RESULT_ERRORS,
+        200: {
+            "description": "Immutable submission-bound Preview bundle",
+            "content": {"application/x-tar": {}},
+            "headers": {
+                "Content-Length": {"schema": {"type": "integer"}},
+                "ETag": {"schema": {"type": "string"}},
+                "Content-Disposition": {"schema": {"type": "string"}},
+            },
+        },
+    },
+)
 def get_submission_result_bundle_route(
     submission_id: str,
     deps: Annotated[WorkspaceHttpDependencies, Depends(get_workspace_http)],
     context: Annotated[IdentityContext, Depends(require_identity)],
 ) -> StreamingResponse:
-    preview = read_submission_result_operation(context=context, submission_id=submission_id, deps=deps)
+    preview = read_submission_result_operation(
+        context=context, submission_id=submission_id, deps=deps
+    )
     try:
         prepared = deps.bundle_reader.prepare_bundle(preview.bundle_artifact_id)
         if prepared.bundle_digest != preview.digests.bundle_digest:
@@ -146,8 +177,14 @@ def get_submission_result_bundle_route(
             raise BundleIntegrityError("Submission bundle digest mismatch")
         return BundleStreamingResponse(prepared)
     except ArtifactUnavailableError:
-        raise ApiError(code="SUBMISSION_RESULT_UNAVAILABLE", message="submission result is unavailable",
-            status_code=503) from None
+        raise ApiError(
+            code="SUBMISSION_RESULT_UNAVAILABLE",
+            message="submission result is unavailable",
+            status_code=503,
+        ) from None
     except BundleIntegrityError:
-        raise ApiError(code="SUBMISSION_RESULT_INTEGRITY_FAILURE",
-            message="submission result failed integrity verification", status_code=503) from None
+        raise ApiError(
+            code="SUBMISSION_RESULT_INTEGRITY_FAILURE",
+            message="submission result failed integrity verification",
+            status_code=503,
+        ) from None

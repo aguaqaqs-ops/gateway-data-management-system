@@ -80,9 +80,7 @@ def test_missing_requested_table_fails_closed() -> None:
 
 
 def test_unknown_compare_key_column_fails_the_table() -> None:
-    sql = (
-        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);"
-    )
+    sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);"
     ruleset = TableRulesetSnapshot(
         table_ruleset_version=TABLE_RULESET_VERSION,
         compare_keys=(TableCompareKey(canonical_table="t", key_columns=("nope",)),),

@@ -52,7 +52,9 @@ def mark_submit_attempt_effect_pending(
         repository_import_artifact_ref=request.checkpoint.backend_import_artifact_ref,
         repository_artifact_ref=request.repository_artifact_ref,
     )
-    _assert_backend_ref(updated.repository_import_artifact_ref, request.checkpoint.backend_import_artifact_ref)
+    _assert_backend_ref(
+        updated.repository_import_artifact_ref, request.checkpoint.backend_import_artifact_ref
+    )
     unit_of_work.submission.cas_update_attempt(
         updated,
         expected_version=request.expected_attempt_version,

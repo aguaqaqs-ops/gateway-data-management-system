@@ -292,7 +292,6 @@ class TakeoverHarness:
             assert claimed is not None
             return claimed
 
-
     def advance_past_lease(self, step: StepRecord) -> None:
         if step.lease_expires_at is None:
             raise ValueError("step must have lease_expires_at")
@@ -398,7 +397,14 @@ STARTUP_LEASE_DISPOSITION_CASES = (
 
 
 @pytest.mark.parametrize(
-    ("lease_state", "capability", "expected_startup", "expected_step", "expected_operation", "expected_code"),
+    (
+        "lease_state",
+        "capability",
+        "expected_startup",
+        "expected_step",
+        "expected_operation",
+        "expected_code",
+    ),
     STARTUP_LEASE_DISPOSITION_CASES,
 )
 def test_running_lease_startup_disposition_matrix(
@@ -744,9 +750,7 @@ def test_manual_recovery_commands_are_claimable_by_running_worker(
         assert actions.claim_one("worker-claim", "lease-claim") is None
 
     port = harness.operator_recovery()
-    port.execute(
-        harness.operator_request(command, operation, step)
-    )
+    port.execute(harness.operator_request(command, operation, step))
     with harness.read_uow() as unit_of_work:
         store = unit_of_work.operations
         candidates, _ = store.list_claim_candidates(harness.clock())
@@ -951,7 +955,10 @@ def test_foreign_running_lease_does_not_block_or_recover(tmp_path: Path, expired
     assert startup.startup() is StartupDisposition.READY
     assert startup.claim_one() is None
     # Both the startup filter and direct recovery obey the same ownership rule.
-    assert harness.startup_recovery("worker-peer").recover_pair(operation, step) is StartupDisposition.READY
+    assert (
+        harness.startup_recovery("worker-peer").recover_pair(operation, step)
+        is StartupDisposition.READY
+    )
     with harness.read_uow() as unit_of_work:
         assert unit_of_work.operations.get_step(step.step_id) == step
         assert unit_of_work.operations.get_operation(operation.operation_id) == operation

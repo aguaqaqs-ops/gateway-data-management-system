@@ -46,7 +46,9 @@ def annotation_content_payload(
     annotations: Sequence[RiskAnnotation],
 ) -> dict[str, object]:
     return {
-        "annotations": [item.to_document() for item in sorted(annotations, key=lambda item: item.annotation_id)],
+        "annotations": [
+            item.to_document() for item in sorted(annotations, key=lambda item: item.annotation_id)
+        ],
         "contract_version": RISK_ANNOTATION_CONTRACT_VERSION,
         "table_name": table_name,
     }
@@ -82,8 +84,9 @@ def publish_annotation_artifact(
         estimated += sum(len(column) * 64 + 256 for column in annotation.target.changed_columns)
         for reason in annotation.reasons:
             estimated += len(reason.message) * 64 + 2048
-            estimated += sum((len(name) + len(str(value))) * 64 + 256
-                             for name, value in reason.evidence)
+            estimated += sum(
+                (len(name) + len(str(value))) * 64 + 256 for name, value in reason.evidence
+            )
     admission: AbstractContextManager[object] | RiskReservationPort
     if operation is None:
         admission = nullcontext()
@@ -97,7 +100,10 @@ def publish_annotation_artifact(
             admission = operation.memory.reserve(estimated + 2 * max_bytes)
     with admission:
         return _publish_annotation_artifact_charged(
-            store, table_name=table_name, annotations=annotations, max_bytes=max_bytes,
+            store,
+            table_name=table_name,
+            annotations=annotations,
+            max_bytes=max_bytes,
         )
 
 
@@ -153,7 +159,10 @@ def closure_manifest_payload(
     return {
         "comparison_digest": comparison_digest.value,
         "contract_version": RISK_ANNOTATION_CONTRACT_VERSION,
-        "entries": [_closure_entry_payload(item) for item in sorted(entries, key=lambda item: item.table_name)],
+        "entries": [
+            _closure_entry_payload(item)
+            for item in sorted(entries, key=lambda item: item.table_name)
+        ],
         "risk_evaluation_digest": risk_evaluation_digest.value,
     }
 

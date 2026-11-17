@@ -20,7 +20,10 @@ _ALGORITHM_SOURCE = "4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec"
 @cache
 def _cases() -> dict[str, dict[str, Any]]:
     payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))
-    assert payload["fixture_scope"] == "GW08 current comparison identity and preserved semantic vectors"
+    assert (
+        payload["fixture_scope"]
+        == "GW08 current comparison identity and preserved semantic vectors"
+    )
     assert payload["source_commit"] == _SOURCE
     assert payload["old_algorithm_source"] == _ALGORITHM_SOURCE
     assert payload["historical_source_commit"] == "a9da0c59277e3179f34d646eabcd9c185917ae05"

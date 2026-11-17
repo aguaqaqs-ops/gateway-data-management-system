@@ -53,11 +53,7 @@ from tests.support.table_rules import (
 )
 
 _GOLDEN = (
-    Path(__file__).resolve().parents[2]
-    / "fixtures"
-    / "golden"
-    / "storage-projection"
-    / "ruleset"
+    Path(__file__).resolve().parents[2] / "fixtures" / "golden" / "storage-projection" / "ruleset"
 )
 
 
@@ -75,9 +71,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
         if record.selector.value == DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS[0]
     )
     browse = next(
-        record
-        for record in records
-        if record.selector.value == DEFAULT_BROWSE_ONLY_TABLE_NAMES[0]
+        record for record in records if record.selector.value == DEFAULT_BROWSE_ONLY_TABLE_NAMES[0]
     )
     device_cfg = next(
         record for record in records if record.selector.value == DEVICE_CFG_TABLE_NAME
@@ -115,10 +109,7 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
 
 def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() -> None:
     records = migrated_table_rule_records()
-    by_selector = {
-        (record.selector.kind, record.selector.value): record
-        for record in records
-    }
+    by_selector = {(record.selector.kind, record.selector.value): record for record in records}
     expected_keys = {
         "comm_user_data": ("data_key",),
         "forwardtbl_lst_cs": ("tbname",),
@@ -166,14 +157,22 @@ def test_composite_signal_rule_matches_canonical_storage_and_comparison_contract
 
     assert COMPOSITE_SIGNAL_POINT_KEY_COLUMNS == ("source_table", "point_gid")
     assert rule.compare_key_columns == COMPOSITE_SIGNAL_POINT_KEY_COLUMNS
-    assert rule.ignored_columns == COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS == (
-        "dev_addr",
-        "device_gid",
-        "point_payload_json",
+    assert (
+        rule.ignored_columns
+        == COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS
+        == (
+            "dev_addr",
+            "device_gid",
+            "point_payload_json",
+        )
     )
-    assert rule.compare_excluded_columns == COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS == (
-        "formula_ast_json",
-        "point_name",
+    assert (
+        rule.compare_excluded_columns
+        == COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS
+        == (
+            "formula_ast_json",
+            "point_name",
+        )
     )
     assert tuple(item.name for item in rule.dropped_columns) == rule.ignored_columns
 
@@ -181,9 +180,7 @@ def test_composite_signal_rule_matches_canonical_storage_and_comparison_contract
 def test_compare_keys_are_canonical_table_and_key_columns() -> None:
     snapshot = TableRulesetSnapshot(
         table_ruleset_version=TABLE_RULESET_VERSION,
-        compare_keys=(
-            TableCompareKey(canonical_table="orders", key_columns=("id", "seq")),
-        ),
+        compare_keys=(TableCompareKey(canonical_table="orders", key_columns=("id", "seq")),),
     )
     assert snapshot.compare_keys[0].canonical_table == "orders"
     assert snapshot.compare_keys[0].key_columns == ("id", "seq")
@@ -200,7 +197,9 @@ def test_ruleset_rejects_duplicate_canonical_table() -> None:
     first = TableCompareKey(canonical_table="t", key_columns=("id",))
     second = TableCompareKey(canonical_table="t", key_columns=("code",))
     with pytest.raises(ValueError, match="compare_keys must not repeat canonical_table"):
-        TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION, compare_keys=(first, second))
+        TableRulesetSnapshot(
+            table_ruleset_version=TABLE_RULESET_VERSION, compare_keys=(first, second)
+        )
 
 
 def test_additive_r3_snapshot_defaults_match_s0_identity() -> None:
@@ -232,7 +231,9 @@ def test_ruleset_document_round_trip_and_digest_stable() -> None:
 
 
 def test_golden_valid_ruleset_document_round_trips() -> None:
-    payload = json.loads((_GOLDEN / "valid" / "s1-net-cfg" / "document.json").read_text(encoding="utf-8"))
+    payload = json.loads(
+        (_GOLDEN / "valid" / "s1-net-cfg" / "document.json").read_text(encoding="utf-8")
+    )
     snapshot = table_ruleset_from_document(payload)
     assert snapshot.rules[0].selector.canonical_serialization() == "exact:net_cfg"
     assert snapshot.ruleset_digest == compute_ruleset_digest(payload)
@@ -240,7 +241,9 @@ def test_golden_valid_ruleset_document_round_trips() -> None:
 
 def _duplicate_selector_document() -> dict[str, object]:
     record = net_cfg_record().to_document()
-    document = table_ruleset_document(TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION))
+    document = table_ruleset_document(
+        TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION)
+    )
     document["rules"] = [record, record]
     return document
 
@@ -288,9 +291,7 @@ MALFORMED_RECORD_CASES: tuple[tuple[str, Callable[[], TableRuleRecord], str], ..
             compare_key_columns=("no",),
             ignored_columns=("no",),
             artifact_scope=TableArtifactScope.ALL_CHANGES,
-            dropped_columns=(
-                DroppedColumn(name="no", reason="legacy_ignored_column:rdb_cfg"),
-            ),
+            dropped_columns=(DroppedColumn(name="no", reason="legacy_ignored_column:rdb_cfg"),),
         ),
         "ignored columns must not be effective key columns",
     ),
@@ -379,7 +380,9 @@ def test_digest_mismatch_fails_closed() -> None:
 
 def test_golden_duplicate_selector_is_rejected() -> None:
     payload = json.loads(
-        (_GOLDEN / "malformed" / "s1-duplicate-selector" / "document.json").read_text(encoding="utf-8")
+        (_GOLDEN / "malformed" / "s1-duplicate-selector" / "document.json").read_text(
+            encoding="utf-8"
+        )
     )
     with pytest.raises(ValueError, match="duplicate selectors are forbidden"):
         table_ruleset_from_document(payload)
@@ -400,21 +403,32 @@ def test_configuration_contract_separates_storage_and_comparison_keys(table_name
     assert record.compare_excluded_columns == ()
 
 
-@pytest.mark.parametrize("field,value", (
-    ("selector", TableRuleSelector(TableRuleSelectorKind.EXACT, "other_cfg")),
-    ("compare_key_columns", ("no",)),
-    ("compare_key_mode", TableCompareKeyMode.RAW_PRIMARY_KEY),
-    ("artifact_scope", TableArtifactScope.UPDATE_ONLY),
-))
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("selector", TableRuleSelector(TableRuleSelectorKind.EXACT, "other_cfg")),
+        ("compare_key_columns", ("no",)),
+        ("compare_key_mode", TableCompareKeyMode.RAW_PRIMARY_KEY),
+        ("artifact_scope", TableArtifactScope.UPDATE_ONLY),
+    ),
+)
 def test_configuration_storage_exception_does_not_generalize(field: str, value: Any) -> None:
     record = next(r for r in migrated_table_rule_records() if r.selector.value == "iec104_cfg")
     with pytest.raises(ValueError, match="restricted to snapshot-only"):
         replace(record, **{field: value})
 
 
-@pytest.mark.parametrize("fault", ("missing_selector_condition", "extra_selector_field",
-                                  "non_string_condition", "old_contract", "old_ruleset",
-                                  "old_storage_projection"))
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "missing_selector_condition",
+        "extra_selector_field",
+        "non_string_condition",
+        "old_contract",
+        "old_ruleset",
+        "old_storage_projection",
+    ),
+)
 def test_ruleset_document_rejects_old_or_malformed_selector_contract(fault: str) -> None:
     document = table_ruleset_document(snapshot_from_records(net_cfg_record()))
     rules = document["rules"]
@@ -439,7 +453,8 @@ def test_ruleset_document_rejects_old_or_malformed_selector_contract(fault: str)
 def test_selector_comment_condition_is_bound_to_ruleset_digest() -> None:
     unconditional = ordered_syx_record()
     conditional = replace(
-        unconditional, selector=replace(unconditional.selector, table_comment_contains="引用表"),
+        unconditional,
+        selector=replace(unconditional.selector, table_comment_contains="引用表"),
     )
     plain = snapshot_from_records(unconditional)
     reference = snapshot_from_records(conditional)

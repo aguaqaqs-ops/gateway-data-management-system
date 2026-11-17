@@ -42,7 +42,11 @@ from gateway_backend.artifacts import (
     InMemoryArtifactStore,
     put_with_built_ref,
 )
-from gateway_backend.operations import OPERATION_RUNTIME_CONTRACT_VERSION, OperationRecord, OperationStatus
+from gateway_backend.operations import (
+    OPERATION_RUNTIME_CONTRACT_VERSION,
+    OperationRecord,
+    OperationStatus,
+)
 from gateway_backend.operations.contracts import JobStepKey
 from tests.support.artifact_staging import (
     object_and_sidecar_paths,
@@ -157,7 +161,9 @@ class _LocateTrackingStore(InMemoryArtifactStore):
         return super().locate(ref)
 
 
-def _operation_with_payload_bytes(job_payload: bytes, job_payload_ref: ArtifactRef | None = None) -> OperationRecord:
+def _operation_with_payload_bytes(
+    job_payload: bytes, job_payload_ref: ArtifactRef | None = None
+) -> OperationRecord:
     operation = _operation_record(job_payload=canonicalize_json_value({"seed": "alpha"}))
     object.__setattr__(operation, "job_payload", job_payload)
     object.__setattr__(operation, "job_payload_ref", job_payload_ref)
@@ -336,7 +342,9 @@ def _put_then_corrupt_bytes(store: InMemoryArtifactStore, raw: bytes, seed: str)
     return stored_ref
 
 
-REF_FAULT_CASES: tuple[tuple[str, Callable[[InMemoryArtifactStore, bytes], ArtifactRef], str], ...] = (
+REF_FAULT_CASES: tuple[
+    tuple[str, Callable[[InMemoryArtifactStore, bytes], ArtifactRef], str], ...
+] = (
     (
         "missing",
         lambda store, raw: ArtifactRef(
@@ -444,7 +452,12 @@ def test_local_store_payload_ref_reopen_round_trip(tmp_path: Path) -> None:
     root = staging_root(tmp_path)
     store = open_local_store(root)
     raw = canonicalize_json_value({"seed": "reopen-seed"})
-    ref = put_bytes(store, raw, artifact_id="a1:durable:272677dc6ddb1bbde29388e36f4a83b3b86ad8575e11893fd37860a9da9cbc8a", media_type="application/json")
+    ref = put_bytes(
+        store,
+        raw,
+        artifact_id="a1:durable:272677dc6ddb1bbde29388e36f4a83b3b86ad8575e11893fd37860a9da9cbc8a",
+        media_type="application/json",
+    )
     operation = _operation_record(job_payload=None, job_payload_ref=ref)
     decoded = decode_job_payload(
         definition,
@@ -470,7 +483,14 @@ def test_local_store_corrupt_payload_ref_fails_closed(tmp_path: Path, variant: s
     root = staging_root(tmp_path)
     store = open_local_store(root)
     raw = canonicalize_json_value({"seed": "corrupt"})
-    ref = put_bytes(store, raw, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"payload-{variant}"), media_type="application/json")
+    ref = put_bytes(
+        store,
+        raw,
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "test-fixture", f"payload-{variant}"
+        ),
+        media_type="application/json",
+    )
     object_path, _ = object_and_sidecar_paths(root, ref.artifact_id)
     payload_bytes = object_path.read_bytes()
     if variant == "truncated":
@@ -503,7 +523,9 @@ def test_local_store_missing_payload_ref_fails_closed(tmp_path: Path) -> None:
     object_path, sidecar_path = object_and_sidecar_paths(root, ref.artifact_id)
     object_path.unlink()
     sidecar_path.unlink()
-    with pytest.raises(PayloadDecodeError, match="unknown artifact_id|artifact bytes are missing|failed") as failure:
+    with pytest.raises(
+        PayloadDecodeError, match="unknown artifact_id|artifact bytes are missing|failed"
+    ) as failure:
         decode_job_payload(
             definition,
             operation,

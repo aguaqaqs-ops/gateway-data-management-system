@@ -1,12 +1,18 @@
 """Strict persisted Preview binding documents; SQL scalar scope is checked first."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 from gateway_shared_kernel import DigestRef
 from gateway_backend.domain.configuration_facts import ConfigurationFacts
 from gateway_backend.domain.workspace.models import (
-    PreviewArtifactRef, PreviewCanonicalBindings, PreviewComparisonPair, PreviewIdentityPair,
-    ProjectIdentityApplicability, ProjectIdentityMode, ProjectIdentityStatus,
+    PreviewArtifactRef,
+    PreviewCanonicalBindings,
+    PreviewComparisonPair,
+    PreviewIdentityPair,
+    ProjectIdentityApplicability,
+    ProjectIdentityMode,
+    ProjectIdentityStatus,
 )
 
 
@@ -21,7 +27,9 @@ class PreviewRefDocument(_StrictDocument):
     raw_sha256: str
 
     def to_model(self) -> PreviewArtifactRef:
-        return PreviewArtifactRef(self.artifact_id, self.media_type, self.size_bytes, DigestRef(self.raw_sha256))
+        return PreviewArtifactRef(
+            self.artifact_id, self.media_type, self.size_bytes, DigestRef(self.raw_sha256)
+        )
 
 
 class PreviewDigestsDocument(_StrictDocument):
@@ -43,11 +51,16 @@ class PreviewIdentityDocument(_StrictDocument):
     assessment_digest: str | None
 
     def to_model(self) -> PreviewIdentityPair:
-        return PreviewIdentityPair(pair_id=self.pair_id,
+        return PreviewIdentityPair(
+            pair_id=self.pair_id,
             applicability=ProjectIdentityApplicability(self.applicability),
-            status=ProjectIdentityStatus(self.status), mode=ProjectIdentityMode(self.mode),
+            status=ProjectIdentityStatus(self.status),
+            mode=ProjectIdentityMode(self.mode),
             assessment_ref=None if self.assessment_ref is None else self.assessment_ref.to_model(),
-            assessment_digest=None if self.assessment_digest is None else DigestRef(self.assessment_digest))
+            assessment_digest=None
+            if self.assessment_digest is None
+            else DigestRef(self.assessment_digest),
+        )
 
 
 class PreviewCanonicalDocument(_StrictDocument):
@@ -73,7 +86,8 @@ class PreviewCanonicalDocument(_StrictDocument):
             baseline_canonical_state_digest=DigestRef(self.baseline_canonical_state_digest),
             modified_canonical_state_digest=DigestRef(self.modified_canonical_state_digest),
             storage_projection_ruleset_digest=DigestRef(self.storage_projection_ruleset_digest),
-            rules_semantically_equal=self.rules_semantically_equal)
+            rules_semantically_equal=self.rules_semantically_equal,
+        )
 
 
 class PreviewBindingDocument(_StrictDocument):

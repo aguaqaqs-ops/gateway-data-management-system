@@ -119,7 +119,10 @@ class PrepareImportBuildInput:
             raise ValueError("canonical_table_set_closure_ref must be ArtifactRef")
         if type(self.canonicalization_manifest_ref) is not ArtifactRef:
             raise ValueError("canonicalization_manifest_ref must be ArtifactRef")
-        if self.parent_manifest is not None and type(self.parent_manifest) is not CanonicalizationManifest:
+        if (
+            self.parent_manifest is not None
+            and type(self.parent_manifest) is not CanonicalizationManifest
+        ):
             raise ValueError("parent_manifest must be CanonicalizationManifest or None")
         if type(self.parent_is_initial) is not bool:
             raise ValueError("parent_is_initial must be bool")
@@ -133,7 +136,10 @@ class PrepareImportBuildInput:
             or self.parent_manifest_digest != self.parent_manifest.manifest_digest.value
         ):
             raise ValueError("non-INITIAL parent requires a digest-bound manifest")
-        if self.canonical_table_set_closure_ref.raw_sha256.value != self.canonical_table_set_closure_digest:
+        if (
+            self.canonical_table_set_closure_ref.raw_sha256.value
+            != self.canonical_table_set_closure_digest
+        ):
             raise ValueError("canonical table closure artifact ref raw SHA must match digest")
         if type(self.removed_tables) is not tuple:
             raise ValueError("removed_tables must be a tuple")
@@ -208,7 +214,10 @@ class PrepareImportCheckpoint:
             raise ValueError("removed_tables must contain sorted unique table names")
         if type(self.canonicalization_manifest_ref) is not BackendArtifactRef:
             raise ValueError("canonicalization_manifest_ref must be BackendArtifactRef")
-        if type(self.canonicalization_manifest_digest) is not str or not self.canonicalization_manifest_digest:
+        if (
+            type(self.canonicalization_manifest_digest) is not str
+            or not self.canonicalization_manifest_digest
+        ):
             raise ValueError("canonicalization_manifest_digest must be a non-empty string")
         if type(self.backend_import_artifact_ref) is not BackendArtifactRef:
             raise ValueError("backend_import_artifact_ref must be BackendArtifactRef")
@@ -277,7 +286,9 @@ class AcceptSubmitCommand:
             raise ValueError("identity_confirmations must contain IdentityConfirmationRequest")
         actions = tuple(item.action for item in self.identity_confirmations)
         if len(actions) > 2 or len(set(actions)) != len(actions):
-            raise ValueError("identity_confirmations must have unique actions and at most two entries")
+            raise ValueError(
+                "identity_confirmations must have unique actions and at most two entries"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,7 +321,6 @@ class MatchingFinalizeFacts:
     completed_verification_policy: SubmitVerificationPolicy
     completed_unknown_type_policy: SubmitUnknownTypePolicy
     target_ref: SubmitTargetRef
-
 
     def __post_init__(self) -> None:
         validate_repository_artifact_id(self.repository_artifact_id)
@@ -382,8 +392,12 @@ def compute_accept_request_fingerprint(
     options: Mapping[str, object],
     identity_confirmations: tuple[IdentityConfirmationRequest, ...] = (),
 ) -> str:
-    for artifact_id in (*source_artifact_refs, canonical_table_set_closure_ref,
-            canonicalization_manifest_ref, preview_ready_closure_ref):
+    for artifact_id in (
+        *source_artifact_refs,
+        canonical_table_set_closure_ref,
+        canonicalization_manifest_ref,
+        preview_ready_closure_ref,
+    ):
         validate_artifact_id(artifact_id)
     payload = {
         "workspace_id": workspace_id,
@@ -526,11 +540,14 @@ def compute_replay_accept_fingerprint(
         identity_confirmations=command.identity_confirmations,
     )
 
-ALLOWED_ABORT_CODES = frozenset({
-    "IMPORT_REJECTED",
-    "EXPECTED_COMMIT_MISMATCH",
-    "VERIFICATION_FAILED_NOT_PUBLISHED",
-})
+
+ALLOWED_ABORT_CODES = frozenset(
+    {
+        "IMPORT_REJECTED",
+        "EXPECTED_COMMIT_MISMATCH",
+        "VERIFICATION_FAILED_NOT_PUBLISHED",
+    }
+)
 
 
 class RepositoryImportOperationStatus(StrEnum):
@@ -565,4 +582,3 @@ class RepositoryImportOperation:
     status: RepositoryImportOperationStatus
     result: RepositoryImportOperationResult | None = None
     error: RepositoryImportOperationError | None = None
-

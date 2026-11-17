@@ -20,6 +20,7 @@ from gateway_backend.operations.contracts import OperationRecord
 
 PERMISSION_WORKSPACE_READ = "workspace_read"
 
+
 def assert_workspace_read_permission(context: IdentityContext) -> None:
     assert_permission(context, PERMISSION_WORKSPACE_READ)
 
@@ -134,7 +135,9 @@ def authorize_history_compare_operation_read(
             status_code=404,
         )
     with unit_of_work_factory(read_only=True) as unit_of_work:
-        acceptance = unit_of_work.history_compare.get_acceptance_by_operation_id(operation.operation_id)
+        acceptance = unit_of_work.history_compare.get_acceptance_by_operation_id(
+            operation.operation_id
+        )
         if acceptance is None or acceptance.acceptance_id != acceptance_id:
             raise ApiError(
                 code="RESOURCE_NOT_FOUND",
@@ -185,14 +188,18 @@ def authorize_operation_read(
             status_code=404,
         )
     workspace = _authorize_workspace_scope(
-        context=context, workspace_id=workspace_id, workspace_repository=workspace_repository,
-        scope_resolution=scope_resolution)
+        context=context,
+        workspace_id=workspace_id,
+        workspace_repository=workspace_repository,
+        scope_resolution=scope_resolution,
+    )
     if operation.job_kind == SUBMIT_JOB_KIND:
         submit_attempt_id = submit_attempt_id_from_operation(operation)
         if submit_attempt_id is None:
             raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
-        attempt = submission_reader.get_submit_attempt(submit_attempt_id,
-            workspace_id=workspace_id, repository_id=workspace.repository_id)
+        attempt = submission_reader.get_submit_attempt(
+            submit_attempt_id, workspace_id=workspace_id, repository_id=workspace.repository_id
+        )
         if attempt is None:
             raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     return workspace
@@ -209,10 +216,14 @@ def read_submit_attempt(
 ) -> SubmitAttempt:
     assert_workspace_read_permission(context)
     workspace = _authorize_workspace_scope(
-        context=context, workspace_id=workspace_id, workspace_repository=workspace_repository,
-        scope_resolution=scope_resolution)
-    attempt = submission_reader.get_submit_attempt(submit_attempt_id,
-        workspace_id=workspace_id, repository_id=workspace.repository_id)
+        context=context,
+        workspace_id=workspace_id,
+        workspace_repository=workspace_repository,
+        scope_resolution=scope_resolution,
+    )
+    attempt = submission_reader.get_submit_attempt(
+        submit_attempt_id, workspace_id=workspace_id, repository_id=workspace.repository_id
+    )
     if attempt is None:
         raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     return attempt
@@ -229,10 +240,14 @@ def read_submission(
 ) -> Submission:
     assert_workspace_read_permission(context)
     workspace = _authorize_workspace_scope(
-        context=context, workspace_id=workspace_id, workspace_repository=workspace_repository,
-        scope_resolution=scope_resolution)
-    submission = submission_reader.get_submission(submission_id,
-        workspace_id=workspace_id, repository_id=workspace.repository_id)
+        context=context,
+        workspace_id=workspace_id,
+        workspace_repository=workspace_repository,
+        scope_resolution=scope_resolution,
+    )
+    submission = submission_reader.get_submission(
+        submission_id, workspace_id=workspace_id, repository_id=workspace.repository_id
+    )
     if submission is None:
         raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     return submission

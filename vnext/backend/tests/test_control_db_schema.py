@@ -108,7 +108,9 @@ def _object_names(connection: sqlite3.Connection, kind: str) -> set[str]:
     return {row[0] for row in rows}
 
 
-def _create_control_db(path: Path, statements: tuple[str, ...] = CONTROL_DB_SCHEMA_STATEMENTS) -> None:
+def _create_control_db(
+    path: Path, statements: tuple[str, ...] = CONTROL_DB_SCHEMA_STATEMENTS
+) -> None:
     connection = connect_control_db(path)
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -133,7 +135,10 @@ def _replace_in_statement(marker: str, old: str, new: str) -> tuple[str, ...]:
     assert len(matches) == 1, marker
     replaced = matches[0].replace(old, new, 1)
     assert replaced != matches[0], old
-    return tuple(replaced if statement == matches[0] else statement for statement in CONTROL_DB_SCHEMA_STATEMENTS)
+    return tuple(
+        replaced if statement == matches[0] else statement
+        for statement in CONTROL_DB_SCHEMA_STATEMENTS
+    )
 
 
 def test_empty_control_db_gets_every_table_and_index() -> None:
@@ -191,7 +196,11 @@ def test_archive_tables_and_selected_disposition_index_are_created() -> None:
     connection = _memory_connection()
     bootstrap_control_db_schema(connection)
 
-    assert {name for name in _object_names(connection, "table") if name.startswith("archive_") or name == "submission_disposition_records"} == ARCHIVE_TABLES
+    assert {
+        name
+        for name in _object_names(connection, "table")
+        if name.startswith("archive_") or name == "submission_disposition_records"
+    } == ARCHIVE_TABLES
     index_sql = connection.execute(
         "SELECT sql FROM sqlite_master WHERE name = 'submission_disposition_records_one_selected_per_result'"
     ).fetchone()[0]
@@ -248,7 +257,12 @@ def _with_extra_index(path: Path) -> None:
 
 
 def _with_changed_column(path: Path) -> None:
-    _create_control_db(path, _replace_in_statement("CREATE TABLE workspace_records", "owner_actor_id TEXT NOT NULL", "owner_actor_id TEXT"))
+    _create_control_db(
+        path,
+        _replace_in_statement(
+            "CREATE TABLE workspace_records", "owner_actor_id TEXT NOT NULL", "owner_actor_id TEXT"
+        ),
+    )
 
 
 def _with_old_migration_ledger(path: Path) -> None:
@@ -313,24 +327,36 @@ def test_file_that_is_not_sqlite_is_rejected_and_not_modified(tmp_path: Path) ->
     assert db_path.read_bytes() == b"not-a-sqlite-database"
 
 
-@pytest.mark.parametrize(("source", "assignment"), [
-    ("MANUAL_CLOSE", "source_kind = 'ARCHIVE'"),
-    ("MANUAL_CLOSE", "disposition = 'ARCHIVED_BASELINE'"),
-    ("MANUAL_CLOSE", "reason = NULL"),
-    ("MANUAL_CLOSE", "result_id = 'invented-result'"),
-    ("ARCHIVE", "source_kind = 'MANUAL_CLOSE'"),
-    ("ARCHIVE", "result_id = 'invented-result'"),
-])
-def test_submission_disposition_schema_enforces_one_real_terminal_source(db_path: Path, source: str, assignment: str) -> None:
+@pytest.mark.parametrize(
+    ("source", "assignment"),
+    [
+        ("MANUAL_CLOSE", "source_kind = 'ARCHIVE'"),
+        ("MANUAL_CLOSE", "disposition = 'ARCHIVED_BASELINE'"),
+        ("MANUAL_CLOSE", "reason = NULL"),
+        ("MANUAL_CLOSE", "result_id = 'invented-result'"),
+        ("ARCHIVE", "source_kind = 'MANUAL_CLOSE'"),
+        ("ARCHIVE", "result_id = 'invented-result'"),
+    ],
+)
+def test_submission_disposition_schema_enforces_one_real_terminal_source(
+    db_path: Path, source: str, assignment: str
+) -> None:
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
     from gateway_backend.application.archive.manual_close import close_submission
     from tests.support.archive_fixtures import (
-        seed_approved_archive_candidate, close_command, append_selection_confirmation, start_archive_for_seed, TS_ARCHIVE,
+        seed_approved_archive_candidate,
+        close_command,
+        append_selection_confirmation,
+        start_archive_for_seed,
+        TS_ARCHIVE,
     )
     from tests.test_review_transactions import _uow_factory
+
     seed = seed_approved_archive_candidate(db_path)
     if source == "MANUAL_CLOSE":
-        close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+        close_submission(
+            command=close_command(seed), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE
+        )
     else:
         start_archive_for_seed(seed, confirmation_sequence=append_selection_confirmation(seed))
     with pytest.raises(sqlite3.IntegrityError), ControlDbUnitOfWork(db_path) as uow:
@@ -369,7 +395,9 @@ def test_archive_and_history_persist_full_unicode_scope(statement: str, identity
 @pytest.mark.parametrize("statement", SCOPE_WRITE_STATEMENTS, ids=["archive", "history"])
 @pytest.mark.parametrize("identity", ["x" * 256, "a\x00b"])
 @pytest.mark.parametrize("field", [0, 1], ids=["device", "project"])
-def test_archive_and_history_reject_out_of_domain_scope(statement: str, identity: str, field: int) -> None:
+def test_archive_and_history_reject_out_of_domain_scope(
+    statement: str, identity: str, field: int
+) -> None:
     connection = _memory_connection()
     try:
         bootstrap_control_db_schema(connection)

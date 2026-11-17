@@ -136,7 +136,9 @@ def publish_canonicalization_manifest(
     return ref
 
 
-def open_canonicalization_manifest(store: ArtifactStorePort, ref: ArtifactRef) -> CanonicalizationManifest:
+def open_canonicalization_manifest(
+    store: ArtifactStorePort, ref: ArtifactRef
+) -> CanonicalizationManifest:
     if type(ref) is not ArtifactRef:
         raise PublicationError(
             ProjectionDiagnosticCode.BINDING_INVALID,
@@ -215,7 +217,10 @@ def _publish(
         )
     manifest = result.manifest
     import_input = result.import_input
-    if type(manifest) is not CanonicalizationManifest or type(import_input) is not RepositoryImportArtifactInput:
+    if (
+        type(manifest) is not CanonicalizationManifest
+        or type(import_input) is not RepositoryImportArtifactInput
+    ):
         raise _PublishFailed(
             _error(
                 ProjectionDiagnosticCode.BINDING_INVALID,
@@ -240,7 +245,9 @@ def _publish(
     stored_manifest = _locate(store, manifest_ref, context)
     if stored_manifest != manifest_bytes:
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.PUBLICATION_FAILED, "stored manifest bytes do not match")
+            _error(
+                ProjectionDiagnosticCode.PUBLICATION_FAILED, "stored manifest bytes do not match"
+            )
         )
     try:
         opened_manifest = canonicalization_manifest_from_bytes(stored_manifest)
@@ -294,7 +301,10 @@ def _assert_publication_authority(
 ) -> None:
     if manifest.manifest_digest is None:
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.BINDING_INVALID, "COMPLETE projection requires manifest_digest")
+            _error(
+                ProjectionDiagnosticCode.BINDING_INVALID,
+                "COMPLETE projection requires manifest_digest",
+            )
         )
     recomputed = compute_manifest_digest(replace(manifest, manifest_digest=None))
     if recomputed != manifest.manifest_digest:
@@ -313,7 +323,9 @@ def _assert_publication_authority(
     recorded = {table.name: table for table in manifest.tables}
     if set(projected) != set(recorded) or set(imported) != set(recorded):
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.BINDING_INVALID, "published tables must match the manifest")
+            _error(
+                ProjectionDiagnosticCode.BINDING_INVALID, "published tables must match the manifest"
+            )
         )
     for name, manifest_table in recorded.items():
         projected_table = projected[name]
@@ -397,11 +409,17 @@ def _put_bytes(
         )
     except ManifestVerificationError as exc:
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.PUBLICATION_FAILED, str(exc) or "artifact store write failed")
+            _error(
+                ProjectionDiagnosticCode.PUBLICATION_FAILED,
+                str(exc) or "artifact store write failed",
+            )
         ) from exc
     except OSError as exc:
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.PUBLICATION_FAILED, str(exc) or "artifact store write failed")
+            _error(
+                ProjectionDiagnosticCode.PUBLICATION_FAILED,
+                str(exc) or "artifact store write failed",
+            )
         ) from exc
     return ref
 
@@ -416,11 +434,17 @@ def _locate(
         return store.locate(ref)
     except ManifestVerificationError as exc:
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.PUBLICATION_FAILED, str(exc) or "artifact store read failed")
+            _error(
+                ProjectionDiagnosticCode.PUBLICATION_FAILED,
+                str(exc) or "artifact store read failed",
+            )
         ) from exc
     except OSError as exc:
         raise _PublishFailed(
-            _error(ProjectionDiagnosticCode.PUBLICATION_FAILED, str(exc) or "artifact store read failed")
+            _error(
+                ProjectionDiagnosticCode.PUBLICATION_FAILED,
+                str(exc) or "artifact store read failed",
+            )
         ) from exc
 
 

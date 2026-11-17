@@ -133,7 +133,9 @@ def _step_document(operation_id: str, step_id: str) -> dict[str, object]:
 def test_empty_file_backed_worker_reaches_ready_drains_and_reopens_wal(
     tmp_path: Path,
 ) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "state" / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     events: list[str] = []
     ready = Event()
@@ -161,13 +163,18 @@ def test_empty_file_backed_worker_reaches_ready_drains_and_reopens_wal(
     assert events[-2:] == ["drain_started", "worker_exited"]
     with connect_control_db(settings.control_db_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-        assert connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
-        ).fetchone()[0] == "step_records"
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
+            ).fetchone()[0]
+            == "step_records"
+        )
 
 
 def test_missing_runnable_handler_fails_closed_before_claim(tmp_path: Path) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-worker-1"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-worker-1"))
@@ -187,13 +194,18 @@ def test_missing_runnable_handler_fails_closed_before_claim(tmp_path: Path) -> N
         runtime.run(lambda: False, lambda _timeout: False)
 
     with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert (
+            unit_of_work.operations.get_operation(operation.operation_id).status
+            is OperationStatus.QUEUED
+        )
         assert unit_of_work.operations.get_step(step.step_id).status is StepStatus.PENDING
     assert any(event.code.value == "startup_failed" for event in events)
 
 
 def test_unsupported_job_contract_version_fails_closed_before_claim(tmp_path: Path) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     operation = operation_record_from_document(
         {
@@ -239,8 +251,7 @@ def test_unsupported_job_contract_version_rejected_at_claim_without_running_leas
     tmp_path: Path,
 ) -> None:
     settings = make_operation_worker_settings(
-        tmp_path,
-        control_db_path=tmp_path / "claim-version-gate" / "control.sqlite3"
+        tmp_path, control_db_path=tmp_path / "claim-version-gate" / "control.sqlite3"
     )
     bootstrap_control_database(settings)
     runtime = build_worker_runtime(
@@ -281,7 +292,9 @@ def test_unsupported_job_contract_version_rejected_at_claim_without_running_leas
 
 @pytest.mark.serial
 def test_registered_key_reaches_ready_with_empty_queue(tmp_path: Path) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "registered" / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "registered" / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     events: list[str] = []
     ready = Event()
@@ -413,10 +426,14 @@ def test_composed_file_backed_worker_claims_publishes_and_acks_while_gc_is_pause
 def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path) -> None:
     """The concrete worker composition applies R5 startup takeover before claiming."""
 
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "startup-recovery" / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "startup-recovery" / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-startup-recovery"))
-    step = step_record_from_document(_step_document(operation.operation_id, "step-startup-recovery"))
+    step = step_record_from_document(
+        _step_document(operation.operation_id, "step-startup-recovery")
+    )
     with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
         assert (
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
@@ -425,7 +442,9 @@ def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path
         claimed = OperationLifecycleActions(
             unit_of_work.operations,
             transaction_now=unit_of_work.operations.transaction_now,
-        ).claim_one(worker_id_for(settings.deployment_config, settings.instance_index), "lease-startup-old")
+        ).claim_one(
+            worker_id_for(settings.deployment_config, settings.instance_index), "lease-startup-old"
+        )
     assert claimed is not None
     with connect_control_db(settings.control_db_path) as connection:
         connection.execute(
@@ -462,7 +481,9 @@ def test_registered_runtime_startup_recovers_expired_running_step(tmp_path: Path
 def test_file_backed_heartbeat_and_concurrent_cancel_are_read_back(
     tmp_path: Path,
 ) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-worker-2"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-worker-2"))
@@ -578,7 +599,9 @@ def test_file_backed_heartbeat_and_concurrent_cancel_are_read_back(
 def test_file_backed_publication_reloads_versions_after_multiple_heartbeats(
     tmp_path: Path,
 ) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-worker-3"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-worker-3"))
@@ -656,7 +679,9 @@ def test_file_backed_publication_reloads_versions_after_multiple_heartbeats(
 def test_stale_cas_after_closure_artifact_put_leaves_no_ready_closure_ref(
     tmp_path: Path,
 ) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "stale-cas.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "stale-cas.sqlite3"
+    )
     bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()
     operation = operation_record_from_document(_operation_document("operation-stale-cas"))
@@ -735,7 +760,9 @@ def test_stale_cas_after_closure_artifact_put_leaves_no_ready_closure_ref(
 
 
 def test_ready_closure_ref_set_once_rejects_second_publication(tmp_path: Path) -> None:
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "closure-once.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "closure-once.sqlite3"
+    )
     bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()
     operation = operation_record_from_document(_operation_document("operation-closure-once"))
@@ -1040,9 +1067,14 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
 
 
 @pytest.mark.serial
-def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tmp_path: Path) -> None:
+def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(
+    tmp_path: Path,
+) -> None:
     from gateway_backend.capabilities.table_access import current_kernel_context
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "pure-drain.sqlite3")
+
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "pure-drain.sqlite3"
+    )
     bootstrap_control_database(settings)
     operation = operation_record_from_document(_operation_document("operation-pure-drain"))
     step = step_record_from_document(_step_document(operation.operation_id, "step-pure-drain"))
@@ -1056,7 +1088,9 @@ def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tm
         if event.code.value == "drain_started":
             draining.set()
 
-    def compute(op: OperationRecord, current: StepRecord, control: ExecutionControl, session: LeaseSession) -> ExecutorAcknowledgment:
+    def compute(
+        op: OperationRecord, current: StepRecord, control: ExecutionControl, session: LeaseSession
+    ) -> ExecutorAcknowledgment:
         entered.set()
         assert release.wait(timeout=5)
         context = current_kernel_context()
@@ -1064,8 +1098,13 @@ def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tm
         context.checkpoint()
         raise AssertionError("draining compute returned past the control boundary")
 
-    runtime = build_worker_runtime(settings, observer=observe, job_definitions=(_registered_definition(),),
-        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, compute)}, payload_decoders={REGISTERED_DECODER: lambda payload: payload})
+    runtime = build_worker_runtime(
+        settings,
+        observer=observe,
+        job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, compute)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+    )
     runner = Thread(target=runtime.run, args=(stop.is_set, stop.wait), daemon=False)
     runner.start()
     try:
@@ -1084,12 +1123,18 @@ def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tm
     assert "executor_failed" not in events
     with ControlDbUnitOfWork(settings.control_db_path, read_only=True) as uow:
         yielded = uow.operations.get_step(step.step_id)
-        assert uow.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+        assert (
+            uow.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+        )
     assert yielded.status is StepStatus.RETRY_WAIT and yielded.attempt_count == 1
     assert yielded.checkpoint_ref is None and yielded.prior_output_refs == ()
-    restarted = build_worker_runtime(settings, observer=lambda event: None,
-        job_definitions=(_registered_definition(),), handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
-        payload_decoders={REGISTERED_DECODER: lambda payload: payload})
+    restarted = build_worker_runtime(
+        settings,
+        observer=lambda event: None,
+        job_definitions=(_registered_definition(),),
+        handlers={REGISTERED_HANDLER: cast(ClaimedExecutor, _noop_handler)},
+        payload_decoders={REGISTERED_DECODER: lambda payload: payload},
+    )
     assert restarted._startup.startup() is StartupDisposition.READY
     claimed = restarted._startup.claim_one()
     assert claimed is not None and claimed.step.attempt_count == 1
@@ -1101,14 +1146,20 @@ def test_two_processes_claim_distinct_steps_on_shared_sqlite(tmp_path: Path) -> 
     import subprocess
     import sys
 
-    settings = make_operation_worker_settings(tmp_path, control_db_path=tmp_path / "control.sqlite3")
+    settings = make_operation_worker_settings(
+        tmp_path, control_db_path=tmp_path / "control.sqlite3"
+    )
     bootstrap_control_database(settings)
     with ControlDbUnitOfWork(settings.control_db_path) as unit_of_work:
         for index in range(2):
-            operation = operation_record_from_document(_operation_document(f"operation-race-{index}"))
-            step = step_record_from_document(_step_document(operation.operation_id, f"step-race-{index}"))
+            operation = operation_record_from_document(
+                _operation_document(f"operation-race-{index}")
+            )
+            step = step_record_from_document(
+                _step_document(operation.operation_id, f"step-race-{index}")
+            )
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
-    child = r'''
+    child = r"""
 import sys
 from pathlib import Path
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
@@ -1129,12 +1180,20 @@ sys.stdin.readline()
 work = startup.claim_one()
 assert work is not None
 print(work.step.step_id, flush=True)
-'''
+"""
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(Path(__file__).parents[1] / "src")
-    children = [subprocess.Popen([sys.executable, "-c", child, str(settings.control_db_path), f"worker-{i}"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment)
-        for i in range(2)]
+    children = [
+        subprocess.Popen(
+            [sys.executable, "-c", child, str(settings.control_db_path), f"worker-{i}"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+        )
+        for i in range(2)
+    ]
     try:
         for process in children:
             assert process.stdout is not None

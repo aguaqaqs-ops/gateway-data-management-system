@@ -185,8 +185,12 @@ class SQLiteHistoryCompareRepository:
         )
 
     def find_candidates(
-        self, *, gateway_device_external_key: str, business_project_id: str,
-        request_fingerprint: str, now: datetime,
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        request_fingerprint: str,
+        now: datetime,
     ) -> tuple[HistoryCompareAcceptanceRecord, ...]:
         rows = self._connection.execute(
             """SELECT a.* FROM history_compare_acceptance_records a
@@ -197,7 +201,12 @@ class SQLiteHistoryCompareRepository:
                       (o.status = 'SUCCEEDED' AND o.completed_at_us + a.result_retention_seconds * 1000000 > ?))
                ORDER BY CASE WHEN o.status IN ('QUEUED', 'RUNNING') THEN 0 ELSE 1 END,
                         a.created_at_us DESC, a.operation_id DESC LIMIT 9""",
-            (gateway_device_external_key, business_project_id, request_fingerprint, _datetime_to_epoch_us(now)),
+            (
+                gateway_device_external_key,
+                business_project_id,
+                request_fingerprint,
+                _datetime_to_epoch_us(now),
+            ),
         ).fetchall()
         return tuple(_acceptance_from_row(row) for row in rows)
 
@@ -207,13 +216,24 @@ class SQLiteHistoryCompareRepository:
             """INSERT INTO history_compare_aliases
                (gateway_device_external_key, business_project_id, idempotency_key, operation_id, request_fingerprint)
                VALUES (?, ?, ?, ?, ?)""",
-            (record.gateway_device_external_key, record.business_project_id, idempotency_key,
-             record.operation_id, record.request_fingerprint),
+            (
+                record.gateway_device_external_key,
+                record.business_project_id,
+                idempotency_key,
+                record.operation_id,
+                record.request_fingerprint,
+            ),
         )
 
     def list_acceptances(
-        self, *, gateway_device_external_key: str, business_project_id: str, repository_id: str,
-        now: datetime, after: tuple[datetime, str] | None, limit: int,
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        repository_id: str,
+        now: datetime,
+        after: tuple[datetime, str] | None,
+        limit: int,
     ) -> tuple[HistoryCompareAcceptanceRecord, ...]:
         after_us = None if after is None else _datetime_to_epoch_us(after[0])
         after_id = None if after is None else after[1]
@@ -226,12 +246,22 @@ class SQLiteHistoryCompareRepository:
                        o.completed_at_us + a.result_retention_seconds * 1000000 > ?))
                  AND (? IS NULL OR (a.created_at_us, a.operation_id) < (?, ?))
                ORDER BY a.created_at_us DESC, a.operation_id DESC LIMIT ?""",
-            (gateway_device_external_key, business_project_id, repository_id, _datetime_to_epoch_us(now),
-             after_us, after_us, after_id, limit),
+            (
+                gateway_device_external_key,
+                business_project_id,
+                repository_id,
+                _datetime_to_epoch_us(now),
+                after_us,
+                after_us,
+                after_id,
+                limit,
+            ),
         ).fetchall()
         return tuple(_acceptance_from_row(row) for row in rows)
 
-    def active_operation_ids(self, *, gateway_device_external_key: str, business_project_id: str) -> tuple[str, ...]:
+    def active_operation_ids(
+        self, *, gateway_device_external_key: str, business_project_id: str
+    ) -> tuple[str, ...]:
         rows = self._connection.execute(
             """SELECT a.operation_id FROM history_compare_acceptance_records a
                JOIN operation_records o ON o.operation_id = a.operation_id
@@ -249,18 +279,27 @@ class SQLiteHistoryCompareRepository:
         return int(row[0])
 
     def result_protection_matches(
-        self, operation_id: str, artifact_ids: frozenset[str], expires_at: datetime,
+        self,
+        operation_id: str,
+        artifact_ids: frozenset[str],
+        expires_at: datetime,
     ) -> bool:
         rows = self._connection.execute(
             """SELECT artifact_id, expires_at_us FROM artifact_protection_intents
                WHERE owner_kind = 'history-compare-operation' AND owner_id = ?
-                 AND intent = 'history-compare-result'""", (operation_id,),
+                 AND intent = 'history-compare-result'""",
+            (operation_id,),
         ).fetchall()
         expiry = _datetime_to_epoch_us(expires_at)
-        return (bool(artifact_ids) and all(row[1] == expiry for row in rows)
-                and artifact_ids.issubset({row[0] for row in rows}))
+        return (
+            bool(artifact_ids)
+            and all(row[1] == expiry for row in rows)
+            and artifact_ids.issubset({row[0] for row in rows})
+        )
 
-    def get_acceptance_by_operation_id(self, operation_id: str) -> HistoryCompareAcceptanceRecord | None:
+    def get_acceptance_by_operation_id(
+        self, operation_id: str
+    ) -> HistoryCompareAcceptanceRecord | None:
         return get_acceptance_by_operation_id(self._connection, operation_id)
 
     def save_acceptance(self, record: HistoryCompareAcceptanceRecord) -> None:
@@ -284,6 +323,7 @@ class SQLiteHistoryCompareRepository:
             ref_kind=ref_kind,
             ref_id=ref_id,
         )
+
 
 __all__ = [
     "SQLiteHistoryCompareRepository",

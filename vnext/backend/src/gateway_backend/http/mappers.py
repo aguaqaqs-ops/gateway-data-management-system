@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.workspace.contracts import CreateOrGetWorkspaceResult, PreviewReadState
+from gateway_backend.application.workspace.contracts import (
+    CreateOrGetWorkspaceResult,
+    PreviewReadState,
+)
 from gateway_backend.domain.workspace.models import (
     SourceArtifactBinding,
     SourceArtifactRole,
@@ -55,7 +58,9 @@ def upload_revision_to_response(
             size_bytes=binding.size_bytes,
             raw_sha256=binding.raw_sha256,
         )
-        for role, binding in sorted(revision.source_artifacts.items(), key=lambda item: item[0].value)
+        for role, binding in sorted(
+            revision.source_artifacts.items(), key=lambda item: item[0].value
+        )
     }
     return UploadRevisionResponse(
         upload_revision_id=revision.upload_revision_id,

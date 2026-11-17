@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id
 
-from tests.support.configuration_facts import preview_result_with_facts, submit_attempt_with_facts, submission_with_facts
+from tests.support.configuration_facts import (
+    preview_result_with_facts,
+    submit_attempt_with_facts,
+    submission_with_facts,
+)
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -202,7 +206,9 @@ class SubmitApplicationHarness:
         )
 
 
-def _preview_result(*, workspace_id: str, bundle_digest: str = "sha256:preview-canonical") -> PreviewResult:
+def _preview_result(
+    *, workspace_id: str, bundle_digest: str = "sha256:preview-canonical"
+) -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return preview_result_with_facts(
         preview_result_id="pr-1",
@@ -228,8 +234,16 @@ def _preview_result(*, workspace_id: str, bundle_digest: str = "sha256:preview-c
         canonical=make_preview_canonical_bindings(generated_source_ids=True),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
-        bundle_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8"),
-        ready_closure_artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
+        bundle_artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "6bdbbcf5200d12808c6e59f3161b4a14014cb51001681a1592b78b29ff2b8ef8",
+        ),
+        ready_closure_artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        ),
         operation_id="op-preview-1",
         created_at=TS1,
     )
@@ -248,13 +262,21 @@ def _seed_ready_workspace(
         input_completeness=InputCompleteness.FULL,
         source_artifacts={
             SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"),
+                artifact_id=build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "test-fixture",
+                    "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                ),
                 media_type="application/gzip",
                 size_bytes=1,
                 raw_sha256="sha256:initial",
             ),
             SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+                artifact_id=build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "test-fixture",
+                    "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                ),
                 media_type="application/gzip",
                 size_bytes=2,
                 raw_sha256="sha256:modified",
@@ -318,7 +340,18 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
         canonical_business_digest=preview.canonical.modified_canonical_state_digest.value,
         source_digest=preview.digests.source_digest,
         snapshot_digest=preview.digests.snapshot_digest,
-        source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"), build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")),
+        source_artifact_refs=(
+            build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            ),
+            build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+            ),
+        ),
         canonical_table_set_closure_ref=(
             preview.canonical.canonical_table_set_closure_ref.artifact_id
         ),
@@ -399,7 +432,10 @@ def test_validate_accept_submit_accepts_current_preview_binding(
 
     assert result.replay is False
     assert result.repository_expected_commit_id == "commit-main"
-    assert result.canonical_business_digest == PREVIEW_RESULT.canonical.modified_canonical_state_digest.value
+    assert (
+        result.canonical_business_digest
+        == PREVIEW_RESULT.canonical.modified_canonical_state_digest.value
+    )
     assert result.accept_request_fingerprint.startswith("sha256:")
 
 
@@ -536,7 +572,9 @@ def test_validate_accept_submit_replays_after_workspace_generation_change(
         current_upload_revision_id="ur-2",
         current_preview_result_id="pr-2",
     )
-    harness.workspace_repository.save_workspace(bumped, expected_version=WORKSPACE.optimistic_version)
+    harness.workspace_repository.save_workspace(
+        bumped, expected_version=WORKSPACE.optimistic_version
+    )
     harness.main_resolve.resolve_calls = 0
 
     result = harness.validate(make_accept_command(idempotency_key="accept-key-1"))
@@ -562,12 +600,8 @@ def test_validate_accept_submit_conflicts_on_tampered_idempotency_fingerprint(
     submit_application_harness: SubmitApplicationHarness,
 ) -> None:
     harness = submit_application_harness
-    record = harness.submission_repository._idempotency[
-        (WORKSPACE.workspace_id, "accept-key-1")
-    ]
-    harness.submission_repository._idempotency[
-        (WORKSPACE.workspace_id, "accept-key-1")
-    ] = replace(
+    record = harness.submission_repository._idempotency[(WORKSPACE.workspace_id, "accept-key-1")]
+    harness.submission_repository._idempotency[(WORKSPACE.workspace_id, "accept-key-1")] = replace(
         record,
         request_fingerprint="sha256:tampered",
     )
@@ -578,7 +612,11 @@ def test_validate_accept_submit_conflicts_on_tampered_idempotency_fingerprint(
 
 def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
     backend_ref = BackendArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d684409d36e389c9c928ecd53b1e82ece60c6d9e29dd7bb126bb09b9abee54d9",
+        ),
         media_type="application/vnd.gateway.repository-import.v1+tar+zstd",
         size_bytes=10,
         raw_sha256="sha256:package",
@@ -603,12 +641,30 @@ def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
         canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"),),
-        canonical_table_set_closure_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884"),
+        source_artifact_refs=(
+            build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",
+            ),
+        ),
+        canonical_table_set_closure_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
+        ),
         canonical_table_set_closure_digest="sha256:canonical-table-closure",
-        preview_ready_closure_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1"),
+        preview_ready_closure_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
+        ),
         preview_ready_closure_digest="d-closure",
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_ref=backend_ref,
         repository_artifact_ref=repository_ref,
@@ -628,7 +684,11 @@ def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
         optimistic_version=1,
         created_by="actor-1",
         created_at=TS0,
-        prepared_canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        prepared_canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         prepared_canonicalization_manifest_digest="sha256:manifest",
         effect_pending_at=TS0,
     )
@@ -642,7 +702,11 @@ def _matching_finalize_facts(**overrides: Any) -> MatchingFinalizeFacts:
         repository_expected_parent_commit_id="commit-main",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
         repository_import_artifact_raw_sha256="sha256:package",
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest="sha256:manifest",
         completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         completed_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
@@ -652,9 +716,15 @@ def _matching_finalize_facts(**overrides: Any) -> MatchingFinalizeFacts:
 
 
 FINALIZE_MATCHING_FAULTS = (
-    ({"repository_operation_id": "repo-op-other"}, "repository operation identity does not match attempt"),
+    (
+        {"repository_operation_id": "repo-op-other"},
+        "repository operation identity does not match attempt",
+    ),
     ({"repository_id": "repo-other"}, "repository scope does not match attempt"),
-    ({"repository_artifact_id": "51ddacc4-0f9e-5c1f-8c7e-70a8520fcc6b"}, "repository artifact id does not match attempt checkpoint"),
+    (
+        {"repository_artifact_id": "51ddacc4-0f9e-5c1f-8c7e-70a8520fcc6b"},
+        "repository artifact id does not match attempt checkpoint",
+    ),
 )
 
 
@@ -718,8 +788,18 @@ def test_validate_finalize_replay_rejects_mismatched_artifact_id() -> None:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"),),
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        source_artifact_refs=(
+            build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",
+            ),
+        ),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
@@ -732,7 +812,9 @@ def test_validate_finalize_replay_rejects_mismatched_artifact_id() -> None:
     )
     facts = _matching_finalize_facts(repository_artifact_id="51ddacc4-0f9e-5c1f-8c7e-70a8520fcc6b")
 
-    with pytest.raises(FinalizeBindingMismatch, match="repository artifact id does not match attempt checkpoint"):
+    with pytest.raises(
+        FinalizeBindingMismatch, match="repository artifact id does not match attempt checkpoint"
+    ):
         validate_finalize_replay(attempt=attempt, submission=submission, facts=facts)
 
 
@@ -826,8 +908,18 @@ def test_finalize_submit_replay_returns_existing_submission() -> None:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"),),
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        source_artifact_refs=(
+            build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",
+            ),
+        ),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",

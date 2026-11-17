@@ -38,12 +38,19 @@ MODULE = "gateway_backend.bootstrap.operation_worker"
 @contextmanager
 def _spawn_worker(db_path: Path) -> Iterator[subprocess.Popen[str]]:
     environment = _subprocess_environment(db_path)
-    with repository_ready_stub_context(db_path.parent,
-            storage_layout_file=Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"])) as repository:
+    with repository_ready_stub_context(
+        db_path.parent, storage_layout_file=Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"])
+    ) as repository:
         environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = repository.base_url
-        process = subprocess.Popen([sys.executable, "-m", MODULE], cwd=BACKEND_ROOT,
-            env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1)
+        process = subprocess.Popen(
+            [sys.executable, "-m", MODULE],
+            cwd=BACKEND_ROOT,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
         try:
             yield process
         finally:
@@ -63,11 +70,18 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     token_file = db_path.parent / "repository-bearer-token"
     token_file.write_text("test-repository-token\n", encoding="utf-8")
     fixture_settings = make_operation_worker_settings(db_path.parent, control_db_path=db_path)
-    storage_file, resources_file = fixture_settings.storage_layout_file, fixture_settings.resource_profile_file
+    storage_file, resources_file = (
+        fixture_settings.storage_layout_file,
+        fixture_settings.resource_profile_file,
+    )
     environment["GATEWAY_BACKEND_OPERATION_WORKER_RUNTIME_MODE"] = "host"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_INSTANCE_INDEX"] = "1"
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_PROCESSING_GROUPS_FILE"] = str(fixture_settings.processing_groups_file)
-    environment["GATEWAY_BACKEND_OPERATION_WORKER_DEVICE_DIRECTORY_FILE"] = str(fixture_settings.device_directory_file)
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_PROCESSING_GROUPS_FILE"] = str(
+        fixture_settings.processing_groups_file
+    )
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_DEVICE_DIRECTORY_FILE"] = str(
+        fixture_settings.device_directory_file
+    )
     environment["GATEWAY_STORAGE_LAYOUT_FILE"] = str(storage_file)
     environment["GATEWAY_RESOURCE_PROFILE_FILE"] = str(resources_file)
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
@@ -129,9 +143,12 @@ def test_module_worker_bootstraps_empty_db_and_drains_on_sigterm(tmp_path: Path)
         assert db_path.is_file()
         with sqlite3.connect(db_path) as connection:
             assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-            assert connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
-            ).fetchone()[0] == "step_records"
+            assert (
+                connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
+                ).fetchone()[0]
+                == "step_records"
+            )
 
 
 @pytest.mark.parametrize("failure_kind", ("corrupt", "structure_mismatch"))
@@ -260,7 +277,7 @@ def test_process_termination_respects_checkpoint_commit_barrier(
     """
     db_path = tmp_path / "termination" / "control.sqlite3"
     db_path.parent.mkdir(parents=True)
-    child_code = r'''
+    child_code = r"""
 import dataclasses
 import sys
 from datetime import UTC, datetime, timedelta
@@ -330,7 +347,7 @@ session.publish_checkpoint(
 )
 print("AFTER_CHECKPOINT", flush=True)
 sys.stdin.buffer.read(1)
-'''
+"""
     process = subprocess.Popen(
         [sys.executable, "-c", child_code, str(db_path)],
         cwd=BACKEND_ROOT,
@@ -365,7 +382,7 @@ sys.stdin.buffer.read(1)
     assert persisted_step.lease_expires_at < datetime.now(UTC) - timedelta(seconds=1)
 
 
-_INSTANCE_CHILD = r'''
+_INSTANCE_CHILD = r"""
 import sys
 import threading
 from gateway_backend.bootstrap.worker_instance import acquire_worker_instance
@@ -387,16 +404,25 @@ if sys.argv[2] == "thread":
 else:
     identity = acquire_worker_instance(settings.deployment_config, settings.instance_index)
 print("ACQUIRED " + identity, flush=True)
-'''
+"""
 
 
 def _instance_process(environment: dict[str, str], index: int, mode: str) -> subprocess.Popen[str]:
-    return subprocess.Popen([sys.executable, "-c", _INSTANCE_CHILD, str(index), mode],
-        cwd=BACKEND_ROOT, env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, bufsize=1)
+    return subprocess.Popen(
+        [sys.executable, "-c", _INSTANCE_CHILD, str(index), mode],
+        cwd=BACKEND_ROOT,
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
 
 
-def test_fixed_instance_lock_survives_main_return_and_allows_distinct_instances(tmp_path: Path) -> None:
+def test_fixed_instance_lock_survives_main_return_and_allows_distinct_instances(
+    tmp_path: Path,
+) -> None:
     import json
     from gateway_backend.bootstrap.deployment_identity import publish_configuration
     from gateway_backend.deployment_config import DeploymentConfig
@@ -404,8 +430,9 @@ def test_fixed_instance_lock_survives_main_return_and_allows_distinct_instances(
     environment = _subprocess_environment(tmp_path / "instance" / "control.sqlite3")
     resources_file = Path(environment["GATEWAY_RESOURCE_PROFILE_FILE"])
     resources = json.loads(resources_file.read_bytes())
-    resources["worker"].update(count=2, active_limit=2, memory_envelope_bytes=16 * 1024**3,
-                               kernel_memory_bytes=8 * 1024**3)
+    resources["worker"].update(
+        count=2, active_limit=2, memory_envelope_bytes=16 * 1024**3, kernel_memory_bytes=8 * 1024**3
+    )
     resources_file.write_text(json.dumps(resources))
     config = DeploymentConfig.load(Path(environment["GATEWAY_STORAGE_LAYOUT_FILE"]), resources_file)
     publish_configuration(config)
@@ -439,7 +466,9 @@ def test_fixed_instance_lock_survives_main_return_and_allows_distinct_instances(
 
 
 @pytest.mark.parametrize("kind", ["symlink", "directory", "fifo", "permissions"])
-def test_worker_instance_lock_rejects_redirected_or_invalid_files(tmp_path: Path, kind: str) -> None:
+def test_worker_instance_lock_rejects_redirected_or_invalid_files(
+    tmp_path: Path, kind: str
+) -> None:
     environment = _subprocess_environment(tmp_path / "invalid-lock" / "control.sqlite3")
     lock = tmp_path / "invalid-lock" / ".gateway-worker-1.lock"
     if kind == "symlink":

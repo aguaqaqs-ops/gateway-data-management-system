@@ -8,8 +8,13 @@ from contextlib import closing
 from typing import Any
 
 from gateway_backend.capabilities.comparison import (
-    ComparisonFacts, ComparisonPlan, ComparisonRequest, ComparisonRecordKind, ComparisonTableStatus,
-    DetailedFactsResult, plan_comparison,
+    ComparisonFacts,
+    ComparisonPlan,
+    ComparisonRequest,
+    ComparisonRecordKind,
+    ComparisonTableStatus,
+    DetailedFactsResult,
+    plan_comparison,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
 from tests.support.comparison_s3_e_live import canonical_bound
@@ -28,8 +33,12 @@ def test_comparison_view_projects_runtime_role_keys_and_column_disposition() -> 
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
 
     standard = resolve_comparison_rule_view(rules, "composite_signal_point", table_comment=None)
-    standard_again = resolve_comparison_rule_view(rules, "composite_signal_point", table_comment=None)
-    ordered = resolve_comparison_rule_view(rules, "b1_n1_iec104_syx_list", table_comment="遥信引用表")
+    standard_again = resolve_comparison_rule_view(
+        rules, "composite_signal_point", table_comment=None
+    )
+    ordered = resolve_comparison_rule_view(
+        rules, "b1_n1_iec104_syx_list", table_comment="遥信引用表"
+    )
     browse = resolve_comparison_rule_view(rules, "version_manager", table_comment=None)
     snapshot = resolve_comparison_rule_view(rules, "forwardtable_demo", table_comment=None)
     skipped = resolve_comparison_rule_view(rules, "device_model_table", table_comment=None)
@@ -58,30 +67,39 @@ def test_comparison_view_projects_runtime_role_keys_and_column_disposition() -> 
 
 def test_comparison_view_resolves_raw_primary_key_from_runtime_descriptor() -> None:
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
-    view = resolve_comparison_rule_view(rules, "fallback_table", primary_key_columns=("ID",), table_comment=None)
+    view = resolve_comparison_rule_view(
+        rules, "fallback_table", primary_key_columns=("ID",), table_comment=None
+    )
 
     assert view is not None
     assert view.comparison_role is ComparisonRole.STANDARD
     assert view.effective_key_columns == ("id",)
 
 
-
-
-def _configuration_sql(name: str, rows: str, *, key_column: str = "page_no",
-                       primary_key: bool = True) -> str:
-    sql = (f"CREATE TABLE {name} (id INT{' PRIMARY KEY' if primary_key else ''}, "
-           f"{key_column} VARCHAR(8), no VARCHAR(8), value TEXT);")
+def _configuration_sql(
+    name: str, rows: str, *, key_column: str = "page_no", primary_key: bool = True
+) -> str:
+    sql = (
+        f"CREATE TABLE {name} (id INT{' PRIMARY KEY' if primary_key else ''}, "
+        f"{key_column} VARCHAR(8), no VARCHAR(8), value TEXT);"
+    )
     return sql + (f"INSERT INTO {name} VALUES {rows};" if rows else "")
 
 
 def _configuration_compare(
-    before_sql: str, current_sql: str, *, records_out: list[dict[str, Any]] | None = None,
+    before_sql: str,
+    current_sql: str,
+    *,
+    records_out: list[dict[str, Any]] | None = None,
 ) -> ComparisonFacts:
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="configuration-contract", before=canonical_bound(before_sql),
-        current=canonical_bound(current_sql),
-        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="configuration-contract",
+            before=canonical_bound(before_sql),
+            current=canonical_bound(current_sql),
+            rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     with closing(compare_plan_native(planned)) as product:
         assert isinstance(product.result, DetailedFactsResult)
@@ -96,7 +114,9 @@ def _configuration_compare(
 @pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
 def test_configuration_rows_align_page_and_number_and_emit_all_changes(table_name: str) -> None:
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
-    view = resolve_comparison_rule_view(rules, table_name, primary_key_columns=("id",), table_comment=None)
+    view = resolve_comparison_rule_view(
+        rules, table_name, primary_key_columns=("id",), table_comment=None
+    )
     assert view is not None
     assert view.comparison_role is ComparisonRole.STANDARD
     assert view.effective_key_columns == ("page_no", "no")
@@ -107,27 +127,39 @@ def test_configuration_rows_align_page_and_number_and_emit_all_changes(table_nam
         _configuration_sql(table_name, "(1,'1','1','same'),(2,'2','1','new'),(4,'4','1','added')"),
         records_out=records,
     )
-    table, = facts.tables
+    (table,) = facts.tables
     assert table.status is ComparisonTableStatus.MODIFIED
     assert (table.row_added_count, table.row_deleted_count, table.row_modified_count) == (1, 1, 1)
     assert {record["record_kind"] for record in records} == {
-        "ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED",
+        "ROW_ADDED",
+        "ROW_DELETED",
+        "ROW_MODIFIED",
     }
-    modified, = (record for record in records if record["record_kind"] == "ROW_MODIFIED")
+    (modified,) = (record for record in records if record["record_kind"] == "ROW_MODIFIED")
     assert modified["changed_columns"] == ["value"]
-    key = encode_row([
-        RowField("no", DeclaredType(DeclaredTypeKind.STRING), StringScalar("1")),
-        RowField("page_no", DeclaredType(DeclaredTypeKind.STRING), StringScalar("2")),
-    ])
+    key = encode_row(
+        [
+            RowField("no", DeclaredType(DeclaredTypeKind.STRING), StringScalar("1")),
+            RowField("page_no", DeclaredType(DeclaredTypeKind.STRING), StringScalar("2")),
+        ]
+    )
     assert modified["row_identity"] == key.digest_ref.raw_digest
     assert modified["before_values"][0]["value"]["text"] == "old"
     assert modified["current_values"][0]["value"]["text"] == "new"
-    assert (facts.summary.row_added_count, facts.summary.row_deleted_count,
-            facts.summary.row_modified_count) == (1, 1, 1)
+    assert (
+        facts.summary.row_added_count,
+        facts.summary.row_deleted_count,
+        facts.summary.row_modified_count,
+    ) == (1, 1, 1)
 
 
 COMPARISON_KEY_FAULTS = (
-    ("duplicate", "(1,'1','1','a'),(2,'1','1','b')", "page_no", "DUPLICATE_EFFECTIVE_KEY:iec104_cfg"),
+    (
+        "duplicate",
+        "(1,'1','1','a'),(2,'1','1','b')",
+        "page_no",
+        "DUPLICATE_EFFECTIVE_KEY:iec104_cfg",
+    ),
     ("null-page", "(1,NULL,'1','a')", "page_no", "NULL_EFFECTIVE_KEY:iec104_cfg"),
     ("null-no", "(1,'1',NULL,'a')", "page_no", "NULL_EFFECTIVE_KEY:iec104_cfg"),
     ("empty-page", "(1,'','1','a')", "page_no", "EMPTY_EFFECTIVE_KEY:iec104_cfg"),
@@ -136,17 +168,25 @@ COMPARISON_KEY_FAULTS = (
 )
 
 
-@pytest.mark.parametrize("label,rows,key_column,diagnostic", COMPARISON_KEY_FAULTS,
-                         ids=[case[0] for case in COMPARISON_KEY_FAULTS])
+@pytest.mark.parametrize(
+    "label,rows,key_column,diagnostic",
+    COMPARISON_KEY_FAULTS,
+    ids=[case[0] for case in COMPARISON_KEY_FAULTS],
+)
 @pytest.mark.parametrize("fault_side", ("before", "current"))
 def test_invalid_comparison_key_degrades_without_using_ddl_key(
-    label: str, rows: str, key_column: str, diagnostic: str | None, fault_side: str,
+    label: str,
+    rows: str,
+    key_column: str,
+    diagnostic: str | None,
+    fault_side: str,
 ) -> None:
     good = _configuration_sql("iec104_cfg", "(1,'1','1','changed')")
     bad = _configuration_sql("iec104_cfg", rows, key_column=key_column)
-    result = _configuration_compare(bad if fault_side == "before" else good,
-                                    good if fault_side == "before" else bad)
-    table, = result.tables
+    result = _configuration_compare(
+        bad if fault_side == "before" else good, good if fault_side == "before" else bad
+    )
+    (table,) = result.tables
     assert table.status is ComparisonTableStatus.DEGRADED
     assert [record.record_kind for record in table.records] == [ComparisonRecordKind.TABLE_DEGRADED]
     if diagnostic is not None:
@@ -167,32 +207,45 @@ def test_configuration_comparison_works_with_keyless_or_ddl_storage(primary_key:
 def test_configuration_empty_and_single_side_need_no_key_values(side: str) -> None:
     # Missing compare column is harmless when no keyed alignment is needed.
     empty = _configuration_sql("iec104_cfg", "", key_column="other", primary_key=False)
-    result = _configuration_compare("" if side == "current" else empty,
-                                    "" if side == "before" else empty)
-    table, = result.tables
-    assert table.status is {
-        "before": ComparisonTableStatus.DELETED_TABLE,
-        "current": ComparisonTableStatus.ADDED_TABLE,
-        "both": ComparisonTableStatus.UNCHANGED,
-    }[side]
+    result = _configuration_compare(
+        "" if side == "current" else empty, "" if side == "before" else empty
+    )
+    (table,) = result.tables
+    assert (
+        table.status
+        is {
+            "before": ComparisonTableStatus.DELETED_TABLE,
+            "current": ComparisonTableStatus.ADDED_TABLE,
+            "both": ComparisonTableStatus.UNCHANGED,
+        }[side]
+    )
 
 
-@pytest.mark.parametrize("table_name,role,key", (
-    ("dev104_cfg", ComparisonRole.BROWSE_ONLY, ()),
-    ("nbridge_cfg", ComparisonRole.BROWSE_ONLY, ()),
-    ("nr103d_cfg", ComparisonRole.BROWSE_ONLY, ()),
-    ("nr103ht_cfg", ComparisonRole.BROWSE_ONLY, ()),
-    ("sntp_cfg", ComparisonRole.BROWSE_ONLY, ()),
-    ("unknown_cfg", ComparisonRole.STANDARD, ("id",)),
-    ("x_iec104_cfg", ComparisonRole.STANDARD, ("id",)),
-    ("b1_n1_iec104_cfg", ComparisonRole.STANDARD, ("page_no", "no")),
-    ("b1_n1_iec104_dev_cfg", ComparisonRole.STANDARD, ("gid",)),
-))
+@pytest.mark.parametrize(
+    "table_name,role,key",
+    (
+        ("dev104_cfg", ComparisonRole.BROWSE_ONLY, ()),
+        ("nbridge_cfg", ComparisonRole.BROWSE_ONLY, ()),
+        ("nr103d_cfg", ComparisonRole.BROWSE_ONLY, ()),
+        ("nr103ht_cfg", ComparisonRole.BROWSE_ONLY, ()),
+        ("sntp_cfg", ComparisonRole.BROWSE_ONLY, ()),
+        ("unknown_cfg", ComparisonRole.STANDARD, ("id",)),
+        ("x_iec104_cfg", ComparisonRole.STANDARD, ("id",)),
+        ("b1_n1_iec104_cfg", ComparisonRole.STANDARD, ("page_no", "no")),
+        ("b1_n1_iec104_dev_cfg", ComparisonRole.STANDARD, ("gid",)),
+    ),
+)
 def test_configuration_exact_scope_preserves_other_and_prefixed_rules(
-    table_name: str, role: ComparisonRole, key: tuple[str, ...],
+    table_name: str,
+    role: ComparisonRole,
+    key: tuple[str, ...],
 ) -> None:
-    view = resolve_comparison_rule_view(comparison_rule_set(migrated_table_ruleset_snapshot()),
-                                        table_name, primary_key_columns=("id",), table_comment=None)
+    view = resolve_comparison_rule_view(
+        comparison_rule_set(migrated_table_ruleset_snapshot()),
+        table_name,
+        primary_key_columns=("id",),
+        table_comment=None,
+    )
     assert view is not None
     assert view.comparison_role is role
     assert view.effective_key_columns == key
@@ -201,12 +254,15 @@ def test_configuration_exact_scope_preserves_other_and_prefixed_rules(
 def test_comparison_view_tracks_reference_classification_but_not_comment_wording() -> None:
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
     name = "b12_c3_custom"
-    first = resolve_comparison_rule_view(rules, name, primary_key_columns=("id",),
-                                         table_comment="遥信引用表")
-    renamed = resolve_comparison_rule_view(rules, name, primary_key_columns=("id",),
-                                           table_comment="新遥信引用表")
-    ordinary = resolve_comparison_rule_view(rules, name, primary_key_columns=("id",),
-                                            table_comment=None)
+    first = resolve_comparison_rule_view(
+        rules, name, primary_key_columns=("id",), table_comment="遥信引用表"
+    )
+    renamed = resolve_comparison_rule_view(
+        rules, name, primary_key_columns=("id",), table_comment="新遥信引用表"
+    )
+    ordinary = resolve_comparison_rule_view(
+        rules, name, primary_key_columns=("id",), table_comment=None
+    )
     assert first is not None and renamed is not None and ordinary is not None
     assert first.comparison_role is ComparisonRole.ORDERED
     assert first.comparison_rule_digest == renamed.comparison_rule_digest

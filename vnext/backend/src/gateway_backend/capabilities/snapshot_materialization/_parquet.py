@@ -106,8 +106,10 @@ def decode_source_columns(raw: bytes) -> tuple[SourceColumnDescriptor, ...]:
 
 def client_parquet_schema(columns: tuple[SourceColumnDescriptor, ...]) -> pa.Schema:
     """The existing client file's physical schema and typed encoding metadata."""
-    return pa.schema([_arrow_field(column) for column in columns],
-        metadata={_ENCODING_METADATA_KEY: encode_source_columns(columns)})
+    return pa.schema(
+        [_arrow_field(column) for column in columns],
+        metadata={_ENCODING_METADATA_KEY: encode_source_columns(columns)},
+    )
 
 
 def write_parquet_rows(

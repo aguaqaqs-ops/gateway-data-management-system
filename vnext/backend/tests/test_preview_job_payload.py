@@ -83,11 +83,26 @@ def test_decode_preview_payload_accepts_modified_only_closure() -> None:
 PAYLOAD_SHAPE_FAULTS: tuple[tuple[str, dict[str, object], str], ...] = (
     ("unknown_field", {"unexpected": True}, "unknown preview payload keys"),
     ("empty_capabilities", {"capability_contract_versions": {}}, "capability versions"),
-    ("stale_capabilities", {"capability_contract_versions": {"risk_model": "old"}}, "capability versions"),
-    ("old_navigation", {"capability_contract_versions": {
-        **current_preview_capabilities(), "business_navigation": "backend-vnext/business-navigation/v4",
-    }}, "capability versions"),
-    ("missing_idempotency", {"idempotency_identity": {"workspace_id": WORKSPACE_ID}}, "idempotency_key"),
+    (
+        "stale_capabilities",
+        {"capability_contract_versions": {"risk_model": "old"}},
+        "capability versions",
+    ),
+    (
+        "old_navigation",
+        {
+            "capability_contract_versions": {
+                **current_preview_capabilities(),
+                "business_navigation": "backend-vnext/business-navigation/v4",
+            }
+        },
+        "capability versions",
+    ),
+    (
+        "missing_idempotency",
+        {"idempotency_identity": {"workspace_id": WORKSPACE_ID}},
+        "idempotency_key",
+    ),
     (
         "full_missing_initial",
         {
@@ -127,8 +142,16 @@ def test_decode_preview_payload_rejects_invalid_shapes(
 
 def test_build_preview_job_payload_round_trips_through_decoder() -> None:
     store = InMemoryArtifactStore()
-    modified = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "modified"))
-    initial = store_source_package(store, b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);", artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "initial"))
+    modified = store_source_package(
+        store,
+        b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "modified"),
+    )
+    initial = store_source_package(
+        store,
+        b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "initial"),
+    )
     revision = build_upload_revision(
         input_completeness=InputCompleteness.FULL,
         initial_binding=initial,

@@ -12,7 +12,11 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
 )
 from gateway_backend.capabilities.table_access.xml import parse_xml
-from tests.support.table_access_fixtures import load_expected, load_text, xml_parse_result_from_expected
+from tests.support.table_access_fixtures import (
+    load_expected,
+    load_text,
+    xml_parse_result_from_expected,
+)
 from tests.support.table_access_xml import parse_xml_text, xml_request
 
 XML_GOLDEN_CASES = (

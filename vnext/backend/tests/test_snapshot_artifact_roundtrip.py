@@ -71,7 +71,10 @@ def test_parquet_round_trip_preserves_descriptor_rows_and_digests(
     assert opened.descriptor.row_count == source.descriptor.row_count
     assert opened.descriptor.raw_content_digest == source.descriptor.raw_content_digest
     assert opened.artifact is not None
-    assert opened.artifact.manifest.artifact_content_digest == artifact.manifest.artifact_content_digest
+    assert (
+        opened.artifact.manifest.artifact_content_digest
+        == artifact.manifest.artifact_content_digest
+    )
     assert opened.reader is not None
     source_reader = source.reader
     assert source_reader is not None
@@ -85,7 +88,9 @@ def test_parquet_round_trip_preserves_descriptor_rows_and_digests(
 def test_two_publishes_of_the_same_table_share_artifact_digest() -> None:
     store = InMemoryArtifactStore()
     first, _digest = publish_first_table(store, "sql/valid/s2-duplicate-rows/input.sql")
-    second, _again = publish_first_table(InMemoryArtifactStore(), "sql/valid/s2-duplicate-rows/input.sql")
+    second, _again = publish_first_table(
+        InMemoryArtifactStore(), "sql/valid/s2-duplicate-rows/input.sql"
+    )
     assert first.manifest.artifact_content_digest == second.manifest.artifact_content_digest
     assert first.row_layout_digest == second.row_layout_digest
 
@@ -136,10 +141,12 @@ def test_ordered_blank_provenance_round_trips_through_artifact_and_batch() -> No
     opened = open_snapshot_table_artifact(store, artifact.manifest_ref)
     assert opened.ordered_metadata == metadata
     assert opened.batch_reader is not None
-    assert opened.batch_reader.metadata().blank_provenance is BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
     assert (
-        batch_metadata_from_schema(opened.batch_reader.schema())
-        == opened.batch_reader.metadata()
+        opened.batch_reader.metadata().blank_provenance
+        is BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
+    )
+    assert (
+        batch_metadata_from_schema(opened.batch_reader.schema()) == opened.batch_reader.metadata()
     )
 
 
@@ -157,7 +164,11 @@ def test_artifacts_required_publishes_ready_tables_only() -> None:
     by_name = {table.descriptor.table_name: table for table in result.table_set.tables}
     assert by_name["ok"].artifact is not None
     assert by_name["ok"].reader is not None
-    failed = [table for table in result.summary.tables if table.degraded_reason is DegradedReason.TABLE_FAILED]
+    failed = [
+        table
+        for table in result.summary.tables
+        if table.degraded_reason is DegradedReason.TABLE_FAILED
+    ]
     assert failed
     assert all(
         table.artifact is None
@@ -203,8 +214,12 @@ def test_repository_ref_artifacts_required_round_trip() -> None:
     assert result.table_set is not None
     table = result.table_set.tables[0]
     assert table.artifact is not None
-    opened = open_snapshot_table_artifact(store, table.artifact.manifest_ref,
-        repository_id=provider.catalog.repository_id, canonical_required=True)
+    opened = open_snapshot_table_artifact(
+        store,
+        table.artifact.manifest_ref,
+        repository_id=provider.catalog.repository_id,
+        canonical_required=True,
+    )
     assert opened.descriptor.raw_content_digest == table.descriptor.raw_content_digest
     assert opened.reader is not None
     assert tuple(opened.reader.iter_rows())

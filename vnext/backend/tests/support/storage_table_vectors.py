@@ -8,8 +8,7 @@ from typing import Any
 
 
 VECTOR_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "fixtures/vectors/mutation/storage-table/v1/cases.json"
+    Path(__file__).resolve().parents[3] / "fixtures/vectors/mutation/storage-table/v1/cases.json"
 )
 
 

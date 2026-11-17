@@ -37,14 +37,22 @@ from tests.support.snapshot_materialization import materialize_sql
 pytestmark = pytest.mark.unit
 
 IPC_BUDGETS = {
-    "max_rows": 100000, "max_columns": 2048, "max_descriptor_bytes": 4 * 1024 * 1024,
-    "max_input_batches": 64, "max_input_bytes": 32 * 1024 * 1024,
-    "max_output_bytes": 64 * 1024 * 1024, "max_codec_peak_bytes": 256 * 1024 * 1024,
+    "max_rows": 100000,
+    "max_columns": 2048,
+    "max_descriptor_bytes": 4 * 1024 * 1024,
+    "max_input_batches": 64,
+    "max_input_bytes": 32 * 1024 * 1024,
+    "max_output_bytes": 64 * 1024 * 1024,
+    "max_codec_peak_bytes": 256 * 1024 * 1024,
 }
 BUSINESS_BUDGETS = {
-    "max_rows": 100000, "max_columns": 2048, "max_batches": 64,
-    "max_metadata_bytes": 4 * 1024 * 1024, "max_input_bytes": 32 * 1024 * 1024,
-    "max_live_bytes": 256 * 1024 * 1024, "max_output_bytes": 64 * 1024 * 1024,
+    "max_rows": 100000,
+    "max_columns": 2048,
+    "max_batches": 64,
+    "max_metadata_bytes": 4 * 1024 * 1024,
+    "max_input_bytes": 32 * 1024 * 1024,
+    "max_live_bytes": 256 * 1024 * 1024,
+    "max_output_bytes": 64 * 1024 * 1024,
     "max_diagnostic_bytes": 512 * 1024,
 }
 SQL = "CREATE TABLE t (z INT NOT NULL PRIMARY KEY, a VARCHAR(8)); INSERT INTO t VALUES (2,'b'),(1,'a');"
@@ -56,16 +64,23 @@ def canonical_input(sql: str = SQL) -> tuple[pa.RecordBatchReader, SnapshotTable
     rules = migrated_table_ruleset_snapshot()
     descriptor = old.table_set.tables[0].descriptor
     record = resolve_table_rule(
-        rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns,
+        rules,
+        descriptor.table_name,
+        primary_key_columns=descriptor.primary_key_columns,
         table_comment=None,
     ).record
     view = derive_storage_rule_view(record, descriptor)
     assert view is not None
     parsed = cast(dict[str, Any], _parse_sql_native(sql.encode(), NeverCancel()))
     projected = project_arrow_table(
-        parsed["tables"][0], descriptor, view, canonicalized_input=False,
-        cancel_probe=NeverCancel(), budgets=BUSINESS_BUDGETS,
-        deadline_monotonic=None, pool_threads=1,
+        parsed["tables"][0],
+        descriptor,
+        view,
+        canonicalized_input=False,
+        cancel_probe=NeverCancel(),
+        budgets=BUSINESS_BUDGETS,
+        deadline_monotonic=None,
+        pool_threads=1,
     )
     oracle = project_canonical_fixture(old.table_set, rules)
     assert projected["output"] is not None
@@ -146,7 +161,7 @@ def test_mapping_uses_raw_integrity_and_bounded_profile_before_reader(tmp_path: 
     path.write_bytes(raw[:-1])
     with pytest.raises(ManifestVerificationError):
         store.open(ref, bound)
-    corrupt = raw.replace(b'gdds.canonical_mapping_version', b'xdds.canonical_mapping_version')
+    corrupt = raw.replace(b"gdds.canonical_mapping_version", b"xdds.canonical_mapping_version")
     path.write_bytes(corrupt)
     # Exact integrity is insufficient when the bound internal profile differs.
     changed = replace(ref, raw_sha256=raw_blob_digest(corrupt))
@@ -154,7 +169,9 @@ def test_mapping_uses_raw_integrity_and_bounded_profile_before_reader(tmp_path: 
     fresh.put(corrupt, changed)
     with pytest.raises(ValueError, match="metadata"):
         CanonicalTableStore(fresh, repository_id="repo", budgets=IPC_BUDGETS).open(changed, bound)
-    bounded = CanonicalTableStore(fresh, repository_id="repo", budgets={**IPC_BUDGETS, "max_input_bytes": 1})
+    bounded = CanonicalTableStore(
+        fresh, repository_id="repo", budgets={**IPC_BUDGETS, "max_input_bytes": 1}
+    )
     with pytest.raises(MemoryError, match="input"):
         bounded.open(changed, bound)
 
@@ -179,23 +196,39 @@ def test_binding_cannot_open_a_different_business_digest(tmp_path: Path) -> None
 
 
 def test_handle_stream_is_borrowed_by_the_real_projection_kernel(tmp_path: Path) -> None:
-    store = CanonicalTableStore(open_test_store(tmp_path / "objects"), repository_id="repo", budgets=IPC_BUDGETS)
+    store = CanonicalTableStore(
+        open_test_store(tmp_path / "objects"), repository_id="repo", budgets=IPC_BUDGETS
+    )
     stream, bound = canonical_input()
     assert bound.raw_content_digest is not None
     ref = store.put(stream, bound)
     rules = migrated_table_ruleset_snapshot()
-    record = resolve_table_rule(rules, bound.table_name, primary_key_columns=bound.primary_key_columns, table_comment=None).record
+    record = resolve_table_rule(
+        rules, bound.table_name, primary_key_columns=bound.primary_key_columns, table_comment=None
+    ).record
     view = derive_storage_rule_view(record, bound)
     assert view is not None
     from gateway_backend.capabilities.snapshot_materialization import canonical_columns
+
     with store.open(ref, bound) as handle:
         with handle.borrow_stream() as borrowed:
-            result = project_arrow_table({
-                "canonical_name": bound.table_name, "display_name": bound.display_table_name,
-                "columns": canonical_columns(bound), "primary_key": list(bound.primary_key_columns),
-                "reader_ready": True, "arrow_stream": borrowed,
-            }, bound, view, canonicalized_input=True, cancel_probe=NeverCancel(), budgets=BUSINESS_BUDGETS,
-                deadline_monotonic=None, pool_threads=1)
+            result = project_arrow_table(
+                {
+                    "canonical_name": bound.table_name,
+                    "display_name": bound.display_table_name,
+                    "columns": canonical_columns(bound),
+                    "primary_key": list(bound.primary_key_columns),
+                    "reader_ready": True,
+                    "arrow_stream": borrowed,
+                },
+                bound,
+                view,
+                canonicalized_input=True,
+                cancel_probe=NeverCancel(),
+                budgets=BUSINESS_BUDGETS,
+                deadline_monotonic=None,
+                pool_threads=1,
+            )
             assert result["output"]["raw_content_digest"] == bound.raw_content_digest.value
             result["output"]["tables"][0]["arrow_stream"].close()
     with pytest.raises(ValueError, match="closed"):
@@ -205,9 +238,18 @@ def test_handle_stream_is_borrowed_by_the_real_projection_kernel(tmp_path: Path)
 def test_empty_schema_and_primary_key_metadata_are_bounded_before_key_hash(tmp_path: Path) -> None:
     stream, bound = canonical_input()
     stream.close()
-    store = CanonicalTableStore(InMemoryArtifactStore(), repository_id="repo", budgets={**IPC_BUDGETS, "max_descriptor_bytes": 1})
+    store = CanonicalTableStore(
+        InMemoryArtifactStore(),
+        repository_id="repo",
+        budgets={**IPC_BUDGETS, "max_descriptor_bytes": 1},
+    )
     empty = replace(bound, columns=(), primary_key_columns=())
-    ref = ArtifactRef(canonical_table_key("repo", empty).artifact_id, "application/vnd.apache.arrow.file", 0, raw_blob_digest(b""))
+    ref = ArtifactRef(
+        canonical_table_key("repo", empty).artifact_id,
+        "application/vnd.apache.arrow.file",
+        0,
+        raw_blob_digest(b""),
+    )
     with pytest.raises(MemoryError, match="descriptor"):
         store.open(ref, empty)
     keys = replace(bound, primary_key_columns=("x" * (4 * 1024 * 1024),))
@@ -229,9 +271,13 @@ def test_canonical_mapping_refuses_symlinks(tmp_path: Path, outside: bool) -> No
         store.open(ref, bound)
 
 
-def test_operation_mapping_reservations_share_views_and_count_independent_opens(tmp_path: Path) -> None:
+def test_operation_mapping_reservations_share_views_and_count_independent_opens(
+    tmp_path: Path,
+) -> None:
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        kernel_execution_scope,
     )
 
     context = KernelExecutionContext(OperationMemoryBudget(64 * 1024**2), NeverCancel(), 1)
@@ -239,7 +285,9 @@ def test_operation_mapping_reservations_share_views_and_count_independent_opens(
         backend = open_test_store(tmp_path / "objects")
         store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
         stream, descriptor = canonical_input(
-            "CREATE TABLE t (z INT NOT NULL PRIMARY KEY, a TEXT); INSERT INTO t VALUES (1,'" + "a" * 131072 + "');"
+            "CREATE TABLE t (z INT NOT NULL PRIMARY KEY, a TEXT); INSERT INTO t VALUES (1,'"
+            + "a" * 131072
+            + "');"
         )
         ref = store.put(stream, descriptor)
         before = context.memory.used_bytes
@@ -259,7 +307,9 @@ def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) ->
     import threading
 
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        kernel_execution_scope,
     )
 
     stream, descriptor = canonical_input()
@@ -285,19 +335,32 @@ def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) ->
 
 def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_format() -> None:
     from gateway_backend.capabilities.snapshot_materialization import (
-        publish_canonical_tables, open_snapshot_table_artifact, snapshot_table_from_arrow,
-        source_descriptor_from_arrow, canonical_columns,
+        publish_canonical_tables,
+        open_snapshot_table_artifact,
+        snapshot_table_from_arrow,
+        source_descriptor_from_arrow,
+        canonical_columns,
     )
-    from gateway_backend.capabilities.snapshot_materialization.artifact import ArtifactPublishError, manifest_from_bytes
+    from gateway_backend.capabilities.snapshot_materialization.artifact import (
+        ArtifactPublishError,
+        manifest_from_bytes,
+    )
     from gateway_shared_kernel import DigestRef
 
     stream, descriptor = canonical_input()
     with stream:
         arrays = stream.read_all()
-    source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
-        "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
-        "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
+    source = source_descriptor_from_arrow(
+        {
+            "canonical_name": descriptor.table_name,
+            "display_name": descriptor.display_table_name,
+            "columns": canonical_columns(descriptor),
+            "primary_key": list(descriptor.primary_key_columns),
+            "reader_ready": True,
+        }
+    )
     table = snapshot_table_from_arrow(descriptor, arrays, source)
+
     class WriterStore(InMemoryArtifactStore):
         reads = 0
 
@@ -306,8 +369,9 @@ def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_for
             return super().open_buffer(ref, checkpoint=checkpoint)
 
     store = WriterStore()
-    published = publish_canonical_tables((table,), snapshot_digest=DigestRef("sha256:" + "0" * 64),
-                                        store=store, repository_id="repo")[0]
+    published = publish_canonical_tables(
+        (table,), snapshot_digest=DigestRef("sha256:" + "0" * 64), store=store, repository_id="repo"
+    )[0]
     assert store.reads == 0
     assert published.reader is not None
     table.reader.close()  # type: ignore[union-attr]
@@ -320,27 +384,45 @@ def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_for
     assert manifest.repository_id == "repo"
     for repository_id in (None, "other"):
         with pytest.raises(ArtifactPublishError):
-            open_snapshot_table_artifact(store, published.artifact.manifest_ref,
-                                         repository_id=repository_id, canonical_required=True)
-    opened = open_snapshot_table_artifact(store, published.artifact.manifest_ref,
-                                         repository_id="repo", canonical_required=True)
+            open_snapshot_table_artifact(
+                store,
+                published.artifact.manifest_ref,
+                repository_id=repository_id,
+                canonical_required=True,
+            )
+    opened = open_snapshot_table_artifact(
+        store, published.artifact.manifest_ref, repository_id="repo", canonical_required=True
+    )
     assert opened.reader is not None
     assert tuple(opened.reader.iter_rows())
     import json
+
     payload = json.loads(store.locate(published.artifact.manifest_ref))
     del payload["repository_id"]
     with pytest.raises(KeyError):
         manifest_from_bytes(json.dumps(payload).encode())
 
 
-def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
+    db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from gateway_backend.capabilities.snapshot_materialization import (
-        publish_canonical_tables, snapshot_table_from_arrow, source_descriptor_from_arrow, canonical_columns,
-        export_snapshot_table_parquet, lookup_snapshot_table_parquet,
+        publish_canonical_tables,
+        snapshot_table_from_arrow,
+        source_descriptor_from_arrow,
+        canonical_columns,
+        export_snapshot_table_parquet,
+        lookup_snapshot_table_parquet,
     )
-    from gateway_backend.capabilities.snapshot_materialization._parquet import read_parquet_table, encoding_columns_from_table, iter_decoded_rows
+    from gateway_backend.capabilities.snapshot_materialization._parquet import (
+        read_parquet_table,
+        encoding_columns_from_table,
+        iter_decoded_rows,
+    )
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-    from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
+    from gateway_backend.infrastructure.control_db.snapshot_export_cache import (
+        ControlDbSnapshotTableExportCache,
+    )
     from gateway_shared_kernel import DigestRef, Float32Scalar
     from gateway_backend.capabilities.table_access.contracts import SqlSetValue
 
@@ -349,14 +431,24 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
     stream, descriptor = canonical_input(sql)
     with stream:
         backing = stream.read_all()
-    source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
-        "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
-        "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
+    source = source_descriptor_from_arrow(
+        {
+            "canonical_name": descriptor.table_name,
+            "display_name": descriptor.display_table_name,
+            "columns": canonical_columns(descriptor),
+            "primary_key": list(descriptor.primary_key_columns),
+            "reader_ready": True,
+        }
+    )
     table = snapshot_table_from_arrow(descriptor, backing, source)
     store = InMemoryArtifactStore()
-    table = publish_canonical_tables((table,), snapshot_digest=DigestRef("sha256:" + "0" * 64), store=store, repository_id="repo")[0]
+    table = publish_canonical_tables(
+        (table,), snapshot_digest=DigestRef("sha256:" + "0" * 64), store=store, repository_id="repo"
+    )[0]
     cache = ControlDbSnapshotTableExportCache(lambda: ControlDbUnitOfWork(db_path))
-    ref = export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
+    ref = export_snapshot_table_parquet(
+        table, store=store, repository_id="repo", export_cache=cache
+    )
     raw = store.locate(ref)
     assert raw[:4] == raw[-4:] == b"PAR1"
     exported = read_parquet_table(raw)
@@ -371,28 +463,65 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
     # Metadata-only History can decide its independent export demand without
     # opening canonical rows. Damage must invalidate only this exact old ref.
     described = replace(table, reader=None, batch_reader=None, artifact=None)
-    assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) == ref
+    assert (
+        lookup_snapshot_table_parquet(
+            described, store=store, repository_id="repo", export_cache=cache
+        )
+        == ref
+    )
     from gateway_backend.artifacts import ArtifactLocation, build_artifact_id, put_with_built_ref
     from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
     from gateway_backend.capabilities.snapshot_materialization.artifact import row_layout_digest_of
-    key = SnapshotTableArtifactCacheKey(row_layout_digest_of(descriptor, source.columns, table.ordered_metadata), "repo")
-    invalid = put_with_built_ref(store, b"not parquet",
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "invalid-parquet", "corrupt"), media_type=ref.media_type)
+
+    key = SnapshotTableArtifactCacheKey(
+        row_layout_digest_of(descriptor, source.columns, table.ordered_metadata), "repo"
+    )
+    invalid = put_with_built_ref(
+        store,
+        b"not parquet",
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "invalid-parquet", "corrupt"),
+        media_type=ref.media_type,
+    )
     cache.store_many(((key, invalid),))
-    assert lookup_snapshot_table_parquet(described, store=store, repository_id="repo", export_cache=cache) is None
+    assert (
+        lookup_snapshot_table_parquet(
+            described, store=store, repository_id="repo", export_cache=cache
+        )
+        is None
+    )
     assert cache.lookup_many((key,)) == {}
-    assert export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache) == ref
+    assert (
+        export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
+        == ref
+    )
+
     def forbid_write(*args: object, **kwargs: object) -> None:
         pytest.fail("healthy client cache hit must not rewrite the artifact")
+
     monkeypatch.setattr(store, "put", forbid_write)
-    assert export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache) == ref
-    from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, KernelMemoryLimit, kernel_execution_scope,
+    assert (
+        export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
+        == ref
     )
-    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(128 * 1024), NeverCancel(), 1), new_operation=True):
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        KernelMemoryLimit,
+        kernel_execution_scope,
+    )
+
+    with kernel_execution_scope(
+        KernelExecutionContext(OperationMemoryBudget(128 * 1024), NeverCancel(), 1),
+        new_operation=True,
+    ):
         with monkeypatch.context() as guarded:
-            guarded.setattr("gateway_backend.capabilities.snapshot_materialization.client_parquet.pq.ParquetFile", forbid_write)
+            guarded.setattr(
+                "gateway_backend.capabilities.snapshot_materialization.client_parquet.pq.ParquetFile",
+                forbid_write,
+            )
             with pytest.raises(KernelMemoryLimit):
-                export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
+                export_snapshot_table_parquet(
+                    table, store=store, repository_id="repo", export_cache=cache
+                )
     with pytest.raises(ValueError, match="scoped canonical"):
         export_snapshot_table_parquet(table, store=store, repository_id="other", export_cache=cache)

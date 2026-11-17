@@ -67,7 +67,9 @@ def _prepared_attempt(**overrides: Any) -> SubmitAttempt:
         canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",),
+        source_artifact_refs=(
+            "a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",
+        ),
         canonical_table_set_closure_ref="a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
         canonical_table_set_closure_digest="sha256:canonical-table-closure",
         preview_ready_closure_ref="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
@@ -138,7 +140,9 @@ def _submission(**overrides: Any) -> Submission:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=("a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",),
+        source_artifact_refs=(
+            "a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686",
+        ),
         canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
@@ -249,12 +253,18 @@ FIELD_CO_PRESENCE_FAULTS = (
 
 
 REQUIRED_CANONICAL_BINDING_FAULTS = (
-    ({"canonical_table_set_closure_ref": ""}, "canonical_table_set_closure_ref must be a non-empty string"),
+    (
+        {"canonical_table_set_closure_ref": ""},
+        "canonical_table_set_closure_ref must be a non-empty string",
+    ),
     (
         {"canonical_table_set_closure_digest": ""},
         "canonical_table_set_closure_digest must be a non-empty string",
     ),
-    ({"canonicalization_manifest_ref": ""}, "canonicalization_manifest_ref must be a non-empty string"),
+    (
+        {"canonicalization_manifest_ref": ""},
+        "canonicalization_manifest_ref must be a non-empty string",
+    ),
     (
         {"canonicalization_manifest_digest": ""},
         "canonicalization_manifest_digest must be a non-empty string",
@@ -317,18 +327,36 @@ def test_assert_submission_attempt_binding_rejects_mismatched_attempt_id() -> No
         )
 
 
-INVALID_ATTEMPT_ARTIFACT_BINDINGS: tuple[tuple[str, Callable[[SubmitAttempt], SubmitAttempt]], ...] = (
-    ("canonical_table_set_closure_ref", lambda attempt: replace(attempt, canonical_table_set_closure_ref="legacy-artifact")),
-    ("preview_ready_closure_ref", lambda attempt: replace(attempt, preview_ready_closure_ref="legacy-artifact")),
-    ("canonicalization_manifest_ref", lambda attempt: replace(attempt, canonicalization_manifest_ref="legacy-artifact")),
-    ("prepared_canonicalization_manifest_ref", lambda attempt: replace(attempt, prepared_canonicalization_manifest_ref="legacy-artifact")),
+INVALID_ATTEMPT_ARTIFACT_BINDINGS: tuple[
+    tuple[str, Callable[[SubmitAttempt], SubmitAttempt]], ...
+] = (
+    (
+        "canonical_table_set_closure_ref",
+        lambda attempt: replace(attempt, canonical_table_set_closure_ref="legacy-artifact"),
+    ),
+    (
+        "preview_ready_closure_ref",
+        lambda attempt: replace(attempt, preview_ready_closure_ref="legacy-artifact"),
+    ),
+    (
+        "canonicalization_manifest_ref",
+        lambda attempt: replace(attempt, canonicalization_manifest_ref="legacy-artifact"),
+    ),
+    (
+        "prepared_canonicalization_manifest_ref",
+        lambda attempt: replace(attempt, prepared_canonicalization_manifest_ref="legacy-artifact"),
+    ),
 )
 
 
-@pytest.mark.parametrize(("field_name", "mutate"), INVALID_ATTEMPT_ARTIFACT_BINDINGS,
-    ids=[name for name, _mutate in INVALID_ATTEMPT_ARTIFACT_BINDINGS])
+@pytest.mark.parametrize(
+    ("field_name", "mutate"),
+    INVALID_ATTEMPT_ARTIFACT_BINDINGS,
+    ids=[name for name, _mutate in INVALID_ATTEMPT_ARTIFACT_BINDINGS],
+)
 def test_submit_attempt_rejects_unsupported_bare_artifact_binding(
-    field_name: str, mutate: Callable[[SubmitAttempt], SubmitAttempt],
+    field_name: str,
+    mutate: Callable[[SubmitAttempt], SubmitAttempt],
 ) -> None:
     attempt = _effect_pending_attempt()
     with pytest.raises(ValueError, match="a1:"):

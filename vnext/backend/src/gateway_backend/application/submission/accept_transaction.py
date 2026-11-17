@@ -7,7 +7,10 @@ import json
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.job_definitions import (
+    JobDefinitionLookupError,
+    JobDefinitionRegistry,
+)
 from gateway_backend.application.preview_binding import derive_preview_ready_closure_digest
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
@@ -23,7 +26,10 @@ from gateway_backend.application.submission.contracts import (
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
 )
-from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
+from gateway_backend.application.submission.errors import (
+    PreviewBindingConflict,
+    SubmitJobNotRegistered,
+)
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_JOB_KIND,
     SUBMIT_STEP_AWAIT,
@@ -94,14 +100,16 @@ def assert_submit_job_registered(registry: JobDefinitionRegistry) -> None:
 
 
 def deterministic_submit_attempt_id(*, workspace_id: str, idempotency_key: str) -> str:
-    digest = hashlib.sha256(f"submit:{workspace_id}:{idempotency_key}".encode("utf-8")).hexdigest()[:24]
+    digest = hashlib.sha256(f"submit:{workspace_id}:{idempotency_key}".encode("utf-8")).hexdigest()[
+        :24
+    ]
     return f"sa-{digest}"
 
 
 def deterministic_submit_operation_id(*, workspace_id: str, idempotency_key: str) -> str:
-    digest = hashlib.sha256(f"submit-op:{workspace_id}:{idempotency_key}".encode("utf-8")).hexdigest()[
-        :24
-    ]
+    digest = hashlib.sha256(
+        f"submit-op:{workspace_id}:{idempotency_key}".encode("utf-8")
+    ).hexdigest()[:24]
     return f"op-{digest}"
 
 
@@ -166,11 +174,15 @@ def accept_submit_transaction(
         )
 
 
-def _assert_current_preview_semantics(unit_of_work: SubmitControlTransaction, preview: PreviewResult) -> None:
+def _assert_current_preview_semantics(
+    unit_of_work: SubmitControlTransaction, preview: PreviewResult
+) -> None:
     """Check only new T1 accepts; replay and frozen readers retain original identity."""
     # Preview job initialization imports workspace, whose public API imports this module.
     from gateway_backend.application.preview_jobs import (
-        PREVIEW_JOB_CONTRACT_VERSION, PREVIEW_JOB_KIND, decode_preview_payload,
+        PREVIEW_JOB_CONTRACT_VERSION,
+        PREVIEW_JOB_KIND,
+        decode_preview_payload,
     )
 
     message = "preview semantics changed; use a new key to create a new preview"
@@ -178,12 +190,16 @@ def _assert_current_preview_semantics(unit_of_work: SubmitControlTransaction, pr
         operation = unit_of_work.operations.get_operation(preview.operation_id)
     except RecordNotFound as exc:
         raise PreviewBindingConflict(message) from exc
-    if (operation.job_kind != PREVIEW_JOB_KIND
-            or operation.job_contract_version != PREVIEW_JOB_CONTRACT_VERSION
-            or preview.contract_version != operation.job_contract_version
-            or operation.job_payload is None
-            or BusinessReference(kind="workspace", value=preview.workspace_id) not in operation.business_refs
-            or BusinessReference(kind="upload_revision", value=preview.upload_revision_id) not in operation.business_refs):
+    if (
+        operation.job_kind != PREVIEW_JOB_KIND
+        or operation.job_contract_version != PREVIEW_JOB_CONTRACT_VERSION
+        or preview.contract_version != operation.job_contract_version
+        or operation.job_payload is None
+        or BusinessReference(kind="workspace", value=preview.workspace_id)
+        not in operation.business_refs
+        or BusinessReference(kind="upload_revision", value=preview.upload_revision_id)
+        not in operation.business_refs
+    ):
         raise PreviewBindingConflict(message)
     try:
         document = json.loads(operation.job_payload)
@@ -192,13 +208,15 @@ def _assert_current_preview_semantics(unit_of_work: SubmitControlTransaction, pr
         payload = decode_preview_payload(document)
     except (ValueError, UnicodeDecodeError) as exc:
         raise PreviewBindingConflict(message) from exc
-    if (payload.workspace_id != preview.workspace_id
-            or payload.upload_revision_id != preview.upload_revision_id
-            or payload.generation != preview.generation
-            or payload.repository_id != preview.repository_id
-            or payload.business_baseline_node_id != preview.business_baseline_node_id
-            or payload.business_baseline_commit_id != preview.business_baseline_commit_id
-            or payload.baseline_head_version != preview.baseline_head_version):
+    if (
+        payload.workspace_id != preview.workspace_id
+        or payload.upload_revision_id != preview.upload_revision_id
+        or payload.generation != preview.generation
+        or payload.repository_id != preview.repository_id
+        or payload.business_baseline_node_id != preview.business_baseline_node_id
+        or payload.business_baseline_commit_id != preview.business_baseline_commit_id
+        or payload.baseline_head_version != preview.baseline_head_version
+    ):
         raise PreviewBindingConflict(message)
 
 
@@ -217,8 +235,7 @@ def _accept_submit_in_transaction(
     )
     is_replay = prior_record is not None
     if not is_replay and (
-        preflight.resolved_repository_id is None
-        or preflight.repository_expected_commit_id is None
+        preflight.resolved_repository_id is None or preflight.repository_expected_commit_id is None
     ):
         raise PreviewBindingConflict("accept preflight is missing frozen repository facts")
     validation = validate_accept_submit_with_frozen(
@@ -240,7 +257,9 @@ def _accept_submit_in_transaction(
 
     _assert_current_preview_semantics(unit_of_work, validation.preview_result)
 
-    if preflight.preview_ready_closure_digest != derive_preview_ready_closure_digest(validation.preview_result):
+    if preflight.preview_ready_closure_digest != derive_preview_ready_closure_digest(
+        validation.preview_result
+    ):
         raise PreviewBindingConflict("accepted Preview binding changed after preflight")
 
     _assert_preview_protection_matches(
@@ -318,6 +337,7 @@ def _accept_submit_in_transaction(
     )
     if unit_of_work.count_queued_operations() >= operation_queue_limit:
         from gateway_backend.operations.store import OperationQueueFull
+
         raise OperationQueueFull
     unit_of_work.operations.insert_operation_with_initial_step(operation, step)
     unit_of_work.submission.insert_attempt_prepared(attempt)
@@ -429,7 +449,9 @@ def _build_prepared_attempt(
     upload = validation.upload_revision
     source_refs = tuple(
         binding.artifact_id
-        for _role, binding in sorted(upload.source_artifacts.items(), key=lambda item: item[0].value)
+        for _role, binding in sorted(
+            upload.source_artifacts.items(), key=lambda item: item[0].value
+        )
     )
     return SubmitAttempt(
         configuration_facts=preview.canonical.configuration_facts,
@@ -455,12 +477,8 @@ def _build_prepared_attempt(
         canonical_table_set_closure_digest=(
             preview.canonical.canonical_table_set_closure_digest.value
         ),
-        canonicalization_manifest_ref=(
-            preview.canonical.canonicalization_manifest_ref.artifact_id
-        ),
-        canonicalization_manifest_digest=(
-            preview.canonical.canonicalization_manifest_digest.value
-        ),
+        canonicalization_manifest_ref=(preview.canonical.canonicalization_manifest_ref.artifact_id),
+        canonicalization_manifest_digest=(preview.canonical.canonicalization_manifest_digest.value),
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
         repository_operation_id=None,
@@ -471,8 +489,12 @@ def _build_prepared_attempt(
         builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         accept_idempotency_key=command.idempotency_key,
         accept_request_fingerprint=validation.accept_request_fingerprint,
-        repository_upload_idempotency_key=derive_repository_upload_idempotency_key(submit_attempt_id),
-        repository_import_idempotency_key=derive_repository_import_idempotency_key(submit_attempt_id),
+        repository_upload_idempotency_key=derive_repository_upload_idempotency_key(
+            submit_attempt_id
+        ),
+        repository_import_idempotency_key=derive_repository_import_idempotency_key(
+            submit_attempt_id
+        ),
         operation_id=operation_id,
         state=SubmitAttemptState.PREPARED,
         submission_id=None,

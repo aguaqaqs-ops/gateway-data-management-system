@@ -6,7 +6,11 @@ from tests.support.surface_navigation import seed_navigation
 
 from tests.support.artifact_layout import open_test_store, make_artifact_layout
 
-from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id, parse_artifact_id
+from gateway_backend.artifacts.location import (
+    ArtifactLocation,
+    build_artifact_id,
+    parse_artifact_id,
+)
 
 import asyncio
 import hashlib
@@ -27,10 +31,19 @@ from gateway_backend.artifacts.bounded_store import CleanupClassification, Delet
 from gateway_backend.application.bundle_download import prepare_bundle_download
 from gateway_backend.artifacts.bundle_download import BundleIntegrityError
 from gateway_backend.artifacts.store import ArtifactUnavailableError
-from gateway_backend.artifacts.tar_stream import TAR_END, TarMember, pax_record_chunks, pax_record_length
+from gateway_backend.artifacts.tar_stream import (
+    TAR_END,
+    TarMember,
+    pax_record_chunks,
+    pax_record_length,
+)
 from gateway_backend.capabilities.bundle_assembly import (
-    BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind,
-    BundleAssemblyStatus, BundlePairInput, assemble_bundle,
+    BundleArtifactBinding,
+    BundleArtifactClosure,
+    BundleArtifactKind,
+    BundleAssemblyStatus,
+    BundlePairInput,
+    assemble_bundle,
 )
 from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
 from gateway_shared_kernel import raw_blob_digest
@@ -51,7 +64,8 @@ PAX_PATHS = (
 def published_bundle(root: Path) -> tuple[LocalArtifactStore, ArtifactRef]:
     store = seed_navigation(open_test_store(root))
     result = assemble_bundle(
-        _request((BundlePairInput("pair", 0, 1, _surface_result()),)), source_store=store,
+        _request((BundlePairInput("pair", 0, 1, _surface_result()),)),
+        source_store=store,
     )
     assert result.status is BundleAssemblyStatus.READY and result.bundle is not None
     return store, result.bundle.manifest_ref
@@ -73,12 +87,19 @@ def assert_complete_tar(raw: bytes, *, expected_digest: str | None = None) -> di
         if expected_digest is not None:
             assert manifest["bundle_digest"] == expected_digest
         entries = closure["closure_entries"]
-        assert [member.name for member in members[2:]] == [entry["logical_path"] for entry in entries]
+        assert [member.name for member in members[2:]] == [
+            entry["logical_path"] for entry in entries
+        ]
         for member, entry in zip(members[2:], entries, strict=True):
             file = archive.extractfile(member)
             assert file is not None
             payload = file.read()
-            assert len(payload) == member.size == entry["size_bytes"] == entry["artifact_ref"]["size_bytes"]
+            assert (
+                len(payload)
+                == member.size
+                == entry["size_bytes"]
+                == entry["artifact_ref"]["size_bytes"]
+            )
             assert "sha256:" + hashlib.sha256(payload).hexdigest() == entry["raw_sha256"]
         return cast(dict[str, object], manifest)
 
@@ -95,16 +116,26 @@ def test_tar_member_length_and_unicode_path_interoperate(path: str, size: int) -
         assert len(files) == 1
         file = files[0]
         assert file.name == path and file.isfile()
-        assert (file.uid, file.gid, file.mtime, file.mode, file.uname, file.gname) == (0, 0, 0, 0o644, "", "")
+        assert (file.uid, file.gid, file.mtime, file.mode, file.uname, file.gname) == (
+            0,
+            0,
+            0,
+            0o644,
+            "",
+            "",
+        )
         source = archive.extractfile(file)
         assert source is not None and source.read() == payload
 
 
-@pytest.mark.parametrize(("value", "expected"), (
-    ("中", b"12 path=\xe4\xb8\xad\n"),
-    ("a" * 90, b"99 path=" + b"a" * 90 + b"\n"),
-    ("a" * 91, b"101 path=" + b"a" * 91 + b"\n"),
-))
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    (
+        ("中", b"12 path=\xe4\xb8\xad\n"),
+        ("a" * 90, b"99 path=" + b"a" * 90 + b"\n"),
+        ("a" * 91, b"101 path=" + b"a" * 91 + b"\n"),
+    ),
+)
 def test_pax_record_has_independent_fixed_byte_vectors(value: str, expected: bytes) -> None:
     raw = b"".join(pax_record_chunks("path", value))
     assert raw == expected
@@ -125,9 +156,9 @@ def test_tar_size_preserves_full_artifact_range_without_allocating_payload(size:
     else:
         assert prefix[156:157] == b"x"
         pax_size = int(prefix[124:136].rstrip(b"\0"), 8)
-        body = prefix[512:512 + pax_size]
+        body = prefix[512 : 512 + pax_size]
         assert body == f"{len(body)} size={size}\n".encode("ascii")
-        assert prefix[-512 + 124:-512 + 136] == b"00000000000\0"
+        assert prefix[-512 + 124 : -512 + 136] == b"00000000000\0"
     assert member.framed_size == len(prefix) + size + (-size) % 512
 
 
@@ -148,23 +179,42 @@ def test_prepared_bundle_keeps_original_metadata_and_exact_complete_length(tmp_p
 
 @pytest.mark.parametrize("independent_destination", (False, True))
 def test_download_reopens_mixed_root_members_and_independent_destination(
-    tmp_path: Path, independent_destination: bool,
+    tmp_path: Path,
+    independent_destination: bool,
 ) -> None:
     source = seed_navigation(open_test_store(tmp_path / "source"))
-    payloads = {location: f"original {location.value} bytes".encode() for location in ArtifactLocation}
+    payloads = {
+        location: f"original {location.value} bytes".encode() for location in ArtifactLocation
+    }
     refs = {
-        location: put_with_built_ref(source, raw,
+        location: put_with_built_ref(
+            source,
+            raw,
             artifact_id=build_artifact_id(location, "test-download", location.value),
-            media_type="application/octet-stream")
+            media_type="application/octet-stream",
+        )
         for location, raw in payloads.items()
     }
     destination_root = tmp_path / ("destination" if independent_destination else "source")
     destination = open_test_store(destination_root) if independent_destination else source
-    result = assemble_bundle(_request((BundlePairInput("pair", 0, 1, _surface_result()),),
-        shared=BundleArtifactClosure(tuple(BundleArtifactBinding(ref, f"shared/{location.value}.bin",
-            BundleArtifactKind.OTHER, shared=True) for location, ref in refs.items()))),
-        source_store=source, destination_store=destination)
-    assert result.status is BundleAssemblyStatus.READY and result.bundle is not None, result.diagnostics
+    result = assemble_bundle(
+        _request(
+            (BundlePairInput("pair", 0, 1, _surface_result()),),
+            shared=BundleArtifactClosure(
+                tuple(
+                    BundleArtifactBinding(
+                        ref, f"shared/{location.value}.bin", BundleArtifactKind.OTHER, shared=True
+                    )
+                    for location, ref in refs.items()
+                )
+            ),
+        ),
+        source_store=source,
+        destination_store=destination,
+    )
+    assert result.status is BundleAssemblyStatus.READY and result.bundle is not None, (
+        result.diagnostics
+    )
 
     # A restarted consumer has only the destination's persisted metadata and roots.
     fresh = open_test_store(destination_root)
@@ -193,11 +243,20 @@ def test_download_reopens_mixed_root_members_and_independent_destination(
 
 
 def _publish_document(store: LocalArtifactStore, document: dict[str, object]) -> ArtifactRef:
-    semantic = {key: value for key, value in document.items() if key not in {
-        "bundle_digest", "closure_manifest_digest", "closure_entries",
-    }}
+    semantic = {
+        key: value
+        for key, value in document.items()
+        if key
+        not in {
+            "bundle_digest",
+            "closure_manifest_digest",
+            "closure_entries",
+        }
+    }
     document["bundle_digest"] = raw_blob_digest(canonicalize_json_value(semantic)).value
-    document["closure_manifest_digest"] = raw_blob_digest(canonicalize_json_value(document["closure"])).value
+    document["closure_manifest_digest"] = raw_blob_digest(
+        canonicalize_json_value(document["closure"])
+    ).value
     raw = canonicalize_json_value(document)
     try:
         metadata = read_bundle_transport_metadata(raw)
@@ -206,7 +265,13 @@ def _publish_document(store: LocalArtifactStore, document: dict[str, object]) ->
     else:
         store.put(metadata.expected_closure_bytes, metadata.closure_ref)
     return put_with_built_ref(
-        store, raw, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "bundle-transport-test-manifest-" + raw_blob_digest(raw).value[7:]),
+        store,
+        raw,
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "bundle-transport-test-manifest-" + raw_blob_digest(raw).value[7:],
+        ),
         media_type="application/vnd.gateway.comparison-bundle.manifest+json",
     )
 
@@ -217,10 +282,14 @@ def test_final_closure_same_ref_at_two_paths_sends_two_ordinary_members(tmp_path
     original = document["closure_entries"][0]
     extra = {**original, "logical_path": "shared/second-copy", "kind": "OTHER", "pair_id": None}
     document["closure_entries"].append(extra)
-    document["closure"]["entries"].append({
-        **document["closure"]["entries"][0],
-        "logical_path": extra["logical_path"], "kind": "OTHER", "pair_id": None,
-    })
+    document["closure"]["entries"].append(
+        {
+            **document["closure"]["entries"][0],
+            "logical_path": extra["logical_path"],
+            "kind": "OTHER",
+            "pair_id": None,
+        }
+    )
     document["closure_entries"].sort(key=lambda item: item["logical_path"])
     document["closure"]["entries"].sort(key=lambda item: item["logical_path"])
     ref = _publish_document(store, document)
@@ -234,19 +303,34 @@ def test_final_closure_same_ref_at_two_paths_sends_two_ordinary_members(tmp_path
         assert first.read() == second.read()
 
 
-@pytest.mark.parametrize("kind", (BundleArtifactKind.PROJECTION, BundleArtifactKind.DIAGNOSTICS, BundleArtifactKind.OTHER))
+@pytest.mark.parametrize(
+    "kind",
+    (BundleArtifactKind.PROJECTION, BundleArtifactKind.DIAGNOSTICS, BundleArtifactKind.OTHER),
+)
 def test_business_json_payload_is_not_subject_to_metadata_read_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: BundleArtifactKind,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: BundleArtifactKind,
 ) -> None:
     import gateway_backend.application.bundle_download as downloads
+
     store = seed_navigation(open_test_store(tmp_path))
     data = b'"' + b"x" * (64 * 1024 + 1) + b'"'
-    source = put_with_built_ref(store, data, artifact_id=build_artifact_id(ArtifactLocation.DURABLE,
-        "test-download", "business-json"), media_type="application/json")
-    result = assemble_bundle(_request(
-        (BundlePairInput("pair", 0, 1, _surface_result()),),
-        shared=BundleArtifactClosure((BundleArtifactBinding(source, "shared/data.json", kind, shared=True),)),
-    ), source_store=store)
+    source = put_with_built_ref(
+        store,
+        data,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-download", "business-json"),
+        media_type="application/json",
+    )
+    result = assemble_bundle(
+        _request(
+            (BundlePairInput("pair", 0, 1, _surface_result()),),
+            shared=BundleArtifactClosure(
+                (BundleArtifactBinding(source, "shared/data.json", kind, shared=True),)
+            ),
+        ),
+        source_store=store,
+    )
     assert result.bundle is not None
     # Keep the actual payload small; a reduced metadata budget exposes any
     # accidental whole-payload metadata reader without allocating a large input.
@@ -255,13 +339,33 @@ def test_business_json_payload_is_not_subject_to_metadata_read_budget(
     assert_complete_tar(b"".join(prepared.stream))
 
 
-@pytest.mark.parametrize("fault", ("absolute", "traversal", "reserved", "reserved-child", "duplicate", "parent-child", "ref-size", "entry-size", "closure-semantic"))
-def test_published_metadata_path_and_reference_contradictions_fail_preflight(tmp_path: Path, fault: str) -> None:
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "absolute",
+        "traversal",
+        "reserved",
+        "reserved-child",
+        "duplicate",
+        "parent-child",
+        "ref-size",
+        "entry-size",
+        "closure-semantic",
+    ),
+)
+def test_published_metadata_path_and_reference_contradictions_fail_preflight(
+    tmp_path: Path, fault: str
+) -> None:
     store, ref = published_bundle(tmp_path)
     document = json.loads(store.locate(ref))
     entry = document["closure_entries"][0]
     semantic = document["closure"]["entries"][0]
-    paths = {"absolute": "/escape", "traversal": "pairs/../escape", "reserved": "manifest.json", "reserved-child": "manifest.json/child"}
+    paths = {
+        "absolute": "/escape",
+        "traversal": "pairs/../escape",
+        "reserved": "manifest.json",
+        "reserved-child": "manifest.json/child",
+    }
     if fault in paths:
         entry["logical_path"] = semantic["logical_path"] = paths[fault]
     elif fault == "duplicate":
@@ -269,8 +373,12 @@ def test_published_metadata_path_and_reference_contradictions_fail_preflight(tmp
         document["closure"]["entries"].append(dict(semantic))
     elif fault == "parent-child":
         entry["logical_path"] = semantic["logical_path"] = "shared/a"
-        document["closure_entries"].append({**entry, "logical_path": "shared/a/child", "kind": "OTHER", "pair_id": None})
-        document["closure"]["entries"].append({**semantic, "logical_path": "shared/a/child", "kind": "OTHER", "pair_id": None})
+        document["closure_entries"].append(
+            {**entry, "logical_path": "shared/a/child", "kind": "OTHER", "pair_id": None}
+        )
+        document["closure"]["entries"].append(
+            {**semantic, "logical_path": "shared/a/child", "kind": "OTHER", "pair_id": None}
+        )
     elif fault == "ref-size":
         entry["artifact_ref"]["size_bytes"] += 1
     elif fault == "entry-size":
@@ -303,24 +411,38 @@ def test_preflight_checks_last_member_before_returning_a_stream(tmp_path: Path, 
     with pytest.raises(error):
         prepare_bundle_download(store, manifest_ref.artifact_id)
     # Failed preflight has released the read session even without an iterator.
-    with store.cleanup_session(build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")) as acquired:
+    with store.cleanup_session(
+        build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")
+    ) as acquired:
         assert acquired
 
 
 @pytest.mark.parametrize("consume", (False, True))
-def test_unstarted_and_partially_consumed_downloads_release_cleanup_borrow(tmp_path: Path, consume: bool) -> None:
+def test_unstarted_and_partially_consumed_downloads_release_cleanup_borrow(
+    tmp_path: Path, consume: bool
+) -> None:
     store, manifest_ref = published_bundle(tmp_path)
     cleaner = BoundedArtifactStore(open_test_store(tmp_path), unpinned_ttl=timedelta(0))
     prepared = prepare_bundle_download(store, manifest_ref.artifact_id)
     if consume:
         next(prepared.stream)
-    assert cleaner.delete_eligible(
-        manifest_ref, expected_classification=CleanupClassification.ELIGIBLE_AFTER, now=datetime.now(UTC),
-    ) is DeleteDisposition.RETRYABLE_FAILURE
+    assert (
+        cleaner.delete_eligible(
+            manifest_ref,
+            expected_classification=CleanupClassification.ELIGIBLE_AFTER,
+            now=datetime.now(UTC),
+        )
+        is DeleteDisposition.RETRYABLE_FAILURE
+    )
     prepared.close()
-    assert cleaner.delete_eligible(
-        manifest_ref, expected_classification=CleanupClassification.ELIGIBLE_AFTER, now=datetime.now(UTC),
-    ) is DeleteDisposition.DELETED
+    assert (
+        cleaner.delete_eligible(
+            manifest_ref,
+            expected_classification=CleanupClassification.ELIGIBLE_AFTER,
+            now=datetime.now(UTC),
+        )
+        is DeleteDisposition.DELETED
+    )
 
 
 class CountingStore(LocalArtifactStore):
@@ -382,13 +504,17 @@ def test_response_send_failure_closes_even_unstarted_stream(tmp_path: Path, fail
     scope = {"type": "http", "asgi": {"spec_version": "2.4"}, "method": "GET"}
     with pytest.raises((OSError, ClientDisconnect)):
         asyncio.run(BundleStreamingResponse(prepared)(scope, receive, send))  # type: ignore[arg-type]
-    with store.cleanup_session(build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")) as acquired:
+    with store.cleanup_session(
+        build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")
+    ) as acquired:
         assert acquired
     assert not any(path.name.startswith(".lock") for path in tmp_path.iterdir())
 
 
 @pytest.mark.parametrize("termination", ("disconnect", "cancel"))
-def test_asgi_disconnect_and_task_cancellation_release_read_session(tmp_path: Path, termination: str) -> None:
+def test_asgi_disconnect_and_task_cancellation_release_read_session(
+    tmp_path: Path, termination: str
+) -> None:
     store, ref = published_bundle(tmp_path)
     prepared = prepare_bundle_download(store, ref.artifact_id)
 
@@ -417,6 +543,9 @@ def test_asgi_disconnect_and_task_cancellation_release_read_session(tmp_path: Pa
                 await task
         else:
             await task
+
     asyncio.run(scenario())
-    with store.cleanup_session(build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")) as acquired:
+    with store.cleanup_session(
+        build_artifact_id(ArtifactLocation.EXPORT, "test-download", "cleanup")
+    ) as acquired:
         assert acquired

@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import re
 
-from gateway_backend.capabilities.table_presentation.contracts import TablePresentation, PresentationColumn, PresentedColumn
+from gateway_backend.capabilities.table_presentation.contracts import (
+    TablePresentation,
+    PresentationColumn,
+    PresentedColumn,
+)
 from gateway_backend.capabilities.table_presentation.rules import COLUMN_ORDER_RULES
 
 
 def table_display_name(
-    name: str, before: TablePresentation | None, current: TablePresentation | None,
+    name: str,
+    before: TablePresentation | None,
+    current: TablePresentation | None,
 ) -> str:
     return (current.comment if current else None) or (before.comment if before else None) or name
 
@@ -40,24 +46,35 @@ def present_columns(
         raise ValueError("duplicate column names")
     names = set(old) | set(new)
     primary = [c.name for c in current or before]
-    rule = next((order for pattern, order in COLUMN_ORDER_RULES
-                 if re.fullmatch(pattern, table_name)), ())
+    rule = next(
+        (order for pattern, order in COLUMN_ORDER_RULES if re.fullmatch(pattern, table_name)), ()
+    )
     order = [n for n in rule if n in primary]
     order.extend(n for n in primary if n not in order)
     order.extend(c.name for c in before if c.name not in order)
     positions = {name: i for i, name in enumerate(order)}
-    old_comments = {} if before_presentation is None else {
-        c.name: c.comment for c in before_presentation.columns}
-    new_comments = {} if current_presentation is None else {
-        c.name: c.comment for c in current_presentation.columns}
+    old_comments = (
+        {}
+        if before_presentation is None
+        else {c.name: c.comment for c in before_presentation.columns}
+    )
+    new_comments = (
+        {}
+        if current_presentation is None
+        else {c.name: c.comment for c in current_presentation.columns}
+    )
     pinned = ({"no"} & names) | ({"name"} if "name" in names else {"description"} & names)
-    return tuple(PresentedColumn(
-        name=name,
-        display_name=new_comments.get(name) or old_comments.get(name) or name,
-        scalar_type=(new.get(name) or old[name]).scalar_type,
-        nullable=(new.get(name) or old[name]).nullable,
-        present_in="BOTH" if name in old and name in new else (
-            "CURRENT" if name in new else "BEFORE"),
-        pinned=name in pinned,
-        display_order=positions[name],
-    ) for name in sorted(names, key=lambda n: n.encode("utf-8")))
+    return tuple(
+        PresentedColumn(
+            name=name,
+            display_name=new_comments.get(name) or old_comments.get(name) or name,
+            scalar_type=(new.get(name) or old[name]).scalar_type,
+            nullable=(new.get(name) or old[name]).nullable,
+            present_in="BOTH"
+            if name in old and name in new
+            else ("CURRENT" if name in new else "BEFORE"),
+            pinned=name in pinned,
+            display_order=positions[name],
+        )
+        for name in sorted(names, key=lambda n: n.encode("utf-8"))
+    )

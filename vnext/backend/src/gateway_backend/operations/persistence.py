@@ -77,9 +77,7 @@ class OperationLifecycleActions:
             attempt_count=claim_attempt_count(step),
             diagnostic=claim_diagnostic(step),
             updated_at=self._transaction_now,
-            started_at=(
-                self._transaction_now if step.started_at is None else step.started_at
-            ),
+            started_at=(self._transaction_now if step.started_at is None else step.started_at),
             retry_not_before=None,
             worker_id=worker_id,
             lease_token=lease_token,

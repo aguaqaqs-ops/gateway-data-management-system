@@ -150,10 +150,15 @@ def test_v1_rules_freeze_rule_ids_scopes_reasons_and_levels() -> None:
 def test_ruleset_rejects_missing_or_unapproved_table_exclusions(
     params: tuple[tuple[str, bool], ...],
 ) -> None:
-    from gateway_backend.capabilities.risk_evaluation._rules import InvalidRiskRuleset, validate_risk_ruleset
+    from gateway_backend.capabilities.risk_evaluation._rules import (
+        InvalidRiskRuleset,
+        validate_risk_ruleset,
+    )
 
-    rules = tuple(replace(rule, params=params) if rule.rule_id is RiskRuleId.ROW_ADDED else rule
-                  for rule in V1_RISK_RULE_SPECS)
+    rules = tuple(
+        replace(rule, params=params) if rule.rule_id is RiskRuleId.ROW_ADDED else rule
+        for rule in V1_RISK_RULE_SPECS
+    )
     with pytest.raises(InvalidRiskRuleset, match="parameters"):
         validate_risk_ruleset(RiskRulesetSnapshot(rules=rules))
 
@@ -172,7 +177,10 @@ def test_ruleset_document_round_trip_and_digest_are_stable() -> None:
         "risk_ruleset_id": document["risk_ruleset_id"],
         "contract_version": document["contract_version"],
     }
-    assert risk_ruleset_from_document(reordered_object_keys).risk_ruleset_digest == snapshot.risk_ruleset_digest
+    assert (
+        risk_ruleset_from_document(reordered_object_keys).risk_ruleset_digest
+        == snapshot.risk_ruleset_digest
+    )
 
 
 def _unknown_field(document: dict[str, object]) -> dict[str, object]:
@@ -323,7 +331,9 @@ def test_r5_facts_and_records_access_are_the_only_input_boundary() -> None:
 
 def test_digest_excludes_artifact_refs_diagnostics_and_path_identity() -> None:
     ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-risk", "test_risk_contracts.py"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "test-risk", "test_risk_contracts.py"
+        ),
         media_type="application/json",
         size_bytes=4,
         raw_sha256=raw_blob_digest(b"blob"),
@@ -357,6 +367,7 @@ def test_digest_excludes_artifact_refs_diagnostics_and_path_identity() -> None:
 @pytest.mark.parametrize("part", ["content", "manifest", "closure"])
 def test_risk_artifact_identity_keeps_the_digest_suffix(part: str) -> None:
     from gateway_backend.capabilities.risk_evaluation._artifacts import _risk_artifact_id
+
     prefix = "a" * 24
     first = DigestRef("sha256:" + prefix + "b" * 40)
     second = DigestRef("sha256:" + prefix + "c" * 40)

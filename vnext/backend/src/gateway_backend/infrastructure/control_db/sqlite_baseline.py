@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
-from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
+from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import (
+    SQLiteCanonicalTableCache,
+)
 from gateway_backend.domain.baseline.errors import BaselineHeadVersionConflict
 from gateway_backend.domain.baseline.models import (
     BaselineHeadRecord,

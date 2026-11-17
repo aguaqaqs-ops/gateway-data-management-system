@@ -82,7 +82,9 @@ def assert_archive_durable_state_unchanged(
     baseline_head_version: int,
     expected_workspace_versions: dict[str, int] | None = None,
 ) -> None:
-    from gateway_backend.infrastructure.control_db.sqlite_baseline import get_current_head_from_connection
+    from gateway_backend.infrastructure.control_db.sqlite_baseline import (
+        get_current_head_from_connection,
+    )
 
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         plan_count = unit_of_work.connection.execute(
@@ -222,8 +224,13 @@ def _insert_bulk_approved_archive_candidate_rows(
         )
         attempt_rows.append(
             (
-                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
-                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
+                configuration_facts_blob(
+                    workspace_id=workspace_id,
+                    repository_id=repository_id,
+                    baseline_node_id=node_id,
+                    baseline_commit_id=commit_id,
+                    baseline_head_version=head_version,
+                ),
                 attempt_id,
                 workspace_id,
                 repository_id,
@@ -239,8 +246,13 @@ def _insert_bulk_approved_archive_candidate_rows(
         )
         submission_rows.append(
             (
-                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
-                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
+                configuration_facts_blob(
+                    workspace_id=workspace_id,
+                    repository_id=repository_id,
+                    baseline_node_id=node_id,
+                    baseline_commit_id=commit_id,
+                    baseline_head_version=head_version,
+                ),
                 submission_id,
                 attempt_id,
                 workspace_id,
@@ -433,8 +445,13 @@ def _insert_bulk_rejected_archive_candidate_rows(
         )
         attempt_rows.append(
             (
-                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
-                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
+                configuration_facts_blob(
+                    workspace_id=workspace_id,
+                    repository_id=repository_id,
+                    baseline_node_id=node_id,
+                    baseline_commit_id=commit_id,
+                    baseline_head_version=head_version,
+                ),
                 attempt_id,
                 workspace_id,
                 repository_id,
@@ -450,8 +467,13 @@ def _insert_bulk_rejected_archive_candidate_rows(
         )
         submission_rows.append(
             (
-                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
-                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
+                configuration_facts_blob(
+                    workspace_id=workspace_id,
+                    repository_id=repository_id,
+                    baseline_node_id=node_id,
+                    baseline_commit_id=commit_id,
+                    baseline_head_version=head_version,
+                ),
                 submission_id,
                 attempt_id,
                 workspace_id,
@@ -615,7 +637,9 @@ def seed_triple_approved_sibling_archive(
     primary_review = _seed_pending_review_submission(db_path)
     _apply_review(
         primary_review,
-        _apply_command(primary_review, action=ReviewAction.APPROVE, idempotency_key="approve-primary"),
+        _apply_command(
+            primary_review, action=ReviewAction.APPROVE, idempotency_key="approve-primary"
+        ),
     )
     sibling_ids = ("sub-2", "sub-3")
     sibling_reviews = []
@@ -682,7 +706,9 @@ def seed_approved_dual_sibling_archive(db_path: Path) -> DualSiblingArchiveSeed:
     primary_review = _seed_pending_review_submission(db_path)
     _apply_review(
         primary_review,
-        _apply_command(primary_review, action=ReviewAction.APPROVE, idempotency_key="approve-primary"),
+        _apply_command(
+            primary_review, action=ReviewAction.APPROVE, idempotency_key="approve-primary"
+        ),
     )
     sibling_review = _seed_additional_pending_review_submission(
         db_path,
@@ -693,7 +719,9 @@ def seed_approved_dual_sibling_archive(db_path: Path) -> DualSiblingArchiveSeed:
     )
     _apply_review(
         sibling_review,
-        _apply_command(sibling_review, action=ReviewAction.APPROVE, idempotency_key="approve-sibling"),
+        _apply_command(
+            sibling_review, action=ReviewAction.APPROVE, idempotency_key="approve-sibling"
+        ),
     )
     archiver_context = _archiver_context(
         primary_review.reviewer_context.gateway_device_external_key,
@@ -854,47 +882,102 @@ def prepare_dual_sibling_start(
 
 def normalize_archive_fixture_configuration(db_path: Path) -> None:
     """Existing archive fixtures start at an INITIAL node and use valid source times."""
-    from gateway_backend.domain.configuration_facts import ConfigurationFacts, ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from gateway_backend.domain.configuration_facts import (
+        ConfigurationFacts,
+        ConfigurationGeneratedTime,
+        CONFIGURATION_TIME_RULE,
+    )
     from gateway_shared_kernel.jcs import canonicalize_json_value
-    time = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "VALID", "2024-06-01T12:00:00Z",
-        "2024-06-01T12:00:00Z", 1, 0, 0, 1, 1, False)
+
+    time = ConfigurationGeneratedTime(
+        CONFIGURATION_TIME_RULE,
+        "VALID",
+        "2024-06-01T12:00:00Z",
+        "2024-06-01T12:00:00Z",
+        1,
+        0,
+        0,
+        1,
+        1,
+        False,
+    )
     with ControlDbUnitOfWork(db_path) as uow:
         rows = uow.connection.execute("""SELECT s.submission_id, s.submit_attempt_id, s.configuration_facts
             FROM submission_records s JOIN baseline_node_records b ON b.node_id = s.based_on_baseline_node_id
             WHERE b.kind = 'INITIAL'""").fetchall()
         for row in rows:
             facts = ConfigurationFacts.from_document(json.loads(row["configuration_facts"]))
-            facts = replace(facts, baseline_is_initial=True, baseline_source_submission_id=None, initial_origin="UPLOADED",
-                initial=replace(facts.initial, generated_time=time), modified=replace(facts.modified, generated_time=time))
+            facts = replace(
+                facts,
+                baseline_is_initial=True,
+                baseline_source_submission_id=None,
+                initial_origin="UPLOADED",
+                initial=replace(facts.initial, generated_time=time),
+                modified=replace(facts.modified, generated_time=time),
+            )
             blob = canonicalize_json_value(facts.to_document())
-            uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?",
-                (blob, row["submission_id"]))
-            uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?",
-                (blob, row["submit_attempt_id"]))
+            uow.connection.execute(
+                "UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?",
+                (blob, row["submission_id"]),
+            )
+            uow.connection.execute(
+                "UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?",
+                (blob, row["submit_attempt_id"]),
+            )
 
 
-def close_command(seed: ArchiveSeed, *, key: str = "close-approved", reason: str = "source cannot be accepted; upload a corrected package") -> CloseSubmissionCommand:
-    return CloseSubmissionCommand(seed.archiver_context, seed.submission_id, key, 1,
-        BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.baseline_head_version, reason)
+def close_command(
+    seed: ArchiveSeed,
+    *,
+    key: str = "close-approved",
+    reason: str = "source cannot be accepted; upload a corrected package",
+) -> CloseSubmissionCommand:
+    return CloseSubmissionCommand(
+        seed.archiver_context,
+        seed.submission_id,
+        key,
+        1,
+        BASELINE_HEAD.business_baseline_node_id,
+        BASELINE_HEAD.baseline_head_version,
+        reason,
+    )
 
 
-def replace_archive_configuration(db_path: Path, submission_id: str,
-        transform: Callable[[ConfigurationFacts], ConfigurationFacts]) -> ConfigurationFacts:
+def replace_archive_configuration(
+    db_path: Path, submission_id: str, transform: Callable[[ConfigurationFacts], ConfigurationFacts]
+) -> ConfigurationFacts:
     from gateway_shared_kernel.jcs import canonicalize_json_value
+
     with ControlDbUnitOfWork(db_path) as uow:
         submission = uow.submission.get_submission(submission_id)
         assert submission is not None
         facts = transform(submission.configuration_facts)
         blob = canonicalize_json_value(facts.to_document())
-        uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?", (blob, submission_id))
-        uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?", (blob, submission.submit_attempt_id))
+        uow.connection.execute(
+            "UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?",
+            (blob, submission_id),
+        )
+        uow.connection.execute(
+            "UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?",
+            (blob, submission.submit_attempt_id),
+        )
     return facts
 
 
 def refresh_archive_seed(seed: ArchiveSeed) -> ArchiveSeed:
-    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(seed.db_path))
-    selected = next(item for item in candidates.candidates if item.submission_id == seed.submission_id)
-    return replace(seed, candidate_set_digest=candidates.candidate_set_digest,
+    candidates = get_archive_candidates(
+        context=seed.archiver_context, unit_of_work_factory=_uow_factory(seed.db_path)
+    )
+    selected = next(
+        item for item in candidates.candidates if item.submission_id == seed.submission_id
+    )
+    return replace(
+        seed,
+        candidate_set_digest=candidates.candidate_set_digest,
         selected_ref=ArchiveSelectedRef(selected.submission_id, selected.expected_candidate_digest),
-        selection_subject_digest=compute_selection_subject_digest(candidate_set_digest=candidates.candidate_set_digest,
-            selected_submission_id=selected.submission_id, expected_candidate_digest=selected.expected_candidate_digest))
+        selection_subject_digest=compute_selection_subject_digest(
+            candidate_set_digest=candidates.candidate_set_digest,
+            selected_submission_id=selected.submission_id,
+            expected_candidate_digest=selected.expected_candidate_digest,
+        ),
+    )

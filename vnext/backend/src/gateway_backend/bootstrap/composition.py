@@ -11,7 +11,10 @@ from gateway_backend.http.schemas.statistics import CollectionHealth
 import logging
 
 
-from gateway_backend.bootstrap.storage_layout import local_store_from_config, scratch_space_from_config
+from gateway_backend.bootstrap.storage_layout import (
+    local_store_from_config,
+    scratch_space_from_config,
+)
 
 import asyncio
 import urllib.error
@@ -22,13 +25,19 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 from typing import ContextManager, cast
-from gateway_backend.application.canonical_metadata.table_access import CanonicalTableTransaction, CanonicalCommittedTableAccess, build_committed_table_access
+from gateway_backend.application.canonical_metadata.table_access import (
+    CanonicalTableTransaction,
+    CanonicalCommittedTableAccess,
+    build_committed_table_access,
+)
 from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort
 
 import httpx
 from gateway_repository_client import RepositoryClient
 from gateway_backend.infrastructure.control_db.sqlite_registration import SQLiteRegistrationStore
-from gateway_backend.infrastructure.repository_write.registration import RegistrationRepositoryAdapter
+from gateway_backend.infrastructure.repository_write.registration import (
+    RegistrationRepositoryAdapter,
+)
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
@@ -50,7 +59,10 @@ from gateway_backend.application.submit_registry import (
 )
 from gateway_backend.application.submission.accept_transaction import assert_submit_job_registered
 from gateway_backend.application.submission.contracts import SubmitImportPublicationPort
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules import (
+    comparison_rule_set,
+    migrated_table_ruleset_snapshot,
+)
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.bundle_download import PreparedBundleDownload
@@ -95,7 +107,9 @@ from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
     load_repository_bearer_token,
 )
-from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryTableAccessProvider
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    RepositoryTableAccessProvider,
+)
 from gateway_backend.infrastructure.repository_write import (
     HttpRepositoryAbortEvidencePort,
     HttpRepositoryWriteClient,
@@ -106,20 +120,28 @@ from gateway_backend.infrastructure.repository_write.terminal_evidence_codec imp
 from gateway_backend.runtime_preflight import RuntimePreflight
 from gateway_backend.bootstrap.repository_identity import assert_repository_identity
 from gateway_backend.deployment_config import DeploymentConfig
-from gateway_backend.bootstrap.deployment_identity import publish_configuration, compare_configuration
+from gateway_backend.bootstrap.deployment_identity import (
+    publish_configuration,
+    compare_configuration,
+)
 
 from gateway_backend.application.provisioning.registration import DeviceRegistration
 from gateway_backend.settings import BackendSettings
 
+
 class TransactionWorkspaceRepository:
     """WorkspaceRepository that opens one control-DB transaction per call."""
 
-    def __init__(self, db_path: Path, *, artifact_borrow: Callable[[], ContextManager[None]]) -> None:
+    def __init__(
+        self, db_path: Path, *, artifact_borrow: Callable[[], ContextManager[None]]
+    ) -> None:
         self._db_path = db_path
         self._artifact_borrow = artifact_borrow
 
     def _read_uow(self) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(self._db_path, read_only=True, artifact_borrow=self._artifact_borrow)
+        return ControlDbUnitOfWork(
+            self._db_path, read_only=True, artifact_borrow=self._artifact_borrow
+        )
 
     def _write_uow(self) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(self._db_path, artifact_borrow=self._artifact_borrow)
@@ -136,12 +158,21 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.get_upload_revision(upload_revision_id)
 
-    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> PreviewResult | None:
+    def get_preview_result(
+        self,
+        preview_result_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> PreviewResult | None:
         with self._read_uow() as unit_of_work:
-            return unit_of_work.workspace.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=repository_id)
+            return unit_of_work.workspace.get_preview_result(
+                preview_result_id, workspace_id=workspace_id, repository_id=repository_id
+            )
 
-    def find_upload_idempotency(self, workspace_id: str, idempotency_key: str) -> UploadRevision | None:
+    def find_upload_idempotency(
+        self, workspace_id: str, idempotency_key: str
+    ) -> UploadRevision | None:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.find_upload_idempotency(workspace_id, idempotency_key)
 
@@ -167,7 +198,9 @@ class TransactionWorkspaceRepository:
 
     def save_workspace(self, workspace: Workspace, *, expected_version: int) -> Workspace:
         with self._write_uow() as unit_of_work:
-            return unit_of_work.workspace.save_workspace(workspace, expected_version=expected_version)
+            return unit_of_work.workspace.save_workspace(
+                workspace, expected_version=expected_version
+            )
 
     def save_upload_revision(self, revision: UploadRevision) -> None:
         with self._write_uow() as unit_of_work:
@@ -213,9 +246,7 @@ def build_workspace_job_registry() -> JobDefinitionRegistry:
     """Immutable preview+submit+history registry shared by HTTP acceptance and the worker."""
 
     return JobDefinitionRegistry.build(
-        preview_job_definitions()
-        + submit_job_definitions()
-        + history_compare_job_definitions()
+        preview_job_definitions() + submit_job_definitions() + history_compare_job_definitions()
     )
 
 
@@ -247,10 +278,12 @@ def assert_repository_service_ready(
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             if response.status != 200:
                 raise ValueError("repository service is not ready")
-    except (urllib.error.URLError, TimeoutError, ValueError):
+    except urllib.error.URLError, TimeoutError, ValueError:
         raise ValueError("repository service is not ready") from None
     if deployment is not None:
-        assert_repository_identity(base_url, bearer_token, deployment, timeout_seconds=timeout_seconds)
+        assert_repository_identity(
+            base_url, bearer_token, deployment, timeout_seconds=timeout_seconds
+        )
 
 
 class HttpRepositoryMainResolvePort:
@@ -298,7 +331,9 @@ def prepare_backend_runtime(
 ) -> BackendRuntime:
     """Validate settings, SQLite, artifact root, registry, and Repository readiness before /readyz."""
 
-    guard = RuntimePreflight(settings.deployment_config, "backend", container=settings.runtime_mode == "container")
+    guard = RuntimePreflight(
+        settings.deployment_config, "backend", container=settings.runtime_mode == "container"
+    )
     publish_configuration(settings.deployment_config)
     guard.configuration_check = lambda: compare_configuration(settings.deployment_config)
     guard.check()
@@ -310,11 +345,20 @@ def prepare_backend_runtime(
         raise ValueError("control DB parent is not a directory")
     initialize_and_verify_control_db(settings.control_db_path)
     from gateway_backend.bootstrap.provisioning import reserved_directory
+
     storage = settings.deployment_config.storage
-    directory = reserved_directory(settings.processing_groups_file, settings.device_directory_file,
-        environment=storage.environment_id, group=storage.group_id)
-    seed_provisioned_mappings(settings.control_db_path, settings.provisioned_mapping_file,
-        directory=directory, group=storage.group_id)
+    directory = reserved_directory(
+        settings.processing_groups_file,
+        settings.device_directory_file,
+        environment=storage.environment_id,
+        group=storage.group_id,
+    )
+    seed_provisioned_mappings(
+        settings.control_db_path,
+        settings.provisioned_mapping_file,
+        directory=directory,
+        group=storage.group_id,
+    )
     if not skip_repository_ready_probe:
         assert_repository_service_ready(
             settings.repository_base_url,
@@ -340,7 +384,9 @@ def prepare_backend_runtime(
     )
 
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path, read_only=read_only, artifact_borrow=local_store.read_session)
+        return ControlDbUnitOfWork(
+            settings.control_db_path, read_only=read_only, artifact_borrow=local_store.read_session
+        )
 
     write_client = HttpRepositoryWriteClient(
         base_url=settings.repository_base_url,
@@ -378,7 +424,9 @@ def prepare_backend_runtime(
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=lambda: f"sub-{uuid4()}",
     )
-    submit_control_uow_factory = bind_submit_control_transaction_factory(control_transaction_factory)
+    submit_control_uow_factory = bind_submit_control_transaction_factory(
+        control_transaction_factory
+    )
     operator_recovery_port = build_submit_operator_recovery_port(
         write_uow_factory=control_transaction_factory,
         capability_lookup=build_submit_recovery_capability_lookup(registry),
@@ -397,7 +445,9 @@ def prepare_backend_runtime(
         session_port=LiveFileSessionPort(settings.session_file),
         scope_resolution=scope_resolution,
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
-        workspace_repository=TransactionWorkspaceRepository(settings.control_db_path, artifact_borrow=local_store.read_session),
+        workspace_repository=TransactionWorkspaceRepository(
+            settings.control_db_path, artifact_borrow=local_store.read_session
+        ),
         workspace_unit_of_work_factory=unit_of_work_factory,
         submit_unit_of_work_factory=unit_of_work_factory,
         review_unit_of_work_factory=unit_of_work_factory,
@@ -440,23 +490,49 @@ def prepare_backend_runtime(
     )
     statistics: BackendStatistics | None = None
     try:
-        statistics = BackendStatistics(deployment, settings.control_db_path, settings.repository_base_url, repository_token)
+        statistics = BackendStatistics(
+            deployment, settings.control_db_path, settings.repository_base_url, repository_token
+        )
         statistics_http = statistics.http
     except Exception:
         logging.getLogger(__name__).warning("statistics disabled reason=collection_failed")
-        statistics_http = StatisticsHttpDependencies(SQLiteStatisticsReader(
-            statistics_database_path(Path(deployment.storage.roots['be-metadata'].path)),
-            StatisticsIdentity(environment_id=deployment.storage.environment_id, group_id=deployment.storage.group_id),
-            available=lambda: False), health=lambda: CollectionHealth(enabled=False,
-                quality='unavailable', reason='collection_failed'))
+        statistics_http = StatisticsHttpDependencies(
+            SQLiteStatisticsReader(
+                statistics_database_path(Path(deployment.storage.roots["be-metadata"].path)),
+                StatisticsIdentity(
+                    environment_id=deployment.storage.environment_id,
+                    group_id=deployment.storage.group_id,
+                ),
+                available=lambda: False,
+            ),
+            health=lambda: CollectionHealth(
+                enabled=False, quality="unavailable", reason="collection_failed"
+            ),
+        )
     return BackendRuntime(
         settings=settings,
-        device_registration=DeviceRegistration(store=SQLiteRegistrationStore(settings.control_db_path, storage.environment_id, storage.group_id),
-            environment=storage.environment_id, group=storage.group_id, storage_digest=storage.digest,
-            reservation=lambda device: reserved_directory(settings.processing_groups_file, settings.device_directory_file,
-                environment=storage.environment_id, group=storage.group_id).require_reservation(device, storage.group_id),
-            repository=RegistrationRepositoryAdapter(RepositoryClient(base_url=settings.repository_base_url, bearer_token=repository_token,
-                timeout_seconds=settings.repository_timeout_seconds, transport=repository_transport))),
+        device_registration=DeviceRegistration(
+            store=SQLiteRegistrationStore(
+                settings.control_db_path, storage.environment_id, storage.group_id
+            ),
+            environment=storage.environment_id,
+            group=storage.group_id,
+            storage_digest=storage.digest,
+            reservation=lambda device: reserved_directory(
+                settings.processing_groups_file,
+                settings.device_directory_file,
+                environment=storage.environment_id,
+                group=storage.group_id,
+            ).require_reservation(device, storage.group_id),
+            repository=RegistrationRepositoryAdapter(
+                RepositoryClient(
+                    base_url=settings.repository_base_url,
+                    bearer_token=repository_token,
+                    timeout_seconds=settings.repository_timeout_seconds,
+                    transport=repository_transport,
+                )
+            ),
+        ),
         storage_guard=guard,
         admission_gate=admission_gate,
         workspace_http=workspace_http,
@@ -477,12 +553,19 @@ def build_submit_import_publication_port(
         SubmitImportPublicationAdapter,
     )
 
-    def committed_tables(store: ArtifactStorePort, repository_id: str) -> CanonicalCommittedTableAccess:
-        return build_committed_table_access(store=cast(ArtifactBufferStorePort, store),
-            unit_of_work_factory=control_transaction_factory, repository_provider_factory=repository_provider_factory,
-            repository_id=repository_id)
+    def committed_tables(
+        store: ArtifactStorePort, repository_id: str
+    ) -> CanonicalCommittedTableAccess:
+        return build_committed_table_access(
+            store=cast(ArtifactBufferStorePort, store),
+            unit_of_work_factory=control_transaction_factory,
+            repository_provider_factory=repository_provider_factory,
+            repository_id=repository_id,
+        )
+
     return SubmitImportPublicationAdapter(
-        repository_provider_factory=repository_provider_factory, committed_table_factory=committed_tables,
+        repository_provider_factory=repository_provider_factory,
+        committed_table_factory=committed_tables,
     )
 
 

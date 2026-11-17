@@ -1,4 +1,5 @@
 """One bounded, cooperative maintenance pass. Cursors contain no caller paths."""
+
 from __future__ import annotations
 
 import base64
@@ -23,10 +24,10 @@ from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedA
 from gateway_backend.infrastructure.artifact_store.layout import directory_identity
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
-_HEX2 = re.compile(r'[0-9a-f]{2}')
-_HEX64 = re.compile(r'[0-9a-f]{64}')
-_TEMP = re.compile(r'(?:object|scratch)-[A-Za-z0-9_-]{6,64}')
-_FILE = re.compile(r'file-[0-9a-f]{32}')
+_HEX2 = re.compile(r"[0-9a-f]{2}")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_TEMP = re.compile(r"(?:object|scratch)-[A-Za-z0-9_-]{6,64}")
+_FILE = re.compile(r"file-[0-9a-f]{32}")
 _LOCATIONS = tuple(ArtifactLocation)
 _MAX_VISITS = 1024
 _TEMP_INSPECTION_VISITS = 134
@@ -37,8 +38,13 @@ class _InspectionDeferred(Exception):
 
 
 class _Dirent(ctypes.Structure):
-    _fields_ = [('inode', ctypes.c_ulong), ('offset', ctypes.c_long), ('length', ctypes.c_ushort),
-               ('kind', ctypes.c_ubyte), ('name', ctypes.c_char * 256)]
+    _fields_ = [
+        ("inode", ctypes.c_ulong),
+        ("offset", ctypes.c_long),
+        ("length", ctypes.c_ushort),
+        ("kind", ctypes.c_ubyte),
+        ("name", ctypes.c_char * 256),
+    ]
 
 
 _libc = ctypes.CDLL(None, use_errno=True)
@@ -58,14 +64,14 @@ def _entry(path: Path, cookie: int) -> tuple[str | None, int]:
     directory = _libc.fdopendir(fd)
     if not directory:
         os.close(fd)
-        raise OSError(ctypes.get_errno(), 'fdopendir failed')
+        raise OSError(ctypes.get_errno(), "fdopendir failed")
     try:
         _libc.seekdir(directory, cookie)
         ctypes.set_errno(0)
         entry = _libc.readdir(directory)
         if not entry:
             if error := ctypes.get_errno():
-                raise OSError(error, 'readdir failed')
+                raise OSError(error, "readdir failed")
             return None, cookie
         return os.fsdecode(entry.contents.name), _libc.telldir(directory)
     finally:
@@ -74,7 +80,7 @@ def _entry(path: Path, cookie: int) -> tuple[str | None, int]:
 
 @dataclass
 class _Lane:
-    stack: list[tuple[str, int]] = field(default_factory=lambda: [('', 0)])
+    stack: list[tuple[str, int]] = field(default_factory=lambda: [("", 0)])
     done: bool = False
 
 
@@ -107,22 +113,29 @@ class _Budget:
 
 
 def _valid_relative(relative: str, lane: int) -> bool:
-    if relative == '':
+    if relative == "":
         return True
-    parts = relative.split('/')
+    parts = relative.split("/")
     if lane >= 4:
         return False  # temporary lanes never recurse beyond one owner directory
-    if parts[0] != 'objects' or len(parts) > 3:
+    if parts[0] != "objects" or len(parts) > 3:
         return False
     return all(_HEX2.fullmatch(part) for part in parts[1:])
 
 
 class ArtifactMaintenance:
-    def __init__(self, local: LocalArtifactStore, bounded: BoundedArtifactStore, *, scratch_root: Path,
-                 owner_active: Callable[[str], bool], grace: timedelta = timedelta(hours=24),
-                 scratch_validator: Callable[[], None] | None = None) -> None:
+    def __init__(
+        self,
+        local: LocalArtifactStore,
+        bounded: BoundedArtifactStore,
+        *,
+        scratch_root: Path,
+        owner_active: Callable[[str], bool],
+        grace: timedelta = timedelta(hours=24),
+        scratch_validator: Callable[[], None] | None = None,
+    ) -> None:
         if grace < timedelta(0) or grace > timedelta(hours=24):
-            raise ValueError('temporary grace must be between zero and 24 hours')
+            raise ValueError("temporary grace must be between zero and 24 hours")
         self.local = local
         self.bounded = bounded
         self.scratch_root = scratch_root
@@ -131,13 +144,23 @@ class ArtifactMaintenance:
             self.scratch_identity: tuple[int, int, str] | None = directory_identity(scratch_root)
             if scratch_validator is not None:
                 scratch_validator()
-        except (OSError, ValueError, StopIteration):
+        except OSError, ValueError, StopIteration:
             self.scratch_identity = None
         self.owner_active = owner_active
         self.grace = grace
-        self.identity = hashlib.sha256(json.dumps([
-            [(loc.value, str(local.layout.root(loc)), local.layout._identities[loc]) for loc in _LOCATIONS],
-            str(scratch_root), self.scratch_identity], sort_keys=True).encode()).hexdigest()
+        self.identity = hashlib.sha256(
+            json.dumps(
+                [
+                    [
+                        (loc.value, str(local.layout.root(loc)), local.layout._identities[loc])
+                        for loc in _LOCATIONS
+                    ],
+                    str(scratch_root),
+                    self.scratch_identity,
+                ],
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
 
     def _decode(self, cursor: str | None) -> tuple[list[_Lane], int]:
         if cursor is None:
@@ -145,43 +168,59 @@ class ArtifactMaintenance:
         try:
             if type(cursor) is not str or len(cursor) > 8192:
                 raise ValueError()
-            doc = json.loads(base64.b64decode(cursor, altchars=b'-_', validate=True))
-            if set(doc) != {'v', 'identity', 'next', 'lanes'} or doc['v'] != 1 or doc['identity'] != self.identity:
+            doc = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
+            if (
+                set(doc) != {"v", "identity", "next", "lanes"}
+                or doc["v"] != 1
+                or doc["identity"] != self.identity
+            ):
                 raise ValueError()
-            if type(doc['next']) is not int or not 0 <= doc['next'] < 9 or len(doc['lanes']) != 9:
+            if type(doc["next"]) is not int or not 0 <= doc["next"] < 9 or len(doc["lanes"]) != 9:
                 raise ValueError()
             lanes: list[_Lane] = []
-            for index, item in enumerate(doc['lanes']):
-                if set(item) != {'stack', 'done'} or type(item['done']) is not bool or len(item['stack']) > 4:
+            for index, item in enumerate(doc["lanes"]):
+                if (
+                    set(item) != {"stack", "done"}
+                    or type(item["done"]) is not bool
+                    or len(item["stack"]) > 4
+                ):
                     raise ValueError()
                 stack: list[tuple[str, int]] = []
-                for relative, cookie in item['stack']:
+                for relative, cookie in item["stack"]:
                     if type(relative) is not str or not _valid_relative(relative, index):
                         raise ValueError()
                     if type(cookie) is not int or not 0 <= cookie < 2**63:
                         raise ValueError()
                     if len(Path(relative).parts) != len(stack):
                         raise ValueError()
-                    if stack and not relative.startswith(stack[-1][0] + ('/' if stack[-1][0] else '')):
+                    if stack and not relative.startswith(
+                        stack[-1][0] + ("/" if stack[-1][0] else "")
+                    ):
                         raise ValueError()
                     stack.append((relative, cookie))
-                if item['done'] != (not stack):
+                if item["done"] != (not stack):
                     raise ValueError()
-                lanes.append(_Lane(stack, item['done']))
-            return lanes, doc['next']
-        except (ValueError, TypeError, KeyError, UnicodeError, RecursionError):
-            raise ValueError('invalid or foreign cleanup cursor') from None
+                lanes.append(_Lane(stack, item["done"]))
+            return lanes, doc["next"]
+        except ValueError, TypeError, KeyError, UnicodeError, RecursionError:
+            raise ValueError("invalid or foreign cleanup cursor") from None
 
     def _encode(self, lanes: list[_Lane], next_lane: int) -> str | None:
         if all(lane.done for lane in lanes):
             return None
-        doc = {'v': 1, 'identity': self.identity, 'next': next_lane, 'lanes': [asdict(lane) for lane in lanes]}
-        return base64.urlsafe_b64encode(json.dumps(doc, separators=(',', ':')).encode()).decode()
+        doc = {
+            "v": 1,
+            "identity": self.identity,
+            "next": next_lane,
+            "lanes": [asdict(lane) for lane in lanes],
+        }
+        return base64.urlsafe_b64encode(json.dumps(doc, separators=(",", ":")).encode()).decode()
 
-    def run(self, *, max_candidates: int = 32, cursor: str | None = None,
-            now: datetime | None = None) -> MaintenanceResult:
+    def run(
+        self, *, max_candidates: int = 32, cursor: str | None = None, now: datetime | None = None
+    ) -> MaintenanceResult:
         if type(max_candidates) is not int or not 1 <= max_candidates <= 32:
-            raise ValueError('max_candidates must be between 1 and 32')
+            raise ValueError("max_candidates must be between 1 and 32")
         when = now or datetime.now(UTC)
         lanes, next_lane = self._decode(cursor)
         budget = _Budget()
@@ -189,15 +228,23 @@ class ArtifactMaintenance:
         disabled: set[int] = set()
         skipped: list[str] = []
         while len(items) < max_candidates and budget.visits < _MAX_VISITS:
-            available = [index for index, lane in enumerate(lanes) if not lane.done and index not in disabled]
+            available = [
+                index for index, lane in enumerate(lanes) if not lane.done and index not in disabled
+            ]
             if not available:
                 break
-            index = next((index for offset in range(9) if (index := (next_lane + offset) % 9) in available))
+            index = next(
+                (index for offset in range(9) if (index := (next_lane + offset) % 9) in available)
+            )
             next_lane = (index + 1) % 9
             location = _LOCATIONS[index % 4] if index < 8 else None
-            label = ('staging:' + location.value if index >= 4 else location.value) if location else 'scratch'
+            label = (
+                ("staging:" + location.value if index >= 4 else location.value)
+                if location
+                else "scratch"
+            )
             root = self.local.layout.root(location) if location else self.scratch_root
-            base = root / '.staging' if 4 <= index < 8 else root
+            base = root / ".staging" if 4 <= index < 8 else root
             try:
                 if location:
                     with self.local.layout.cleanup_session(location) as acquired:
@@ -209,16 +256,22 @@ class ArtifactMaintenance:
                 else:
                     if self.scratch_validator is not None:
                         self.scratch_validator()
-                    if self.scratch_identity is None or directory_identity(root) != self.scratch_identity:
-                        raise ValueError('scratch root identity changed')
+                    if (
+                        self.scratch_identity is None
+                        or directory_identity(root) != self.scratch_identity
+                    ):
+                        raise ValueError("scratch root identity changed")
                     item = self._advance(index, lanes[index], root, base, budget, when)
                 if item is not None:
                     relative, disposition, reason, ref = item
                     if ref is not None:
                         # The adapter owns EX -> short DB -> recheck/delete. Do
                         # not enter its SH borrowing UoW while holding scan EX.
-                        disposition = self.bounded.delete_eligible(ref,
-                            expected_classification=CleanupClassification.ELIGIBLE_AFTER, now=when).value
+                        disposition = self.bounded.delete_eligible(
+                            ref,
+                            expected_classification=CleanupClassification.ELIGIBLE_AFTER,
+                            now=when,
+                        ).value
                     items.append(MaintenanceItem(label, relative, disposition, reason))
             except _InspectionDeferred:
                 disabled.add(index)
@@ -228,14 +281,24 @@ class ArtifactMaintenance:
                     lanes[index].done = True
                 else:
                     disabled.add(index)
-                    items.append(MaintenanceItem(label, '', 'manual_review', 'configured root or scan directory unavailable'))
+                    items.append(
+                        MaintenanceItem(
+                            label,
+                            "",
+                            "manual_review",
+                            "configured root or scan directory unavailable",
+                        )
+                    )
             except (OSError, ValueError, OverflowError, ManifestVerificationError) as exc:
                 disabled.add(index)
-                items.append(MaintenanceItem(label, '', 'manual_review', str(exc)))
-        return MaintenanceResult(len(items), budget.visits, tuple(items), self._encode(lanes, next_lane), tuple(skipped))
+                items.append(MaintenanceItem(label, "", "manual_review", str(exc)))
+        return MaintenanceResult(
+            len(items), budget.visits, tuple(items), self._encode(lanes, next_lane), tuple(skipped)
+        )
 
-    def _advance(self, index: int, lane: _Lane, root: Path, base: Path, budget: _Budget,
-                 now: datetime) -> tuple[str, str, str | None, ArtifactRef | None] | None:
+    def _advance(
+        self, index: int, lane: _Lane, root: Path, base: Path, budget: _Budget, now: datetime
+    ) -> tuple[str, str, str | None, ArtifactRef | None] | None:
         relative, cookie = lane.stack[-1]
         directory = base / relative
         self.local._check_path(root, directory)
@@ -248,13 +311,13 @@ class ArtifactMaintenance:
             lane.stack.pop()
             lane.done = not lane.stack
             return None
-        if name in {'.', '..'}:
+        if name in {".", ".."}:
             return None
-        if relative == '' and name == '.gateway-storage.json' and (index < 4 or index == 8):
+        if relative == "" and name == ".gateway-storage.json" and (index < 4 or index == 8):
             # Deployment owns marker identity validation; reserve only its name.
             self.local._check_path(root, base / name)
             if not stat.S_ISREG((base / name).lstat().st_mode):
-                return name, 'manual_review', 'marker must be an ordinary file', None
+                return name, "manual_review", "marker must be an ordinary file", None
             return None
         child_relative = str(Path(relative) / name)
         child = base / child_relative
@@ -262,18 +325,24 @@ class ArtifactMaintenance:
             self.local._check_path(root, child)
             info = child.lstat()
         except (OSError, ValueError) as exc:
-            return child_relative, 'manual_review', str(exc), None
+            return child_relative, "manual_review", str(exc), None
         if index < 4:
-            if relative == '' and name == '.staging':
+            if relative == "" and name == ".staging":
                 return None
-            if ((relative == '' and name == 'objects') or
-                    (1 <= len(Path(relative).parts) <= 2 and _HEX2.fullmatch(name))):
+            if (relative == "" and name == "objects") or (
+                1 <= len(Path(relative).parts) <= 2 and _HEX2.fullmatch(name)
+            ):
                 if not stat.S_ISDIR(info.st_mode):
-                    return child_relative, 'manual_review', 'expected ordinary shard directory', None
+                    return (
+                        child_relative,
+                        "manual_review",
+                        "expected ordinary shard directory",
+                        None,
+                    )
                 lane.stack.append((child_relative, 0))
                 return None
             if len(Path(relative).parts) != 3 or not _HEX64.fullmatch(name):
-                return child_relative, 'manual_review', 'unknown artifact root shape', None
+                return child_relative, "manual_review", "unknown artifact root shape", None
             if not budget.take(16):
                 # Re-read only this boundary entry next time. Its original
                 # visit stays charged; no uninspected candidate is lost.
@@ -282,10 +351,10 @@ class ArtifactMaintenance:
             try:
                 ref = self._object_ref(child, root)
             except (OSError, ValueError) as exc:
-                return child_relative, 'manual_review', str(exc), None
-            return child_relative, 'candidate', None, ref
+                return child_relative, "manual_review", str(exc), None
+            return child_relative, "candidate", None, ref
         if not _TEMP.fullmatch(name) or not stat.S_ISDIR(info.st_mode):
-            return child_relative, 'manual_review', 'unknown temporary owner shape', None
+            return child_relative, "manual_review", "unknown temporary owner shape", None
         # A known temporary shape has at most 64 members. Leave enough for
         # bounded validation + EOF + deletion before consuming this candidate.
         if _MAX_VISITS - budget.visits < _TEMP_INSPECTION_VISITS:
@@ -298,9 +367,9 @@ class ArtifactMaintenance:
             lane.stack[-1] = (relative, previous_cookie)
             raise
         except OSError:
-            return child_relative, 'retryable_failure', 'temporary cleanup I/O failed', None
+            return child_relative, "retryable_failure", "temporary cleanup I/O failed", None
         except ValueError as exc:
-            return child_relative, 'manual_review', str(exc), None
+            return child_relative, "manual_review", str(exc), None
         return child_relative, disposition, reason, None
 
     def _object_ref(self, path: Path, root: Path) -> ArtifactRef:
@@ -309,31 +378,32 @@ class ArtifactMaintenance:
             for entry in entries:
                 names.append(entry.name)
                 if len(names) > 2:
-                    raise ValueError('unknown object members')
+                    raise ValueError("unknown object members")
                 self.local._check_path(root, path / entry.name)
                 if not entry.is_file(follow_symlinks=False):
-                    raise ValueError('object members must be ordinary files')
-        if set(names) - {'payload', 'ref.jcs'} or 'ref.jcs' not in names:
-            raise ValueError('incomplete or unknown object shape')
-        with (path / 'ref.jcs').open('rb') as handle:
+                    raise ValueError("object members must be ordinary files")
+        if set(names) - {"payload", "ref.jcs"} or "ref.jcs" not in names:
+            raise ValueError("incomplete or unknown object shape")
+        with (path / "ref.jcs").open("rb") as handle:
             raw_ref = handle.read(4097)
         if len(raw_ref) > 4096:
-            raise ValueError('object ref exceeds byte bound')
+            raise ValueError("object ref exceeds byte bound")
         ref = artifact_ref_from_json(raw_ref)
         if self.local.object_directory(ref.artifact_id) != path:
-            raise ValueError('object ref belongs to a different directory/root')
-        if 'payload' in names and (path / 'payload').stat().st_size != ref.size_bytes:
-            raise ValueError('object payload size disagrees with ref')
+            raise ValueError("object ref belongs to a different directory/root")
+        if "payload" in names and (path / "payload").stat().st_size != ref.size_bytes:
+            raise ValueError("object payload size disagrees with ref")
         return ref
 
-    def _temporary(self, path: Path, root: Path, scratch: bool, budget: _Budget,
-                   now: datetime) -> tuple[str, str | None]:
+    def _temporary(
+        self, path: Path, root: Path, scratch: bool, budget: _Budget, now: datetime
+    ) -> tuple[str, str | None]:
         descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                return 'retryable_failure', 'temporary owner is active'
+                return "retryable_failure", "temporary owner is active"
             names: list[str] = []
             with os.scandir(path) as entries:
                 while True:
@@ -346,37 +416,46 @@ class ArtifactMaintenance:
                     except StopIteration:
                         break
                     if len(names) >= 64:
-                        return 'manual_review', 'temporary directory exceeds bounded inspection'
+                        return "manual_review", "temporary directory exceeds bounded inspection"
                     names.append(entry.name)
-                    allowed = entry.name == 'owner.json' or (_FILE.fullmatch(entry.name) if scratch
-                        else entry.name in {'payload', 'ref.jcs'})
+                    allowed = entry.name == "owner.json" or (
+                        _FILE.fullmatch(entry.name)
+                        if scratch
+                        else entry.name in {"payload", "ref.jcs"}
+                    )
                     self.local._check_path(root, path / entry.name)
                     if not allowed or not entry.is_file(follow_symlinks=False):
-                        return 'manual_review', 'unknown temporary member'
-            if 'owner.json' not in names:
-                return 'manual_review', 'temporary owner metadata unavailable'
-            if (path / 'owner.json').stat().st_size > 4096:
-                return 'manual_review', 'temporary owner metadata exceeds bound'
-            with (path / 'owner.json').open('rb') as handle:
+                        return "manual_review", "unknown temporary member"
+            if "owner.json" not in names:
+                return "manual_review", "temporary owner metadata unavailable"
+            if (path / "owner.json").stat().st_size > 4096:
+                return "manual_review", "temporary owner metadata exceeds bound"
+            with (path / "owner.json").open("rb") as handle:
                 owner = json.loads(handle.read(4097))
-            if (type(owner) is not dict or set(owner) != {'version', 'owner'} or owner['version'] != 1
-                    or type(owner['owner']) is not str or not owner['owner'] or len(owner['owner']) > 512):
-                return 'manual_review', 'invalid temporary owner metadata'
-            owner_id = owner['owner']
-            if not owner_id.startswith(('operation:', 'upload:', 'request:')):
-                return 'manual_review', 'unknown temporary owner kind'
+            if (
+                type(owner) is not dict
+                or set(owner) != {"version", "owner"}
+                or owner["version"] != 1
+                or type(owner["owner"]) is not str
+                or not owner["owner"]
+                or len(owner["owner"]) > 512
+            ):
+                return "manual_review", "invalid temporary owner metadata"
+            owner_id = owner["owner"]
+            if not owner_id.startswith(("operation:", "upload:", "request:")):
+                return "manual_review", "unknown temporary owner kind"
             if self.owner_active(owner_id):
-                return 'retryable_failure', 'business owner remains active'
+                return "retryable_failure", "business owner remains active"
             modified = datetime.fromtimestamp(path.stat().st_mtime, UTC)
             if now < modified + self.grace:
-                return 'retained', 'orphan grace has not expired'
+                return "retained", "orphan grace has not expired"
             if not budget.take(len(names)):
                 raise _InspectionDeferred
             for name in names:
-                if name != 'owner.json':
+                if name != "owner.json":
                     (path / name).unlink()
-            (path / 'owner.json').unlink()
+            (path / "owner.json").unlink()
             path.rmdir()
-            return 'deleted', None
+            return "deleted", None
         finally:
             os.close(descriptor)

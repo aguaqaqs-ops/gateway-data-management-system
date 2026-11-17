@@ -71,7 +71,9 @@ def _empty_xml() -> str:
 
 def test_business_bind_publishes_derived_table_without_rewriting_sql() -> None:
     sql = load_sql(_SPECIAL_SQL)
-    result = materialize_business(sql, _minimal_xml(), policy=MaterializationPolicy.READERS_REQUIRED)
+    result = materialize_business(
+        sql, _minimal_xml(), policy=MaterializationPolicy.READERS_REQUIRED
+    )
     sql_only = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.snapshot is not None
@@ -81,11 +83,15 @@ def test_business_bind_publishes_derived_table_without_rewriting_sql() -> None:
     assert names[-1] == COMPOSITE_SIGNAL_POINT_TABLE
     assert "device" in names
     assert "device_st" in names
-    derived = next(table for table in result.summary.tables if table.table_name == COMPOSITE_SIGNAL_POINT_TABLE)
+    derived = next(
+        table for table in result.summary.tables if table.table_name == COMPOSITE_SIGNAL_POINT_TABLE
+    )
     assert derived.row_count == 2
     assert derived.primary_key_columns == ("source_table", "point_gid")
     assert derived.compare_key_columns == ("source_table", "point_gid")
-    source_table_column = next(column for column in derived.columns if column.name == "source_table")
+    source_table_column = next(
+        column for column in derived.columns if column.name == "source_table"
+    )
     assert source_table_column.scalar_type == "VARCHAR(64)"
     sql_tables = {table.table_name: table for table in sql_only.summary.tables}
     for table in result.summary.tables:
@@ -96,13 +102,17 @@ def test_business_bind_publishes_derived_table_without_rewriting_sql() -> None:
         assert table.row_count == original.row_count
     assert result.table_set is not None
     derived_reader = next(
-        table.reader for table in result.table_set.tables if table.descriptor.table_name == COMPOSITE_SIGNAL_POINT_TABLE
+        table.reader
+        for table in result.table_set.tables
+        if table.descriptor.table_name == COMPOSITE_SIGNAL_POINT_TABLE
     )
     assert derived_reader is not None
     rows = tuple(derived_reader.iter_rows())
     assert len(rows) == 2
     device_reader = next(
-        table.reader for table in result.table_set.tables if table.descriptor.table_name == "device_st"
+        table.reader
+        for table in result.table_set.tables
+        if table.descriptor.table_name == "device_st"
     )
     assert device_reader is not None
     device_rows = tuple(device_reader.iter_rows())
@@ -148,7 +158,9 @@ def test_empty_derived_table_is_still_published() -> None:
     result = materialize_business(sql, _empty_xml())
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.summary is not None
-    derived = next(table for table in result.summary.tables if table.table_name == COMPOSITE_SIGNAL_POINT_TABLE)
+    derived = next(
+        table for table in result.summary.tables if table.table_name == COMPOSITE_SIGNAL_POINT_TABLE
+    )
     assert derived.row_count == 0
 
 
@@ -230,7 +242,9 @@ def test_identity_violation_fails_without_derived_table() -> None:
     assert result.diagnostics[0].code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
 
 
-def test_business_materialization_rejects_oversized_composite_source_table(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_business_materialization_rejects_oversized_composite_source_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from gateway_backend.capabilities.snapshot_materialization import compose
 
     oversized_row = CompositeSignalPointRow(

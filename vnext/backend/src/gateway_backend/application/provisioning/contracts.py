@@ -1,4 +1,5 @@
 """Registration facts and minimal owner ports, independent of storage and HTTP."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

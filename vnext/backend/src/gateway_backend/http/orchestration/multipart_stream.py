@@ -9,7 +9,11 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from contextlib import ExitStack
 from uuid import uuid4
-from gateway_backend.artifacts.scratch import ScratchSpacePort, ScratchSessionPort, ScratchLimitExceeded
+from gateway_backend.artifacts.scratch import (
+    ScratchSpacePort,
+    ScratchSessionPort,
+    ScratchLimitExceeded,
+)
 from gateway_backend.artifacts.store import ArtifactFileSourcePort
 from typing import IO, Any, cast
 
@@ -111,11 +115,15 @@ class _StreamingMultipartParser:
 
     def on_header_field(self, data: bytes, start: int, end: int) -> None:
         self._header_name += data[start:end]
-        self._enforce_header_budget(self._header_name, _HEADER_NAME_MAX_BYTES, "multipart header name")
+        self._enforce_header_budget(
+            self._header_name, _HEADER_NAME_MAX_BYTES, "multipart header name"
+        )
 
     def on_header_value(self, data: bytes, start: int, end: int) -> None:
         self._header_value += data[start:end]
-        self._enforce_header_budget(self._header_value, _HEADER_VALUE_MAX_BYTES, "multipart header value")
+        self._enforce_header_budget(
+            self._header_value, _HEADER_VALUE_MAX_BYTES, "multipart header value"
+        )
 
     def on_header_end(self) -> None:
         field = self._header_name.lower()
@@ -148,7 +156,9 @@ class _StreamingMultipartParser:
         self._file_count += 1
         if self._file_count > _MAX_FILES:
             raise _multipart_validation_error("too many multipart file parts")
-        source, handle = self._resources.enter_context(self._scratch.file(byte_limit=self._max_compressed))
+        source, handle = self._resources.enter_context(
+            self._scratch.file(byte_limit=self._max_compressed)
+        )
         self._current.source = source
         self._current.handle = handle
 
@@ -256,10 +266,14 @@ async def parse_streaming_multipart(
     resources = ExitStack()
     try:
         session = resources.enter_context(scratch.session(owner="upload:" + uuid4().hex))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         resources.close()
-        raise ApiError(code="SERVICE_NOT_READY", message="temporary storage unavailable",
-                       status_code=503, details={"reason": "root_unavailable"}) from None
+        raise ApiError(
+            code="SERVICE_NOT_READY",
+            message="temporary storage unavailable",
+            status_code=503,
+            details={"reason": "root_unavailable"},
+        ) from None
     except BaseException:
         resources.close()
         raise
@@ -306,7 +320,9 @@ async def parse_streaming_multipart(
         raise
 
 
-def iter_file_chunks(source: ArtifactFileSourcePort, *, chunk_size: int = _STREAM_CHUNK_SIZE) -> Iterator[bytes]:
+def iter_file_chunks(
+    source: ArtifactFileSourcePort, *, chunk_size: int = _STREAM_CHUNK_SIZE
+) -> Iterator[bytes]:
     with source.open_read() as handle:
         while True:
             chunk = handle.read(chunk_size)

@@ -27,9 +27,7 @@ def validate_abort_proof(
             "matching repository operation identity is required for business abort"
         )
     if proof.repository_operation_id != attempt.repository_operation_id:
-        raise AbortProofNotSatisfied(
-            "abort proof repository operation identity must match attempt"
-        )
+        raise AbortProofNotSatisfied("abort proof repository operation identity must match attempt")
     if proof.repository_id != attempt.repository_id:
         raise AbortProofNotSatisfied("abort proof repository scope must match attempt")
     if proof.stable_failure_code not in ALLOWED_ABORT_CODES:

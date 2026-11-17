@@ -75,7 +75,10 @@ def resolve_canonical_snapshot_bindings(
         raise SubmitImportBuilderError("canonical table closure raw SHA does not match attempt")
     closure = _parse_canonical_table_closure(closure_bytes)
     manifest = _read_canonicalization_manifest(read_artifact, manifest_ref)
-    if manifest.manifest_digest is None or manifest.manifest_digest.value != canonicalization_manifest_digest:
+    if (
+        manifest.manifest_digest is None
+        or manifest.manifest_digest.value != canonicalization_manifest_digest
+    ):
         raise SubmitImportBuilderError("canonicalization manifest digest does not match attempt")
 
     expected_tables = {table.name for table in manifest.tables}
@@ -135,12 +138,14 @@ def _require_embedded_ref(
     return current
 
 
-def _read_bounded_artifact(read_artifact: Callable[[ArtifactRef], bytes], ref: ArtifactRef) -> bytes:
+def _read_bounded_artifact(
+    read_artifact: Callable[[ArtifactRef], bytes], ref: ArtifactRef
+) -> bytes:
     if ref.size_bytes > MAX_MANIFEST_JSON_BYTES:
         raise SubmitImportBuilderError("canonical artifact manifest exceeds size limit")
     try:
         payload = read_artifact(ref)
-    except (InterruptedError, TimeoutError, MemoryError):
+    except InterruptedError, TimeoutError, MemoryError:
         raise
     except (ManifestVerificationError, OSError) as exc:
         raise SubmitImportBuilderError("canonical artifact is unavailable") from exc

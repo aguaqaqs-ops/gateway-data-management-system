@@ -38,7 +38,10 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization._digest import snapshot_digest_of
 from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadata,
@@ -60,7 +63,10 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
     SqlSetValue,
 )
-from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
+from gateway_backend.capabilities.table_presentation.contracts import (
+    PresentationMetadata,
+    TablePresentation,
+)
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.capabilities.table_access.contracts import PARSER_VERSION
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
@@ -258,12 +264,19 @@ def test_canonical_snapshot_identity(
     )
     table_comments = {"b1_n1_iec104_syx_list": "遥信引用表"}
     canonical = project_canonical_arrow_table_set(
-        replace(raw_table_set, tables=tuple(snapshot_table_as_arrow(table) for table in raw_table_set.tables)),
+        replace(
+            raw_table_set,
+            tables=tuple(snapshot_table_as_arrow(table) for table in raw_table_set.tables),
+        ),
         _RULESET,
-        presentation=PresentationMetadata((TablePresentation("b1_n1_iec104_syx_list", "遥信引用表", ()),)),
+        presentation=PresentationMetadata(
+            (TablePresentation("b1_n1_iec104_syx_list", "遥信引用表", ()),)
+        ),
     )
     assert canonical.manifest is not None
-    ordered_facts = next(table for table in canonical.manifest.tables if table.name == "b1_n1_iec104_syx_list")
+    ordered_facts = next(
+        table for table in canonical.manifest.tables if table.name == "b1_n1_iec104_syx_list"
+    )
     assert ordered_facts.gid_real_count == 1
     assert ordered_facts.gid_pseudo_count == 1
     assert len(canonical.tables) == 4
@@ -408,7 +421,9 @@ def test_canonical_snapshot_identity(
         assert observed.descriptor.columns == expected.descriptor.columns
         assert observed.descriptor.primary_key_columns == expected.descriptor.primary_key_columns
         assert observed.descriptor.row_count == expected.descriptor.row_count
-        assert observed.descriptor.business_schema_digest == expected.descriptor.business_schema_digest
+        assert (
+            observed.descriptor.business_schema_digest == expected.descriptor.business_schema_digest
+        )
         assert observed.descriptor.raw_content_digest == expected.descriptor.raw_content_digest
         assert expected.reader is not None
         assert observed.reader is not None

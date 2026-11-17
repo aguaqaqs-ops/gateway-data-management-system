@@ -42,7 +42,6 @@ class PreviewArtifactRefResponse(BaseModel):
     size_bytes: int
     raw_sha256: str
 
-
     @field_validator("artifact_id")
     @classmethod
     def validate_backend_id(cls, value: str) -> str:

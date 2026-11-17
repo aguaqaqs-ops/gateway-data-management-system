@@ -14,7 +14,11 @@ from gateway_backend.artifacts.canonical_table_store import (
     CanonicalTableKey,
 )
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.baseline.models import BaselineHeadRecord, BaselineNode, BaselineNodeKind
+from gateway_backend.domain.baseline.models import (
+    BaselineHeadRecord,
+    BaselineNode,
+    BaselineNodeKind,
+)
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import BASELINE_HEAD_OWNER
 
@@ -22,9 +26,15 @@ pytestmark = pytest.mark.unit
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 
 
-def cached_entry(seed: bytes = b"table", repository_id: str = "repo") -> tuple[CanonicalTableKey, ArtifactRef]:
-    key = CanonicalTableKey(repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(seed))
-    return key, ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(seed), raw_blob_digest(seed))
+def cached_entry(
+    seed: bytes = b"table", repository_id: str = "repo"
+) -> tuple[CanonicalTableKey, ArtifactRef]:
+    key = CanonicalTableKey(
+        repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(seed)
+    )
+    return key, ArtifactRef(
+        key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(seed), raw_blob_digest(seed)
+    )
 
 
 def test_preview_to_attempt_shared_release_and_expiry_are_transactional(db_path: Path) -> None:
@@ -32,8 +42,12 @@ def test_preview_to_attempt_shared_release_and_expiry_are_transactional(db_path:
     with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
         uow.canonical_tables.register(key, ref)
         for owner in ("preview-1", "preview-2"):
-            uow.set_artifact_protection((ref,), owner_kind="current-preview", owner_id=owner, intent="pin")
-        uow.set_artifact_protection((ref,), owner_kind="submit-attempt", owner_id="attempt", intent="pin")
+            uow.set_artifact_protection(
+                (ref,), owner_kind="current-preview", owner_id=owner, intent="pin"
+            )
+        uow.set_artifact_protection(
+            (ref,), owner_kind="submit-attempt", owner_id="attempt", intent="pin"
+        )
         uow.clear_artifact_protection(owner_kind="current-preview", owner_id="preview-1")
         uow.clear_artifact_protection(owner_kind="submit-attempt", owner_id="attempt")
     future = NOW + timedelta(days=7)
@@ -54,14 +68,18 @@ def test_preview_to_attempt_shared_release_and_expiry_are_transactional(db_path:
         assert not uow.protection.is_protected(ref.artifact_id)
 
 
-
 def test_finite_owner_keeps_shared_canonical_until_release(db_path: Path) -> None:
     key, ref = cached_entry()
     expires = NOW + timedelta(days=2)
     with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
         uow.canonical_tables.register(key, ref)
-        uow.set_artifact_protection((ref,), owner_kind="history-compare-operation",
-                                    owner_id="history", intent="result", expires_at=expires)
+        uow.set_artifact_protection(
+            (ref,),
+            owner_kind="history-compare-operation",
+            owner_id="history",
+            intent="result",
+            expires_at=expires,
+        )
         uow.set_artifact_protection((ref,), owner_kind="preview", owner_id="preview", intent="pin")
         uow.clear_artifact_protection(owner_kind="preview", owner_id="preview")
     later = NOW + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS + 1)
@@ -69,17 +87,32 @@ def test_finite_owner_keeps_shared_canonical_until_release(db_path: Path) -> Non
         assert uow.canonical_tables.lookup(key) == ref
         # Idempotent writes must update the expiry as well as the intent.
         extended = expires + timedelta(days=1)
-        assert uow.set_artifact_protection((ref,), owner_kind="history-compare-operation",
-                                           owner_id="history", intent="result", expires_at=extended)
-        assert not uow.set_artifact_protection((ref,), owner_kind="history-compare-operation",
-                                               owner_id="history", intent="result", expires_at=extended)
+        assert uow.set_artifact_protection(
+            (ref,),
+            owner_kind="history-compare-operation",
+            owner_id="history",
+            intent="result",
+            expires_at=extended,
+        )
+        assert not uow.set_artifact_protection(
+            (ref,),
+            owner_kind="history-compare-operation",
+            owner_id="history",
+            intent="result",
+            expires_at=extended,
+        )
     with ControlDbUnitOfWork(db_path, now=lambda: extended) as uow:
         uow.clear_artifact_protection(owner_kind="history-compare-operation", owner_id="history")
         assert uow.canonical_tables.lookup(key) == ref
-    with ControlDbUnitOfWork(db_path, now=lambda: extended + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS)) as uow:
+    with ControlDbUnitOfWork(
+        db_path, now=lambda: extended + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS)
+    ) as uow:
         assert uow.canonical_tables.lookup(key) is None
 
-def test_cache_hit_touches_protection_before_file_check_and_readonly_does_not_touch(db_path: Path) -> None:
+
+def test_cache_hit_touches_protection_before_file_check_and_readonly_does_not_touch(
+    db_path: Path,
+) -> None:
     key, ref = cached_entry()
     with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
         uow.canonical_tables.register(key, ref)
@@ -91,7 +124,8 @@ def test_cache_hit_touches_protection_before_file_check_and_readonly_does_not_to
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: original_expiry) as uow:
         assert uow.canonical_tables.lookup(key) == ref
     with ControlDbUnitOfWork(
-        db_path, now=lambda: near_expiry + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS),
+        db_path,
+        now=lambda: near_expiry + timedelta(seconds=CANONICAL_TABLE_TTL_SECONDS),
     ) as uow:
         assert uow.canonical_tables.lookup(key) is None
 
@@ -99,15 +133,23 @@ def test_cache_hit_touches_protection_before_file_check_and_readonly_does_not_to
 def test_initial_and_current_head_bind_only_the_exact_commit(db_path: Path) -> None:
     key, ref = cached_entry()
     old_key, old_ref = cached_entry(b"historical")
-    node = BaselineNode("initial", "repo", "device", "project", "exact", BaselineNodeKind.INITIAL, None, None, NOW)
+    node = BaselineNode(
+        "initial", "repo", "device", "project", "exact", BaselineNodeKind.INITIAL, None, None, NOW
+    )
     with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
         uow.canonical_tables.register(key, ref)
         uow.canonical_tables.bind_commit(repository_id="repo", commit_id="exact", refs=(ref,))
         uow.baseline.save_initial_node_and_head(node, BaselineHeadRecord("repo", "initial", 0))
-        assert uow.list_artifact_protection_for_owner(owner_kind=BASELINE_HEAD_OWNER, owner_id="repo") == {ref.artifact_id}
+        assert uow.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id="repo"
+        ) == {ref.artifact_id}
         uow.canonical_tables.register(old_key, old_ref)
-        uow.canonical_tables.bind_commit(repository_id="repo", commit_id="historical", refs=(old_ref,))
-        assert uow.list_artifact_protection_for_owner(owner_kind=BASELINE_HEAD_OWNER, owner_id="repo") == {ref.artifact_id}
+        uow.canonical_tables.bind_commit(
+            repository_id="repo", commit_id="historical", refs=(old_ref,)
+        )
+        assert uow.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id="repo"
+        ) == {ref.artifact_id}
     with ControlDbUnitOfWork(db_path, now=lambda: NOW + timedelta(days=7)) as uow:
         assert uow.canonical_tables.lookup(key) == ref
         assert uow.canonical_tables.lookup(old_key) is None
@@ -122,15 +164,22 @@ def test_commit_index_rejects_cross_scope_refs(db_path: Path) -> None:
 
 
 @pytest.mark.serial
-@pytest.mark.parametrize('same_key', (True, False))
-def test_canonical_cache_process_registration_preserves_reader_protection(db_path: Path, same_key: bool) -> None:
+@pytest.mark.parametrize("same_key", (True, False))
+def test_canonical_cache_process_registration_preserves_reader_protection(
+    db_path: Path, same_key: bool
+) -> None:
     from tests.support.process_concurrency import run_processes
+
     first_key, first = cached_entry()
-    second_key, second = (first_key, first) if same_key else cached_entry(b'other-table')
+    second_key, second = (first_key, first) if same_key else cached_entry(b"other-table")
+
     def register(key: CanonicalTableKey, ref: ArtifactRef) -> None:
         with ControlDbUnitOfWork(db_path, now=lambda: NOW) as uow:
             uow.canonical_tables.register(key, ref)
-            uow.set_artifact_protection((ref,), owner_kind='current-preview', owner_id=ref.artifact_id, intent='pin')
+            uow.set_artifact_protection(
+                (ref,), owner_kind="current-preview", owner_id=ref.artifact_id, intent="pin"
+            )
+
     run_processes((lambda: register(first_key, first), lambda: register(second_key, second)))
     with ControlDbUnitOfWork(db_path, now=lambda: NOW + timedelta(days=7)) as uow:
         assert uow.canonical_tables.lookup(first_key) == first

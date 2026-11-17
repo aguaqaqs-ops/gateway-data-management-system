@@ -1,4 +1,5 @@
 """The modified durable Preview binding rejects coercions, omissions and extra fields."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,10 @@ from typing import Any
 import pytest
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row, preview_result_from_row
+from gateway_backend.infrastructure.control_db.sqlite_workspace import (
+    preview_result_to_row,
+    preview_result_from_row,
+)
 from tests.test_submit_transactions import _preview_result
 
 pytestmark = pytest.mark.unit
@@ -23,12 +27,30 @@ _DOCUMENT_FAULTS = (
 
 def _row() -> dict[str, Any]:
     values = preview_result_to_row(_preview_result("workspace-document"))
-    return dict(zip(("preview_result_id", "workspace_id", "upload_revision_id", "generation",
-        "repository_id", "binding", "operation_id", "created_at_us"), values, strict=True))
+    return dict(
+        zip(
+            (
+                "preview_result_id",
+                "workspace_id",
+                "upload_revision_id",
+                "generation",
+                "repository_id",
+                "binding",
+                "operation_id",
+                "created_at_us",
+            ),
+            values,
+            strict=True,
+        )
+    )
 
 
-@pytest.mark.parametrize("label,path,value", _DOCUMENT_FAULTS, ids=[fault[0] for fault in _DOCUMENT_FAULTS])
-def test_preview_binding_rejects_coercion_and_extra_fields(label: str, path: tuple[str | int, ...], value: Any) -> None:
+@pytest.mark.parametrize(
+    "label,path,value", _DOCUMENT_FAULTS, ids=[fault[0] for fault in _DOCUMENT_FAULTS]
+)
+def test_preview_binding_rejects_coercion_and_extra_fields(
+    label: str, path: tuple[str | int, ...], value: Any
+) -> None:
     del label
     row = _row()
     document = json.loads(row["binding"])

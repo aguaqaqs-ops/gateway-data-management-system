@@ -25,7 +25,11 @@ from tests.support.http_workspace_harness import (
     create_workspace_http_environment,
 )
 from tests.support.workspace_fixtures import make_identity
-from tests.test_review_transactions import _apply_command, _apply_review, _seed_pending_review_submission
+from tests.test_review_transactions import (
+    _apply_command,
+    _apply_review,
+    _seed_pending_review_submission,
+)
 from gateway_backend.domain.submission.review import ReviewAction
 
 from tests.support.history_zero_write_tables import capture_business_table_state
@@ -93,7 +97,10 @@ def test_list_history_requires_read_project_history_permission(tmp_path: Path) -
 def test_list_history_returns_projection_shape(db_path: Path, tmp_path: Path) -> None:
     del tmp_path
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-history"))
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-history"),
+    )
     history_env = _history_env(db_path.parent / "history-http", db_path=db_path)
     response = history_env.client.get("/v1/history", headers=history_env.auth_headers())
     assert response.status_code == 200
@@ -150,7 +157,9 @@ def test_list_history_is_read_only(db_path: Path, tmp_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-readonly"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-readonly"
+        ),
     )
     history_env = _history_env(db_path.parent / "history-readonly", db_path=db_path)
     before = capture_business_table_state(db_path)
@@ -170,7 +179,9 @@ def _corrupt_baseline_created_at_us(db_path: Path, *, node_id: str) -> None:
         connection.commit()
 
 
-def test_list_history_returns_integrity_failure_for_corrupt_facts(db_path: Path, tmp_path: Path) -> None:
+def test_list_history_returns_integrity_failure_for_corrupt_facts(
+    db_path: Path, tmp_path: Path
+) -> None:
     del tmp_path
     _seed_pending_review_submission(db_path)
     _corrupt_baseline_created_at_us(
@@ -201,12 +212,16 @@ def test_list_history_ignores_corrupt_submission_heavy_columns_on_page_path(
     assert response.status_code == 200
 
 
-def test_list_history_rejects_disabled_mapping_without_stale_scope_reads(db_path: Path, tmp_path: Path) -> None:
+def test_list_history_rejects_disabled_mapping_without_stale_scope_reads(
+    db_path: Path, tmp_path: Path
+) -> None:
     del tmp_path
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-scope-http"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-scope-http"
+        ),
     )
     from tests.test_submit_transactions import _upsert_provisioned_mapping_row
 
@@ -224,7 +239,9 @@ def test_list_history_accepts_long_cjk_commit_id(db_path: Path, tmp_path: Path) 
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-cjk-commit"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-cjk-commit"
+        ),
     )
     cjk_commit = "中" * 200
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -235,11 +252,15 @@ def test_list_history_accepts_long_cjk_commit_id(db_path: Path, tmp_path: Path) 
     history_env = _history_env(db_path.parent / "history-cjk-commit", db_path=db_path)
     response = history_env.client.get("/v1/history", headers=history_env.auth_headers())
     assert response.status_code == 200
-    submission_node = next(item for item in response.json()["nodes"] if item["node_kind"] == "SUBMISSION")
+    submission_node = next(
+        item for item in response.json()["nodes"] if item["node_kind"] == "SUBMISSION"
+    )
     assert submission_node["commit_id"] == cjk_commit
 
 
-@pytest.mark.parametrize(("case_id", "params", "expected_status"), HISTORY_HTTP_QUERY_BOUNDARY_CASES)
+@pytest.mark.parametrize(
+    ("case_id", "params", "expected_status"), HISTORY_HTTP_QUERY_BOUNDARY_CASES
+)
 def test_list_history_rejects_out_of_bounds_query(
     db_path: Path,
     tmp_path: Path,
@@ -270,7 +291,9 @@ def test_list_history_returns_nodes_with_bounded_ref_ids(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{len(ref_id)}"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{len(ref_id)}"
+        ),
     )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
@@ -283,7 +306,9 @@ def test_list_history_returns_nodes_with_bounded_ref_ids(
             """,
             (ref_id, BASELINE_HEAD.business_baseline_node_id, review_seed.submission_id),
         )
-    history_env = _history_env(db_path.parent / f"history-ref-{len(ref_id.encode('utf-8'))}", db_path=db_path)
+    history_env = _history_env(
+        db_path.parent / f"history-ref-{len(ref_id.encode('utf-8'))}", db_path=db_path
+    )
     response = history_env.client.get("/v1/history", headers=history_env.auth_headers())
     assert response.status_code == 200
     assert any(item["ref_id"] == ref_id for item in response.json()["nodes"])
@@ -308,7 +333,9 @@ def _tamper_checkpoint_semantically_same_length(
 
     assert isinstance(ref, ArtifactRef)
     envelope = load_checkpoint_envelope(artifact_store, ref)
-    state_ref = artifact_ref_from_dict(cast(dict[str, object], envelope.job_state["assemble_state_ref"]))
+    state_ref = artifact_ref_from_dict(
+        cast(dict[str, object], envelope.job_state["assemble_state_ref"])
+    )
     original_bytes = artifact_store.locate(state_ref)
     state_document = load_checkpoint_state_artifact(
         artifact_store,
@@ -328,7 +355,6 @@ def _tamper_checkpoint_semantically_same_length(
     tampered_bytes = canonicalize_json_value(state_document)
     assert len(tampered_bytes) == len(original_bytes)
     if local_store is not None:
-
         assert isinstance(local_store, LocalArtifactStore)
         target = local_store.payload_path(state_ref.artifact_id)
         target.write_bytes(tampered_bytes)
@@ -355,8 +381,7 @@ def _history_env(
         initialize_control_db(resolved_db)
         seed_provisioned_mapping_with_head(resolved_db, baseline_head=BASELINE_HEAD)
     identity = make_identity(
-        permissions=permissions
-        or frozenset({"workspace_read", PERMISSION_READ_PROJECT_HISTORY}),
+        permissions=permissions or frozenset({"workspace_read", PERMISSION_READ_PROJECT_HISTORY}),
     )
     return create_workspace_http_environment(
         root,
@@ -431,7 +456,9 @@ def test_history_compare_http_validation_cases(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{case_name}"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{case_name}"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / f"history-compare-{case_name}", db_path=db_path)
@@ -489,7 +516,9 @@ def test_history_compare_idempotency_byte_boundary_cases(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-byte-boundary"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-byte-boundary"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-compare-byte-boundary", db_path=db_path)
@@ -547,7 +576,9 @@ def test_history_compare_accepts_255_byte_idempotency_key(db_path: Path, tmp_pat
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-255-byte"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-255-byte"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-compare-255-byte", db_path=db_path)
@@ -598,7 +629,9 @@ def test_accept_history_compare_replay_returns_200(db_path: Path, tmp_path: Path
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-replay"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-replay"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-compare-replay", db_path=db_path)
@@ -650,7 +683,9 @@ def test_get_history_compare_result_succeeded_matches_assemble_checkpoint(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-succeeded"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-succeeded"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-compare-succeeded", db_path=db_path)
@@ -729,7 +764,9 @@ def test_get_history_compare_bundle_streams_attachment(db_path: Path, tmp_path: 
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-bundle"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-bundle"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-compare-bundle", db_path=db_path)
@@ -773,7 +810,9 @@ def test_get_history_compare_result_returns_queued_shape(db_path: Path, tmp_path
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-get"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-compare-get"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-compare-get", db_path=db_path)
@@ -923,7 +962,9 @@ def test_compare_result_decode_malformed_digest_returns_artifact_unavailable(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{field}"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{field}"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     memory_bounded = InMemoryBoundedArtifactStore()
@@ -987,7 +1028,9 @@ def test_history_compare_accept_idempotency_conflict_on_changed_nodes(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-idem-conflict"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-idem-conflict"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     from tests.support.history_compare_job_harness import seed_archived_baseline_node
@@ -1036,7 +1079,9 @@ def test_history_compare_cross_scope_node_returns_404_without_disclosure(
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-cross-scope"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-cross-scope"
+        ),
     )
     node_a, _node_b = _seed_compare_nodes(db_path)
     upsert_provisioned_mapping_row(
@@ -1090,12 +1135,17 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     )
     from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from tests.support.history_compare_job_harness import (
+        build_history_compare_harness,
+        run_through_step,
+    )
 
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-local-bundle"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-local-bundle"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     local_store = open_test_store(tmp_path / "bundle-artifacts")
@@ -1138,11 +1188,16 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     assert response.headers["content-type"] == "application/x-tar"
     assert response.headers["content-disposition"].endswith('.tar"')
     assert len(response.content) == int(response.headers["content-length"])
-    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
-                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    body = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": node_a},
+            {"ref_kind": "baseline_node", "ref_id": node_b},
+        ]
+    }
     for key in ("compare-local-bundle", "compare-local-bundle-alias", "compare-local-bundle-alias"):
-        replay = history_env.client.post("/v1/history-compares",
-                                        headers=history_env.auth_headers(idempotency_key=key), json=body)
+        replay = history_env.client.post(
+            "/v1/history-compares", headers=history_env.auth_headers(idempotency_key=key), json=body
+        )
         assert replay.status_code == 200
         assert replay.json()["operation_id"] == operation_id
         assert replay.json()["replayed"] is True
@@ -1156,29 +1211,48 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
         operation = uow.operations.get_operation(operation_id)
         acceptance = uow.history_compare.get_acceptance_by_operation_id(operation_id)
-    assert operation.completed_at is not None and acceptance is not None and operation.ready_closure_ref is not None
+    assert (
+        operation.completed_at is not None
+        and acceptance is not None
+        and operation.ready_closure_ref is not None
+    )
     from gateway_backend.bootstrap.storage_admin import release_expired_history_results
     from gateway_backend.http.orchestration.history_compare import read_compare_bundle
 
     prepared = read_compare_bundle(
-        operation=operation, bundle_reader=LocalArtifactBundleReader(local_store),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
+        operation=operation,
+        bundle_reader=LocalArtifactBundleReader(local_store),
+        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
+            db_path, read_only=read_only
+        ),
         artifact_store=bounded_store,
     )
     expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
     app.state.history_http = replace(
-        app.state.history_http, now=lambda: expiry,
+        app.state.history_http,
+        now=lambda: expiry,
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(
-            db_path, read_only=read_only, now=lambda: expiry),
+            db_path, read_only=read_only, now=lambda: expiry
+        ),
     )
     for suffix in ("", "/bundle"):
-        expired = history_env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=history_env.auth_headers())
+        expired = history_env.client.get(
+            f"/v1/history-compares/{operation_id}{suffix}", headers=history_env.auth_headers()
+        )
         assert expired.status_code == 410
         assert expired.json()["code"] == "HISTORY_COMPARE_RESULT_EXPIRED"
-    expired_key = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle"), json=body)
+    expired_key = history_env.client.post(
+        "/v1/history-compares",
+        headers=history_env.auth_headers(idempotency_key="compare-local-bundle"),
+        json=body,
+    )
     assert expired_key.status_code == 409
     assert expired_key.json()["code"] == "HISTORY_COMPARE_REQUEST_EXPIRED"
-    expired_alias = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle-alias"), json=body)
+    expired_alias = history_env.client.post(
+        "/v1/history-compares",
+        headers=history_env.auth_headers(idempotency_key="compare-local-bundle-alias"),
+        json=body,
+    )
     assert expired_alias.status_code == 409
     with ControlDbUnitOfWork(db_path, now=lambda: expiry) as uow:
         assert release_expired_history_results(uow) == 1
@@ -1188,9 +1262,17 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
     prepared.close()
     with local_store.cleanup_session(operation.ready_closure_ref.artifact_id) as acquired:
         assert acquired
-    reused_key = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle-alias"), json=body)
+    reused_key = history_env.client.post(
+        "/v1/history-compares",
+        headers=history_env.auth_headers(idempotency_key="compare-local-bundle-alias"),
+        json=body,
+    )
     assert reused_key.status_code == 202
-    new_request = history_env.client.post("/v1/history-compares", headers=history_env.auth_headers(idempotency_key="compare-local-bundle-after-expiry"), json=body)
+    new_request = history_env.client.post(
+        "/v1/history-compares",
+        headers=history_env.auth_headers(idempotency_key="compare-local-bundle-after-expiry"),
+        json=body,
+    )
     assert new_request.status_code == 200
     assert new_request.json()["operation_id"] == reused_key.json()["operation_id"]
     assert new_request.json()["operation_id"] != operation_id
@@ -1201,7 +1283,9 @@ def test_accept_history_compare_is_read_only(db_path: Path, tmp_path: Path) -> N
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-zero-write"),
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-zero-write"
+        ),
     )
     node_a, node_b = _seed_compare_nodes(db_path)
     history_env = _history_env(db_path.parent / "history-zero-write-accept", db_path=db_path)
@@ -1226,34 +1310,59 @@ def env(tmp_path: Path) -> WorkspaceHttpTestEnvironment:
     return create_workspace_http_environment(tmp_path)
 
 
-def test_history_pages_and_full_snapshot_expose_both_terminal_sources_without_changing_review(db_path: Path) -> None:
+def test_history_pages_and_full_snapshot_expose_both_terminal_sources_without_changing_review(
+    db_path: Path,
+) -> None:
     from dataclasses import replace
     from gateway_backend.application.archive.manual_close import close_submission
     from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
     from gateway_backend.domain.archive.models import SubmissionDispositionSourceKind
     from tests.support.archive_fixtures import (
-        seed_approved_dual_sibling_archive, close_command, refresh_archive_seed,
-        append_selection_confirmation, start_archive_for_seed, TS_ARCHIVE,
+        seed_approved_dual_sibling_archive,
+        close_command,
+        refresh_archive_seed,
+        append_selection_confirmation,
+        start_archive_for_seed,
+        TS_ARCHIVE,
     )
     from tests.test_review_transactions import _uow_factory
+
     dual = seed_approved_dual_sibling_archive(db_path)
-    close_submission(command=replace(close_command(dual.primary), submission_id=dual.target_submission_id),
-        unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    close_submission(
+        command=replace(close_command(dual.primary), submission_id=dual.target_submission_id),
+        unit_of_work_factory=_uow_factory(db_path),
+        now=TS_ARCHIVE,
+    )
     primary = refresh_archive_seed(dual.primary)
-    result = start_archive_for_seed(primary, confirmation_sequence=append_selection_confirmation(primary))
-    facts = HttpHistoryReader(db_path).load_facts(repository_id=primary.repository_id,
-        gateway_device_external_key="device-1", business_project_id="project-1")
+    result = start_archive_for_seed(
+        primary, confirmation_sequence=append_selection_confirmation(primary)
+    )
+    facts = HttpHistoryReader(db_path).load_facts(
+        repository_id=primary.repository_id,
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+    )
     by_id = {item.submission.submission_id: item for item in facts.submissions}
     manual = by_id[dual.target_submission_id].disposition_record
     archived = by_id[primary.submission_id].disposition_record
     assert manual is not None and archived is not None
-    assert manual.source_kind is SubmissionDispositionSourceKind.MANUAL_CLOSE and manual.result_id is None
-    assert archived.source_kind is SubmissionDispositionSourceKind.ARCHIVE and archived.result_id == result.archive_result_id
+    assert (
+        manual.source_kind is SubmissionDispositionSourceKind.MANUAL_CLOSE
+        and manual.result_id is None
+    )
+    assert (
+        archived.source_kind is SubmissionDispositionSourceKind.ARCHIVE
+        and archived.result_id == result.archive_result_id
+    )
     env = _history_env(db_path.parent / "history-terminal", db_path=db_path)
     nodes = []
     cursor = None
     while True:
-        response = env.client.get("/v1/history", headers=env.auth_headers(), params={"limit": 1, **({"cursor": cursor} if cursor else {})})
+        response = env.client.get(
+            "/v1/history",
+            headers=env.auth_headers(),
+            params={"limit": 1, **({"cursor": cursor} if cursor else {})},
+        )
         assert response.status_code == 200
         body = response.json()
         nodes.extend(body["nodes"])
@@ -1269,68 +1378,125 @@ def test_history_pages_and_full_snapshot_expose_both_terminal_sources_without_ch
 
 def test_history_compare_list_is_paginated_and_scope_bound(db_path: Path, tmp_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-list"))
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-list"),
+    )
     node_a, node_b = _seed_compare_nodes(db_path)
     env = _history_env(tmp_path / "list", db_path=db_path)
-    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
-                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
-    first = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="list-a"), json=body)
+    body = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": node_a},
+            {"ref_kind": "baseline_node", "ref_id": node_b},
+        ]
+    }
+    first = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key="list-a"), json=body
+    )
     body["nodes"].reverse()
-    second = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="list-b"), json=body)
+    second = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key="list-b"), json=body
+    )
     assert first.status_code == second.status_code == 202
     page1 = env.client.get("/v1/history-compares?limit=1", headers=env.auth_headers())
     assert page1.status_code == 200
     cursor = page1.json()["next_cursor"]
     assert set(page1.json()["items"][0]) == {
-        "operation_id", "nodes", "status", "accepted_at", "completed_at", "result_expires_at",
+        "operation_id",
+        "nodes",
+        "status",
+        "accepted_at",
+        "completed_at",
+        "result_expires_at",
     }
     assert cursor is not None
-    page2 = env.client.get("/v1/history-compares", params={"limit": 1, "after": cursor}, headers=env.auth_headers())
+    page2 = env.client.get(
+        "/v1/history-compares", params={"limit": 1, "after": cursor}, headers=env.auth_headers()
+    )
     assert page2.status_code == 200
     assert {page1.json()["items"][0]["operation_id"], page2.json()["items"][0]["operation_id"]} == {
-        first.json()["operation_id"], second.json()["operation_id"]
+        first.json()["operation_id"],
+        second.json()["operation_id"],
     }
     assert page2.json()["next_cursor"] is None
-    assert env.client.get("/v1/history-compares?after=garbage", headers=env.auth_headers()).status_code == 422
+    assert (
+        env.client.get("/v1/history-compares?after=garbage", headers=env.auth_headers()).status_code
+        == 422
+    )
 
 
-def test_unreadable_success_replays_error_and_new_key_rebuilds(db_path: Path, tmp_path: Path) -> None:
+def test_unreadable_success_replays_error_and_new_key_rebuilds(
+    db_path: Path, tmp_path: Path
+) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
     from gateway_backend.application.history.compare_jobs import (
-        HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER,
-        HISTORY_COMPARE_PUBLISH_HANDLER, HISTORY_COMPARE_STEP_ASSEMBLE,
-        history_compare_assemble_state_from_checkpoint, history_compare_step_id,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+        HISTORY_COMPARE_STEP_ASSEMBLE,
+        history_compare_assemble_state_from_checkpoint,
+        history_compare_step_id,
     )
-    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from tests.support.history_compare_job_harness import (
+        build_history_compare_harness,
+        run_through_step,
+    )
     from tests.support.http_workspace_harness import InMemoryBoundedArtifactStore
 
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-broken"))
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-broken"),
+    )
     node_a, node_b = _seed_compare_nodes(db_path)
     store = InMemoryBoundedArtifactStore()
     env = _history_env(tmp_path / "broken-candidate", db_path=db_path, artifact_store=store)
-    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
-                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
-    first = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-original"), json=body)
+    body = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": node_a},
+            {"ref_kind": "baseline_node", "ref_id": node_b},
+        ]
+    }
+    first = env.client.post(
+        "/v1/history-compares",
+        headers=env.auth_headers(idempotency_key="broken-original"),
+        json=body,
+    )
     assert first.status_code == 202
     operation_id = first.json()["operation_id"]
     harness = build_history_compare_harness(
-        tmp_path / "broken-harness", db_path=db_path, artifact_store=store._store,
-        idempotency_key="broken-original", seed_acceptance=False, existing_operation_id=operation_id,
+        tmp_path / "broken-harness",
+        db_path=db_path,
+        artifact_store=store._store,
+        idempotency_key="broken-original",
+        seed_acceptance=False,
+        existing_operation_id=operation_id,
     )
-    for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+    for handler in (
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+    ):
         run_through_step(harness, handler)
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
-        step = uow.operations.get_step(history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+        step = uow.operations.get_step(
+            history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
     assert step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(store._store, step.checkpoint_ref)
     state_ref, _ = history_compare_assemble_state_from_checkpoint(envelope.job_state, store._store)
     store._store._artifacts.pop(state_ref.artifact_id)  # noqa: SLF001
 
-    replay = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-original"), json=body)
+    replay = env.client.post(
+        "/v1/history-compares",
+        headers=env.auth_headers(idempotency_key="broken-original"),
+        json=body,
+    )
     assert replay.status_code == 404
     assert replay.json()["code"] == "ARTIFACT_UNAVAILABLE"
-    rebuilt = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-new"), json=body)
+    rebuilt = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key="broken-new"), json=body
+    )
     assert rebuilt.status_code == 202
     assert rebuilt.json()["operation_id"] != operation_id
     result = env.client.get(f"/v1/history-compares/{operation_id}", headers=env.auth_headers())
@@ -1342,97 +1508,187 @@ HISTORY_PAIR_DIGEST_FIELDS = ("surface_digest", "risk_digest")
 
 @pytest.mark.parametrize("field", HISTORY_PAIR_DIGEST_FIELDS)
 def test_history_rejects_result_pair_digest_disagreeing_with_bundle(
-    db_path: Path, tmp_path: Path, field: str,
+    db_path: Path,
+    tmp_path: Path,
+    field: str,
 ) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
     from gateway_backend.application.history.compare_jobs import (
-        HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER,
-        HISTORY_COMPARE_PUBLISH_HANDLER, HISTORY_COMPARE_STEP_ASSEMBLE,
-        history_compare_assemble_state_from_checkpoint, history_compare_step_id,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+        HISTORY_COMPARE_STEP_ASSEMBLE,
+        history_compare_assemble_state_from_checkpoint,
+        history_compare_step_id,
     )
     from tests.support.history_compare_checkpoint_tamper import rebind_tampered_assemble_checkpoint
-    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from tests.support.history_compare_job_harness import (
+        build_history_compare_harness,
+        run_through_step,
+    )
     from tests.support.http_workspace_harness import InMemoryBoundedArtifactStore
 
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-pair-{field}"))
+    _apply_review(
+        review_seed,
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-pair-{field}"
+        ),
+    )
     node_a, node_b = _seed_compare_nodes(db_path)
     store = InMemoryBoundedArtifactStore()
     env = _history_env(tmp_path / f"pair-{field}", db_path=db_path, artifact_store=store)
-    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
-                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    body = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": node_a},
+            {"ref_kind": "baseline_node", "ref_id": node_b},
+        ]
+    }
     original_key = f"pair-original-{field}"
-    accepted = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=original_key), json=body)
+    accepted = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key=original_key), json=body
+    )
     operation_id = accepted.json()["operation_id"]
     harness = build_history_compare_harness(
-        tmp_path / f"pair-harness-{field}", db_path=db_path, artifact_store=store._store,
-        idempotency_key=original_key, seed_acceptance=False, existing_operation_id=operation_id,
+        tmp_path / f"pair-harness-{field}",
+        db_path=db_path,
+        artifact_store=store._store,
+        idempotency_key=original_key,
+        seed_acceptance=False,
+        existing_operation_id=operation_id,
     )
-    for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+    for handler in (
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+    ):
         run_through_step(harness, handler)
     step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
         operation = uow.operations.get_operation(operation_id)
         acceptance = uow.history_compare.get_acceptance_by_operation_id(operation_id)
         step = uow.operations.get_step(step_id)
-    assert step.checkpoint_ref is not None and operation.completed_at is not None and acceptance is not None
-    new_ref = rebind_tampered_assemble_checkpoint(store._store, step.checkpoint_ref,
-        db_path=db_path, step_id=step_id, field=field, value="sha256:" + "0" * 64)
+    assert (
+        step.checkpoint_ref is not None
+        and operation.completed_at is not None
+        and acceptance is not None
+    )
+    new_ref = rebind_tampered_assemble_checkpoint(
+        store._store,
+        step.checkpoint_ref,
+        db_path=db_path,
+        step_id=step_id,
+        field=field,
+        value="sha256:" + "0" * 64,
+    )
     envelope = load_checkpoint_envelope(store._store, new_ref)
     state_ref, _ = history_compare_assemble_state_from_checkpoint(envelope.job_state, store._store)
     from datetime import timedelta
+
     expiry = operation.completed_at + timedelta(seconds=acceptance.result_retention_seconds)
     with ControlDbUnitOfWork(db_path) as uow:
-        uow.set_artifact_protection((new_ref, state_ref), owner_kind="history-compare-operation",
-                                    owner_id=operation_id, intent="history-compare-result", expires_at=expiry)
+        uow.set_artifact_protection(
+            (new_ref, state_ref),
+            owner_kind="history-compare-operation",
+            owner_id=operation_id,
+            intent="history-compare-result",
+            expires_at=expiry,
+        )
 
     for suffix in ("", "/bundle"):
-        result = env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers())
+        result = env.client.get(
+            f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers()
+        )
         assert result.status_code == 503
         assert result.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
-    replay = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=original_key), json=body)
+    replay = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key=original_key), json=body
+    )
     assert replay.status_code == 503
     assert replay.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
-    retry = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=f"pair-new-{field}"), json=body)
+    retry = env.client.post(
+        "/v1/history-compares",
+        headers=env.auth_headers(idempotency_key=f"pair-new-{field}"),
+        json=body,
+    )
     assert retry.status_code == 202
     assert retry.json()["operation_id"] != operation_id
 
 
-HISTORY_BUNDLE_DAMAGE_CASES = (("missing", 404, "ARTIFACT_UNAVAILABLE"),
-                               ("corrupt", 503, "BUNDLE_INTEGRITY_FAILURE"))
+HISTORY_BUNDLE_DAMAGE_CASES = (
+    ("missing", 404, "ARTIFACT_UNAVAILABLE"),
+    ("corrupt", 503, "BUNDLE_INTEGRITY_FAILURE"),
+)
 
 
 @pytest.mark.parametrize(("damage", "status", "code"), HISTORY_BUNDLE_DAMAGE_CASES)
 def test_history_bundle_missing_and_corrupt_are_distinct(
-    db_path: Path, tmp_path: Path, damage: str, status: int, code: str,
+    db_path: Path,
+    tmp_path: Path,
+    damage: str,
+    status: int,
+    code: str,
 ) -> None:
     from gateway_backend.application.checkpoints import load_checkpoint_envelope
     from gateway_backend.application.history.compare_jobs import (
-        HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER,
-        HISTORY_COMPARE_PUBLISH_HANDLER, HISTORY_COMPARE_STEP_ASSEMBLE, history_compare_step_id,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+        HISTORY_COMPARE_STEP_ASSEMBLE,
+        history_compare_step_id,
     )
     from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
-    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from tests.support.history_compare_job_harness import (
+        build_history_compare_harness,
+        run_through_step,
+    )
 
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{damage}"))
+    _apply_review(
+        review_seed,
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-{damage}"
+        ),
+    )
     node_a, node_b = _seed_compare_nodes(db_path)
     local_store = open_test_store(tmp_path / f"damaged-bundle-{damage}")
     bounded = BoundedArtifactStore(local_store)
-    env = _history_env(tmp_path / f"damaged-env-{damage}", db_path=db_path, artifact_store=bounded,
-                       bundle_reader=LocalArtifactBundleReader(local_store))
-    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
-                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    env = _history_env(
+        tmp_path / f"damaged-env-{damage}",
+        db_path=db_path,
+        artifact_store=bounded,
+        bundle_reader=LocalArtifactBundleReader(local_store),
+    )
+    body = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": node_a},
+            {"ref_kind": "baseline_node", "ref_id": node_b},
+        ]
+    }
     key = f"damage-{damage}"
-    accepted = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body)
+    accepted = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body
+    )
     operation_id = accepted.json()["operation_id"]
-    harness = build_history_compare_harness(tmp_path / f"damage-harness-{damage}", db_path=db_path,
-        artifact_store=bounded, idempotency_key=key, seed_acceptance=False, existing_operation_id=operation_id)
-    for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+    harness = build_history_compare_harness(
+        tmp_path / f"damage-harness-{damage}",
+        db_path=db_path,
+        artifact_store=bounded,
+        idempotency_key=key,
+        seed_acceptance=False,
+        existing_operation_id=operation_id,
+    )
+    for handler in (
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+    ):
         run_through_step(harness, handler)
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
-        step = uow.operations.get_step(history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE))
+        step = uow.operations.get_step(
+            history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
     assert step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(local_store, step.checkpoint_ref)
     bundle_id = envelope.job_state["bundle_artifact_id"]
@@ -1444,10 +1700,14 @@ def test_history_bundle_missing_and_corrupt_are_distinct(
         data = path.read_bytes()
         path.write_bytes(bytes([data[0] ^ 1]) + data[1:])
     for suffix in ("", "/bundle"):
-        result = env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers())
+        result = env.client.get(
+            f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers()
+        )
         assert result.status_code == status
         assert result.json()["code"] == code
-    replay = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body)
+    replay = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body
+    )
     assert replay.status_code == status
     assert replay.json()["code"] == code
 
@@ -1457,32 +1717,63 @@ HISTORY_BUNDLE_INPUT_FAULTS = ("role", "direction")
 
 @pytest.mark.parametrize("fault", HISTORY_BUNDLE_INPUT_FAULTS)
 def test_history_rejects_bundle_with_wrong_ordered_input_binding(
-    db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+    db_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
 ) -> None:
     import json
     import gateway_backend.application.bundle_download as bundle_download
     from gateway_shared_kernel import raw_blob_digest
     from gateway_shared_kernel.jcs import canonicalize_json_value
     from gateway_backend.application.history.compare_jobs import (
-        HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
     )
-    from gateway_backend.capabilities.bundle_assembly import read_bundle_transport_metadata as real_reader
-    from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step
+    from gateway_backend.capabilities.bundle_assembly import (
+        read_bundle_transport_metadata as real_reader,
+    )
+    from tests.support.history_compare_job_harness import (
+        build_history_compare_harness,
+        run_through_step,
+    )
     from tests.support.http_workspace_harness import InMemoryBoundedArtifactStore
 
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-input-{fault}"))
+    _apply_review(
+        review_seed,
+        _apply_command(
+            review_seed, action=ReviewAction.APPROVE, idempotency_key=f"approve-input-{fault}"
+        ),
+    )
     node_a, node_b = _seed_compare_nodes(db_path)
     store = InMemoryBoundedArtifactStore()
     env = _history_env(tmp_path / f"input-{fault}", db_path=db_path, artifact_store=store)
-    body = {"nodes": [{"ref_kind": "baseline_node", "ref_id": node_a},
-                      {"ref_kind": "baseline_node", "ref_id": node_b}]}
+    body = {
+        "nodes": [
+            {"ref_kind": "baseline_node", "ref_id": node_a},
+            {"ref_kind": "baseline_node", "ref_id": node_b},
+        ]
+    }
     key = f"input-original-{fault}"
-    accepted = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body)
+    accepted = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body
+    )
     operation_id = accepted.json()["operation_id"]
-    harness = build_history_compare_harness(tmp_path / f"input-harness-{fault}", db_path=db_path,
-        artifact_store=store._store, idempotency_key=key, seed_acceptance=False, existing_operation_id=operation_id)
-    for handler in (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER, HISTORY_COMPARE_PUBLISH_HANDLER):
+    harness = build_history_compare_harness(
+        tmp_path / f"input-harness-{fault}",
+        db_path=db_path,
+        artifact_store=store._store,
+        idempotency_key=key,
+        seed_acceptance=False,
+        existing_operation_id=operation_id,
+    )
+    for handler in (
+        HISTORY_COMPARE_MATERIALIZE_HANDLER,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+    ):
         run_through_step(harness, handler)
 
     def altered_metadata(raw: bytes) -> object:
@@ -1491,18 +1782,35 @@ def test_history_rejects_bundle_with_wrong_ordered_input_binding(
             document["inputs"][0]["role"] = "wrong-node"
         else:
             pair = document["pairs"][0]
-            pair["before_input_index"], pair["current_input_index"] = pair["current_input_index"], pair["before_input_index"]
-        semantic_keys = {"bundle_contract_version", "bundle_profile", "closure", "diagnostics",
-                         "failed_pairs", "inputs", "pairs", "status"}
-        document["bundle_digest"] = raw_blob_digest(canonicalize_json_value({key: document[key] for key in semantic_keys})).value
+            pair["before_input_index"], pair["current_input_index"] = (
+                pair["current_input_index"],
+                pair["before_input_index"],
+            )
+        semantic_keys = {
+            "bundle_contract_version",
+            "bundle_profile",
+            "closure",
+            "diagnostics",
+            "failed_pairs",
+            "inputs",
+            "pairs",
+            "status",
+        }
+        document["bundle_digest"] = raw_blob_digest(
+            canonicalize_json_value({key: document[key] for key in semantic_keys})
+        ).value
         return real_reader(canonicalize_json_value(document))
 
     monkeypatch.setattr(bundle_download, "read_bundle_transport_metadata", altered_metadata)
     for suffix in ("", "/bundle"):
-        result = env.client.get(f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers())
+        result = env.client.get(
+            f"/v1/history-compares/{operation_id}{suffix}", headers=env.auth_headers()
+        )
         assert result.status_code == 503
         assert result.json()["code"] == "HISTORY_INTEGRITY_FAILURE"
         assert result.json()["message"] == "history bundle input binding disagrees"
-    replay = env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body)
+    replay = env.client.post(
+        "/v1/history-compares", headers=env.auth_headers(idempotency_key=key), json=body
+    )
     assert replay.status_code == 503
     assert replay.json()["message"] == "history bundle input binding disagrees"

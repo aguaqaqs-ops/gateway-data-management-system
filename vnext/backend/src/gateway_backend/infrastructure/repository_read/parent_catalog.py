@@ -8,7 +8,11 @@ from uuid import UUID
 
 import httpx
 from gateway_repository_client import RepositoryClient
-from gateway_repository_client.errors import RepositoryClientError, RepositoryClientTimeoutError, RepositoryProtocolError
+from gateway_repository_client.errors import (
+    RepositoryClientError,
+    RepositoryClientTimeoutError,
+    RepositoryProtocolError,
+)
 
 from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.capabilities.table_access import current_kernel_context
@@ -39,7 +43,7 @@ class HttpRepositoryParentCatalogPort:
                     deadline_at=None if context is None else context.deadline_monotonic,
                 )
             )
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             if context is not None:
                 context.checkpoint()
             raise
@@ -60,7 +64,9 @@ class HttpRepositoryParentCatalogPort:
             )
         table_names = tuple(table.name for table in response.catalog.tables)
         if len(table_names) != len(set(table_names)):
-            raise SubmitImportPublicationError("Repository parent catalog contains duplicate tables")
+            raise SubmitImportPublicationError(
+                "Repository parent catalog contains duplicate tables"
+            )
         return tuple(sorted(table_names, key=lambda name: name.encode("utf-8")))
 
 

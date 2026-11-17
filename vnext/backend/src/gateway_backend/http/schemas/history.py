@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from gateway_backend.http.schemas.archive import SubmissionClosureSummaryResponse, closure_summary_to_response
+from gateway_backend.http.schemas.archive import (
+    SubmissionClosureSummaryResponse,
+    closure_summary_to_response,
+)
 
 from datetime import datetime
 from typing import Literal, cast
@@ -102,9 +105,14 @@ def history_node_to_response(node: HistoryNode) -> HistoryNodeResponse:
         parent=parent,
         baseline_kind=None if node.baseline_kind is None else node.baseline_kind.value,
         review_status=None if node.review_status is None else node.review_status.value,
-        submission_disposition=None if node.submission_disposition is None else node.submission_disposition.value,
-        disposition_source_kind=None if node.disposition_source_kind is None else node.disposition_source_kind.value,
-        disposition_result_id=node.disposition_result_id, closure=closure_summary_to_response(node.closure),
+        submission_disposition=None
+        if node.submission_disposition is None
+        else node.submission_disposition.value,
+        disposition_source_kind=None
+        if node.disposition_source_kind is None
+        else node.disposition_source_kind.value,
+        disposition_result_id=node.disposition_result_id,
+        closure=closure_summary_to_response(node.closure),
         promoted_baseline_node_id=node.promoted_baseline_node_id,
         eligibility_note=(
             None

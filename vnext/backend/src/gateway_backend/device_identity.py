@@ -2,6 +2,7 @@
 
 This module is stdlib-only so the host configuration tool uses the same boundary.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -21,8 +22,10 @@ def validate_scope_identity(value: object) -> str:
     if any(ord(char) == 0 or 0xD800 <= ord(char) <= 0xDFFF for char in value):
         raise ValueError("scope identity contains NUL or surrogate")
     # Match the existing canonical Unicode gate without importing application dependencies.
-    if any(0xFDD0 <= codepoint <= 0xFDEF or (codepoint & 0xFFFF) in (0xFFFE, 0xFFFF)
-            for codepoint in map(ord, value)):
+    if any(
+        0xFDD0 <= codepoint <= 0xFDEF or (codepoint & 0xFFFF) in (0xFFFE, 0xFFFF)
+        for codepoint in map(ord, value)
+    ):
         raise ValueError("scope identity contains Unicode noncharacter")
     if len(value.encode("utf-8")) > 1020:
         raise ValueError("scope identity exceeds 1020 UTF-8 bytes")
@@ -46,8 +49,11 @@ def device_route_key(device: str) -> str:
 
 
 def _registration_name(environment: str, group: str, device: str, *, initial: bool) -> str:
-    values = [validate_deployment_identity(environment), validate_deployment_identity(group),
-        validate_scope_identity(device)]
+    values = [
+        validate_deployment_identity(environment),
+        validate_deployment_identity(group),
+        validate_scope_identity(device),
+    ]
     if initial:
         values.insert(0, "gateway-device-initial-v1")
     # A string-only array: these separators and unescaped Unicode are its JCS bytes.
@@ -60,5 +66,6 @@ def device_create_key(environment: str, group: str, device: str) -> str:
 
 
 def device_initial_node_id(environment: str, group: str, device: str) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL,
-        _registration_name(environment, group, device, initial=True)))
+    return str(
+        uuid.uuid5(uuid.NAMESPACE_URL, _registration_name(environment, group, device, initial=True))
+    )

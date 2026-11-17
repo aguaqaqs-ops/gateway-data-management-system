@@ -80,9 +80,7 @@ def test_repository_service_image_is_bound_to_current_build_identity(
         if args == ["docker", "image", "inspect", image_ref]:
             if not present:
                 return subprocess.CompletedProcess(args, 1, "", "missing")
-            output = json.dumps(
-                [{"Id": "sha256:" + "d" * 64, "Config": {"Labels": labels}}]
-            )
+            output = json.dumps([{"Id": "sha256:" + "d" * 64, "Config": {"Labels": labels}}])
             return subprocess.CompletedProcess(args, 0, output, "")
         if args == [str(compose_gate_harness.BUILD_REPOSITORY_SCRIPT)]:
             assert cwd == compose_gate_harness.VNEXT_ROOT

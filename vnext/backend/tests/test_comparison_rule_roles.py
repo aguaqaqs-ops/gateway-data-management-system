@@ -49,12 +49,17 @@ def _bound(sql: str) -> BoundSnapshotInput:
         assert isinstance(table.reader, BoundSnapshotTableReader)
         with closing(canonical_stream(table)) as stream:
             backing = stream.read_all()
-        tables.append(snapshot_table_from_arrow(
-            table.descriptor, backing, table.reader.source_descriptor(),
-            ordered=table.ordered_metadata,
-        ))
+        tables.append(
+            snapshot_table_from_arrow(
+                table.descriptor,
+                backing,
+                table.reader.source_descriptor(),
+                ordered=table.ordered_metadata,
+            )
+        )
     return BoundSnapshotInput(
-        result.snapshot, result.summary,
+        result.snapshot,
+        result.summary,
         replace(result.table_set, tables=tuple(tables)),
         presentation=result.presentation,
     )
@@ -122,8 +127,12 @@ def _fact(
 def test_non_record_roles_publish_content_change_facts_without_row_records(
     role: TableStaticRole,
 ) -> None:
-    before = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);")
-    current = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 11);")
+    before = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);"
+    )
+    current = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 11);"
+    )
 
     table = _fact(before, current, role)
 
@@ -141,7 +150,9 @@ def test_non_record_roles_keep_table_existence_facts_without_row_records(
     role: TableStaticRole,
 ) -> None:
     before = _bound("CREATE TABLE other (id INT NOT NULL PRIMARY KEY);")
-    current = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);")
+    current = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);"
+    )
 
     table = _fact(before, current, role)
 
@@ -159,8 +170,7 @@ def test_non_record_roles_keep_schema_facts_visible(
     role: TableStaticRole,
 ) -> None:
     before = _bound(
-        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); "
-        "INSERT INTO t VALUES (1, 10);"
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);"
     )
     current = _bound(
         "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, note VARCHAR(8)); "
@@ -184,8 +194,7 @@ def test_non_record_roles_still_show_shared_data_changes_with_added_column(
     role: TableStaticRole,
 ) -> None:
     before = _bound(
-        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); "
-        "INSERT INTO t VALUES (1, 10);"
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);"
     )
     current = _bound(
         "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, note VARCHAR(8)); "

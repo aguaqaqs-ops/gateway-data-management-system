@@ -204,15 +204,11 @@ def preview_archive_plan(
                     anomaly_resolution_refs=(),
                 )
                 audit_valid = True
-            except (ArchiveConfirmationRequired, ArchiveAnomalyUnresolved):
+            except ArchiveConfirmationRequired, ArchiveAnomalyUnresolved:
                 audit_valid = False
         dispositions = _derive_dispositions(snapshot, selected)
         workspace_releases = _derive_workspace_releases(unit_of_work, snapshot, selected)
-        can_start = (
-            selected is not None
-            and not blockers
-            and audit_valid
-        )
+        can_start = selected is not None and not blockers and audit_valid
         return PreviewArchivePlanResult(
             head=snapshot.resolved_scope.baseline_head,
             candidate_set_digest=snapshot.candidate_set_digest,
@@ -298,8 +294,12 @@ def get_archive_result(
             business_project_id=context.business_project_id,
         )
         try:
-            result = unit_of_work.archive.get_result_by_id(archive_result_id, repository_id=fresh_scope.repository_id,
-                gateway_device_external_key=context.gateway_device_external_key, business_project_id=context.business_project_id)
+            result = unit_of_work.archive.get_result_by_id(
+                archive_result_id,
+                repository_id=fresh_scope.repository_id,
+                gateway_device_external_key=context.gateway_device_external_key,
+                business_project_id=context.business_project_id,
+            )
             if result is None:
                 raise ArchiveResultNotFound(archive_result_id=archive_result_id)
             plan = unit_of_work.archive.get_plan_by_id(result.plan_id)
@@ -360,10 +360,12 @@ def _derive_anomalies(
                 target_candidate_digest=candidate.expected_candidate_digest,
                 subject_digest=subject_digest,
                 affected_submission_ids=(candidate.submission_id,),
-                subject_payload={"selection_subject_digest": selection_subject_digest,
+                subject_payload={
+                    "selection_subject_digest": selection_subject_digest,
                     "issue_code": APPROVED_SIBLING_EXCLUDED_ISSUE,
                     "target_submission_id": candidate.submission_id,
-                    "target_candidate_digest": candidate.expected_candidate_digest},
+                    "target_candidate_digest": candidate.expected_candidate_digest,
+                },
             )
         )
     selected_submission = unit_of_work.submission.get_submission(selected.submission_id)
@@ -399,32 +401,53 @@ def _derive_anomalies(
                 target_candidate_digest=selected.expected_candidate_digest,
                 subject_digest=subject_digest,
                 affected_submission_ids=(selected_submission.submission_id,),
-                subject_payload={"selection_subject_digest": selection_subject_digest,
+                subject_payload={
+                    "selection_subject_digest": selection_subject_digest,
                     "submission_id": selected_submission.submission_id,
                     "candidate_digest": selected.expected_candidate_digest,
                     "preview_bundle_digest": preview_result.digests.bundle_digest,
-                    "assessment_set_digest": expected_assessment_digest},
+                    "assessment_set_digest": expected_assessment_digest,
+                },
             )
         )
     candidates_by_id = {item.submission_id: item for item in snapshot.business_candidates}
     for issue in snapshot.business_validation.issues:
         target_id = issue.affected_submission_ids[0]
-        payload = {"selection_subject_digest": selection_subject_digest,
+        payload = {
+            "selection_subject_digest": selection_subject_digest,
             "rule_id": snapshot.business_validation.rule_id,
             **issue.to_document(),
-            "affected_candidates": [{"submission_id": member,
-                "candidate_digest": candidates_by_id[member].candidate_digest,
-                "configuration_facts_digest": candidates_by_id[member].configuration_facts.facts_digest}
-                for member in issue.affected_submission_ids]}
-        anomalies.append(ArchivePreviewAnomaly(subject_kind=issue.subject_kind,
-            issue_code=issue.issue_code, target_submission_id=target_id,
-            target_candidate_digest=candidates_by_id[target_id].candidate_digest,
-            subject_digest=compute_archive_digest("business-anomaly", payload),
-            affected_submission_ids=issue.affected_submission_ids, side=issue.side,
-            relations=issue.relations, details=issue.details,
-            detected_status="UNEXPLAINED" if issue.subject_kind is ArchiveSubjectKind.CONFIGURATION_SOURCE else "DETECTED",
-            subject_payload=payload))
-    if len(anomalies) > ARCHIVE_MAX_ANOMALY_REFS or len({item.subject_digest for item in anomalies}) != len(anomalies):
+            "affected_candidates": [
+                {
+                    "submission_id": member,
+                    "candidate_digest": candidates_by_id[member].candidate_digest,
+                    "configuration_facts_digest": candidates_by_id[
+                        member
+                    ].configuration_facts.facts_digest,
+                }
+                for member in issue.affected_submission_ids
+            ],
+        }
+        anomalies.append(
+            ArchivePreviewAnomaly(
+                subject_kind=issue.subject_kind,
+                issue_code=issue.issue_code,
+                target_submission_id=target_id,
+                target_candidate_digest=candidates_by_id[target_id].candidate_digest,
+                subject_digest=compute_archive_digest("business-anomaly", payload),
+                affected_submission_ids=issue.affected_submission_ids,
+                side=issue.side,
+                relations=issue.relations,
+                details=issue.details,
+                detected_status="UNEXPLAINED"
+                if issue.subject_kind is ArchiveSubjectKind.CONFIGURATION_SOURCE
+                else "DETECTED",
+                subject_payload=payload,
+            )
+        )
+    if len(anomalies) > ARCHIVE_MAX_ANOMALY_REFS or len(
+        {item.subject_digest for item in anomalies}
+    ) != len(anomalies):
         raise ArchiveIntegrityFailure("archive anomaly set violates the rule budget")
     return tuple(_with_resolution(unit_of_work, snapshot.repository_id, item) for item in anomalies)
 
@@ -534,19 +557,38 @@ def _validate_audit_for_start(
             raise ArchiveAnomalyUnresolved("archive anomaly is unresolved")
 
 
-def _with_resolution(unit_of_work: ArchiveControlTransaction, repository_id: str,
-        anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomaly:
+def _with_resolution(
+    unit_of_work: ArchiveControlTransaction, repository_id: str, anomaly: ArchivePreviewAnomaly
+) -> ArchivePreviewAnomaly:
     try:
-        sequence = unit_of_work.archive.get_latest_resolution_sequence(repository_id, anomaly.subject_digest)
-        event = None if not sequence else unit_of_work.archive.get_resolution_event(
-            repository_id, anomaly.subject_digest, sequence)
+        sequence = unit_of_work.archive.get_latest_resolution_sequence(
+            repository_id, anomaly.subject_digest
+        )
+        event = (
+            None
+            if not sequence
+            else unit_of_work.archive.get_resolution_event(
+                repository_id, anomaly.subject_digest, sequence
+            )
+        )
     except (ValueError, TypeError, KeyError) as exc:
         raise ArchiveIntegrityFailure("stored archive resolution facts are invalid") from exc
     if event is not None:
         assert_resolution_event_integrity(event)
-    accepted = event is not None and event.subject_kind is anomaly.subject_kind and event.action is affirmative_resolution_action(anomaly.subject_kind)
-    return replace(anomaly, latest_sequence=sequence,
-        resolution_status="ACCEPTED" if accepted else "REVOKED" if event is not None else "UNRESOLVED",
+    accepted = (
+        event is not None
+        and event.subject_kind is anomaly.subject_kind
+        and event.action is affirmative_resolution_action(anomaly.subject_kind)
+    )
+    return replace(
+        anomaly,
+        latest_sequence=sequence,
+        resolution_status="ACCEPTED"
+        if accepted
+        else "REVOKED"
+        if event is not None
+        else "UNRESOLVED",
         accepted_by=event.actor_id if accepted and event is not None else None,
         accepted_at=event.occurred_at if accepted and event is not None else None,
-        reason=event.reason if event is not None else None)
+        reason=event.reason if event is not None else None,
+    )

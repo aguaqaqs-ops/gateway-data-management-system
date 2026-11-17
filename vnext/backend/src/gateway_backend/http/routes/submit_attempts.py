@@ -12,7 +12,11 @@ from gateway_backend.application.submission.contracts import IdentityConfirmatio
 from gateway_backend.domain.submission.models import IdentityConfirmationAction
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
-from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
+from gateway_backend.http.dependencies import (
+    WorkspaceHttpDependencies,
+    acquire_new_work,
+    get_workspace_http,
+)
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.operation_scope import read_submit_attempt
 from gateway_backend.http.orchestration.submit_acceptance import (

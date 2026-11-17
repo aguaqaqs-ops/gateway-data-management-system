@@ -54,7 +54,11 @@ from gateway_backend.operations import (
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.state import WritePrecondition
-from gateway_backend.operations.worker import ClaimedExecutor, ExecutionControl, ExecutorAcknowledgment
+from gateway_backend.operations.worker import (
+    ClaimedExecutor,
+    ExecutionControl,
+    ExecutorAcknowledgment,
+)
 from tests.support.artifact_staging import open_local_store, reopen_local_store, staging_root
 
 pytestmark = pytest.mark.unit
@@ -72,8 +76,20 @@ STUB_OUTCOME_TERMINAL_EXPECTATIONS: tuple[
     tuple[StubOutcome, OperationStatus, StepStatus, bool, ExecutorAcknowledgment],
     ...,
 ] = (
-    (StubOutcome.CONFIRMED, OperationStatus.SUCCEEDED, StepStatus.SUCCEEDED, True, ExecutorAcknowledgment.PUBLISHED),
-    (StubOutcome.UNKNOWN, OperationStatus.RUNNING, StepStatus.RUNNING, False, ExecutorAcknowledgment.SAFE_HANDOFF),
+    (
+        StubOutcome.CONFIRMED,
+        OperationStatus.SUCCEEDED,
+        StepStatus.SUCCEEDED,
+        True,
+        ExecutorAcknowledgment.PUBLISHED,
+    ),
+    (
+        StubOutcome.UNKNOWN,
+        OperationStatus.RUNNING,
+        StepStatus.RUNNING,
+        False,
+        ExecutorAcknowledgment.SAFE_HANDOFF,
+    ),
 )
 
 PAYLOAD_BINDING_PARITY: tuple[tuple[str, str], ...] = (
@@ -337,7 +353,9 @@ def test_same_ref_output_put_is_idempotent() -> None:
     store = InMemoryArtifactStore()
     output_bytes = compute_pure_compute_output_bytes(SEED_ALPHA)
     digest = raw_blob_digest(output_bytes).value
-    artifact_id = build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"pure-compute-output:{digest}")
+    artifact_id = build_artifact_id(
+        ArtifactLocation.DURABLE, "test-fixture", f"pure-compute-output:{digest}"
+    )
     first = put_with_built_ref(
         store,
         output_bytes,
@@ -477,7 +495,9 @@ def test_artifact_round_trip_after_reopen(tmp_path: Path) -> None:
     ref = put_with_built_ref(
         store,
         output_bytes,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"pure-compute-output:{digest}"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "test-fixture", f"pure-compute-output:{digest}"
+        ),
         media_type="application/jcs",
     )
     reopened = reopen_local_store(root)
@@ -659,7 +679,9 @@ def _expected_stub_identity(
 def test_stub_operation_identity_is_deterministic() -> None:
     first = _expected_stub_identity()
     second = _expected_stub_identity()
-    other = _expected_stub_identity(idempotency_key=IDEMPOTENCY_KEY_BETA, request_body=REQUEST_BODY_BETA)
+    other = _expected_stub_identity(
+        idempotency_key=IDEMPOTENCY_KEY_BETA, request_body=REQUEST_BODY_BETA
+    )
     assert first == second
     assert first != other
 
@@ -808,7 +830,9 @@ def test_stub_terminal_outcomes(
     assert acknowledgment is expected_ack
 
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        persisted_operation = unit_of_work.operations.get_operation(f"operation-stub-{stub_outcome.value}")
+        persisted_operation = unit_of_work.operations.get_operation(
+            f"operation-stub-{stub_outcome.value}"
+        )
         persisted_step = unit_of_work.operations.get_step(f"step-stub-{stub_outcome.value}")
     assert persisted_operation.status is operation_status
     assert persisted_step.status is step_status

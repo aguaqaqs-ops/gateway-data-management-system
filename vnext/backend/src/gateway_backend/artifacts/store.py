@@ -29,7 +29,12 @@ class ArtifactFileSourcePort(Protocol):
 
 class ArtifactFileStorePort(Protocol):
     def put_from_path(
-        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+        self,
+        source: ArtifactFileSourcePort,
+        ref: ArtifactRef,
+        *,
+        checkpoint: Callable[[], None],
+        byte_limit: int,
     ) -> ArtifactRef:
         """Copy bounded owned scratch bytes to immutable target-root staging."""
 
@@ -42,13 +47,19 @@ class ArtifactRefLookupPort(Protocol):
 @runtime_checkable
 class CanonicalArtifactRepairPort(Protocol):
     def restore_canonical_from_exact_commit(
-        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+        self,
+        raw_bytes: bytes,
+        ref: ArtifactRef,
+        *,
+        checkpoint: Callable[[], None],
     ) -> ArtifactRef:
         """Repair derived canonical content after the owning exact-commit checks."""
 
 
 class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
-    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> ContextManager[pa.Buffer]:
+    def open_buffer(
+        self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None
+    ) -> ContextManager[pa.Buffer]:
         """Borrow verified immutable bytes; the provider owns their lifetime."""
 
 
@@ -91,7 +102,12 @@ class InMemoryArtifactStore:
         return ref
 
     def put_from_path(
-        self, source: ArtifactFileSourcePort, ref: ArtifactRef, *, checkpoint: Callable[[], None], byte_limit: int,
+        self,
+        source: ArtifactFileSourcePort,
+        ref: ArtifactRef,
+        *,
+        checkpoint: Callable[[], None],
+        byte_limit: int,
     ) -> ArtifactRef:
         if ref.size_bytes > byte_limit:
             raise ManifestVerificationError("artifact exceeds file byte limit")
@@ -125,7 +141,9 @@ class InMemoryArtifactStore:
             raise ManifestVerificationError(f"unknown artifact_id: {artifact_id}") from exc
 
     @contextmanager
-    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
+    def open_buffer(
+        self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None
+    ) -> Iterator[pa.Buffer]:
         if checkpoint is not None:
             checkpoint()
         buffer = pa.py_buffer(self.locate(ref))
@@ -134,7 +152,11 @@ class InMemoryArtifactStore:
         yield buffer
 
     def restore_canonical_from_exact_commit(
-        self, raw_bytes: bytes, ref: ArtifactRef, *, checkpoint: Callable[[], None],
+        self,
+        raw_bytes: bytes,
+        ref: ArtifactRef,
+        *,
+        checkpoint: Callable[[], None],
     ) -> ArtifactRef:
         checkpoint()
         return self.put(raw_bytes, ref)

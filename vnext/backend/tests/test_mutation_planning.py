@@ -509,9 +509,7 @@ def test_gid_no_v1_table_is_patchable_within_the_frozen_threshold() -> None:
                     {"kind": "string", "text": "changed" if index - 1 in changed else "stable"},
                 ),
             )
-            image = PersistedRowImage(
-                columns=columns
-            )
+            image = PersistedRowImage(columns=columns)
             result.append(
                 MutationKeyedRow(
                     key=CanonicalStorageKey(columns=(("gid", gid),)),
@@ -569,15 +567,9 @@ def test_change_set_identity_is_stable_and_order_independent() -> None:
     first = _plan(request_a)
     second = _plan(request_b)
     assert first.plan is not None and second.plan is not None
-    assert (
-        first.plan.mutation_plan_identity_digest
-        == second.plan.mutation_plan_identity_digest
-    )
+    assert first.plan.mutation_plan_identity_digest == second.plan.mutation_plan_identity_digest
     assert first.change_set_closure is not None and second.change_set_closure is not None
-    assert (
-        first.change_set_closure.closure_digest
-        == second.change_set_closure.closure_digest
-    )
+    assert first.change_set_closure.closure_digest == second.change_set_closure.closure_digest
 
     before_tables = (
         table_snapshot(table="alpha", rows=_rows(2)),
@@ -693,7 +685,9 @@ def test_mixed_plan_closure_manifest_keeps_noop_table_summary() -> None:
         )
     )
     assert result.change_set_closure is not None
-    assert [item.canonical_table for item in result.change_set_closure.manifest.table_summaries] == [
+    assert [
+        item.canonical_table for item in result.change_set_closure.manifest.table_summaries
+    ] == [
         "inventory",
         "orders",
     ]
@@ -704,8 +698,7 @@ def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase(
     operation_kernel_context: KernelExecutionContext,
 ) -> None:
     before_rows_by_number = {
-        number: keyed_row(board=str(number), link_no="0")
-        for number in range(400)
+        number: keyed_row(board=str(number), link_no="0") for number in range(400)
     }
     after_rows_by_number = {
         number: keyed_row(
@@ -746,9 +739,7 @@ def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase(
         after_row_count=400,
     )
     plan = StorageMutationPlan(
-        mutation_plan_identity_digest=compute_mutation_plan_identity_digest(
-            request.planning_input
-        ),
+        mutation_plan_identity_digest=compute_mutation_plan_identity_digest(request.planning_input),
         plan_status=MutationPlanStatus.READY,
         table_summaries=(summary,),
         planning_input=request.planning_input,
@@ -829,7 +820,9 @@ def test_cancellation_fails_closed() -> None:
     assert result.failure_code is MutationFailureCode.FAILED
 
 
-def test_byte_cap_returns_resource_exceeded_without_new_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_byte_cap_returns_resource_exceeded_without_new_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     before, after = _snapshot_with_rows(before_count=5, after_count=5, changed_after=set(range(5)))
     request = planning_request(
         policy=MutationPolicy.REBUILD_ALWAYS,
@@ -921,7 +914,9 @@ def test_keyless_multiset_changes_rebuild_and_identical_multisets_are_noop(
     assert changed_result.plan.table_summaries[0].operation is TableMutationKind.REBUILD_TABLE
     assert changed_result.plan.table_summaries[0].changed_row_count == 2
     assert changed_result.change_set_closure is not None
-    rendered = render_change_set_replay(changed_result.change_set_closure, context=operation_kernel_context)
+    rendered = render_change_set_replay(
+        changed_result.change_set_closure, context=operation_kernel_context
+    )
     assert rendered.status == "READY"
     assert rendered.sql_bytes is not None
     assert rendered.sql_bytes.count(b"DELETE FROM `orders`;") == 1

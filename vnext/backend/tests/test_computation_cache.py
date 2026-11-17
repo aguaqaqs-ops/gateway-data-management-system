@@ -1,4 +1,5 @@
 """Derived cache transactions, reference closure, TTL and live filesystem borrows."""
+
 from __future__ import annotations
 
 from tests.support.artifact_layout import open_test_store
@@ -50,24 +51,39 @@ def _reserve(_size: int) -> ContextManager[object]:
 
 
 def _ref(artifact_id: str, raw: bytes, media_type: str = "application/octet-stream") -> ArtifactRef:
-    return ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", artifact_id), media_type, len(raw), raw_blob_digest(raw))
+    return ArtifactRef(
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", artifact_id),
+        media_type,
+        len(raw),
+        raw_blob_digest(raw),
+    )
 
 
 def _value(
-    seed: str = "first", *, kind: ComputationCacheKind = ComputationCacheKind.COMPARISON,
+    seed: str = "first",
+    *,
+    kind: ComputationCacheKind = ComputationCacheKind.COMPARISON,
     task: bytes = b"complete-task",
 ) -> tuple[ComputationCacheEntry, tuple[tuple[ArtifactRef, bytes], ...]]:
     key = ComputationCacheKey("repository-1", kind, raw_blob_digest(task))
-    members = tuple((
-        _ref(f"cache-{seed}-member-{index}", raw), raw,
-    ) for index, raw in enumerate(
-        (b"first independent member", b"second independent member")
-        if kind is ComputationCacheKind.COMPARISON else (b"complete candidate events",)
-    ))
+    members = tuple(
+        (
+            _ref(f"cache-{seed}-member-{index}", raw),
+            raw,
+        )
+        for index, raw in enumerate(
+            (b"first independent member", b"second independent member")
+            if kind is ComputationCacheKind.COMPARISON
+            else (b"complete candidate events",)
+        )
+    )
     refs = tuple(ref for ref, _raw in members)
     raw = encode_cache_manifest(key, format="fixture-cache/v1", member_refs=refs, payload=PAYLOAD)
     manifest = _ref(f"cache-{seed}-manifest", raw, "application/json")
-    return ComputationCacheEntry(key, "fixture-cache/v1", manifest, refs), ((manifest, raw), *members)
+    return ComputationCacheEntry(key, "fixture-cache/v1", manifest, refs), (
+        (manifest, raw),
+        *members,
+    )
 
 
 @dataclass(slots=True)
@@ -94,7 +110,8 @@ def cache_fixture(db_path: Path, tmp_path: Path) -> CacheFixture:
 
 @pytest.mark.parametrize("kind", tuple(ComputationCacheKind))
 def test_complete_cache_value_is_scoped_and_uses_real_member_buffers(
-    cache_fixture: CacheFixture, kind: ComputationCacheKind,
+    cache_fixture: CacheFixture,
+    kind: ComputationCacheKind,
 ) -> None:
     cache = cache_fixture.adapter()
     entry, blobs = _value(kind=kind)
@@ -102,12 +119,21 @@ def test_complete_cache_value_is_scoped_and_uses_real_member_buffers(
     cache.release_operation_pins(WRITER)
     wrong_keys = (
         replace(entry.key, repository_id="repository-2"),
-        replace(entry.key, kind=(ComputationCacheKind.RISK if kind is ComputationCacheKind.COMPARISON
-                                 else ComputationCacheKind.COMPARISON)),
+        replace(
+            entry.key,
+            kind=(
+                ComputationCacheKind.RISK
+                if kind is ComputationCacheKind.COMPARISON
+                else ComputationCacheKind.COMPARISON
+            ),
+        ),
         replace(entry.key, task_digest=raw_blob_digest(b"another-directed-task")),
     )
     for key in wrong_keys:
-        assert cache.lookup_and_pin(key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
+        assert (
+            cache.lookup_and_pin(key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+            is None
+        )
     lease = cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
     assert lease is not None
     with closing(lease):
@@ -120,7 +146,16 @@ def test_complete_cache_value_is_scoped_and_uses_real_member_buffers(
     cache.release_operation_pins(READER)
 
 
-MANIFEST_FAULTS = ("scope", "kind", "digest", "format", "members", "payload", "noncanonical", "deep")
+MANIFEST_FAULTS = (
+    "scope",
+    "kind",
+    "digest",
+    "format",
+    "members",
+    "payload",
+    "noncanonical",
+    "deep",
+)
 
 
 @pytest.mark.parametrize("fault", MANIFEST_FAULTS)
@@ -149,24 +184,40 @@ def test_manifest_envelope_rejects_unregistered_scope_and_reference_closure(faul
         decode_cache_manifest(corrupted, entry)
 
 
-FILE_FAULTS = ("member-missing", "member-raw", "manifest-missing", "manifest-raw", "member-index-deep")
+FILE_FAULTS = (
+    "member-missing",
+    "member-raw",
+    "manifest-missing",
+    "manifest-raw",
+    "member-index-deep",
+)
 
 
 @pytest.mark.parametrize("fault", FILE_FAULTS)
 def test_bad_cache_file_discards_only_the_registered_value_and_closes_its_borrow(
-    cache_fixture: CacheFixture, fault: str,
+    cache_fixture: CacheFixture,
+    fault: str,
 ) -> None:
     cache = cache_fixture.adapter()
     entry, blobs = _value()
     healthy, healthy_blobs = _value("healthy", task=b"independent-healthy-task")
     assert cache.store(entry, blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
-    assert cache.store(healthy, healthy_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
+    assert cache.store(
+        healthy, healthy_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve
+    )
     cache.release_operation_pins(WRITER)
     if fault == "member-index-deep":
         with cache_fixture.transaction() as uow:
-            uow.connection.execute("""UPDATE computation_cache_entries SET member_refs_json=?
+            uow.connection.execute(
+                """UPDATE computation_cache_entries SET member_refs_json=?
                 WHERE repository_id=? AND kind=? AND task_digest=?""",
-                (DEEP_JSON, entry.key.repository_id, entry.key.kind.value, entry.key.task_digest.value))
+                (
+                    DEEP_JSON,
+                    entry.key.repository_id,
+                    entry.key.kind.value,
+                    entry.key.task_digest.value,
+                ),
+            )
     else:
         target = entry.manifest_ref if fault.startswith("manifest") else entry.member_refs[0]
         path = cache_fixture.local.payload_path(target.artifact_id)
@@ -174,20 +225,28 @@ def test_bad_cache_file_discards_only_the_registered_value_and_closes_its_borrow
             path.unlink()
         else:
             path.write_bytes(b"!" * target.size_bytes)
-    assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
+    assert (
+        cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+        is None
+    )
     cache.release_operation_pins(READER)
     assert cache_fixture.protected(entry.refs) == (False,) * len(entry.refs)
     with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
         assert acquired
-    lease = cache.lookup_and_pin(healthy.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+    lease = cache.lookup_and_pin(
+        healthy.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve
+    )
     assert lease is not None
     with closing(lease):
         assert lease.entry == healthy
     cache.release_operation_pins(READER)
     with cache_fixture.transaction() as uow:
-        assert [row[0] for row in uow.connection.execute(
-            "SELECT manifest_artifact_id FROM computation_cache_entries",
-        )] == [healthy.manifest_ref.artifact_id]
+        assert [
+            row[0]
+            for row in uow.connection.execute(
+                "SELECT manifest_artifact_id FROM computation_cache_entries",
+            )
+        ] == [healthy.manifest_ref.artifact_id]
 
 
 def test_successful_use_extends_ttl_from_transaction_time(cache_fixture: CacheFixture) -> None:
@@ -208,7 +267,10 @@ def test_successful_use_extends_ttl_from_transaction_time(cache_fixture: CacheFi
     cache.release_operation_pins(READER)
     # Opening a candidate without successful pair use does not restart its TTL.
     cache_fixture.now = NOW + timedelta(seconds=2 * COMPUTATION_CACHE_TTL_SECONDS)
-    assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
+    assert (
+        cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+        is None
+    )
     assert cache_fixture.protected(entry.refs) == (False,) * len(entry.refs)
 
 
@@ -220,8 +282,12 @@ def test_overlapping_leases_close_before_narrow_operation_pin_release(
     assert cache.store(entry, blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
     cache.release_operation_pins(WRITER)
     with cache_fixture.transaction() as uow:
-        uow.set_artifact_protection((entry.manifest_ref,), owner_kind=READER.owner_kind,
-            owner_id=READER.operation_id, intent="workflow-checkpoint")
+        uow.set_artifact_protection(
+            (entry.manifest_ref,),
+            owner_kind=READER.owner_kind,
+            owner_id=READER.operation_id,
+            intent="workflow-checkpoint",
+        )
     first = cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
     second = cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
     assert first is not None and second is not None
@@ -237,32 +303,46 @@ def test_overlapping_leases_close_before_narrow_operation_pin_release(
     with cache_fixture.local.cleanup_session(entry.manifest_ref.artifact_id) as acquired:
         assert acquired
     cache_fixture.now = NOW + timedelta(seconds=COMPUTATION_CACHE_TTL_SECONDS + 1)
-    assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
+    assert (
+        cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+        is None
+    )
     assert cache_fixture.protected(entry.refs) == (True,) * len(entry.refs)
     assert cache.release_operation_pins(READER) == len(entry.member_refs)
     assert cache_fixture.protected(entry.refs) == (True, False, False)
     with cache_fixture.transaction() as uow:
-        assert uow.connection.execute(
-            "SELECT intent FROM artifact_protection_intents WHERE artifact_id = ? AND owner_kind = ? AND owner_id = ?",
-            (entry.manifest_ref.artifact_id, READER.owner_kind, READER.operation_id),
-        ).fetchone()[0] == "workflow-checkpoint"
+        assert (
+            uow.connection.execute(
+                "SELECT intent FROM artifact_protection_intents WHERE artifact_id = ? AND owner_kind = ? AND owner_id = ?",
+                (entry.manifest_ref.artifact_id, READER.owner_kind, READER.operation_id),
+            ).fetchone()[0]
+            == "workflow-checkpoint"
+        )
 
 
 def test_stale_reader_cannot_discard_or_touch_a_new_writer(cache_fixture: CacheFixture) -> None:
     cache = cache_fixture.adapter()
     original, original_blobs = _value()
     replacement, replacement_blobs = _value("replacement")
-    assert cache.store(original, original_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
+    assert cache.store(
+        original, original_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve
+    )
     cache.release_operation_pins(WRITER)
-    stale = cache.lookup_and_pin(original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+    stale = cache.lookup_and_pin(
+        original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve
+    )
     assert stale is not None
     try:
-        assert cache.store(replacement, replacement_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
+        assert cache.store(
+            replacement, replacement_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve
+        )
         assert not stale.discard()
         assert not stale.mark_used()
         with stale.open_buffer(original.member_refs[0]) as buffer:
             assert buffer.to_pybytes() == original_blobs[1][1]
-        current = cache.lookup_and_pin(original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+        current = cache.lookup_and_pin(
+            original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve
+        )
         assert current is not None
         with closing(current):
             assert current.entry == replacement
@@ -276,7 +356,8 @@ def test_stale_reader_cannot_discard_or_touch_a_new_writer(cache_fixture: CacheF
 
 
 def test_partial_file_write_never_publishes_an_index_or_use(
-    cache_fixture: CacheFixture, monkeypatch: pytest.MonkeyPatch,
+    cache_fixture: CacheFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cache = cache_fixture.adapter()
     entry, blobs = _value()
@@ -293,7 +374,10 @@ def test_partial_file_write_never_publishes_an_index_or_use(
     monkeypatch.setattr(cache_fixture.local, "put", fail_last_member)
     assert not cache.store(entry, blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
     assert written
-    assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve) is None
+    assert (
+        cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+        is None
+    )
     with cache_fixture.transaction() as uow:
         for table in ("computation_cache_entries", "computation_cache_uses"):
             assert uow.connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
@@ -302,14 +386,20 @@ def test_partial_file_write_never_publishes_an_index_or_use(
     assert cache_fixture.protected(entry.refs) == (False,) * len(entry.refs)
 
 
-def test_index_and_all_ttl_protection_share_the_caller_transaction(cache_fixture: CacheFixture) -> None:
+def test_index_and_all_ttl_protection_share_the_caller_transaction(
+    cache_fixture: CacheFixture,
+) -> None:
     entry, _blobs = _value()
     with pytest.raises(RuntimeError, match="caller rollback"):
         with cache_fixture.transaction() as uow:
             uow.computation_cache.store(entry, WRITER)
             raise RuntimeError("caller rollback")
     with cache_fixture.transaction() as uow:
-        for table in ("computation_cache_entries", "computation_cache_uses", "artifact_protection_intents"):
+        for table in (
+            "computation_cache_entries",
+            "computation_cache_uses",
+            "artifact_protection_intents",
+        ):
             assert uow.connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
         uow.computation_cache.store(entry, WRITER)
         original_expiry = uow.connection.execute(
@@ -318,19 +408,32 @@ def test_index_and_all_ttl_protection_share_the_caller_transaction(cache_fixture
     cache_fixture.now = NOW + timedelta(hours=12)
     with pytest.raises(RuntimeError, match="touch rollback"):
         with cache_fixture.transaction() as uow:
-            assert uow.computation_cache.touch_producer(
-                producer_operation_id=WRITER.operation_id, repository_id=entry.key.repository_id) == 1
+            assert (
+                uow.computation_cache.touch_producer(
+                    producer_operation_id=WRITER.operation_id, repository_id=entry.key.repository_id
+                )
+                == 1
+            )
             raise RuntimeError("touch rollback")
     with cache_fixture.transaction() as uow:
-        assert uow.connection.execute(
-            "SELECT expires_at_us FROM computation_cache_entries",
-        ).fetchone()[0] == original_expiry
-        assert uow.connection.execute(
-            "SELECT expires_at_us FROM computation_cache_uses",
-        ).fetchone()[0] == original_expiry
-        assert {row[0] for row in uow.connection.execute(
-            "SELECT expires_at_us FROM artifact_protection_intents",
-        )} == {original_expiry}
+        assert (
+            uow.connection.execute(
+                "SELECT expires_at_us FROM computation_cache_entries",
+            ).fetchone()[0]
+            == original_expiry
+        )
+        assert (
+            uow.connection.execute(
+                "SELECT expires_at_us FROM computation_cache_uses",
+            ).fetchone()[0]
+            == original_expiry
+        )
+        assert {
+            row[0]
+            for row in uow.connection.execute(
+                "SELECT expires_at_us FROM artifact_protection_intents",
+            )
+        } == {original_expiry}
 
 
 def test_unknown_sql_failure_rolls_back_replacement_index_ttl_and_use(
@@ -339,23 +442,35 @@ def test_unknown_sql_failure_rolls_back_replacement_index_ttl_and_use(
     cache = cache_fixture.adapter()
     original, original_blobs = _value()
     replacement, replacement_blobs = _value("replacement")
-    assert cache.store(original, original_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
+    assert cache.store(
+        original, original_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve
+    )
     cache.release_operation_pins(WRITER)
-    original_lease = cache.lookup_and_pin(original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+    original_lease = cache.lookup_and_pin(
+        original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve
+    )
     assert original_lease is not None
     with cache_fixture.transaction() as uow:
         uow.connection.execute("""CREATE TRIGGER fail_cache_use BEFORE INSERT ON computation_cache_uses
             BEGIN SELECT cache_test_missing_function(); END""")
     try:
         with pytest.raises(sqlite3.OperationalError, match="cache_test_missing_function"):
-            cache.store(replacement, replacement_blobs, owner=WRITER, checkpoint=_checkpoint, reserve=_reserve)
+            cache.store(
+                replacement,
+                replacement_blobs,
+                owner=WRITER,
+                checkpoint=_checkpoint,
+                reserve=_reserve,
+            )
         with pytest.raises(sqlite3.OperationalError, match="cache_test_missing_function"):
             original_lease.mark_used()
     finally:
         original_lease.close()
         with cache_fixture.transaction() as uow:
             uow.connection.execute("DROP TRIGGER fail_cache_use")
-    lease = cache.lookup_and_pin(original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
+    lease = cache.lookup_and_pin(
+        original.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve
+    )
     assert lease is not None
     with closing(lease):
         assert lease.entry == original
@@ -364,12 +479,17 @@ def test_unknown_sql_failure_rolls_back_replacement_index_ttl_and_use(
     assert cache_fixture.protected(original.refs) == (True,) * len(original.refs)
     assert cache_fixture.protected(replacement.refs) == (False,) * len(replacement.refs)
     with cache_fixture.transaction() as uow:
-        assert {row[0] for row in uow.connection.execute(
-            "SELECT manifest_artifact_id FROM computation_cache_uses",
-        )} == {original.manifest_ref.artifact_id}
+        assert {
+            row[0]
+            for row in uow.connection.execute(
+                "SELECT manifest_artifact_id FROM computation_cache_uses",
+            )
+        } == {original.manifest_ref.artifact_id}
 
 
-def test_producer_touch_matches_current_scope_and_manifest_only(cache_fixture: CacheFixture) -> None:
+def test_producer_touch_matches_current_scope_and_manifest_only(
+    cache_fixture: CacheFixture,
+) -> None:
     current, _ = _value("current", task=b"current-task")
     replaced, _ = _value("old", task=b"replaced-task")
     replacement, _ = _value("new", task=b"replaced-task")
@@ -387,15 +507,29 @@ def test_producer_touch_matches_current_scope_and_manifest_only(cache_fixture: C
         assert uow.computation_cache.discard_if_same(missing)
     cache_fixture.now = NOW + timedelta(hours=12)
     with cache_fixture.transaction() as uow:
-        assert uow.computation_cache.touch_producer(
-            producer_operation_id=WRITER.operation_id, repository_id="another-repository") == 0
-        assert uow.computation_cache.touch_producer(
-            producer_operation_id="another-producer", repository_id=current.key.repository_id) == 0
-        assert uow.computation_cache.touch_producer(
-            producer_operation_id=WRITER.operation_id, repository_id=current.key.repository_id) == 1
-        rows = dict(uow.connection.execute(
-            "SELECT manifest_artifact_id, expires_at_us FROM computation_cache_entries",
-        ))
+        assert (
+            uow.computation_cache.touch_producer(
+                producer_operation_id=WRITER.operation_id, repository_id="another-repository"
+            )
+            == 0
+        )
+        assert (
+            uow.computation_cache.touch_producer(
+                producer_operation_id="another-producer", repository_id=current.key.repository_id
+            )
+            == 0
+        )
+        assert (
+            uow.computation_cache.touch_producer(
+                producer_operation_id=WRITER.operation_id, repository_id=current.key.repository_id
+            )
+            == 1
+        )
+        rows = dict(
+            uow.connection.execute(
+                "SELECT manifest_artifact_id, expires_at_us FROM computation_cache_entries",
+            )
+        )
         assert rows[current.manifest_ref.artifact_id] > rows[replacement.manifest_ref.artifact_id]
 
 
@@ -411,7 +545,9 @@ def _seed_expiring_entries(cache_fixture: CacheFixture) -> tuple[ComputationCach
     return tuple(entries)
 
 
-def test_expiry_cleanup_removes_at_most_64_entries_and_uses_per_sweep(cache_fixture: CacheFixture) -> None:
+def test_expiry_cleanup_removes_at_most_64_entries_and_uses_per_sweep(
+    cache_fixture: CacheFixture,
+) -> None:
     entries = _seed_expiring_entries(cache_fixture)
     with cache_fixture.transaction() as uow:
         uow.computation_cache.prune_expired()
@@ -420,7 +556,9 @@ def test_expiry_cleanup_removes_at_most_64_entries_and_uses_per_sweep(cache_fixt
     assert cache_fixture.protected(entries[-1].refs) == (False,) * len(entries[-1].refs)
 
 
-def test_expired_direct_lookup_never_hits_beyond_the_cleanup_batch(cache_fixture: CacheFixture) -> None:
+def test_expired_direct_lookup_never_hits_beyond_the_cleanup_batch(
+    cache_fixture: CacheFixture,
+) -> None:
     entries = _seed_expiring_entries(cache_fixture)
     with cache_fixture.transaction() as uow:
         assert uow.computation_cache.lookup_and_pin(entries[-1].key, READER) is None
@@ -451,16 +589,35 @@ def test_optional_budget_rejection_does_not_discard_a_healthy_value_or_swallow_c
 
     def ttl_snapshot() -> tuple[tuple[tuple[object, ...], ...], ...]:
         with cache_fixture.transaction() as uow:
-            return tuple(tuple(tuple(row) for row in uow.connection.execute(
-                f"SELECT * FROM {table} ORDER BY rowid",
-            )) for table in ("computation_cache_entries", "computation_cache_uses", "artifact_protection_intents"))
+            return tuple(
+                tuple(
+                    tuple(row)
+                    for row in uow.connection.execute(
+                        f"SELECT * FROM {table} ORDER BY rowid",
+                    )
+                )
+                for table in (
+                    "computation_cache_entries",
+                    "computation_cache_uses",
+                    "artifact_protection_intents",
+                )
+            )
 
-    assert cache.lookup_and_pin(entry.key, owner=READER, checkpoint=_checkpoint, reserve=deny_reservation) is None
-    assert not cache.store(entry, blobs, owner=WRITER, checkpoint=_checkpoint, reserve=deny_reservation)
+    assert (
+        cache.lookup_and_pin(
+            entry.key, owner=READER, checkpoint=_checkpoint, reserve=deny_reservation
+        )
+        is None
+    )
+    assert not cache.store(
+        entry, blobs, owner=WRITER, checkpoint=_checkpoint, reserve=deny_reservation
+    )
     with pytest.raises(InterruptedError, match="current operation cancelled"):
         cache.lookup_and_pin(entry.key, owner=READER, checkpoint=cancel, reserve=_reserve)
     denied = False
-    lease = cache.lookup_and_pin(entry.key, owner=READER, checkpoint=current_checkpoint, reserve=deny_reservation)
+    lease = cache.lookup_and_pin(
+        entry.key, owner=READER, checkpoint=current_checkpoint, reserve=deny_reservation
+    )
     assert lease is not None
     cache_fixture.now = NOW + timedelta(hours=12)
     before = ttl_snapshot()
@@ -482,19 +639,41 @@ def test_optional_budget_rejection_does_not_discard_a_healthy_value_or_swallow_c
 
 
 @pytest.mark.serial
-@pytest.mark.parametrize('kind', tuple(ComputationCacheKind))
-@pytest.mark.parametrize('same_key', (True, False))
+@pytest.mark.parametrize("kind", tuple(ComputationCacheKind))
+@pytest.mark.parametrize("same_key", (True, False))
 def test_process_cache_misses_publish_complete_values_and_preserve_reader_pins(
-    cache_fixture: CacheFixture, kind: ComputationCacheKind, same_key: bool,
+    cache_fixture: CacheFixture,
+    kind: ComputationCacheKind,
+    same_key: bool,
 ) -> None:
     from tests.support.process_concurrency import run_processes
-    first, first_blobs = _value('first', kind=kind)
-    second, second_blobs = _value('second', kind=kind, task=b'complete-task' if same_key else b'other-task')
-    def store(entry: ComputationCacheEntry, blobs: tuple[tuple[ArtifactRef, bytes], ...], owner: str) -> None:
+
+    first, first_blobs = _value("first", kind=kind)
+    second, second_blobs = _value(
+        "second", kind=kind, task=b"complete-task" if same_key else b"other-task"
+    )
+
+    def store(
+        entry: ComputationCacheEntry, blobs: tuple[tuple[ArtifactRef, bytes], ...], owner: str
+    ) -> None:
         # Each process constructs its own connection and root lock descriptors.
-        adapter = CacheFixture(cache_fixture.db_path, open_test_store(cache_fixture.local.layout.durable.parent)).adapter()
-        assert adapter.store(entry, blobs, owner=CacheOperationOwner('preview-operation', owner), checkpoint=_checkpoint, reserve=_reserve)
-    run_processes((lambda: store(first, first_blobs, 'producer-a'), lambda: store(second, second_blobs, 'producer-b')))
+        adapter = CacheFixture(
+            cache_fixture.db_path, open_test_store(cache_fixture.local.layout.durable.parent)
+        ).adapter()
+        assert adapter.store(
+            entry,
+            blobs,
+            owner=CacheOperationOwner("preview-operation", owner),
+            checkpoint=_checkpoint,
+            reserve=_reserve,
+        )
+
+    run_processes(
+        (
+            lambda: store(first, first_blobs, "producer-a"),
+            lambda: store(second, second_blobs, "producer-b"),
+        )
+    )
     cache = cache_fixture.adapter()
     lease = cache.lookup_and_pin(first.key, owner=READER, checkpoint=_checkpoint, reserve=_reserve)
     assert lease is not None
@@ -506,8 +685,8 @@ def test_process_cache_misses_publish_complete_values_and_preserve_reader_pins(
         assert all(cache_fixture.protected(observed.refs))
         # A stale reader cannot delete a subsequently published value for the same key.
         if same_key:
-            replacement, replacement_blobs = _value('replacement', kind=kind)
-            run_processes((lambda: store(replacement, replacement_blobs, 'replacement'),))
+            replacement, replacement_blobs = _value("replacement", kind=kind)
+            run_processes((lambda: store(replacement, replacement_blobs, "replacement"),))
             with cache_fixture.transaction() as uow:
                 assert not uow.computation_cache.discard_if_same(observed)
             assert all(cache_fixture.protected(observed.refs))

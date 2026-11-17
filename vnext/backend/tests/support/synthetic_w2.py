@@ -156,13 +156,9 @@ def validate_replay_size(size_bytes: int) -> None:
             f"W2 replay.sql must stay under the 200 MiB hard cap: {size_bytes} bytes"
         )
     if size_bytes < MIN_REPLAY_BYTES:
-        raise SyntheticW2Error(
-            f"W2 replay.sql is below the 180 MiB band: {size_bytes} bytes"
-        )
+        raise SyntheticW2Error(f"W2 replay.sql is below the 180 MiB band: {size_bytes} bytes")
     if size_bytes > MAX_REPLAY_BYTES:
-        raise SyntheticW2Error(
-            f"W2 replay.sql is above the 199 MiB band: {size_bytes} bytes"
-        )
+        raise SyntheticW2Error(f"W2 replay.sql is above the 199 MiB band: {size_bytes} bytes")
 
 
 def validate_s6_result_record(payload: object) -> None:
@@ -173,9 +169,7 @@ def validate_s6_result_record(payload: object) -> None:
     if missing:
         raise SyntheticW2Error(f"S6 result record missing keys: {missing}")
     extra_forbidden = [
-        key
-        for key in keys
-        if any(part in key.lower() for part in _FORBIDDEN_KEY_PARTS)
+        key for key in keys if any(part in key.lower() for part in _FORBIDDEN_KEY_PARTS)
     ]
     if extra_forbidden:
         raise SyntheticW2Error(f"S6 result record has forbidden keys: {extra_forbidden}")
@@ -434,7 +428,9 @@ def build_table_plans(sql: str) -> dict[str, TableScalePlan]:
     return plans
 
 
-def scale_insert_rows(statement: str, plan: TableScalePlan, replica: int) -> tuple[str, list[str]] | None:
+def scale_insert_rows(
+    statement: str, plan: TableScalePlan, replica: int
+) -> tuple[str, list[str]] | None:
     stripped = statement.strip()
     if stripped.endswith(";"):
         stripped = stripped[:-1]
@@ -518,9 +514,9 @@ def build_scaled_replay_sql(
                 extra = len(candidate) + (1 if selected else 0) + 2
                 if len(prefix) + sum(len(item) for item in encoded_rows) + extra > remaining:
                     break
-                if current_size() + len(prefix) + sum(len(item) for item in encoded_rows) + extra >= (
-                    REPLAY_HARD_CAP_BYTES
-                ):
+                if current_size() + len(prefix) + sum(
+                    len(item) for item in encoded_rows
+                ) + extra >= (REPLAY_HARD_CAP_BYTES):
                     break
                 selected.append(row)
                 encoded_rows.append(candidate)

@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, canonicalize_identifier
-from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import declared_type_for_sql_spelling
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    RepositoryColumn, SqlDeclaredTypeMappingError, enum_set_labels_for_sql_spelling,
+from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
+    declared_type_for_sql_spelling,
 )
-from gateway_backend.capabilities.table_access.contracts import SourceColumnDescriptor, SqlLogicalType
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    RepositoryColumn,
+    SqlDeclaredTypeMappingError,
+    enum_set_labels_for_sql_spelling,
+)
+from gateway_backend.capabilities.table_access.contracts import (
+    SourceColumnDescriptor,
+    SqlLogicalType,
+)
 
 _STRING_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
 
@@ -74,5 +81,3 @@ def _declared_type_for(spelling: str | None) -> tuple[DeclaredType, bool]:
         return declared_type_for_sql_spelling(spelling), False
     except SqlDeclaredTypeMappingError:
         return _STRING_TYPE, True
-
-

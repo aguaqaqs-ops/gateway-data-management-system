@@ -213,7 +213,9 @@ def _approve_submission(
     assert response.status_code == 201, response.text
 
 
-def _candidate_for_submission(candidates_body: dict[str, Any], submission_id: str) -> dict[str, Any]:
+def _candidate_for_submission(
+    candidates_body: dict[str, Any], submission_id: str
+) -> dict[str, Any]:
     for candidate in candidates_body["candidates"]:
         if candidate["submission_id"] == submission_id:
             return {
@@ -419,7 +421,17 @@ def test_compose_history_compare_journey_zero_write_restart(
             preview = archiver.post("/v1/archive-plan-preview", json={"selected": selected})
             assert preview.status_code == 200, preview.text
             preview_body = cast(dict[str, Any], preview.json())
-            assert len([item for item in preview_body["anomalies"] if item["subject_kind"] in {"APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"}]) == 2
+            assert (
+                len(
+                    [
+                        item
+                        for item in preview_body["anomalies"]
+                        if item["subject_kind"]
+                        in {"APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"}
+                    ]
+                )
+                == 2
+            )
 
             confirm = archiver.post(
                 "/v1/archive-confirmations",
@@ -623,7 +635,8 @@ def test_compose_history_compare_journey_zero_write_restart(
             ]
 
             bundle_three, bundle_transfer = download_bundle_tar(
-                history_reader, f"/v1/history-compares/{compare_three_operation_id}/bundle",
+                history_reader,
+                f"/v1/history-compares/{compare_three_operation_id}/bundle",
             )
             assert bundle_three["bundle_digest"] == bundle_digest
             assert bundle_transfer["ordinary_member_count"] > 2
@@ -713,7 +726,8 @@ def test_compose_history_compare_journey_zero_write_restart(
             ]
             assert restarted_pair_digests == three_pair_digests
             restarted_bundle, restarted_transfer = download_bundle_tar(
-                history_reader, f"/v1/history-compares/{compare_three_operation_id}/bundle",
+                history_reader,
+                f"/v1/history-compares/{compare_three_operation_id}/bundle",
             )
             assert restarted_bundle == bundle_three
             assert restarted_transfer["actual_bytes"] == bundle_transfer["actual_bytes"]
@@ -750,9 +764,9 @@ def test_compose_history_compare_journey_zero_write_restart(
             assert commits_before == commits_after_replay
             assert manifests_before == manifests_after_replay
 
-            logic_v1 = load_composite_fixture_text(
-                "xml/valid/s3-minimal-logic/input.xml"
-            ).encode("utf-8")
+            logic_v1 = load_composite_fixture_text("xml/valid/s3-minimal-logic/input.xml").encode(
+                "utf-8"
+            )
             logic_v2 = logic_v1.replace(b'<Digital value="1"/>', b'<Digital value="2"/>')
             assert logic_v2 != logic_v1
             composite_v1 = run_accept_to_submission_read_journey(
@@ -902,60 +916,98 @@ def test_compose_rule_only_submission_restores_history_comment(tmp_path: Path) -
 
     def upload(version: int, comment: str) -> dict[str, tuple[str, bytes, str]]:
         package = pack_tar_gz({"sql/dbcfg.sql": sql.format(comment=comment).encode("utf-8")})
-        return upload_files(include_initial=False, expected_version=version,
-            completeness="MODIFIED_ONLY", modified_bytes=package)
+        return upload_files(
+            include_initial=False,
+            expected_version=version,
+            completeness="MODIFIED_ONLY",
+            modified_bytes=package,
+        )
 
     try:
         repository_id, initial_commit = start_three_container_stack(env, tmp_path)
         assert_running_backend_worker_images_match_build(env)
         provenance = capture_running_container_provenance(env)
-        first = run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
-            journey_key_prefix="rule-first", token=SESSION_TOKEN,
-            upload_files_factory=lambda version: upload(version, "普通标签"))
+        first = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=initial_commit,
+            journey_key_prefix="rule-first",
+            token=SESSION_TOKEN,
+            upload_files_factory=lambda version: upload(version, "普通标签"),
+        )
         first_commit = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
         assert first_commit != initial_commit
 
-        with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(token=ARCHIVER_TOKEN), timeout=120.0) as archiver:
-            _approve_submission(archiver, str(first["submission_id"]), idempotency_key="rule-review-first")
+        with httpx.Client(
+            base_url=BACKEND_URL, headers=_auth_headers(token=ARCHIVER_TOKEN), timeout=120.0
+        ) as archiver:
+            _approve_submission(
+                archiver, str(first["submission_id"]), idempotency_key="rule-review-first"
+            )
             candidates = archiver.get("/v1/archive-candidates")
             assert candidates.status_code == 200, candidates.text
-            selected = _candidate_for_submission(cast(dict[str, Any], candidates.json()), str(first["submission_id"]))
+            selected = _candidate_for_submission(
+                cast(dict[str, Any], candidates.json()), str(first["submission_id"])
+            )
             preview = archiver.post("/v1/archive-plan-preview", json={"selected": selected})
             assert preview.status_code == 200, preview.text
             plan = cast(dict[str, Any], preview.json())
-            confirmation = archiver.post("/v1/archive-confirmations",
-                headers=_auth_headers(idempotency_key="rule-archive-confirm"), json={
+            confirmation = archiver.post(
+                "/v1/archive-confirmations",
+                headers=_auth_headers(idempotency_key="rule-archive-confirm"),
+                json={
                     "expected_baseline_node_id": plan["head"]["business_baseline_node_id"],
                     "expected_baseline_head_version": plan["head"]["baseline_head_version"],
-                    "selected": selected, "candidate_set_digest": plan["candidate_set_digest"],
-                    "subject_digest": plan["selection_subject_digest"], "expected_sequence": 0,
-                    "action": "CONFIRM", "reason": "confirm rule test baseline",
-                })
+                    "selected": selected,
+                    "candidate_set_digest": plan["candidate_set_digest"],
+                    "subject_digest": plan["selection_subject_digest"],
+                    "expected_sequence": 0,
+                    "action": "CONFIRM",
+                    "reason": "confirm rule test baseline",
+                },
+            )
             assert confirmation.status_code == 201, confirmation.text
-            resolutions = resolve_archive_preview_anomalies(archiver, preview_body=plan, selected=selected,
-                token=ARCHIVER_TOKEN, idempotency_key_prefix="rule-archive-resolve",
-                reason="review baseline findings")
+            resolutions = resolve_archive_preview_anomalies(
+                archiver,
+                preview_body=plan,
+                selected=selected,
+                token=ARCHIVER_TOKEN,
+                idempotency_key_prefix="rule-archive-resolve",
+                reason="review baseline findings",
+            )
             ready = archiver.post("/v1/archive-plan-preview", json={"selected": selected})
             assert ready.status_code == 200, ready.text
             plan = cast(dict[str, Any], ready.json())
-            archived = archiver.post("/v1/archives", headers=_auth_headers(idempotency_key="rule-archive"), json={
-                "expected_baseline_node_id": plan["head"]["business_baseline_node_id"],
-                "expected_baseline_head_version": plan["head"]["baseline_head_version"],
-                "candidate_set_digest": plan["candidate_set_digest"], "selected": selected,
-                "confirmation_refs": [{"subject_digest": plan["selection_subject_digest"],
-                    "sequence": confirmation.json()["sequence"]}],
-                "anomaly_resolution_refs": resolutions,
-            })
+            archived = archiver.post(
+                "/v1/archives",
+                headers=_auth_headers(idempotency_key="rule-archive"),
+                json={
+                    "expected_baseline_node_id": plan["head"]["business_baseline_node_id"],
+                    "expected_baseline_head_version": plan["head"]["baseline_head_version"],
+                    "candidate_set_digest": plan["candidate_set_digest"],
+                    "selected": selected,
+                    "confirmation_refs": [
+                        {
+                            "subject_digest": plan["selection_subject_digest"],
+                            "sequence": confirmation.json()["sequence"],
+                        }
+                    ],
+                    "anomaly_resolution_refs": resolutions,
+                },
+            )
             assert archived.status_code == 201, archived.text
             head_response = archiver.get("/v1/archive-candidates")
             assert head_response.status_code == 200, head_response.text
             head = head_response.json()["head"]
 
-        second = run_accept_to_submission_read_journey(env, initial_commit_id=first_commit,
-            journey_key_prefix="rule-second", token=SESSION_TOKEN,
+        second = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=first_commit,
+            journey_key_prefix="rule-second",
+            token=SESSION_TOKEN,
             expected_baseline_node_id=head["business_baseline_node_id"],
             expected_baseline_head_version=head["baseline_head_version"],
-            upload_files_factory=lambda version: upload(version, "告警引用表"))
+            upload_files_factory=lambda version: upload(version, "告警引用表"),
+        )
         second_commit = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
         assert second_commit != first_commit
 
@@ -966,34 +1018,64 @@ row = conn.execute('SELECT binding FROM preview_result_records WHERE preview_res
 assert row is not None
 print(json.dumps(json.loads(row[0])['canonical']))
 """
-        binding_result = run_compose(env, "exec", "-T", "backend", "python", "-c", binding_script,
-            str(second["preview_result_id"]))
+        binding_result = run_compose(
+            env,
+            "exec",
+            "-T",
+            "backend",
+            "python",
+            "-c",
+            binding_script,
+            str(second["preview_result_id"]),
+        )
         assert binding_result.returncode == 0, binding_result.stderr
         canonical = json.loads(binding_result.stdout)
-        assert canonical["baseline_canonical_state_digest"] == canonical["modified_canonical_state_digest"]
+        assert (
+            canonical["baseline_canonical_state_digest"]
+            == canonical["modified_canonical_state_digest"]
+        )
         assert canonical["rules_semantically_equal"] is False
 
-        with httpx.Client(base_url=BACKEND_URL, headers=compose_auth_headers(token=HISTORY_READER_TOKEN), timeout=120.0) as reader:
+        with httpx.Client(
+            base_url=BACKEND_URL,
+            headers=compose_auth_headers(token=HISTORY_READER_TOKEN),
+            timeout=120.0,
+        ) as reader:
             nodes = _collect_history_nodes(reader)
             first_node = _history_node_by_submission(nodes, str(first["submission_id"]))
             second_node = _history_node_by_submission(nodes, str(second["submission_id"]))
             assert first_node["commit_id"] == first_commit
             assert second_node["commit_id"] == second_commit
-            history = accept_history_compare(reader, nodes=[
-                {"ref_kind": "submission", "ref_id": str(first["submission_id"])},
-                {"ref_kind": "submission", "ref_id": str(second["submission_id"])},
-            ], idempotency_key="rule-history", token=HISTORY_READER_TOKEN)
+            history = accept_history_compare(
+                reader,
+                nodes=[
+                    {"ref_kind": "submission", "ref_id": str(first["submission_id"])},
+                    {"ref_kind": "submission", "ref_id": str(second["submission_id"])},
+                ],
+                idempotency_key="rule-history",
+                token=HISTORY_READER_TOKEN,
+            )
             pair = history["result"]["pairs"][0]
             assert pair["before_commit"] == first_commit and pair["current_commit"] == second_commit
             bundle_path = tmp_path / "rule-history.tar"
-            bundle, _ = download_bundle_tar(reader, f"/v1/history-compares/{history['operation_id']}/bundle",
-                destination=bundle_path)
+            bundle, _ = download_bundle_tar(
+                reader,
+                f"/v1/history-compares/{history['operation_id']}/bundle",
+                destination=bundle_path,
+            )
             surfaces = read_preview_surface_table_states(env, bundle)
-            table = next(t for surface in surfaces for t in surface["tables"] if t["table_name"] == "b1_n1_example")
+            table = next(
+                t
+                for surface in surfaces
+                for t in surface["tables"]
+                if t["table_name"] == "b1_n1_example"
+            )
             assert table["change_kind"] == "DEGRADED"
             assert "ORDERED_REQUIRED_COLUMN_MISSING" in table["diagnostics"]["diagnostics_summary"]
-            assert all(table["row_change_stats"][key] == 0 for key in (
-                "row_added_count", "row_deleted_count", "row_modified_count"))
+            assert all(
+                table["row_change_stats"][key] == 0
+                for key in ("row_added_count", "row_deleted_count", "row_modified_count")
+            )
             with tarfile.open(bundle_path, "r:") as archive:
                 documents = []
                 for member in archive.getmembers():
@@ -1003,15 +1085,25 @@ print(json.dumps(json.loads(row[0])['canonical']))
                     assert stream is not None
                     try:
                         document = json.loads(stream.read())
-                    except (UnicodeDecodeError, json.JSONDecodeError):
+                    except UnicodeDecodeError, json.JSONDecodeError:
                         continue
-                    if (isinstance(document, dict)
-                            and document.get("contract_version") == "backend-vnext/business-navigation/v6"
-                            and "groups" in document):
+                    if (
+                        isinstance(document, dict)
+                        and document.get("contract_version")
+                        == "backend-vnext/business-navigation/v6"
+                        and "groups" in document
+                    ):
                         documents.append(document)
             assert len(documents) == 1
-            forward = next(g for g in documents[0]["groups"] if g["group_key"] == "FORWARD_CHANNELS")
-            tabs = [tab for item in forward["items"] for tab in item["tabs"] if tab["tab_key"] == "b1_n1_example"]
+            forward = next(
+                g for g in documents[0]["groups"] if g["group_key"] == "FORWARD_CHANNELS"
+            )
+            tabs = [
+                tab
+                for item in forward["items"]
+                for tab in item["tabs"]
+                if tab["tab_key"] == "b1_n1_example"
+            ]
             assert len(tabs) == 1 and tabs[0]["label"] == "告警"
     finally:
         if provenance:

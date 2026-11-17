@@ -16,7 +16,10 @@ from gateway_backend.application.submission.contracts import (
     derive_repository_import_idempotency_key,
     derive_repository_upload_idempotency_key,
 )
-from gateway_backend.application.submission.errors import IdempotencyConflict, PreviewBindingConflict
+from gateway_backend.application.submission.errors import (
+    IdempotencyConflict,
+    PreviewBindingConflict,
+)
 from gateway_backend.domain.workspace.models import WorkspaceState
 from tests import test_submit_application as application_fixtures
 from tests.test_submit_application import initialize_preview_binding as initialize_preview_binding
@@ -83,7 +86,10 @@ def _fingerprint_inputs() -> dict[str, object]:
         "canonical_business_digest": application_fixtures.PREVIEW_RESULT.canonical.modified_canonical_state_digest.value,
         "source_digest": application_fixtures.PREVIEW_RESULT.digests.source_digest,
         "snapshot_digest": application_fixtures.PREVIEW_RESULT.digests.snapshot_digest,
-        "source_artifact_refs": ("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+        "source_artifact_refs": (
+            "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+        ),
         "canonical_table_set_closure_ref": (
             application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
         ),
@@ -113,9 +119,7 @@ def test_compute_accept_request_fingerprint_changes_when_server_facts_change(
     baseline = compute_accept_request_fingerprint(
         **cast(Any, {**common, field_name: baseline_value})
     )
-    changed = compute_accept_request_fingerprint(
-        **cast(Any, {**common, field_name: other_value})
-    )
+    changed = compute_accept_request_fingerprint(**cast(Any, {**common, field_name: other_value}))
 
     assert baseline != changed
 
@@ -203,7 +207,9 @@ def test_same_key_replay_succeeds_after_workspace_closed(
 ) -> None:
     harness = submit_application_harness
     harness.validate(make_accept_command(idempotency_key="accept-key-1"))
-    current = harness.workspace_repository.get_workspace(application_fixtures.WORKSPACE.workspace_id)
+    current = harness.workspace_repository.get_workspace(
+        application_fixtures.WORKSPACE.workspace_id
+    )
     assert current is not None
     closed = replace(current, state=WorkspaceState.CLOSED)
     harness.workspace_repository.save_workspace(
@@ -295,7 +301,10 @@ def test_compute_accept_request_fingerprint_includes_scope_and_policy_constants(
         canonical_business_digest="sha256:preview-canonical",
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf", "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"),
+        source_artifact_refs=(
+            "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+            "a1:durable:ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+        ),
         canonical_table_set_closure_ref=(
             application_fixtures.PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
         ),

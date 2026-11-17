@@ -1,4 +1,5 @@
 """Database identity observations preserve SQLite's real process-owned locks."""
+
 from __future__ import annotations
 
 import json
@@ -98,14 +99,23 @@ print(json.dumps(result), flush=True)
 @pytest.mark.serial
 @pytest.mark.parametrize("owner", ["runtime", "maintenance"])
 def test_identity_observation_preserves_live_sqlite_database_and_shm_locks(
-    tmp_path: Path, owner: str,
+    tmp_path: Path,
+    owner: str,
 ) -> None:
-    completed = subprocess.run([sys.executable, "-B", "-c", _LOCK_WITNESS, str(tmp_path), owner],
-                               text=True, capture_output=True, timeout=45, check=False)
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", _LOCK_WITNESS, str(tmp_path), owner],
+        text=True,
+        capture_output=True,
+        timeout=45,
+        check=False,
+    )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     result = json.loads(completed.stdout)
-    assert result["before"] == result["after"] == {
-        "control.sqlite3": "locked", "control.sqlite3-shm": "locked", "writer": "locked"}
+    assert (
+        result["before"]
+        == result["after"]
+        == {"control.sqlite3": "locked", "control.sqlite3-shm": "locked", "writer": "locked"}
+    )
     assert result["active_transaction"] and result["same_files"]
     assert result["released"] == {"writer": "acquired", "rows": 2}
 
@@ -118,16 +128,27 @@ def _check(owner: str, metadata: Path) -> None:
 
 
 IDENTITY_FILE_FAULTS = (
-    *(('runtime', name, fault) for name in ('control.sqlite3', 'control.sqlite3-wal',
-        'control.sqlite3-shm', 'control.sqlite3-journal') for fault in ('symlink', 'directory', 'fifo')),
-    *(('maintenance', 'control.sqlite3', fault) for fault in ('symlink', 'directory', 'fifo')),
+    *(
+        ("runtime", name, fault)
+        for name in (
+            "control.sqlite3",
+            "control.sqlite3-wal",
+            "control.sqlite3-shm",
+            "control.sqlite3-journal",
+        )
+        for fault in ("symlink", "directory", "fifo")
+    ),
+    *(("maintenance", "control.sqlite3", fault) for fault in ("symlink", "directory", "fifo")),
 )
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("owner,name,fault", IDENTITY_FILE_FAULTS)
 def test_database_identity_rejects_nonordinary_files_without_touching_targets(
-    tmp_path: Path, owner: str, name: str, fault: str,
+    tmp_path: Path,
+    owner: str,
+    name: str,
+    fault: str,
 ) -> None:
     metadata = tmp_path / "metadata"
     metadata.mkdir()
@@ -150,18 +171,22 @@ def test_database_identity_rejects_nonordinary_files_without_touching_targets(
 @pytest.mark.unit
 @pytest.mark.parametrize("owner", ["runtime", "maintenance"])
 def test_database_identity_fstat_rejects_symlink_replaced_at_open(
-    tmp_path: Path, owner: str, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    owner: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = tmp_path / "control.sqlite3"
     database.write_bytes(b"db")
     target = tmp_path / "other"
     target.write_bytes(b"other")
     original_open = os.open
+
     def replace(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
         if Path(path) == database:
             database.unlink()
             database.symlink_to(target)
         return original_open(path, flags, *args, **kwargs)
+
     monkeypatch.setattr(os, "open", replace)
     with pytest.raises((OSError, ValueError)):
         _check(owner, tmp_path)
@@ -171,16 +196,20 @@ def test_database_identity_fstat_rejects_symlink_replaced_at_open(
 @pytest.mark.unit
 @pytest.mark.parametrize("owner", ["runtime", "maintenance"])
 def test_database_identity_keeps_effective_read_permission_check(
-    tmp_path: Path, owner: str, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    owner: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / "control.sqlite3").write_bytes(b"db")
     original_access = os.access
     checks: list[bool] = []
+
     def deny_file(path: Any, mode: int, **kwargs: Any) -> bool:
         if str(path).startswith("/proc/self/fd/"):
             checks.append(mode == os.R_OK and kwargs.get("effective_ids") is True)
             return False
         return original_access(path, mode, **kwargs)
+
     monkeypatch.setattr(os, "access", deny_file)
     with pytest.raises(ValueError):
         _check(owner, tmp_path)
@@ -190,13 +219,17 @@ def test_database_identity_keeps_effective_read_permission_check(
 @pytest.mark.unit
 @pytest.mark.parametrize("owner", ["runtime", "maintenance"])
 def test_database_identity_rejects_different_descriptor_mount(
-    tmp_path: Path, owner: str, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    owner: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     (tmp_path / "control.sqlite3").write_bytes(b"db")
     if owner == "runtime":
+
         def mount(path: Path, _limit: int) -> str:
             mode = os.fstat(int(path.name)).st_mode
             return "mnt_id: file" if stat.S_ISREG(mode) else "mnt_id: directory"
+
         monkeypatch.setattr(runtime_preflight, "_bounded", mount)
     else:
         monkeypatch.setattr(storage_admin, "descriptor_mount_id", lambda _: "other-mount")
@@ -206,7 +239,9 @@ def test_database_identity_rejects_different_descriptor_mount(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
-def test_runtime_database_journal_without_database_remains_rejected(tmp_path: Path, suffix: str) -> None:
+def test_runtime_database_journal_without_database_remains_rejected(
+    tmp_path: Path, suffix: str
+) -> None:
     (tmp_path / ("control.sqlite3" + suffix)).write_bytes(b"orphan")
     with pytest.raises(ValueError, match="no owning database"):
         runtime_preflight.check_database_files(tmp_path)

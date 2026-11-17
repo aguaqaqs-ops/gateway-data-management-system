@@ -13,7 +13,7 @@ TAR_END = bytes(2 * TAR_BLOCK)
 def _utf8_chunks(text: str) -> Iterator[bytes]:
     # Four UTF-8 bytes per code point keeps every allocation within 64 KiB.
     for offset in range(0, len(text), STREAM_CHUNK_BYTES // 4):
-        yield text[offset:offset + STREAM_CHUNK_BYTES // 4].encode("utf-8", errors="strict")
+        yield text[offset : offset + STREAM_CHUNK_BYTES // 4].encode("utf-8", errors="strict")
 
 
 def pax_record_length(key: str, value: str) -> int:
@@ -42,7 +42,7 @@ def _header(name: str, size: int, *, typeflag: bytes = b"0") -> bytes:
     encoded = name.encode("ascii")
     if len(encoded) > 100:
         raise ValueError("tar framing name exceeds POSIX name capacity")
-    header[:len(encoded)] = encoded
+    header[: len(encoded)] = encoded
     header[100:108] = b"0000644\0"
     header[108:116] = b"0000000\0"
     header[116:124] = b"0000000\0"
@@ -101,7 +101,9 @@ class TarMember:
                 yield from pax_record_chunks(key, value)
             if padding := _padding(size):
                 yield bytes(padding)
-        yield _header("bundle-member" if self.pax_path else self.path, 0 if self.pax_size else self.size)
+        yield _header(
+            "bundle-member" if self.pax_path else self.path, 0 if self.pax_size else self.size
+        )
 
     def suffix(self) -> Iterator[bytes]:
         if padding := _padding(self.size):

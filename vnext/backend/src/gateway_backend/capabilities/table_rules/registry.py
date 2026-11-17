@@ -97,12 +97,8 @@ PROTOCOL_CFG_TABLE_SEGMENTS: tuple[str, ...] = (
 PROTOCOL_CFG_TABLE_SEGMENT_PATTERN = "|".join(
     re.escape(segment) for segment in PROTOCOL_CFG_TABLE_SEGMENTS
 )
-PROTOCOL_OPTION_CFG_TABLE_PATTERN = (
-    rf"^b\d+_n\d+_(?:{PROTOCOL_CFG_TABLE_SEGMENT_PATTERN})_cfg$"
-)
-PROTOCOL_DEVICE_CFG_TABLE_PATTERN = (
-    rf"^b\d+_n\d+_(?:{PROTOCOL_CFG_TABLE_SEGMENT_PATTERN})_dev_cfg$"
-)
+PROTOCOL_OPTION_CFG_TABLE_PATTERN = rf"^b\d+_n\d+_(?:{PROTOCOL_CFG_TABLE_SEGMENT_PATTERN})_cfg$"
+PROTOCOL_DEVICE_CFG_TABLE_PATTERN = rf"^b\d+_n\d+_(?:{PROTOCOL_CFG_TABLE_SEGMENT_PATTERN})_dev_cfg$"
 PRECEDENCE_RANK: dict[SelectorPrecedenceClass, int] = {
     SelectorPrecedenceClass.SKIP: 0,
     SelectorPrecedenceClass.SNAPSHOT_ONLY: 1,
@@ -142,7 +138,9 @@ def migrated_table_rule_records() -> tuple[TableRuleRecord, ...]:
 
 @cache
 def migrated_table_ruleset_snapshot() -> TableRulesetSnapshot:
-    draft = table_ruleset_document(TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION))
+    draft = table_ruleset_document(
+        TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION)
+    )
     draft["rules"] = [record.to_document() for record in migrated_table_rule_records()]
     return table_ruleset_from_document(draft)
 
@@ -196,8 +194,9 @@ def _ordered_records() -> tuple[TableRuleRecord, ...]:
 
 def _ordered_record(pattern: str) -> TableRuleRecord:
     return TableRuleRecord(
-        selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern,
-                                   table_comment_contains="引用表"),
+        selector=TableRuleSelector(
+            kind=TableRuleSelectorKind.REGEX, value=pattern, table_comment_contains="引用表"
+        ),
         precedence_class=SelectorPrecedenceClass.ORDERED_DIFF,
         static_role=TableStaticRole.ORDERED_DIFF,
         table_storage=TableStorageDisposition.PROJECT,
@@ -220,11 +219,15 @@ def _standard_exact_records() -> tuple[TableRuleRecord, ...]:
             ignored_columns=COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS,
             compare_excluded_columns=COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS,
         ),
-        _explicit_standard_record("net_cfg", key_columns=("board", "link_no"), ignored_columns=("no",)),
+        _explicit_standard_record(
+            "net_cfg", key_columns=("board", "link_no"), ignored_columns=("no",)
+        ),
         *_device_point_records(),
         _explicit_standard_record("com_cfg", key_columns=("index",), ignored_columns=("no",)),
         _explicit_standard_record("pointref_forwardtbl", key_columns=("refname",)),
-        _explicit_standard_record("scdmod_para", key_columns=("ied_model",), ignored_columns=("no",)),
+        _explicit_standard_record(
+            "scdmod_para", key_columns=("ied_model",), ignored_columns=("no",)
+        ),
         _explicit_standard_record("app_cfg", key_columns=("app_name",)),
         _explicit_standard_record("rdb_cfg", key_columns=("no",)),
         _explicit_standard_record("comm_user_data", key_columns=("data_key",)),
@@ -317,12 +320,15 @@ def _business_sequence_records() -> tuple[TableRuleRecord, ...]:
             table_storage=TableStorageDisposition.PROJECT,
             canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
             ordered_policy=OrderedPolicy.NONE,
-            compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY if columns else TableCompareKeyMode.FULL_ROW_MULTISET,
+            compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY
+            if columns
+            else TableCompareKeyMode.FULL_ROW_MULTISET,
             compare_key_columns=columns,
             compare_excluded_columns=(BUSINESS_SEQUENCE_COLUMNS[name],),
             artifact_scope=TableArtifactScope.ALL_CHANGES,
         )
-        for name, columns in BUSINESS_SEQUENCE_KEYS.items() if name != "device_cfg"
+        for name, columns in BUSINESS_SEQUENCE_KEYS.items()
+        if name != "device_cfg"
     )
 
 
@@ -363,7 +369,9 @@ def _protocol_records() -> tuple[TableRuleRecord, ...]:
 
 def _raw_pk_fallback_record() -> TableRuleRecord:
     return TableRuleRecord(
-        selector=TableRuleSelector(kind=TableRuleSelectorKind.FALLBACK, value=FALLBACK_SELECTOR_VALUE),
+        selector=TableRuleSelector(
+            kind=TableRuleSelectorKind.FALLBACK, value=FALLBACK_SELECTOR_VALUE
+        ),
         precedence_class=SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK,
         static_role=TableStaticRole.STANDARD_DIFF,
         table_storage=TableStorageDisposition.PROJECT,

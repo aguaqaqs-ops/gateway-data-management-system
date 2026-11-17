@@ -54,9 +54,7 @@ def schema_with_batch_metadata(
         "artifact_contract_version": str(metadata.artifact_contract_version),
         "blank_provenance": metadata.blank_provenance.value,
     }
-    existing.update(
-        {_METADATA_KEYS[name]: value.encode("utf-8") for name, value in values.items()}
-    )
+    existing.update({_METADATA_KEYS[name]: value.encode("utf-8") for name, value in values.items()})
     return schema.with_metadata(existing)
 
 

@@ -22,6 +22,7 @@ from gateway_backend.infrastructure.control_db.sqlite_provisioned_scope import (
     resolve_provisioned_scope_from_connection,
 )
 
+
 class ProvisionedScopeResolution:
     """Resolve session identity against seeded provisioned mappings."""
 
@@ -38,7 +39,7 @@ class ProvisionedScopeResolution:
                     gateway_device_external_key=context.gateway_device_external_key,
                     business_project_id=context.business_project_id,
                 )
-        except (sqlite3.Error, OSError):
+        except sqlite3.Error, OSError:
             raise ScopeResolutionError("scope provider unavailable") from None
 
 
@@ -54,7 +55,13 @@ class ProvisionedBaselineHeadRead:
         return SQLiteBaselineHeadRead(self._db_path).get_current_head(repository_id)
 
 
-def seed_provisioned_mappings(db_path: Path, mapping_file: Path, *, directory: ReservationPort | None = None, group: str | None = None) -> None:
+def seed_provisioned_mappings(
+    db_path: Path,
+    mapping_file: Path,
+    *,
+    directory: ReservationPort | None = None,
+    group: str | None = None,
+) -> None:
     """Insert missing and verify exact provisioned mappings from a server-owned JSON file."""
 
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -228,7 +235,9 @@ def _apply_seed_record(
         "SELECT repository_id, enabled FROM provisioned_scope_mappings WHERE gateway_device_external_key = ? AND business_project_id = ?",
         (gateway_device_external_key, business_project_id),
     ).fetchone()
-    if existing is not None and (existing["repository_id"] != repository_id or existing["enabled"] != enabled):
+    if existing is not None and (
+        existing["repository_id"] != repository_id or existing["enabled"] != enabled
+    ):
         raise ValueError("seed mapping differs from stored fixed mapping")
     initial_node = connection.execute(
         """
@@ -292,7 +301,12 @@ def _apply_seed_record(
         ):
             raise ValueError("seed initial identity does not match stored INITIAL node")
     if existing is not None:
-        if connection.execute("SELECT 1 FROM baseline_head_records WHERE repository_id = ?", (repository_id,)).fetchone() is None:
+        if (
+            connection.execute(
+                "SELECT 1 FROM baseline_head_records WHERE repository_id = ?", (repository_id,)
+            ).fetchone()
+            is None
+        ):
             raise ValueError("seed mapping has no stored Head")
         return
     connection.execute(

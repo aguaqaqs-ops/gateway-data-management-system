@@ -1,4 +1,5 @@
 """Owning two-group hot-add, bridge, lifecycle and actual deployment journey."""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -22,22 +23,51 @@ def _internal_statistics(stack: ProcessingGroupsStack) -> None:
     assert httpx.get(endpoint).status_code == 401
     group = next(row for row in stack.manifest["groups"] if row["group_id"] == "group-b")
     path = Path(group["session_directory"]) / "session.json"
-    stack.entry_module.atomic_write(path, json.dumps({"sessions": [
-        session("unmapped-statistics-device", "unmapped-project", "unmapped-statistics", permissions=["statistics_read_group"]),
-        session("unmapped-statistics-device", "unmapped-project", "unprivileged-statistics", permissions=["workspace_read"]),
-    ]}).encode())
+    stack.entry_module.atomic_write(
+        path,
+        json.dumps(
+            {
+                "sessions": [
+                    session(
+                        "unmapped-statistics-device",
+                        "unmapped-project",
+                        "unmapped-statistics",
+                        permissions=["statistics_read_group"],
+                    ),
+                    session(
+                        "unmapped-statistics-device",
+                        "unmapped-project",
+                        "unprivileged-statistics",
+                        permissions=["workspace_read"],
+                    ),
+                ]
+            }
+        ).encode(),
+    )
+
     def backend_instance() -> str | None:
         response = httpx.get(endpoint, headers={"Authorization": "Bearer unmapped-statistics"})
         assert response.status_code == 200, response.text
-        return next((str(row["process_instance_id"]) for row in response.json()["current_instances"]
-                     if row["role"] == "backend"), None)
+        return next(
+            (
+                str(row["process_instance_id"])
+                for row in response.json()["current_instances"]
+                if row["role"] == "backend"
+            ),
+            None,
+        )
+
     instance = wait_for(backend_instance)
     for suffix in ("", "/resources?role=backend&process_instance_id=" + instance):
-        for token, status in (("unmapped-statistics", 200), ("unprivileged-statistics", 403), ("absent", 401)):
+        for token, status in (
+            ("unmapped-statistics", 200),
+            ("unprivileged-statistics", 403),
+            ("absent", 401),
+        ):
             response = httpx.get(endpoint + suffix, headers={"Authorization": "Bearer " + token})
             assert response.status_code == status, response.text
         # An actual ordinary group peer cannot manufacture host-gateway trust.
-        script = '''import urllib.request,urllib.error,sys
+        script = """import urllib.request,urllib.error,sys
 request=urllib.request.Request('http://backend:8000/internal/v1/statistics/group'+sys.argv[1],headers={
 'Authorization':'Bearer unmapped-statistics','Host':'127.0.0.1','X-Forwarded-For':'127.0.0.1','Forwarded':'for=127.0.0.1'})
 try:
@@ -45,10 +75,18 @@ try:
     print(response.status)
 except urllib.error.HTTPError as error:
     print(error.code)
-'''
-        assert stack.compose("group-b", "exec", "-T", "worker", "python", "-c", script, suffix).strip() == "404"
-        assert httpx.get(stack.url + "/internal/v1/statistics/group" + suffix,
-                         headers={"Authorization": "Bearer unmapped-statistics"}).status_code == 404
+"""
+        assert (
+            stack.compose("group-b", "exec", "-T", "worker", "python", "-c", script, suffix).strip()
+            == "404"
+        )
+        assert (
+            httpx.get(
+                stack.url + "/internal/v1/statistics/group" + suffix,
+                headers={"Authorization": "Bearer unmapped-statistics"},
+            ).status_code
+            == 404
+        )
     stack.inspect()
 
 
@@ -88,20 +126,40 @@ def _rejected_identity(stack: ProcessingGroupsStack) -> None:
         wrong = b.get("/v1/device-context", headers={"X-Gateway-Device-Key": "0" * 64})
         assert wrong.status_code == 404, wrong.text
     with stack.client("compose-device") as a:
-        wrong = httpx.get(stack.group_url("group-a") + "/v1/device-context",
-            headers=harness.compose_auth_headers(token="compose-device-token", device_key="synthetic-b1"))
+        wrong = httpx.get(
+            stack.group_url("group-a") + "/v1/device-context",
+            headers=harness.compose_auth_headers(
+                token="compose-device-token", device_key="synthetic-b1"
+            ),
+        )
         assert wrong.status_code == 404, wrong.text
-        wrong = a.post("/v1/workspaces", json=dict(gateway_device_external_key="synthetic-b1", business_project_id="compose-project"))
+        wrong = a.post(
+            "/v1/workspaces",
+            json=dict(
+                gateway_device_external_key="synthetic-b1", business_project_id="compose-project"
+            ),
+        )
         assert wrong.status_code == 404, wrong.text
     for token, status in (("group-b-internal", 401), ("group-a-internal", 409)):
-        response = httpx.post(stack.group_url("group-a") + "/internal/v1/devices/register",
-            headers={"Authorization": "Bearer " + token}, json=dict(environment_id="development", group_id="group-b",
-                gateway_device_external_key="synthetic-b1", business_project_id="compose-project"))
+        response = httpx.post(
+            stack.group_url("group-a") + "/internal/v1/devices/register",
+            headers={"Authorization": "Bearer " + token},
+            json=dict(
+                environment_id="development",
+                group_id="group-b",
+                gateway_device_external_key="synthetic-b1",
+                business_project_id="compose-project",
+            ),
+        )
         assert response.status_code == status, response.text
 
 
-@pytest.mark.parametrize("a_workers", [1, 2], ids=["w1-admission-before-release", "w2-completion-before-release"])
-def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path: Path, a_workers: int) -> None:
+@pytest.mark.parametrize(
+    "a_workers", [1, 2], ids=["w1-admission-before-release", "w2-completion-before-release"]
+)
+def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(
+    tmp_path: Path, a_workers: int
+) -> None:
     harness.require_docker()
     stack = ProcessingGroupsStack(tmp_path / "deployment", a_workers=a_workers)
     accepted: Queue[str] = Queue()
@@ -121,6 +179,7 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
         stack.arm()
         b_stop = Event()
         b_seen: Queue[None] = Queue()
+
         def continue_b() -> int:
             count = 0
             with stack.client("synthetic-b1") as client:
@@ -131,10 +190,17 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
                     b_seen.put(None)
                     b_stop.wait(0.1)
             return count
+
         with ThreadPoolExecutor(max_workers=3) as executor:
             continuity = executor.submit(continue_b)
-            old = executor.submit(stack.journey, "group-a", "compose-device", a1,
-                                  preview_only=True, on_preview_accepted=accepted.put)
+            old = executor.submit(
+                stack.journey,
+                "group-a",
+                "compose-device",
+                a1,
+                preview_only=True,
+                on_preview_accepted=accepted.put,
+            )
             try:
                 old_id = accepted.get(timeout=60)
                 wait_for(stack.barrier_path("reached").exists)
@@ -152,26 +218,49 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
                 b_before_add = b_seen.qsize()
                 a2 = stack.add("group-a", "synthetic-a2")
                 assert b_seen.qsize() > b_before_add
-                assert (stack.runtime_roots["group-a"] / "session/session.json").stat().st_ino != inode
+                assert (
+                    stack.runtime_roots["group-a"] / "session/session.json"
+                ).stat().st_ino != inode
                 assert stack.snapshot() == before
                 assert stack.operation("group-a", old_id) == old_fact
                 new_accepted: Queue[str] = Queue()
-                newer = executor.submit(stack.journey, "group-a", "synthetic-a2", a2,
-                                        on_preview_accepted=new_accepted.put)
-                new_id = new_accepted.get(timeout=60)  # Upload and preview were accepted via the public entry.
+                newer = executor.submit(
+                    stack.journey,
+                    "group-a",
+                    "synthetic-a2",
+                    a2,
+                    on_preview_accepted=new_accepted.put,
+                )
+                new_id = new_accepted.get(
+                    timeout=60
+                )  # Upload and preview were accepted via the public entry.
                 if a_workers == 1:
                     assert stack.operation("group-a", new_id)["status"] == "QUEUED"
                     assert not newer.done()
                     assert stack.operation("group-a", old_id) == old_fact
                     stack.release()
                 new_result = newer.result(timeout=180)
-                archived = stack.archive("synthetic-a2", new_result["submission_id"], reason="Synthetic boundary fixture explicitly reviewed")
+                archived = stack.archive(
+                    "synthetic-a2",
+                    new_result["submission_id"],
+                    reason="Synthetic boundary fixture explicitly reviewed",
+                )
                 if a_workers == 2:
                     assert stack.operation("group-a", old_id) == old_fact
                     assert not old.done()
                     assert not stack.barrier_path("release").exists()
-                    print("strict_hot_add_overlap=" + json.dumps(dict(old_operation=old_id,
-                        new_operation=new_id, new_archive=archived["baseline_node_id"], old_fact=old_fact)), flush=True)
+                    print(
+                        "strict_hot_add_overlap="
+                        + json.dumps(
+                            dict(
+                                old_operation=old_id,
+                                new_operation=new_id,
+                                new_archive=archived["baseline_node_id"],
+                                old_fact=old_fact,
+                            )
+                        ),
+                        flush=True,
+                    )
                 assert stack.snapshot() == before
                 assert b_seen.qsize() > b_before_add
                 with stack.client("synthetic-b1") as b:
@@ -180,7 +269,9 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
             finally:
                 stack.release()
                 b_stop.set()
-            print("other_group_continuity_requests=" + str(continuity.result(timeout=10)), flush=True)
+            print(
+                "other_group_continuity_requests=" + str(continuity.result(timeout=10)), flush=True
+            )
             assert old.result(timeout=180)["workspace_id"] != new_result["workspace_id"]
         # Exact replay after Head advancement retains INITIAL; no seed rewind.
         assert stack.add("group-a", "synthetic-a2") == a2
@@ -191,15 +282,30 @@ def test_two_groups_hot_add_keeps_old_executor_and_other_group_running(tmp_path:
         # A's stopped state must not block B's management or complete business.
         b2 = stack.add("group-b", "synthetic-b2")
         result = stack.journey("group-b", "synthetic-b2", b2)
-        stack.archive("synthetic-b2", result["submission_id"], reason="Synthetic independent group fixture explicitly reviewed")
+        stack.archive(
+            "synthetic-b2",
+            result["submission_id"],
+            reason="Synthetic independent group fixture explicitly reviewed",
+        )
         assert b1["repository_id"] != a1["repository_id"] != a2["repository_id"]
-        stack.compose("group-a", "up", "-d", "--no-build", "--pull", "never", "backend", "worker",
-                      *(["worker-2"] if a_workers == 2 else []))
+        stack.compose(
+            "group-a",
+            "up",
+            "-d",
+            "--no-build",
+            "--pull",
+            "never",
+            "backend",
+            "worker",
+            *(["worker-2"] if a_workers == 2 else []),
+        )
         harness.wait_http_ok(stack.group_url("group-a") + "/readyz")
         harness.worker_ready(stack.envs["group-a"])
         assert stack.registration("group-a", "synthetic-a2") == a2
         stack.inspect()
         for group in stack.envs:
-            harness.persist_compose_gate_provenance(stack.envs[group], harness.capture_running_container_provenance(stack.envs[group]))
+            harness.persist_compose_gate_provenance(
+                stack.envs[group], harness.capture_running_container_provenance(stack.envs[group])
+            )
     finally:
         stack.close()

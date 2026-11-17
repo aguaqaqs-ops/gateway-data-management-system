@@ -36,7 +36,10 @@ WORKSPACE_BODY = {
     "gateway_device_external_key": TEST_DEVICE_KEY,
     "business_project_id": TEST_PROJECT_ID,
 }
-AUTH = {"Authorization": f"Bearer {TEST_SESSION_TOKEN}", "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)}
+AUTH = {
+    "Authorization": f"Bearer {TEST_SESSION_TOKEN}",
+    "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY),
+}
 ROTATED_TOKEN = "xxxx-session-token"
 
 

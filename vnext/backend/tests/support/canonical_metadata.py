@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation
+from gateway_backend.capabilities.table_presentation.contracts import (
+    PresentationMetadata,
+    TablePresentation,
+)
 
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -119,8 +122,14 @@ def metadata_for_catalog(
             if descriptor.raw_content_digest is None:
                 raise AssertionError("test Repository descriptor is missing the raw digest")
             by_name = {column.name: column for column in descriptor.columns}
-            schema_columns = [{"name": name, "sql_type": by_name[name].scalar_type,
-                "nullable": by_name[name].nullable} for name in view.retained_columns]
+            schema_columns = [
+                {
+                    "name": name,
+                    "sql_type": by_name[name].scalar_type,
+                    "nullable": by_name[name].nullable,
+                }
+                for name in view.retained_columns
+            ]
             manifest_tables.append(
                 CanonicalizationManifestTable(
                     name=view.canonical_table,
@@ -150,9 +159,12 @@ def metadata_for_catalog(
             ruleset_digest=active.ruleset_digest,
             source_artifact_digest=raw_blob_digest(b"test-source-artifact"),
             tables=tuple(manifest_tables),
-            presentation=PresentationMetadata(tuple(
-                TablePresentation(t.name, (table_comments or {}).get(t.name), ()) for t in manifest_tables
-            )).project((t.name, t.retained_columns) for t in manifest_tables),
+            presentation=PresentationMetadata(
+                tuple(
+                    TablePresentation(t.name, (table_comments or {}).get(t.name), ())
+                    for t in manifest_tables
+                )
+            ).project((t.name, t.retained_columns) for t in manifest_tables),
         )
         if manifest_override is not None:
             manifest = manifest_override
@@ -171,8 +183,5 @@ def metadata_port_for_catalogs(
     catalogs: Mapping[tuple[str, str], RepositoryTableCatalog],
 ) -> CatalogCommitCanonicalMetadataPort:
     return CatalogCommitCanonicalMetadataPort(
-        {
-            key: metadata_for_catalog(catalog)
-            for key, catalog in catalogs.items()
-        }
+        {key: metadata_for_catalog(catalog) for key, catalog in catalogs.items()}
     )

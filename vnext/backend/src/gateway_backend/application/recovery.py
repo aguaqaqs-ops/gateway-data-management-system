@@ -93,7 +93,9 @@ class RecoveryDecision:
                 raise ValueError("retry_not_before is required for MOVE_TO_RETRY_WAIT")
             _validate_utc_datetime(self.retry_not_before, "retry_not_before")
         elif self.retry_not_before is not None:
-            raise ValueError("retry_not_before must be null unless disposition is MOVE_TO_RETRY_WAIT")
+            raise ValueError(
+                "retry_not_before must be null unless disposition is MOVE_TO_RETRY_WAIT"
+            )
 
 
 @dataclass(frozen=True, slots=True)

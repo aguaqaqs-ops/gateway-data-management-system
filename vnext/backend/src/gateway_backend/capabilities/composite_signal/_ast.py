@@ -55,7 +55,9 @@ def parse_logic_ast(
             _handle_text(event.text or "", finished)
             continue
         if finished:
-            raise AstHalt(CompositeDiagnosticCode.INVALID_ROOT, "unexpected content after Logic_Set")
+            raise AstHalt(
+                CompositeDiagnosticCode.INVALID_ROOT, "unexpected content after Logic_Set"
+            )
         if event.kind is XmlEventKind.START_ELEMENT:
             _handle_start(frames, event.expanded_name or "", event.attributes or ())
             continue
@@ -71,10 +73,14 @@ def parse_logic_ast(
 
 def checkpoint(context: ParserInvocationContext) -> None:
     if context.cancel_requested.is_set():
-        raise AstHalt(CompositeDiagnosticCode.MATERIALIZATION_CANCELLED, "materialization cancelled")
+        raise AstHalt(
+            CompositeDiagnosticCode.MATERIALIZATION_CANCELLED, "materialization cancelled"
+        )
     deadline = context.deadline_monotonic
     if deadline is not None and time.monotonic() >= deadline:
-        raise AstHalt(CompositeDiagnosticCode.MATERIALIZATION_TIMEOUT, "materialization deadline exceeded")
+        raise AstHalt(
+            CompositeDiagnosticCode.MATERIALIZATION_TIMEOUT, "materialization deadline exceeded"
+        )
 
 
 class _Frame:
@@ -105,26 +111,36 @@ def _handle_start(
     if not frames:
         if expanded != _ROOT:
             raise AstHalt(CompositeDiagnosticCode.INVALID_ROOT, "root element must be Logic_Set")
-        frames.append(_Frame(expanded, _require_attrs(attributes, _ALLOWED_ROOT_ATTRS, _ROOT), False))
+        frames.append(
+            _Frame(expanded, _require_attrs(attributes, _ALLOWED_ROOT_ATTRS, _ROOT), False)
+        )
         return
     parent = frames[-1]
     if parent.name == _ROOT:
         if expanded != _EXPRESS:
             raise AstHalt(CompositeDiagnosticCode.UNKNOWN_ELEMENT, f"unknown element {expanded!r}")
-        frames.append(_Frame(expanded, _require_attrs(attributes, _ALLOWED_EXPRESS_ATTRS, _EXPRESS), True))
+        frames.append(
+            _Frame(expanded, _require_attrs(attributes, _ALLOWED_EXPRESS_ATTRS, _EXPRESS), True)
+        )
         return
     if parent.name == _EXPRESS:
         if expanded == _EXPRESS:
             frames.append(
-                _Frame(expanded, _require_attrs(attributes, _ALLOWED_EXPRESS_ATTRS, _EXPRESS), False)
+                _Frame(
+                    expanded, _require_attrs(attributes, _ALLOWED_EXPRESS_ATTRS, _EXPRESS), False
+                )
             )
             return
         if expanded == _POINT:
-            frames.append(_Frame(expanded, _require_attrs(attributes, _ALLOWED_POINT_ATTRS, _POINT), False))
+            frames.append(
+                _Frame(expanded, _require_attrs(attributes, _ALLOWED_POINT_ATTRS, _POINT), False)
+            )
             return
         if expanded == _DIGITAL:
             frames.append(
-                _Frame(expanded, _require_attrs(attributes, _ALLOWED_DIGITAL_ATTRS, _DIGITAL), False)
+                _Frame(
+                    expanded, _require_attrs(attributes, _ALLOWED_DIGITAL_ATTRS, _DIGITAL), False
+                )
             )
             return
         raise AstHalt(CompositeDiagnosticCode.UNKNOWN_ELEMENT, f"unknown element {expanded!r}")
@@ -166,9 +182,13 @@ def _build_express(frame: _Frame) -> ExpressNode:
     name = frame.attributes.get(_ATTR_NAME)
     if frame.top_level:
         if name is None:
-            raise AstHalt(CompositeDiagnosticCode.MISSING_ATTRIBUTE, "top-level Express requires Name")
+            raise AstHalt(
+                CompositeDiagnosticCode.MISSING_ATTRIBUTE, "top-level Express requires Name"
+            )
         if name == "":
-            raise AstHalt(CompositeDiagnosticCode.EMPTY_TOP_LEVEL_NAME, "top-level Express Name is empty")
+            raise AstHalt(
+                CompositeDiagnosticCode.EMPTY_TOP_LEVEL_NAME, "top-level Express Name is empty"
+            )
     return ExpressNode(
         operator=frame.attributes[_ATTR_OPERATOR],
         children=tuple(frame.children),

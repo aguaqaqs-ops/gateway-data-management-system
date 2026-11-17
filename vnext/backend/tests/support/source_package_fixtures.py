@@ -38,7 +38,9 @@ def pack_tar_gz(members: dict[str, bytes], *, mtime: int = 0) -> bytes:
     return gzip.compress(tar_buffer.getvalue(), mtime=mtime)
 
 
-def pack_tar_gz_infos(infos: list[tuple[tarfile.TarInfo, bytes | None]], *, mtime: int = 0) -> bytes:
+def pack_tar_gz_infos(
+    infos: list[tuple[tarfile.TarInfo, bytes | None]], *, mtime: int = 0
+) -> bytes:
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w", format=tarfile.USTAR_FORMAT) as archive:
         for info, payload in infos:

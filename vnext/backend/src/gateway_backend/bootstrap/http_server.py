@@ -52,8 +52,10 @@ class AdmissionFirstUvicornServer(uvicorn.Server):
 
 def main() -> int:
     host = os.environ.get("GATEWAY_BACKEND_HTTP_HOST", "0.0.0.0")
-    port = 0 if os.environ.get("GATEWAY_BACKEND_HTTP_PORT_FILE") else int(
-        os.environ.get("GATEWAY_BACKEND_HTTP_PORT", "8000")
+    port = (
+        0
+        if os.environ.get("GATEWAY_BACKEND_HTTP_PORT_FILE")
+        else int(os.environ.get("GATEWAY_BACKEND_HTTP_PORT", "8000"))
     )
     log_level = os.environ.get("GATEWAY_BACKEND_HTTP_LOG_LEVEL", "info")
     config = Config(

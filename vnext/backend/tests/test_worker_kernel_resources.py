@@ -16,7 +16,9 @@ from tests.support.runtime_settings import make_operation_worker_settings
 
 @pytest.mark.parametrize("value", (0, -1, True, 1.5, "1.5", "", 25769803777))
 def test_worker_rejects_invalid_or_excessive_kernel_budget(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: object,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    value: object,
 ) -> None:
     monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
     with pytest.raises(ValidationError):
@@ -24,7 +26,8 @@ def test_worker_rejects_invalid_or_excessive_kernel_budget(
 
 
 def test_worker_deployment_profile_has_explicit_budget_and_one_active_operation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
     settings = make_operation_worker_settings(tmp_path, kernel_memory_budget_bytes=24 * 1024**3)
@@ -37,7 +40,8 @@ def test_worker_deployment_profile_has_explicit_budget_and_one_active_operation(
 
 def test_worker_accepts_the_bounded_larger_envelope(tmp_path: Path) -> None:
     settings = make_operation_worker_settings(
-        tmp_path, memory_envelope_bytes=48 * 1024**3,
+        tmp_path,
+        memory_envelope_bytes=48 * 1024**3,
         kernel_memory_budget_bytes=40 * 1024**3,
     )
     assert settings.memory_envelope_bytes == 48 * 1024**3
@@ -59,7 +63,9 @@ def test_worker_accepts_the_bounded_larger_envelope(tmp_path: Path) -> None:
     ),
 )
 def test_worker_rejects_a_budget_outside_its_bounded_envelope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changes: dict[str, object],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changes: dict[str, object],
 ) -> None:
     monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_MEMORY_ENVELOPE_BYTES", raising=False)
     valid = make_operation_worker_settings(tmp_path).model_dump()
@@ -67,7 +73,9 @@ def test_worker_rejects_a_budget_outside_its_bounded_envelope(
         OperationWorkerSettings.model_validate({**valid, **changes})
 
 
-def test_worker_requires_explicit_memory_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_worker_requires_explicit_memory_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES", raising=False)
     settings = make_operation_worker_settings(tmp_path)
     document = json.loads(settings.resource_profile_file.read_bytes())
@@ -75,7 +83,6 @@ def test_worker_requires_explicit_memory_budget(tmp_path: Path, monkeypatch: pyt
     settings.resource_profile_file.write_text(json.dumps(document))
     with pytest.raises(ValidationError, match="missing or unknown"):
         OperationWorkerSettings(**settings.model_dump())
-
 
 
 @pytest.mark.parametrize("threads", (0, 257, True, 1.5))
@@ -88,7 +95,7 @@ def test_worker_rejects_invalid_kernel_threads(tmp_path: Path, threads: object) 
 @pytest.mark.parametrize("threads", (1, 2))
 def test_kernel_requires_initialization_and_reuses_the_fixed_process_pool(threads: int) -> None:
     # Each N has its own process; the production OnceLock is never reset.
-    script = '''
+    script = """
 import pyarrow as pa
 from gateway_compute._native import _init_kernel_native, _inspect_canonical_ipc_native, _parse_sql_native
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
@@ -115,6 +122,8 @@ except ValueError as exc:
     assert "initialized with" in str(exc)
 else:
     raise AssertionError("pool accepted conflicting N")
-'''.replace("__THREADS__", str(threads))
-    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=15)
+""".replace("__THREADS__", str(threads))
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=15
+    )
     assert completed.returncode == 0, completed.stdout + completed.stderr

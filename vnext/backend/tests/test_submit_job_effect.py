@@ -473,9 +473,7 @@ def _timeout_await_step_until_manual_recovery(
         )
         with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
             operation = unit_of_work.operations.get_operation(operation_id)
-            step = unit_of_work.operations.get_step(
-                submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-            )
+            step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
         if expected_attempt == 3:
             assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
             assert step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
@@ -509,9 +507,7 @@ def _timeout_await_step_until_manual_recovery(
 def _resume_manual_await_and_claim(harness: SubmitWorkerHarness, operation_id: str) -> ClaimedWork:
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
     operator = build_submit_operator_recovery_port(
         write_uow_factory=_worker_write_uow_factory(harness),
         capability_lookup=lambda _job_kind, _step_name: RecoveryCapabilityValue.EXTERNAL_EFFECT,
@@ -654,9 +650,7 @@ def test_healthy_repository_waits_do_not_consume_sessions_or_grow_checkpoints(
         assert current_step.diagnostic is not None
         assert current_step.diagnostic.code == DIAGNOSTIC_HEALTHY_WAIT_HANDOFF
         if handoff_number == 0:
-            checkpoint_artifacts_after_first_wait = frozenset(
-                harness.artifact_store._artifacts
-            )
+            checkpoint_artifacts_after_first_wait = frozenset(harness.artifact_store._artifacts)
         else:
             assert checkpoint_artifacts_after_first_wait is not None
             assert frozenset(harness.artifact_store._artifacts) == (
@@ -691,9 +685,7 @@ def test_healthy_repository_waits_do_not_consume_sessions_or_grow_checkpoints(
         )
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
         assert attempt is not None
-        submission = unit_of_work.submission.get_submission_by_attempt(
-            attempt.submit_attempt_id
-        )
+        submission = unit_of_work.submission.get_submission_by_attempt(attempt.submit_attempt_id)
     assert operation.status is OperationStatus.SUCCEEDED
     assert attempt.state is SubmitAttemptState.FINALIZED
     assert submission is not None
@@ -758,9 +750,7 @@ def test_healthy_wait_past_repository_bound_requires_manual_recovery(tmp_path: P
     assert slow_client.deadlines == [30.0]
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
     assert SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS == 3_600.0 + 30.0
     assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
     assert step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
@@ -826,9 +816,7 @@ def test_resume_reconcile_after_wait_upper_bound_accepts_succeeded_operation(
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
         attempt = unit_of_work.submission.get_submit_attempt(
             next(ref.value for ref in operation.business_refs if ref.kind == "submit_attempt")
         )
@@ -852,8 +840,7 @@ def test_terminal_operation_returned_at_wait_upper_bound_completes_submit(
     started_at = await_work.step.started_at
     assert started_at is not None
     clock = _InjectedPollClock(
-        started_at
-        + timedelta(seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS - 5.0)
+        started_at + timedelta(seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS - 5.0)
     )
     manifest_digest = _prepare_manifest_digest(harness, operation_id)
     write_client = replace(
@@ -914,13 +901,9 @@ def test_terminal_operation_returned_at_wait_upper_bound_completes_submit(
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
     assert poll_client.deadlines == [5.0]
-    assert clock.now() == started_at + timedelta(
-        seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS
-    )
+    assert clock.now() == started_at + timedelta(seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS)
     assert operation.status is OperationStatus.SUCCEEDED
     assert step.status is StepStatus.SUCCEEDED
 
@@ -975,9 +958,7 @@ def test_poll_failure_after_wait_upper_bound_requires_manual_recovery(
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
     assert failure_client.deadlines == [5.0]
     assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
     assert step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
@@ -1052,9 +1033,7 @@ def test_drain_and_shutdown_handoff_after_one_bounded_poll(tmp_path: Path) -> No
     assert poll_client.deadlines == [SUBMIT_IMPORT_POLL_DEADLINE_SECONDS]
     assert len(transport.requests) == 1
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
     assert step.status is StepStatus.RETRY_WAIT
     assert step.attempt_count == 1
 
@@ -1092,9 +1071,7 @@ def test_transport_failures_exhaust_three_reconcile_sessions(tmp_path: Path) -> 
         )
         with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
             operation = unit_of_work.operations.get_operation(operation_id)
-            step = unit_of_work.operations.get_step(
-                submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-            )
+            step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
         if attempt_number == 3:
             assert step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
             assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
@@ -1209,9 +1186,7 @@ def test_await_import_result_succeeded_finalizes_submission(tmp_path: Path) -> N
     assert submission is not None
 
 
-SUBMIT_IMPORT_POLL_TIMEOUT_CASES: tuple[
-    tuple[int, StepStatus, OperationStatus], ...
-] = (
+SUBMIT_IMPORT_POLL_TIMEOUT_CASES: tuple[tuple[int, StepStatus, OperationStatus], ...] = (
     (1, StepStatus.RETRY_WAIT, OperationStatus.RUNNING),
     (2, StepStatus.RETRY_WAIT, OperationStatus.RUNNING),
     (3, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED),
@@ -1347,9 +1322,7 @@ def test_resume_reconcile_claimed_by_running_worker_completes_submit(
         )
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
         assert attempt is not None
-        submission = unit_of_work.submission.get_submission_by_attempt(
-            attempt.submit_attempt_id
-        )
+        submission = unit_of_work.submission.get_submission_by_attempt(attempt.submit_attempt_id)
     assert operation.status is OperationStatus.SUCCEEDED
     assert attempt.state is SubmitAttemptState.FINALIZED
     assert submission is not None
@@ -1385,9 +1358,7 @@ def test_resume_reconcile_counted_failure_returns_to_manual_recovery(
     assert handler(work.operation, work.step, control, session) is ExecutorAcknowledgment.PUBLISHED
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(
-            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
-        )
+        step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
     assert step.attempt_count == 4
     assert step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
     assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
@@ -1795,12 +1766,15 @@ def test_submit_import_recovery_counts_transport_failure_and_reuses_idempotency_
         operation_id=gateway_operation_id,
         step_id=second_work.step.step_id,
     )
-    assert second_work.executor(
-        second_work.operation,
-        second_work.step,
-        second_control,
-        second_session,
-    ) is ExecutorAcknowledgment.PUBLISHED
+    assert (
+        second_work.executor(
+            second_work.operation,
+            second_work.step,
+            second_control,
+            second_session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         counted_retry = unit_of_work.operations.get_step(
@@ -1907,10 +1881,13 @@ def _assert_submit_checkpoint_protection_released(
     )
     assert prepare_step.checkpoint_ref is not None
     assert not unit_of_work.protection.is_protected(prepare_step.checkpoint_ref.artifact_id)
-    assert unit_of_work.list_artifact_protection_for_owner(
-        owner_kind="submit-checkpoint",
-        owner_id=submit_attempt_id,
-    ) == frozenset()
+    assert (
+        unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="submit-checkpoint",
+            owner_id=submit_attempt_id,
+        )
+        == frozenset()
+    )
     for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
         step = unit_of_work.operations.get_step(submit_step_id(operation_id, step_name))
         if step.checkpoint_ref is not None:
@@ -2054,7 +2031,9 @@ def test_await_import_replays_t3_from_persisted_evidence_without_poll(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from gateway_backend.application.submission.finalize_transaction import finalize_submit_transaction
+    from gateway_backend.application.submission.finalize_transaction import (
+        finalize_submit_transaction,
+    )
 
     finalize_calls = 0
     original_finalize = finalize_submit_transaction

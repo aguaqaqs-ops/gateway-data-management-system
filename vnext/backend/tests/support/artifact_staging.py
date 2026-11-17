@@ -56,7 +56,10 @@ def reopen_local_store(root: Path) -> LocalArtifactStore:
 def object_and_sidecar_paths(root: Path, artifact_id: str) -> tuple[Path, Path]:
     digest = hashlib.sha256(artifact_id.encode("utf-8")).hexdigest()
     from gateway_backend.artifacts.location import parse_artifact_id
-    directory = root / parse_artifact_id(artifact_id).value / "objects" / digest[0:2] / digest[2:4] / digest
+
+    directory = (
+        root / parse_artifact_id(artifact_id).value / "objects" / digest[0:2] / digest[2:4] / digest
+    )
     target = directory / "payload"
     sidecar = directory / "ref.jcs"
     return target, sidecar

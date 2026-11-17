@@ -52,7 +52,9 @@ class SQLiteSnapshotTableExportCache:
         self,
         keys: tuple[SnapshotTableArtifactCacheKey, ...],
     ) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
-        if type(keys) is not tuple or any(type(key) is not SnapshotTableArtifactCacheKey for key in keys):
+        if type(keys) is not tuple or any(
+            type(key) is not SnapshotTableArtifactCacheKey for key in keys
+        ):
             raise ValueError("keys must contain SnapshotTableArtifactCacheKey")
         self._prune_expired()
         results: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
@@ -80,7 +82,7 @@ class SQLiteSnapshotTableExportCache:
                     size_bytes=size_bytes,
                     raw_sha256=DigestRef(raw_sha256),
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 self._delete_key(key, owner_id)
                 continue
             if ref.media_type != PARQUET_MEDIA_TYPE:
@@ -125,8 +127,14 @@ class SQLiteSnapshotTableExportCache:
                     raw_sha256 = excluded.raw_sha256,
                     expires_at_us = excluded.expires_at_us
                 """,
-                (*_key_values(key), ref.artifact_id, ref.media_type, ref.size_bytes,
-                 ref.raw_sha256.value, expires_at_us),
+                (
+                    *_key_values(key),
+                    ref.artifact_id,
+                    ref.media_type,
+                    ref.size_bytes,
+                    ref.raw_sha256.value,
+                    expires_at_us,
+                ),
             )
             self._insert_protection(ref, owner_id, expires_at_us)
 
@@ -138,7 +146,13 @@ class SQLiteSnapshotTableExportCache:
             """DELETE FROM snapshot_table_export_cache
                WHERE repository_id=? AND row_layout_digest=? AND parquet_writer_contract_version=?
                  AND artifact_id=? AND media_type=? AND size_bytes=? AND raw_sha256=?""",
-            (*_key_values(key), ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256.value),
+            (
+                *_key_values(key),
+                ref.artifact_id,
+                ref.media_type,
+                ref.size_bytes,
+                ref.raw_sha256.value,
+            ),
         ).rowcount
         if deleted:
             self._protection.clear_protection(owner_kind=_OWNER_KIND, owner_id=_owner_id(key))
@@ -230,9 +244,7 @@ def _key_values(key: SnapshotTableArtifactCacheKey) -> tuple[object, ...]:
 
 
 def _owner_id(key: SnapshotTableArtifactCacheKey) -> str:
-    payload = "\0".join(
-        str(item) for item in _key_values(key)
-    ).encode("utf-8")
+    payload = "\0".join(str(item) for item in _key_values(key)).encode("utf-8")
     return _OWNER_PREFIX + hashlib.sha256(payload).hexdigest()
 
 

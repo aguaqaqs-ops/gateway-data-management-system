@@ -23,8 +23,12 @@ CANONICAL_CACHE_OWNER = "canonical-table-cache"
 
 class SQLiteCanonicalTableCache:
     def __init__(
-        self, connection: sqlite3.Connection, *, protection: SQLiteArtifactProtectionStore,
-        now: datetime, read_only: bool = False,
+        self,
+        connection: sqlite3.Connection,
+        *,
+        protection: SQLiteArtifactProtectionStore,
+        now: datetime,
+        read_only: bool = False,
     ) -> None:
         if not connection.in_transaction:
             raise RuntimeError("canonical table cache requires an active transaction")
@@ -56,18 +60,30 @@ class SQLiteCanonicalTableCache:
             "SELECT media_type, size_bytes, raw_sha256 FROM canonical_table_cache WHERE artifact_id = ?",
             (ref.artifact_id,),
         ).fetchone()
-        if existing is not None and tuple(existing) != (ref.media_type, ref.size_bytes, ref.raw_sha256.value):
+        if existing is not None and tuple(existing) != (
+            ref.media_type,
+            ref.size_bytes,
+            ref.raw_sha256.value,
+        ):
             raise ValueError("canonical content identity has different raw bytes")
         self._connection.execute(
             """INSERT INTO canonical_table_cache (
                    artifact_id, repository_id, media_type, size_bytes, raw_sha256, expires_at_us
                ) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(artifact_id) DO NOTHING""",
-            (ref.artifact_id, key.repository_id, ref.media_type, ref.size_bytes,
-             ref.raw_sha256.value, _datetime_to_epoch_us(self._now)),
+            (
+                ref.artifact_id,
+                key.repository_id,
+                ref.media_type,
+                ref.size_bytes,
+                ref.raw_sha256.value,
+                _datetime_to_epoch_us(self._now),
+            ),
         )
         self._protection.touch_canonical_ttl((ref.artifact_id,), recorded_at=self._now)
 
-    def bind_commit(self, *, repository_id: str, commit_id: str, refs: tuple[ArtifactRef, ...]) -> None:
+    def bind_commit(
+        self, *, repository_id: str, commit_id: str, refs: tuple[ArtifactRef, ...]
+    ) -> None:
         """Index only an already verified exact commit; no file or repository IO."""
         self._require_writable()
         if not commit_id:
@@ -87,12 +103,16 @@ class SQLiteCanonicalTableCache:
         current = self._connection.execute(
             """SELECT n.commit_id FROM baseline_head_records h
                JOIN baseline_node_records n ON n.node_id = h.node_id
-               WHERE h.repository_id = ?""", (repository_id,),
+               WHERE h.repository_id = ?""",
+            (repository_id,),
         ).fetchone()
         if current is not None and current[0] == commit_id:
             self._protection.set_protection(
-                refs, owner_kind=BASELINE_HEAD_OWNER, owner_id=repository_id,
-                intent="baseline-head", recorded_at=self._now,
+                refs,
+                owner_kind=BASELINE_HEAD_OWNER,
+                owner_id=repository_id,
+                intent="baseline-head",
+                recorded_at=self._now,
             )
 
     def move_head(self, *, repository_id: str, commit_id: str) -> None:
@@ -107,8 +127,11 @@ class SQLiteCanonicalTableCache:
         self._protection.clear_protection(owner_kind=BASELINE_HEAD_OWNER, owner_id=repository_id)
         refs = tuple(ArtifactRef(row[0], row[1], row[2], DigestRef(row[3])) for row in rows)
         self._protection.set_protection(
-            refs, owner_kind=BASELINE_HEAD_OWNER, owner_id=repository_id,
-            intent="baseline-head", recorded_at=self._now,
+            refs,
+            owner_kind=BASELINE_HEAD_OWNER,
+            owner_id=repository_id,
+            intent="baseline-head",
+            recorded_at=self._now,
         )
 
     def _require_writable(self) -> None:
@@ -118,7 +141,8 @@ class SQLiteCanonicalTableCache:
     def _prune_expired(self) -> None:
         expired = self._connection.execute(
             """SELECT artifact_id FROM canonical_table_cache WHERE expires_at_us <= ?
-               ORDER BY expires_at_us LIMIT 64""", (_datetime_to_epoch_us(self._now),),
+               ORDER BY expires_at_us LIMIT 64""",
+            (_datetime_to_epoch_us(self._now),),
         ).fetchall()
         for row in expired:
             if self._protection.is_protected(row[0]):
@@ -127,4 +151,6 @@ class SQLiteCanonicalTableCache:
                 "DELETE FROM artifact_protection_intents WHERE artifact_id = ? AND owner_kind = ?",
                 (row[0], CANONICAL_CACHE_OWNER),
             )
-            self._connection.execute("DELETE FROM canonical_table_cache WHERE artifact_id = ?", (row[0],))
+            self._connection.execute(
+                "DELETE FROM canonical_table_cache WHERE artifact_id = ?", (row[0],)
+            )

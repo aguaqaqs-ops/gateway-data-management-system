@@ -12,7 +12,13 @@ from pathlib import Path
 import pytest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.artifacts import ArtifactLocation, ArtifactRef, InMemoryArtifactStore, build_artifact_id, put_with_built_ref
+from gateway_backend.artifacts import (
+    ArtifactLocation,
+    ArtifactRef,
+    InMemoryArtifactStore,
+    build_artifact_id,
+    put_with_built_ref,
+)
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     PACKAGE_VERSION,
@@ -42,7 +48,10 @@ from gateway_backend.capabilities.storage_projection._digest import (
     compute_manifest_digest,
     manifest_document,
 )
-from gateway_backend.capabilities.table_rules.contracts import DroppedColumn, legacy_ignored_column_reason
+from gateway_backend.capabilities.table_rules.contracts import (
+    DroppedColumn,
+    legacy_ignored_column_reason,
+)
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from tests.support.storage_projection import (
     as_row,
@@ -57,12 +66,7 @@ from tests.support.table_rules import net_cfg_record
 
 pytestmark = pytest.mark.unit
 
-_GOLDEN = (
-    Path(__file__).resolve().parents[2]
-    / "fixtures"
-    / "golden"
-    / "storage-projection"
-)
+_GOLDEN = Path(__file__).resolve().parents[2] / "fixtures" / "golden" / "storage-projection"
 _NET_CFG_COLUMNS = (
     varchar_column("board"),
     int_column("link_no"),
@@ -163,7 +167,9 @@ def test_durable_manifest_jcs_round_trip_and_preimage_omits_digest() -> None:
     assert "manifest_digest" in document
     preimage = dict(document)
     del preimage["manifest_digest"]
-    assert canonicalize_json_value(preimage) == canonicalize_json_value(manifest_document(result.manifest))
+    assert canonicalize_json_value(preimage) == canonicalize_json_value(
+        manifest_document(result.manifest)
+    )
     assert compute_manifest_digest(result.manifest) == result.manifest.manifest_digest
     golden = json.loads(
         (_GOLDEN / "manifest" / "valid" / "s5-durable-roundtrip" / "document.json").read_text(
@@ -220,7 +226,9 @@ def test_historical_manifest_versions_cannot_be_read_or_written(
     if field == "contract_version":
         historical = replace(result.manifest, contract_version=value, manifest_digest=None)
     elif field == "storage_projection_version":
-        historical = replace(result.manifest, storage_projection_version=value, manifest_digest=None)
+        historical = replace(
+            result.manifest, storage_projection_version=value, manifest_digest=None
+        )
     else:
         historical = replace(result.manifest, ruleset_version=value, manifest_digest=None)
     historical = replace(historical, manifest_digest=compute_manifest_digest(historical))
@@ -229,7 +237,10 @@ def test_historical_manifest_versions_cannot_be_read_or_written(
     document["manifest_digest"] = historical.manifest_digest.value
     payload = canonicalize_json_value(document)
 
-    with pytest.raises(PackageError, match=write_error.replace("new manifest writes require", "durable manifest requires")):
+    with pytest.raises(
+        PackageError,
+        match=write_error.replace("new manifest writes require", "durable manifest requires"),
+    ):
         canonicalization_manifest_from_bytes(payload)
     with pytest.raises(PackageError, match=write_error):
         durable_manifest_bytes(historical)
@@ -264,7 +275,9 @@ def test_canonical_key_retained_and_dropped_survive_manifest_to_package() -> Non
     assert result.import_input.tables[0].primary_key == ("board", "link_no")
     package_json = json.loads(repository_import_manifest_bytes(result.import_input).decode("utf-8"))
     golden = json.loads(
-        (_GOLDEN / "package" / "valid" / "s5-structural-shape" / "manifest.json").read_text(encoding="utf-8")
+        (_GOLDEN / "package" / "valid" / "s5-structural-shape" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
     )
     package_json["canonicalization_manifest_digest"] = result.manifest.manifest_digest.value
     golden["canonicalization_manifest_digest"] = result.manifest.manifest_digest.value

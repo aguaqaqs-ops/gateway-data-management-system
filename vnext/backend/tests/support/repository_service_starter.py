@@ -49,7 +49,10 @@ def _wait_until_ready(base_url: str, bearer_token: str, *, timeout_seconds: floa
 
 def main() -> int:
     if len(sys.argv) != 4:
-        print("usage: repository_service_starter.py <tmp_path> <bearer_token> <port_file>", file=sys.stderr)
+        print(
+            "usage: repository_service_starter.py <tmp_path> <bearer_token> <port_file>",
+            file=sys.stderr,
+        )
         return 2
 
     tmp_path = Path(sys.argv[1])

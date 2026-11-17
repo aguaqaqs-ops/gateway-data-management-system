@@ -11,15 +11,26 @@ from gateway_compute._native import (
 )
 
 from gateway_backend.capabilities.mutation_planning._decision import (
-    keyed_patchable, storage_views_compatible,
+    keyed_patchable,
+    storage_views_compatible,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
-    MAX_REPLAY_SQL_BYTES, StorageNetCounts, StorageTableOperation, StorageTableReservation, StorageTableSideV1, StorageTableSummary,
-    StorageTableTaskV1, StorageTableDecision, TableMutationKind,
+    MAX_REPLAY_SQL_BYTES,
+    StorageNetCounts,
+    StorageTableOperation,
+    StorageTableReservation,
+    StorageTableSideV1,
+    StorageTableSummary,
+    StorageTableTaskV1,
+    StorageTableDecision,
+    TableMutationKind,
 )
 from gateway_backend.capabilities.storage_projection import (
-    StorageInputLease, require_storage_input_owner, require_storage_operation,
-    storage_memory_limit, verify_storage_metadata_manifest,
+    StorageInputLease,
+    require_storage_input_owner,
+    require_storage_operation,
+    storage_memory_limit,
+    verify_storage_metadata_manifest,
 )
 
 
@@ -28,15 +39,19 @@ class _NativeOperation(Protocol):
     def reconcile(self) -> int: ...
 
 
-def render_change_set_native(payload: bytes, context: StorageTableOperation,
-                             max_bytes: int, output_upper: int) -> bytes:
+def render_change_set_native(
+    payload: bytes, context: StorageTableOperation, max_bytes: int, output_upper: int
+) -> bytes:
     active = cast(StorageTableOperation, require_storage_operation(context))
     # Rust output and its FFI copy overlap. Keep the Python result charged to
     # the caller's operation end; the structural closure is charged separately.
     output_charge = active.memory.reserve(output_upper * 8 + len(payload) * 64)
     try:
         result: bytes = _render_change_set_native(
-            payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
+            payload,
+            max_bytes,
+            active.cancel_probe,
+            active.deadline_monotonic,
             active.threads,
         )
         if len(result) > output_upper:
@@ -52,8 +67,9 @@ def render_change_set_native(payload: bytes, context: StorageTableOperation,
 class _NativeHandle(Protocol):
     def summary(self) -> tuple[int, int, tuple[int, int, int] | None, bool, bool, int]: ...
     def discard_before(self) -> None: ...
-    def render(self, operation: _NativeOperation, decision: str, table_name: str,
-               operation_identity: int) -> _NativeRender: ...
+    def render(
+        self, operation: _NativeOperation, decision: str, table_name: str, operation_identity: int
+    ) -> _NativeRender: ...
     def close(self) -> None: ...
 
 
@@ -65,8 +81,9 @@ class _NativeRender(Protocol):
 class _RenderCharge:
     """Keep exported chunk bytes charged after the Rust cursor has closed."""
 
-    def __init__(self, reservation: StorageTableReservation, active: StorageTableOperation,
-                 output_limit: int) -> None:
+    def __init__(
+        self, reservation: StorageTableReservation, active: StorageTableOperation, output_limit: int
+    ) -> None:
         self._reservation = reservation
         self._output_limit = output_limit
         self._exported = 0
@@ -91,8 +108,13 @@ class _RenderCharge:
 class NativeStorageChunks(Iterator[bytes]):
     """Own the Rust table and its same-M render phase until final chunk."""
 
-    def __init__(self, native: _NativeRender, operation: _NativeOperation,
-                 active: StorageTableOperation, charge: _RenderCharge) -> None:
+    def __init__(
+        self,
+        native: _NativeRender,
+        operation: _NativeOperation,
+        active: StorageTableOperation,
+        charge: _RenderCharge,
+    ) -> None:
         self._native = native
         self._operation = operation
         self._active = active
@@ -141,11 +163,16 @@ class NativeStorageChunks(Iterator[bytes]):
 class NativeStorageTableHandle:
     """Keep native leases until facts and the last Arrow consumer finish."""
 
-    def __init__(self, handle: _NativeHandle, native_operation: _NativeOperation,
-                 task: StorageTableTaskV1, before_owner: StorageInputLease | None,
-                 after_owner: StorageInputLease | None,
-                 metadata_charge: StorageTableReservation,
-                 active: StorageTableOperation) -> None:
+    def __init__(
+        self,
+        handle: _NativeHandle,
+        native_operation: _NativeOperation,
+        task: StorageTableTaskV1,
+        before_owner: StorageInputLease | None,
+        after_owner: StorageInputLease | None,
+        metadata_charge: StorageTableReservation,
+        active: StorageTableOperation,
+    ) -> None:
         self._handle = handle
         self._operation = native_operation
         self._task: StorageTableTaskV1 | None = task
@@ -163,17 +190,22 @@ class NativeStorageTableHandle:
         task = self._task
         if task is None:
             raise ValueError("storage table handle closed")
-        before_rows, after_rows, counts, before_validated, after_validated, _ = self._handle.summary()
+        before_rows, after_rows, counts, before_validated, after_validated, _ = (
+            self._handle.summary()
+        )
         # A metadata-only before side has a validated manifest binding but no
         # parent Arrow to scan. Its net diff remains explicitly unknown.
         before_validated = before_validated or (
-            task.before is not None and task.before.stream is None
+            task.before is not None
+            and task.before.stream is None
             and task.before.metadata_manifest is not None
         )
         return StorageTableSummary(
-            before_rows, after_rows,
+            before_rows,
+            after_rows,
             StorageNetCounts(*counts) if counts is not None else None,
-            before_validated, after_validated,
+            before_validated,
+            after_validated,
         )
 
     @property
@@ -219,12 +251,21 @@ class NativeStorageTableHandle:
         native_limit = phase_limit
         render_operation: _NativeOperation | None = None
         try:
-            render_operation = cast(_NativeOperation, _begin_storage_operation_native(
-                native_limit, reservation, active.cancel_probe, active.deadline_monotonic,
-                active.threads, id(active.memory), True,
-            ))
-            native = self._handle.render(render_operation, decision.operation.value,
-                                         task.canonical_table, id(active.memory))
+            render_operation = cast(
+                _NativeOperation,
+                _begin_storage_operation_native(
+                    native_limit,
+                    reservation,
+                    active.cancel_probe,
+                    active.deadline_monotonic,
+                    active.threads,
+                    id(active.memory),
+                    True,
+                ),
+            )
+            native = self._handle.render(
+                render_operation, decision.operation.value, task.canonical_table, id(active.memory)
+            )
             self._chunks = NativeStorageChunks(native, render_operation, active, charge)
             return self._chunks
         except MemoryError as exc:
@@ -283,7 +324,8 @@ def _columns(side: StorageTableSideV1 | None) -> tuple[str, ...]:
 
 
 def prepare_storage_table(
-    task: StorageTableTaskV1, operation: StorageTableOperation,
+    task: StorageTableTaskV1,
+    operation: StorageTableOperation,
 ) -> NativeStorageTableHandle:
     """Consume explicit Arrow streams under the caller's active M and N."""
     active = cast(StorageTableOperation, require_storage_operation(operation))
@@ -291,7 +333,9 @@ def prepare_storage_table(
     if before is not None and before.stream is None:
         assert before.metadata_manifest is not None
         verify_storage_metadata_manifest(
-            before.metadata_manifest, before.manifest_table, before.storage_projection_version,
+            before.metadata_manifest,
+            before.manifest_table,
+            before.storage_projection_version,
         )
     if before is not None and before.stream is not None and before.schema is None:
         raise ValueError("before Arrow schema missing")
@@ -301,26 +345,39 @@ def prepare_storage_table(
     if before is not None and before.stream is not None:
         assert before.metadata_manifest is not None
         before_owner = require_storage_input_owner(
-            before.input_owner, before.stream, before.schema, active,
-            before.metadata_manifest, before.manifest_table, before.storage_projection_version,
+            before.input_owner,
+            before.stream,
+            before.schema,
+            active,
+            before.metadata_manifest,
+            before.manifest_table,
+            before.storage_projection_version,
         )
     try:
         after_owner = None
         if after is not None and after.stream is not None:
             assert after.metadata_manifest is not None
             after_owner = require_storage_input_owner(
-                after.input_owner, after.stream, after.schema, active,
-                after.metadata_manifest, after.manifest_table, after.storage_projection_version,
+                after.input_owner,
+                after.stream,
+                after.schema,
+                active,
+                after.metadata_manifest,
+                after.manifest_table,
+                after.storage_projection_version,
             )
     except BaseException:
         if before_owner is not None:
             before_owner.close()
         raise
     diff = (
-        before is not None and before.stream is not None
-        and after is not None and after.stream is not None
+        before is not None
+        and before.stream is not None
+        and after is not None
+        and after.stream is not None
         and keyed_patchable(after.storage_view)
-        and before.manifest_table.canonical_schema_digest == after.manifest_table.canonical_schema_digest
+        and before.manifest_table.canonical_schema_digest
+        == after.manifest_table.canonical_schema_digest
         and before.manifest_table.retained_columns == after.manifest_table.retained_columns
         and storage_views_compatible(before.storage_view, after.storage_view)
         and before.storage_projection_version == after.storage_projection_version
@@ -338,29 +395,42 @@ def prepare_storage_table(
         # This native sub-budget shares the same M and survives to last handle.
         native_limit = active.memory.available_bytes
         reservation = active.memory.reserve(native_limit)
-        native_operation = cast(_NativeOperation, _begin_storage_operation_native(
-            native_limit, reservation, active.cancel_probe, active.deadline_monotonic,
-            active.threads, id(active.memory), False,
-        ))
-        handle = cast(_NativeHandle, _prepare_storage_table_native(
-            native_operation,
-            None if before is None else before.stream,
-            None if before is None else before.schema,
-            0 if before is None else before.manifest_table.canonical_row_count,
-            _columns(before),
-            None if after is None else after.stream,
-            None if after is None else after.schema,
-            0 if after is None else after.manifest_table.canonical_row_count,
-            _columns(after),
-            () if after is None else after.manifest_table.canonical_key_columns,
-            diff, id(active.memory),
-        ))
+        native_operation = cast(
+            _NativeOperation,
+            _begin_storage_operation_native(
+                native_limit,
+                reservation,
+                active.cancel_probe,
+                active.deadline_monotonic,
+                active.threads,
+                id(active.memory),
+                False,
+            ),
+        )
+        handle = cast(
+            _NativeHandle,
+            _prepare_storage_table_native(
+                native_operation,
+                None if before is None else before.stream,
+                None if before is None else before.schema,
+                0 if before is None else before.manifest_table.canonical_row_count,
+                _columns(before),
+                None if after is None else after.stream,
+                None if after is None else after.schema,
+                0 if after is None else after.manifest_table.canonical_row_count,
+                _columns(after),
+                () if after is None else after.manifest_table.canonical_key_columns,
+                diff,
+                id(active.memory),
+            ),
+        )
         require_storage_operation(active)
         if not diff and before_owner is not None:
             before_owner.close()
             before_owner = None
-        wrapped = NativeStorageTableHandle(handle, native_operation, task, before_owner, after_owner,
-                                           metadata_charge, active)
+        wrapped = NativeStorageTableHandle(
+            handle, native_operation, task, before_owner, after_owner, metadata_charge, active
+        )
         active.resources.callback(wrapped.close)
         return wrapped
     except MemoryError as exc:

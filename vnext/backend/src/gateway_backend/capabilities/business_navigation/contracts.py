@@ -16,7 +16,10 @@ from pydantic import BaseModel, ConfigDict
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonTableFact, KeylessPolicy, SchemaEvolution, TableComparisonTask,
+    ComparisonTableFact,
+    KeylessPolicy,
+    SchemaEvolution,
+    TableComparisonTask,
     standard_identity_is_keyless,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskLevel
@@ -27,6 +30,7 @@ CONTRACT_VERSION = "backend-vnext/business-navigation/v6"
 
 class NavigationChangeKind(StrEnum):
     """Navigation boundary vocabulary; the Surface Contract owns these wire values."""
+
     UNCHANGED = "UNCHANGED"
     BUSINESS_EQUIVALENT = "BUSINESS_EQUIVALENT"
     ADDED = "ADDED"
@@ -39,17 +43,28 @@ class NavigationChangeKind(StrEnum):
 
 
 GROUPS = (
-    ("FORWARD_CHANNELS", "转发通道"), ("SECONDARY_DEVICES", "二次装置列表"),
-    ("COMMUNICATION_PROTOCOLS", "通讯规约列表"), ("GLOBAL_PARAMETERS", "全局参数"),
+    ("FORWARD_CHANNELS", "转发通道"),
+    ("SECONDARY_DEVICES", "二次装置列表"),
+    ("COMMUNICATION_PROTOCOLS", "通讯规约列表"),
+    ("GLOBAL_PARAMETERS", "全局参数"),
     ("OTHER_TABLES", "其他表"),
 )
 POINT_TABLES = (
-    ("device_st", "状态类"), ("device_mx", "测量类"), ("device_co", "控制类"),
-    ("device_sg", "定值"), ("device_sp", "装置参数"), ("device_cnt", "计量类"),
-    ("device_sn", "定值区号"), ("device_tap", "档位"), ("device_other", "其它信息"),
-    ("device_disturb", "扰动数据"), ("device_cfg", "装置配置"),
+    ("device_st", "状态类"),
+    ("device_mx", "测量类"),
+    ("device_co", "控制类"),
+    ("device_sg", "定值"),
+    ("device_sp", "装置参数"),
+    ("device_cnt", "计量类"),
+    ("device_sn", "定值区号"),
+    ("device_tap", "档位"),
+    ("device_other", "其它信息"),
+    ("device_disturb", "扰动数据"),
+    ("device_cfg", "装置配置"),
 )
-FILTER_IDENTITY_COLUMNS = {name: "gid" if name == "device_cfg" else "dev_addr" for name, _ in POINT_TABLES}
+FILTER_IDENTITY_COLUMNS = {
+    name: "gid" if name == "device_cfg" else "dev_addr" for name, _ in POINT_TABLES
+}
 SAFE_INTEGER = 9007199254740991
 Scalar: TypeAlias = str | int | None
 RowValues: TypeAlias = Mapping[str, Scalar]
@@ -68,6 +83,7 @@ class NavigationSide:
     Column SQL spelling must come from the same-side validated descriptor, never from
     a merged surface. canonical_order_key uses the existing canonical scalar codec.
     """
+
     column_types: Mapping[str, str | None]
     rows: Callable[[], Iterable[NavigationRow]]
     row_count: int
@@ -97,6 +113,7 @@ class FilterRecord:
 @dataclass(frozen=True, slots=True)
 class NavigationEvidence:
     """Proof supplied by comparison/locator/risk owners, with conservative defaults."""
+
     comparison_succeeded: bool = False
     schema_only: bool = False
     degraded: bool = False
@@ -113,15 +130,28 @@ class NavigationEvidence:
     unlocated_reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        for name in ("comparison_succeeded", "schema_only", "degraded", "locator_complete", "risk_attribution_complete", "any_table_risk"):
+        for name in (
+            "comparison_succeeded",
+            "schema_only",
+            "degraded",
+            "locator_complete",
+            "risk_attribution_complete",
+            "any_table_risk",
+        ):
             if type(getattr(self, name)) is not bool:
                 raise ValueError("invalid navigation evidence flag")
         if type(self.expected_record_counts) is not tuple or len(self.expected_record_counts) != 3:
             raise ValueError("invalid record counts")
-        for count in (*self.expected_record_counts, self.suppressed_added_count, self.suppressed_deleted_count):
+        for count in (
+            *self.expected_record_counts,
+            self.suppressed_added_count,
+            self.suppressed_deleted_count,
+        ):
             if type(count) is not int or count < 0:
                 raise ValueError("invalid navigation evidence count")
-        if type(self.records) is not tuple or any(type(r) is not FilterRecord for r in self.records):
+        if type(self.records) is not tuple or any(
+            type(r) is not FilterRecord for r in self.records
+        ):
             raise ValueError("invalid filter records")
         if len({r.row_identity for r in self.records}) != len(self.records):
             raise ValueError("duplicate filter record identity")
@@ -129,15 +159,22 @@ class NavigationEvidence:
             raise ValueError("invalid table risk")
 
     def fallback_reason(self) -> str | None:
-        counts = tuple(sum(r.kind == kind for r in self.records)
-                       for kind in ("ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"))
-        if (not self.comparison_succeeded or counts != self.expected_record_counts
-                or self.suppressed_added_count or self.suppressed_deleted_count
-                or (bool(self.records) and not self.locator_complete)):
+        counts = tuple(
+            sum(r.kind == kind for r in self.records)
+            for kind in ("ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED")
+        )
+        if (
+            not self.comparison_succeeded
+            or counts != self.expected_record_counts
+            or self.suppressed_added_count
+            or self.suppressed_deleted_count
+            or (bool(self.records) and not self.locator_complete)
+        ):
             return "RECORDS_UNAVAILABLE"
         if self.degraded or self.schema_only:
             return "TABLE_DEGRADED"
         return None
+
 
 @dataclass(frozen=True, slots=True)
 class NavigationTable:
@@ -160,12 +197,15 @@ class NavigationTable:
     def local_fallback_reason(self) -> str | None:
         """One effective completeness decision for omission, facts and FE12 reuse."""
         column = FILTER_IDENTITY_COLUMNS.get(self.table_name)
-        if column is not None and any(side is not None and column not in side.column_types
-                                      for side in (self.before, self.current)):
+        if column is not None and any(
+            side is not None and column not in side.column_types
+            for side in (self.before, self.current)
+        ):
             return "RECORDS_UNAVAILABLE"
         if column is not None and any(
             context is not None and column not in context
-            for record in self.evidence.records for context in (record.before, record.current)
+            for record in self.evidence.records
+            for context in (record.before, record.current)
         ):
             return "RECORDS_UNAVAILABLE"
         return self.evidence.fallback_reason()
@@ -173,9 +213,15 @@ class NavigationTable:
     @property
     def may_reuse_unrecorded_identity(self) -> bool:
         column = FILTER_IDENTITY_COLUMNS.get(self.table_name)
-        return (self.before is not None and self.current is not None and column is not None
-                and column in self.before.column_types and column in self.current.column_types
-                and not self.identity_excluded_sides and self.local_fallback_reason is None)
+        return (
+            self.before is not None
+            and self.current is not None
+            and column is not None
+            and column in self.before.column_types
+            and column in self.current.column_types
+            and not self.identity_excluded_sides
+            and self.local_fallback_reason is None
+        )
 
     @property
     def display_name(self) -> str:
@@ -184,7 +230,9 @@ class NavigationTable:
 
 
 def identity_excluded_sides(
-    task: TableComparisonTask, fact: ComparisonTableFact, column: str,
+    task: TableComparisonTask,
+    fact: ComparisonTableFact,
+    column: str,
 ) -> frozenset[str]:
     """Assert the registry against the native effective frame, including COLUMNS_ADDED.
 
@@ -200,30 +248,49 @@ def identity_excluded_sides(
     selected = set(changes.selected_columns)
     excluded = set(policy.compare_excluded_columns)
     incompatible = set(changes.incompatible_columns)
-    keyed = not standard_identity_is_keyless(changes.effective_compare_key_before,
-        changes.effective_compare_key_current, policy.allow_keyless_key_transition)
+    keyed = not standard_identity_is_keyless(
+        changes.effective_compare_key_before,
+        changes.effective_compare_key_current,
+        policy.allow_keyless_key_transition,
+    )
     # A keyed row has an independent stable key even when the filter column
     # physically exists on only one side: retain COUNT_UNKNOWN/fallback there.
     # Keyless copies are only equivalent under the actual whole-row frame;
     # omitting the filter column makes cross-device occurrence binding ambiguous.
-    if keyed and any(column not in {c.name for c in descriptor.columns}
-                     for descriptor in (task.before_descriptor, task.current_descriptor)):
+    if keyed and any(
+        column not in {c.name for c in descriptor.columns}
+        for descriptor in (task.before_descriptor, task.current_descriptor)
+    ):
         return frozenset()
-    frame = selected - excluded if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED else selected
+    frame = (
+        selected - excluded
+        if changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+        else selected
+    )
     valid = column in frame and column not in incompatible and column not in excluded
     valid = valid and policy.comparison_role == "STANDARD"
     if keyed:
         key = changes.effective_compare_key_before
-        valid = (valid and bool(key) and key == changes.effective_compare_key_current
-                 and len(set(key)) == len(key) and set(key) <= selected
-                 and not (set(key) & (excluded | incompatible)))
+        valid = (
+            valid
+            and bool(key)
+            and key == changes.effective_compare_key_current
+            and len(set(key)) == len(key)
+            and set(key) <= selected
+            and not (set(key) & (excluded | incompatible))
+        )
     else:
         valid = valid and policy.keyless_policy is KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF
     if valid:
         return frozenset()
-    return frozenset(side for side, descriptor in (
-        ("BEFORE", task.before_descriptor), ("CURRENT", task.current_descriptor))
-        if descriptor is not None and column in {c.name for c in descriptor.columns})
+    return frozenset(
+        side
+        for side, descriptor in (
+            ("BEFORE", task.before_descriptor),
+            ("CURRENT", task.current_descriptor),
+        )
+        if descriptor is not None and column in {c.name for c in descriptor.columns}
+    )
 
 
 def _object(value: object, keys: set[str]) -> dict[str, Any]:
@@ -368,7 +435,9 @@ def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any
             raise ValueError("ordinary navigation forbids replacement_sides")
         _groups(doc["groups"], None)
     notices = doc["table_notices"]
-    if [n["table_id"] for n in notices] != sorted({n["table_id"] for n in notices}, key=lambda x: x.encode("utf-8")):
+    if [n["table_id"] for n in notices] != sorted(
+        {n["table_id"] for n in notices}, key=lambda x: x.encode("utf-8")
+    ):
         raise ValueError("table notices must be unique and ordered")
     groups = doc["groups"]
     for group in groups:
@@ -376,22 +445,38 @@ def validate_navigation(document: object, *, replacement: bool) -> dict[str, Any
             for tab in item["tabs"]:
                 facts = tab["facts"]
                 if facts is not None and facts["membership_initial_baseline"]:
-                    if (not doc["initial_baseline"] or facts["membership_complete"]
-                            or facts["basis"] != "EXACT" or tab["row_filter"]["before"] is not None):
+                    if (
+                        not doc["initial_baseline"]
+                        or facts["membership_complete"]
+                        or facts["basis"] != "EXACT"
+                        or tab["row_filter"]["before"] is not None
+                    ):
                         raise ValueError("invalid initial baseline membership reason")
-    tab_scopes = {tab["table_id"]: tab["facts"]["table_scope"] for group in groups
-                  for item in group["items"] for tab in item["tabs"] if tab["facts"] is not None}
-    table_ids = {tab["table_id"] for group in groups for item in group["items"] for tab in item["tabs"]}
+    tab_scopes = {
+        tab["table_id"]: tab["facts"]["table_scope"]
+        for group in groups
+        for item in group["items"]
+        for tab in item["tabs"]
+        if tab["facts"] is not None
+    }
+    table_ids = {
+        tab["table_id"] for group in groups for item in group["items"] for tab in item["tabs"]
+    }
     item_keys = {item["item_key"] for group in groups for item in group["items"]}
     levels = {v.value for v in RiskLevel} | {None}
     for notice in notices:
-        if notice["table_id"] not in table_ids or (notice["table_id"] in tab_scopes and tab_scopes[notice["table_id"]] != notice["table_scope"]):
+        if notice["table_id"] not in table_ids or (
+            notice["table_id"] in tab_scopes
+            and tab_scopes[notice["table_id"]] != notice["table_scope"]
+        ):
             raise ValueError("notice must reference matching table scope")
         unlocated = notice["unlocated_row_risk"]
         if notice["table_scope"] is None and unlocated is None and notice["risk_complete"]:
             raise ValueError("empty notice")
         if unlocated is not None:
-            if unlocated["risk_level"] not in levels or (unlocated["count"] is not None and unlocated["count"] < 0):
+            if unlocated["risk_level"] not in levels or (
+                unlocated["count"] is not None and unlocated["count"] < 0
+            ):
                 raise ValueError("invalid unlocated risk")
             if unlocated["reason_codes"] != sorted(set(unlocated["reason_codes"])):
                 raise ValueError("invalid unlocated reasons")
@@ -426,16 +511,26 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
         if group["group_key"] != key or type(group["items"]) is not list:
             raise ValueError("invalid group order or items")
         _string(group["label"])
-        if group["nonempty_item_count"] != sum(any(not t["empty"] for t in i["tabs"]) for i in group["items"]):
+        if group["nonempty_item_count"] != sum(
+            any(not t["empty"] for t in i["tabs"]) for i in group["items"]
+        ):
             raise ValueError("group count differs from nonempty items")
         for raw_item in group["items"]:
-            item = _object(raw_item, {"item_key", "item_kind", "label", "attributes", "tabs", "summary"})
+            item = _object(
+                raw_item, {"item_key", "item_kind", "label", "attributes", "tabs", "summary"}
+            )
             _string(item["item_key"])
             _string(item["label"])
             if item["item_key"] in item_keys:
                 raise ValueError("duplicate item key")
             item_keys.add(item["item_key"])
-            if item["item_kind"] not in {"FORWARD_CHANNEL", "DEVICE", "COMPOSITE_SIGNAL_DEVICE", "PROTOCOL_CHANNEL", "TABLE"}:
+            if item["item_kind"] not in {
+                "FORWARD_CHANNEL",
+                "DEVICE",
+                "COMPOSITE_SIGNAL_DEVICE",
+                "PROTOCOL_CHANNEL",
+                "TABLE",
+            }:
                 raise ValueError("invalid item kind")
             if type(item["attributes"]) is not dict or type(item["tabs"]) is not list:
                 raise ValueError("invalid attributes or empty item")
@@ -444,19 +539,31 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
                     raise ValueError("invalid attribute scalar")
             summary = item["summary"]
             nonempty = sum(not t["empty"] for t in item["tabs"])
-            if (summary["nonempty_tab_count"] != nonempty
-                    or summary["change_kinds"] != sorted(set(summary["change_kinds"]))
-                    or any(k not in {v.value for v in NavigationChangeKind} for k in summary["change_kinds"])
-                    or summary["risk_level"] not in {v.value for v in RiskLevel} | {None}
-                    or (not nonempty and (summary["change_kinds"] or summary["risk_level"] is not None))):
+            if (
+                summary["nonempty_tab_count"] != nonempty
+                or summary["change_kinds"] != sorted(set(summary["change_kinds"]))
+                or any(
+                    k not in {v.value for v in NavigationChangeKind}
+                    for k in summary["change_kinds"]
+                )
+                or summary["risk_level"] not in {v.value for v in RiskLevel} | {None}
+                or (not nonempty and (summary["change_kinds"] or summary["risk_level"] is not None))
+            ):
                 raise ValueError("invalid nonempty item summary")
-            filtered_nonempty = [tab["facts"] for tab in item["tabs"] if not tab["empty"] and tab["facts"] is not None]
-            if (summary["change_complete"] != all(f["basis"] == "EXACT" and f["membership_complete"] for f in filtered_nonempty)
-                    or summary["risk_complete"] != all(f["risk_complete"] for f in filtered_nonempty)):
+            filtered_nonempty = [
+                tab["facts"]
+                for tab in item["tabs"]
+                if not tab["empty"] and tab["facts"] is not None
+            ]
+            if summary["change_complete"] != all(
+                f["basis"] == "EXACT" and f["membership_complete"] for f in filtered_nonempty
+            ) or summary["risk_complete"] != all(f["risk_complete"] for f in filtered_nonempty):
                 raise ValueError("item completeness differs from tabs")
             tabs: set[str] = set()
             for raw_tab in item["tabs"]:
-                tab = _object(raw_tab, {"tab_key", "label", "table_id", "row_filter", "facts", "empty"})
+                tab = _object(
+                    raw_tab, {"tab_key", "label", "table_id", "row_filter", "facts", "empty"}
+                )
                 for name in ("tab_key", "label", "table_id"):
                     _string(tab[name])
                 if tab["tab_key"] in tabs:
@@ -482,9 +589,27 @@ def _groups(value: object, side: str | None, *, allow_empty: bool = False) -> No
                     if tab["facts"] is not None:
                         raise ValueError("whole/replacement tabs forbid local facts")
                 else:
-                    facts = _object(tab["facts"], {"basis", "change_kind", "risk_level", "risk_complete", "membership_changed", "membership_complete", "membership_initial_baseline", "row_changes", "before_row_count", "current_row_count", "table_scope"})
+                    facts = _object(
+                        tab["facts"],
+                        {
+                            "basis",
+                            "change_kind",
+                            "risk_level",
+                            "risk_complete",
+                            "membership_changed",
+                            "membership_complete",
+                            "membership_initial_baseline",
+                            "row_changes",
+                            "before_row_count",
+                            "current_row_count",
+                            "table_scope",
+                        },
+                    )
                     _facts(facts)
-                    if tab["table_id"] in scopes and scopes[tab["table_id"]] != facts["table_scope"]:
+                    if (
+                        tab["table_id"] in scopes
+                        and scopes[tab["table_id"]] != facts["table_scope"]
+                    ):
                         raise ValueError("table scope must agree across tabs")
                     scopes[tab["table_id"]] = facts["table_scope"]
 
@@ -505,7 +630,10 @@ def _predicate(value: object) -> None:
 def _facts(facts: dict[str, Any]) -> None:
     levels = {v.value for v in RiskLevel} | {None}
     if facts["basis"] == "EXACT":
-        if facts["change_kind"] not in {"UNCHANGED", "ADDED", "DELETED", "UPDATED"} or facts["row_changes"] is None:
+        if (
+            facts["change_kind"] not in {"UNCHANGED", "ADDED", "DELETED", "UPDATED"}
+            or facts["row_changes"] is None
+        ):
             raise ValueError("exact facts need a change kind")
     elif facts["basis"] == "TABLE_FALLBACK":
         if facts["change_kind"] is not None or facts["row_changes"] is not None:
@@ -514,7 +642,11 @@ def _facts(facts: dict[str, Any]) -> None:
         raise ValueError("invalid facts basis")
     if facts["row_changes"] is not None:
         changes = facts["row_changes"]
-        if any(value < 0 for value in changes.values()) or changes["moved_in"] > changes["modified"] or changes["moved_out"] > changes["modified"]:
+        if (
+            any(value < 0 for value in changes.values())
+            or changes["moved_in"] > changes["modified"]
+            or changes["moved_out"] > changes["modified"]
+        ):
             raise ValueError("invalid row changes")
     if facts["risk_level"] not in levels:
         raise ValueError("invalid local risk")
@@ -542,7 +674,12 @@ _DIAGNOSTIC_PARAMS = {
     "DEVICE_TAB_COUNT_UNKNOWN": {"identity_column"},
     "DEVICE_ROWS_UNASSIGNED": {"identity_column", "row_count", "changed_row_count"},
     "CHANNEL_TABLE_UNCLAIMED": {"channel_prefix", "registry_table"},
-    "PROTOCOL_TABLE_NOT_FOUND": {"channel_prefix", "registry_table", "protocol", "expected_prefixes"},
+    "PROTOCOL_TABLE_NOT_FOUND": {
+        "channel_prefix",
+        "registry_table",
+        "protocol",
+        "expected_prefixes",
+    },
     "APP_TABLE_CFG_MISSING": {"app_name"},
     "APP_TABLE_CFG_DUPLICATE": {"app_name", "table_cfg"},
     "APP_TABLE_NOT_FOUND": {"app_name", "table_cfg"},
@@ -573,14 +710,22 @@ class _Diagnostics(_Document):
 
 
 def validate_diagnostics(
-    document: object, navigation: dict[str, Any], table_ids: frozenset[str],
+    document: object,
+    navigation: dict[str, Any],
+    table_ids: frozenset[str],
 ) -> dict[str, Any]:
     """Validate fixed-code params, side/targets and the per-table fallback invariant."""
     doc = _Diagnostics.model_validate(document).model_dump()
-    if doc["contract_version"] != CONTRACT_VERSION or type(doc["diagnostics"]) is not list or not doc["diagnostics"]:
+    if (
+        doc["contract_version"] != CONTRACT_VERSION
+        or type(doc["diagnostics"]) is not list
+        or not doc["diagnostics"]
+    ):
         raise ValueError("invalid diagnostics envelope")
     replacement = navigation["replacement_sides"] is not None
-    namespaces = navigation["replacement_sides"] if replacement else {"ordinary": navigation["groups"]}
+    namespaces = (
+        navigation["replacement_sides"] if replacement else {"ordinary": navigation["groups"]}
+    )
     facts: dict[str, str] = {}
     for groups in namespaces.values():
         for group in groups:
@@ -604,7 +749,10 @@ def validate_diagnostics(
                     if local is not None:
                         if not local["risk_complete"]:
                             expected_risk.add(tab["table_id"])
-                        if not local["membership_complete"] and not local["membership_initial_baseline"]:
+                        if (
+                            not local["membership_complete"]
+                            and not local["membership_initial_baseline"]
+                        ):
                             expected_membership.add(tab["table_id"])
     encoded: list[bytes] = []
     for raw in doc["diagnostics"]:
@@ -616,36 +764,63 @@ def validate_diagnostics(
         side = diagnostic["side"]
         if side not in {None, "BEFORE", "CURRENT"} or (replacement and side is None):
             raise ValueError("invalid diagnostic side")
-        local_codes = {"DEVICE_TAB_FACTS_UNAVAILABLE", "DEVICE_TAB_RISK_UNAVAILABLE", "DEVICE_MEMBERSHIP_UNAVAILABLE"}
+        local_codes = {
+            "DEVICE_TAB_FACTS_UNAVAILABLE",
+            "DEVICE_TAB_RISK_UNAVAILABLE",
+            "DEVICE_MEMBERSHIP_UNAVAILABLE",
+        }
         if code not in local_codes and side is None:
             raise ValueError("diagnostic requires actual side")
         if code in local_codes and (replacement or side is not None):
             raise ValueError("local facts diagnostic is ordinary and table-wide")
         for name, value in params.items():
             if name == "expected_prefixes":
-                if type(value) is not list or not 1 <= len(value) <= 2 or any(type(v) is not str or not v for v in value):
+                if (
+                    type(value) is not list
+                    or not 1 <= len(value) <= 2
+                    or any(type(v) is not str or not v for v in value)
+                ):
                     raise ValueError("invalid expected prefixes")
             elif name in {"board", "link_no", "dev_addr", "gid", "row_count", "changed_row_count"}:
-                if not (value is None and name == "changed_row_count") and (type(value) is not int or abs(value) > SAFE_INTEGER):
+                if not (value is None and name == "changed_row_count") and (
+                    type(value) is not int or abs(value) > SAFE_INTEGER
+                ):
                     raise ValueError("invalid diagnostic integer")
             elif not (value is None and name == "app_name") and type(value) is not str:
                 raise ValueError("invalid diagnostic string")
-        if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"} and params["registry_table"] not in {"net_cfg", "com_cfg"}:
+        if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"} and params[
+            "registry_table"
+        ] not in {"net_cfg", "com_cfg"}:
             raise ValueError("invalid channel registry")
         if code in {"CHANNEL_TABLE_UNCLAIMED", "PROTOCOL_TABLE_NOT_FOUND"}:
             channel = parse_channel_table_name(params["channel_prefix"] + "_x")
-            if (channel is None or params["channel_prefix"] != f"b{channel.board}_{channel.kind}{channel.channel_no}"
-                    or params["registry_table"] != ("net_cfg" if channel.kind == "n" else "com_cfg")):
+            if (
+                channel is None
+                or params["channel_prefix"]
+                != f"b{channel.board}_{channel.kind}{channel.channel_no}"
+                or params["registry_table"] != ("net_cfg" if channel.kind == "n" else "com_cfg")
+            ):
                 raise ValueError("invalid channel prefix")
             if code == "PROTOCOL_TABLE_NOT_FOUND" and any(
-                not prefix.startswith(params["channel_prefix"] + "_") for prefix in params["expected_prefixes"]
+                not prefix.startswith(params["channel_prefix"] + "_")
+                for prefix in params["expected_prefixes"]
             ):
                 raise ValueError("invalid expected channel prefix")
-        if code == "DEVICE_FILTER_VALUE_UNSUPPORTED" and params["reason"] not in {"INTEGER_OUT_OF_RANGE", "UNSUPPORTED_TYPE", "IDENTITY_EXCLUDED"}:
+        if code == "DEVICE_FILTER_VALUE_UNSUPPORTED" and params["reason"] not in {
+            "INTEGER_OUT_OF_RANGE",
+            "UNSUPPORTED_TYPE",
+            "IDENTITY_EXCLUDED",
+        }:
             raise ValueError("invalid unsupported reason")
-        if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and params["reason"] not in {"RECORDS_UNAVAILABLE", "TABLE_DEGRADED"}:
+        if code == "DEVICE_TAB_FACTS_UNAVAILABLE" and params["reason"] not in {
+            "RECORDS_UNAVAILABLE",
+            "TABLE_DEGRADED",
+        }:
             raise ValueError("invalid fallback reason")
-        if code == "DEVICE_TAB_RISK_UNAVAILABLE" and params["reason"] != "RISK_ATTRIBUTION_UNAVAILABLE":
+        if (
+            code == "DEVICE_TAB_RISK_UNAVAILABLE"
+            and params["reason"] != "RISK_ATTRIBUTION_UNAVAILABLE"
+        ):
             raise ValueError("invalid risk incomplete reason")
         if code == "DEVICE_MEMBERSHIP_UNAVAILABLE" and params["reason"] != "MEMBERSHIP_UNAVAILABLE":
             raise ValueError("invalid membership incomplete reason")
@@ -656,12 +831,23 @@ def validate_diagnostics(
         group = next((g for g in groups if g["group_key"] == target["group_key"]), None)
         if target["group_key"] is not None and group is None:
             raise ValueError("diagnostic references absent group")
-        item = None if group is None else next((i for i in group["items"] if i["item_key"] == target["item_key"]), None)
+        item = (
+            None
+            if group is None
+            else next((i for i in group["items"] if i["item_key"] == target["item_key"]), None)
+        )
         if target["item_key"] is not None and item is None:
             raise ValueError("diagnostic references absent item")
-        if target["tab_key"] is not None and (item is None or not any(t["tab_key"] == target["tab_key"] for t in item["tabs"])):
+        if target["tab_key"] is not None and (
+            item is None or not any(t["tab_key"] == target["tab_key"] for t in item["tabs"])
+        ):
             raise ValueError("diagnostic references absent tab")
-        if code in local_codes and target != {"group_key": "SECONDARY_DEVICES", "item_key": None, "tab_key": None, "table_id": target["table_id"]}:
+        if code in local_codes and target != {
+            "group_key": "SECONDARY_DEVICES",
+            "item_key": None,
+            "tab_key": None,
+            "table_id": target["table_id"],
+        }:
             raise ValueError("invalid local diagnostic target")
         if code == "DEVICE_TAB_RISK_UNAVAILABLE":
             name = target["table_id"]
@@ -672,15 +858,24 @@ def validate_diagnostics(
         if code == "DEVICE_TAB_FACTS_UNAVAILABLE":
             name = target["table_id"]
             fallback_counts[name] = fallback_counts.get(name, 0) + 1
-            if target != {"group_key": "SECONDARY_DEVICES", "item_key": None, "tab_key": None, "table_id": name}:
+            if target != {
+                "group_key": "SECONDARY_DEVICES",
+                "item_key": None,
+                "tab_key": None,
+                "table_id": name,
+            }:
                 raise ValueError("invalid local facts diagnostic target")
         encoded.append(canonicalize_json_value(diagnostic))
     if encoded != sorted(set(encoded)):
         raise ValueError("diagnostics must have canonical order without duplicates")
-    if {name for name, basis in facts.items() if basis == "TABLE_FALLBACK"} != set(fallback_counts) or any(n != 1 for n in fallback_counts.values()):
+    if {name for name, basis in facts.items() if basis == "TABLE_FALLBACK"} != set(
+        fallback_counts
+    ) or any(n != 1 for n in fallback_counts.values()):
         raise ValueError("fallback diagnostics do not match local facts")
     if set(risk_counts) != expected_risk or any(count != 1 for count in risk_counts.values()):
         raise ValueError("risk diagnostics do not match completeness")
-    if set(membership_counts) != expected_membership or any(count != 1 for count in membership_counts.values()):
+    if set(membership_counts) != expected_membership or any(
+        count != 1 for count in membership_counts.values()
+    ):
         raise ValueError("membership diagnostics do not match completeness")
     return doc

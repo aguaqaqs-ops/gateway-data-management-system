@@ -27,8 +27,6 @@ _ALLOWED_TRANSITIONS: dict[SubmitAttemptState, frozenset[SubmitAttemptState]] = 
 }
 
 
-
-
 def transition_attempt_state(
     attempt: SubmitAttempt,
     *,
@@ -73,7 +71,10 @@ def assert_submission_attempt_binding(*, attempt: SubmitAttempt, submission: Sub
         )
     if submission.canonicalization_manifest_ref != attempt.prepared_canonicalization_manifest_ref:
         raise SubmissionBindingConflict("submission manifest ref must match attempt")
-    if submission.canonicalization_manifest_digest != attempt.prepared_canonicalization_manifest_digest:
+    if (
+        submission.canonicalization_manifest_digest
+        != attempt.prepared_canonicalization_manifest_digest
+    ):
         raise SubmissionBindingConflict("submission manifest digest must match attempt")
     if submission.completed_verification_policy != submission.requested_verification_policy:
         raise SubmissionBindingConflict(

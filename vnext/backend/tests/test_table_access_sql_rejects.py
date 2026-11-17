@@ -20,15 +20,16 @@ from tests.support.table_access_sql import (
 def _diagnostic_signature(
     result: ParseResult,
 ) -> tuple[tuple[ParserDiagnosticCode, str | None, int], ...]:
-    return tuple(
-        (item.code, item.table, item.byte_offset)
-        for item in result.diagnostics
-    )
+    return tuple((item.code, item.table, item.byte_offset) for item in result.diagnostics)
 
 
 SQL_STATEMENT_REJECTS = (
     ("REPLACE INTO `t` VALUES (1);", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "REPLACE"),
-    ("INSERT IGNORE INTO `t` VALUES (1);", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "INSERT IGNORE"),
+    (
+        "INSERT IGNORE INTO `t` VALUES (1);",
+        ParserDiagnosticCode.UNSUPPORTED_STATEMENT,
+        "INSERT IGNORE",
+    ),
     ("USE db;", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "USE"),
     ("CREATE DATABASE d;", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "CREATE"),
     (
@@ -95,7 +96,9 @@ IDENTIFIER_VECTOR_ROOT = (
 
 
 @pytest.mark.parametrize(("sql", "code", "needle"), SQL_STATEMENT_REJECTS)
-def test_unsupported_statements_fail_document(sql: str, code: ParserDiagnosticCode, needle: str) -> None:
+def test_unsupported_statements_fail_document(
+    sql: str, code: ParserDiagnosticCode, needle: str
+) -> None:
     result = parse_text(sql)
     assert result.status is ParseStatus.FAILED
     assert result.tables == ()
@@ -144,7 +147,8 @@ def test_canonical_identifier_collision_on_columns() -> None:
     result = parse_text(sql)
     assert result.status is ParseStatus.FAILED
     assert any(
-        item.code is ParserDiagnosticCode.CANONICAL_IDENTIFIER_COLLISION for item in result.diagnostics
+        item.code is ParserDiagnosticCode.CANONICAL_IDENTIFIER_COLLISION
+        for item in result.diagnostics
     )
 
 
@@ -152,7 +156,9 @@ def test_duplicate_primary_key_is_table_error() -> None:
     sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, PRIMARY KEY (id));"
     result = parse_text(sql)
     assert result.status is ParseStatus.FAILED
-    assert any(item.code is ParserDiagnosticCode.DUPLICATE_PRIMARY_KEY for item in result.diagnostics)
+    assert any(
+        item.code is ParserDiagnosticCode.DUPLICATE_PRIMARY_KEY for item in result.diagnostics
+    )
 
 
 def test_row_shape_mismatch() -> None:

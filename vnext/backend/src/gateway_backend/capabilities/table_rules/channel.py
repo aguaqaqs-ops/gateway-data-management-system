@@ -39,5 +39,8 @@ def parse_channel_table_name(table_name: str) -> ChannelTableName | None:
 
 
 def is_ordered_reference_table(table_name: str, table_comment: str | None) -> bool:
-    return (parse_channel_table_name(table_name) is not None
-            and table_comment is not None and "引用表" in table_comment)
+    return (
+        parse_channel_table_name(table_name) is not None
+        and table_comment is not None
+        and "引用表" in table_comment
+    )

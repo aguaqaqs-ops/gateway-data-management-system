@@ -51,7 +51,10 @@ from tests.support.external_effect_stub import (
     compute_operation_identity,
     request_artifact_id,
 )
-from gateway_backend.application.job_definitions import JobWorkerComposition, build_job_worker_composition
+from gateway_backend.application.job_definitions import (
+    JobWorkerComposition,
+    build_job_worker_composition,
+)
 from gateway_backend.application.payloads import decode_job_payload
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
@@ -480,7 +483,10 @@ def test_terminal_publication_is_idempotent_on_duplicate(tmp_path: Path) -> None
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         terminal_operation = unit_of_work.operations.get_operation(operation_id)
 
-    assert validate_operation_transition(terminal_operation, terminal_operation) is TransitionDisposition.IDEMPOTENT
+    assert (
+        validate_operation_transition(terminal_operation, terminal_operation)
+        is TransitionDisposition.IDEMPOTENT
+    )
 
     candidate_operation = dataclasses.replace(
         terminal_operation,
@@ -809,7 +815,11 @@ def test_cross_boundary_crash_preserves_durable_state(
             put_with_built_ref(
                 artifact_store,
                 output_bytes,
-                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "pure-compute-output", raw_blob_digest(output_bytes).value),
+                artifact_id=build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "pure-compute-output",
+                    raw_blob_digest(output_bytes).value,
+                ),
                 media_type="application/jcs",
             )
             with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
@@ -1441,7 +1451,9 @@ def test_pure_compute_recovery_port_completes_from_checkpoint(tmp_path: Path) ->
     assert closure.outputs[0].artifact_ref.raw_sha256 == expected_digest
 
 
-def test_pure_compute_recovery_missing_output_enters_manual_without_recreation(tmp_path: Path) -> None:
+def test_pure_compute_recovery_missing_output_enters_manual_without_recreation(
+    tmp_path: Path,
+) -> None:
     artifact_store = InMemoryArtifactStore()
     harness = _make_pure_compute_harness(tmp_path / "pure-missing-output")
     operation_id = "operation-pure-missing-output"

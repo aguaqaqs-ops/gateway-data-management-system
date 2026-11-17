@@ -411,11 +411,11 @@ def test_json_remains_fail_closed_without_dc12_evidence() -> None:
     assert any(item.column_name == "payload" for item in result.diagnostics)
 
 
-
-
 def test_explicit_canonical_key_ignores_source_ddl_primary_key_change() -> None:
     first = project_storage(_request(_net_cfg_input(primary_key_columns=("board",))))
-    second = project_storage(_request(_net_cfg_input(primary_key_columns=("board", "link_no", "no"))))
+    second = project_storage(
+        _request(_net_cfg_input(primary_key_columns=("board", "link_no", "no")))
+    )
     assert first.status is ProjectionStatus.COMPLETE
     assert second.status is ProjectionStatus.COMPLETE
     assert first.tables[0].storage_view.canonical_key_columns == ("board", "link_no")
@@ -476,7 +476,11 @@ KEY_FAULTS = (
         "null",
         ProjectionDiagnosticCode.KEY_NULL,
         lambda: _net_cfg_input(
-            columns=(varchar_column("board", nullable=True), int_column("link_no"), int_column("no", nullable=True)),
+            columns=(
+                varchar_column("board", nullable=True),
+                int_column("link_no"),
+                int_column("no", nullable=True),
+            ),
             rows=(as_row(null_cell(), int_cell(1), int_cell(10)),),
         ),
     ),
@@ -488,7 +492,9 @@ KEY_FAULTS = (
 )
 
 
-@pytest.mark.parametrize(("label", "code", "factory"), KEY_FAULTS, ids=[item[0] for item in KEY_FAULTS])
+@pytest.mark.parametrize(
+    ("label", "code", "factory"), KEY_FAULTS, ids=[item[0] for item in KEY_FAULTS]
+)
 def test_keyed_projection_rejects_invalid_keys(
     label: str,
     code: ProjectionDiagnosticCode,
@@ -547,7 +553,9 @@ ROW_FAULTS = (
 )
 
 
-@pytest.mark.parametrize(("label", "code", "factory"), ROW_FAULTS, ids=[item[0] for item in ROW_FAULTS])
+@pytest.mark.parametrize(
+    ("label", "code", "factory"), ROW_FAULTS, ids=[item[0] for item in ROW_FAULTS]
+)
 def test_row_integrity_failures(
     label: str, code: ProjectionDiagnosticCode, factory: Callable[[], TableInput]
 ) -> None:
@@ -613,7 +621,10 @@ def test_dropped_column_source_change_does_not_change_r4_digests() -> None:
         rows=(as_row(varchar_cell("eth0"), int_cell(1), int_cell(99)),),
         raw_content_digest=digest_ref("bb"),
     )
-    assert first_input[1].descriptor.raw_content_digest != second_input[1].descriptor.raw_content_digest
+    assert (
+        first_input[1].descriptor.raw_content_digest
+        != second_input[1].descriptor.raw_content_digest
+    )
     first_input[0].close()
     second_input[0].close()
 
@@ -625,15 +636,11 @@ def test_requested_tables_projects_the_named_subset() -> None:
         primary_key_columns=("id",),
         rows=(as_row(int_cell(1)),),
     )
-    result = project_storage(
-        _request(_net_cfg_input(), skip_input, requested_tables=("net_cfg",))
-    )
+    result = project_storage(_request(_net_cfg_input(), skip_input, requested_tables=("net_cfg",)))
     assert result.status is ProjectionStatus.COMPLETE
     assert tuple(table.canonical_table for table in result.tables) == ("net_cfg",)
     assert result.manifest is not None
     assert tuple(table.name for table in result.manifest.tables) == ("net_cfg",)
-
-
 
 
 def test_requested_skip_table_is_omitted_not_missing() -> None:
@@ -642,14 +649,6 @@ def test_requested_skip_table_is_omitted_not_missing() -> None:
     )
     assert result.status is ProjectionStatus.COMPLETE
     assert tuple(table.canonical_table for table in result.tables) == ("net_cfg",)
-
-
-
-
-
-
-
-
 
 
 def test_skip_table_is_omitted_and_version_manager_keeps_no() -> None:
@@ -670,15 +669,11 @@ def test_skip_table_is_omitted_and_version_manager_keeps_no() -> None:
     names = tuple(table.canonical_table for table in result.tables)
     assert "device_model_table" not in names
     version = next(table for table in result.tables if table.canonical_table == "version_manager")
-    assert version.storage_view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert (
+        version.storage_view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    )
     assert "no" in version.storage_view.retained_columns
     assert version.storage_view.canonical_key_columns == ("id",)
-
-
-
-
-
-
 
 
 def test_raw_primary_key_fallback_projects_keyless_rows_without_deduplicating() -> None:
@@ -713,7 +708,10 @@ def test_raw_primary_key_fallback_projects_keyless_rows_without_deduplicating() 
     assert result.manifest is not None
     assert reordered.manifest is not None
     assert result.import_input is not None
-    assert result.manifest.tables[0].canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert (
+        result.manifest.tables[0].canonical_key_policy
+        is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    )
     assert result.manifest.tables[0].canonical_key_columns == ()
     assert result.manifest.tables[0].canonical_row_count == len(rows)
     assert result.manifest.tables[0].content_digest == reordered.manifest.tables[0].content_digest
@@ -740,18 +738,31 @@ def test_device_cfg_keeps_strict_ddl_primary_key_requirement() -> None:
 @pytest.mark.parametrize("table_name", CONFIGURATION_TABLE_NAMES)
 @pytest.mark.parametrize("storage_key", ((), ("id",)))
 def test_configuration_projection_preserves_storage_key_and_duplicate_comparison_keys(
-    table_name: str, storage_key: tuple[str, ...],
+    table_name: str,
+    storage_key: tuple[str, ...],
 ) -> None:
-    rows = (as_row(int_cell(1), int_cell(7), int_cell(1), varchar_cell("a")),
-            as_row(int_cell(2), int_cell(7), int_cell(1), varchar_cell("b")))
-    result = project_storage(_request(table_input(
-        table_name, columns=(int_column("id"), int_column("page_no"), int_column("no"),
-                             varchar_column("value")),
-        primary_key_columns=storage_key, rows=rows,
-    )))
+    rows = (
+        as_row(int_cell(1), int_cell(7), int_cell(1), varchar_cell("a")),
+        as_row(int_cell(2), int_cell(7), int_cell(1), varchar_cell("b")),
+    )
+    result = project_storage(
+        _request(
+            table_input(
+                table_name,
+                columns=(
+                    int_column("id"),
+                    int_column("page_no"),
+                    int_column("no"),
+                    varchar_column("value"),
+                ),
+                primary_key_columns=storage_key,
+                rows=rows,
+            )
+        )
+    )
     assert result.status is ProjectionStatus.COMPLETE
     assert result.import_input is not None
-    projected, = result.import_input.tables
+    (projected,) = result.import_input.tables
     assert projected.primary_key == storage_key
     assert projected.row_count == 2
     assert result.tables[0].storage_view.retained_columns == ("id", "page_no", "no", "value")
@@ -761,27 +772,48 @@ def test_configuration_projection_preserves_storage_key_and_duplicate_comparison
 def test_configuration_projection_does_not_validate_comparison_key(fault: str) -> None:
     name = "other" if fault == "missing" else "page_no"
     value = null_cell() if fault == "null" else varchar_cell("")
-    result = project_storage(_request(table_input(
-        "iec104_cfg", columns=(int_column("id"), varchar_column(name, nullable=True), int_column("no")),
-        primary_key_columns=("id",), rows=(as_row(int_cell(1), value, int_cell(1)),),
-    )))
+    result = project_storage(
+        _request(
+            table_input(
+                "iec104_cfg",
+                columns=(int_column("id"), varchar_column(name, nullable=True), int_column("no")),
+                primary_key_columns=("id",),
+                rows=(as_row(int_cell(1), value, int_cell(1)),),
+            )
+        )
+    )
     assert result.status is ProjectionStatus.COMPLETE
 
 
-@pytest.mark.parametrize("fault,code", (
-    ("duplicate", ProjectionDiagnosticCode.KEY_DUPLICATE),
-    ("null", ProjectionDiagnosticCode.KEY_NULL),
-    ("missing", ProjectionDiagnosticCode.KEY_MISSING),
-))
+@pytest.mark.parametrize(
+    "fault,code",
+    (
+        ("duplicate", ProjectionDiagnosticCode.KEY_DUPLICATE),
+        ("null", ProjectionDiagnosticCode.KEY_NULL),
+        ("missing", ProjectionDiagnosticCode.KEY_MISSING),
+    ),
+)
 def test_configuration_invalid_ddl_storage_key_still_fails(
-    fault: str, code: ProjectionDiagnosticCode,
+    fault: str,
+    code: ProjectionDiagnosticCode,
 ) -> None:
-    rows = ((as_row(int_cell(1), int_cell(1), int_cell(1)),
-             as_row(int_cell(1), int_cell(2), int_cell(1))) if fault == "duplicate" else
-            (as_row(null_cell(), int_cell(1), int_cell(1)),))
-    result = project_storage(_request(table_input(
-        "iec104_cfg", columns=(int_column("id", nullable=True), int_column("page_no"), int_column("no")),
-        primary_key_columns=("unknown",) if fault == "missing" else ("id",), rows=rows,
-    )))
+    rows = (
+        (
+            as_row(int_cell(1), int_cell(1), int_cell(1)),
+            as_row(int_cell(1), int_cell(2), int_cell(1)),
+        )
+        if fault == "duplicate"
+        else (as_row(null_cell(), int_cell(1), int_cell(1)),)
+    )
+    result = project_storage(
+        _request(
+            table_input(
+                "iec104_cfg",
+                columns=(int_column("id", nullable=True), int_column("page_no"), int_column("no")),
+                primary_key_columns=("unknown",) if fault == "missing" else ("id",),
+                rows=rows,
+            )
+        )
+    )
     assert result.status is ProjectionStatus.FAILED
     assert code in _codes(result)

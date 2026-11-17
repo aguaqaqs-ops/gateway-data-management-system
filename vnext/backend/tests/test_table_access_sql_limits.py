@@ -65,10 +65,10 @@ def test_resource_limit_exceeded_names_budget(
 
 
 def test_diagnostics_truncation_appends_marker() -> None:
-    sql = (
-        "CREATE TABLE t (`Id` INT NULL, `id` INT NULL, `ID` INT NULL);"
+    sql = "CREATE TABLE t (`Id` INT NULL, `id` INT NULL, `ID` INT NULL);"
+    result = parse_text(
+        sql, budgets=tiny_budgets(max_diagnostics=1, max_diagnostics_total_bytes=256)
     )
-    result = parse_text(sql, budgets=tiny_budgets(max_diagnostics=1, max_diagnostics_total_bytes=256))
     codes = [item.code for item in result.diagnostics]
     assert ParserDiagnosticCode.PARSER_DIAGNOSTICS_TRUNCATED in codes
     assert len(result.diagnostics) <= 2

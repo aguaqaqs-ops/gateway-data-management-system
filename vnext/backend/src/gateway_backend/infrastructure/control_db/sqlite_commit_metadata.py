@@ -136,7 +136,7 @@ class SQLiteCommitCanonicalMetadataPort(CommitCanonicalMetadataPort):
             raise _missing_metadata()
         try:
             manifest = self._manifest_reader.read_manifest(manifest_ref_id)
-        except (ManifestArtifactUnavailable, OSError, ValueError):
+        except ManifestArtifactUnavailable, OSError, ValueError:
             raise _missing_metadata() from None
 
         observed_digest = manifest.manifest_digest

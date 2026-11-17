@@ -26,8 +26,13 @@ class _ReadyHandler(BaseHTTPRequestHandler):
                 self.send_error(401)
                 return
             storage = StorageLayoutConfig.load(self.storage_layout_file)
-            body = json.dumps({"environment_id": storage.environment_id, "group_id": storage.group_id,
-                "storage_digest": storage.digest}).encode()
+            body = json.dumps(
+                {
+                    "environment_id": storage.environment_id,
+                    "group_id": storage.group_id,
+                    "storage_digest": storage.digest,
+                }
+            ).encode()
         else:
             self.send_error(404)
             return

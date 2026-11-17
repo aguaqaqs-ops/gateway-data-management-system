@@ -1,4 +1,5 @@
 """Public statistics DTOs; units and limits are part of schema version 1."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -6,7 +7,15 @@ from typing import Annotated, Generic, Literal, Self, TypeVar
 
 from pydantic import Field, field_validator, model_validator
 
-from gateway_repository_contracts.statistics import Counter, Identifier, ObservationQuality, Reason, Role, StatisticsModel, StorageValues
+from gateway_repository_contracts.statistics import (
+    Counter,
+    Identifier,
+    ObservationQuality,
+    Reason,
+    Role,
+    StatisticsModel,
+    StorageValues,
+)
 from gateway_backend.statistics.models import ExecutionSummary, StorageRecord, WriteRecord
 
 T = TypeVar("T")
@@ -20,7 +29,9 @@ class StatisticsQuery(StatisticsModel):
     export: bool = False
     format: Literal["json", "csv"] = "json"
 
-    @field_validator('limit', 'max_points', 'attempt_count', 'claim_version', mode='before', check_fields=False)
+    @field_validator(
+        "limit", "max_points", "attempt_count", "claim_version", mode="before", check_fields=False
+    )
     @classmethod
     def _http_integer(cls, value: object) -> object:
         if isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 19:
@@ -38,7 +49,9 @@ class StatisticsQuery(StatisticsModel):
     @model_validator(mode="after")
     def _valid_query(self) -> Self:
         for value in (self.from_, self.to):
-            if value is not None and (value.utcoffset() is None or value.utcoffset() != timedelta(0)):
+            if value is not None and (
+                value.utcoffset() is None or value.utcoffset() != timedelta(0)
+            ):
                 raise ValueError("statistics timestamps must be UTC")
         if self.from_ is not None and self.to is not None:
             if not self.from_ < self.to or self.to - self.from_ > timedelta(days=90):
@@ -55,7 +68,11 @@ class ResourceQuery(StatisticsQuery):
 
     @model_validator(mode="after")
     def _resource_range(self) -> Self:
-        if self.from_ is not None and self.to is not None and self.to - self.from_ > timedelta(hours=6):
+        if (
+            self.from_ is not None
+            and self.to is not None
+            and self.to - self.from_ > timedelta(hours=6)
+        ):
             raise ValueError("resource range must be at most six hours")
         return self
 
@@ -82,7 +99,9 @@ class StatisticsPage(StatisticsModel, Generic[T]):
     reason: Reason | None = None
     next_cursor: str | None = Field(default=None, max_length=2048)
     items: tuple[T, ...] = Field(default=(), max_length=10000)
-    units: Literal["bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds"] = "bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds"
+    units: Literal["bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds"] = (
+        "bytes,count,utc_microseconds,duration_milliseconds,cpu_microseconds"
+    )
 
 
 class BucketValue(StatisticsModel):

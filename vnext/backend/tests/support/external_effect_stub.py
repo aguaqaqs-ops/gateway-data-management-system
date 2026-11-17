@@ -103,7 +103,9 @@ def decode_stub_outcome(value: object) -> StubOutcome:
         raise ValueError("stub_outcome must be accepted, confirmed, or unknown") from exc
 
 
-def decode_external_effect_stub_request(payload_object: dict[str, object]) -> ExternalEffectStubRequest:
+def decode_external_effect_stub_request(
+    payload_object: dict[str, object],
+) -> ExternalEffectStubRequest:
     idempotency_key = payload_object.get("idempotency_key")
     request_body = payload_object.get("request_body")
     stub_outcome = payload_object.get("stub_outcome")
@@ -161,11 +163,19 @@ def compute_operation_identity(idempotency_key: str, request_bytes: bytes) -> st
 
 
 def request_artifact_id(request_bytes: bytes) -> str:
-    return build_artifact_id(ArtifactLocation.DURABLE, "external-effect-stub-request", raw_blob_digest(request_bytes).value)
+    return build_artifact_id(
+        ArtifactLocation.DURABLE,
+        "external-effect-stub-request",
+        raw_blob_digest(request_bytes).value,
+    )
 
 
 def response_artifact_id(response_bytes: bytes) -> str:
-    return build_artifact_id(ArtifactLocation.DURABLE, "external-effect-stub-response", raw_blob_digest(response_bytes).value)
+    return build_artifact_id(
+        ArtifactLocation.DURABLE,
+        "external-effect-stub-response",
+        raw_blob_digest(response_bytes).value,
+    )
 
 
 __all__ = [

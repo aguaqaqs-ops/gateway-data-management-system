@@ -302,7 +302,10 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
     shape: KeyScanCoverageShape,
 ) -> None:
     def resolve_rule(
-        _ruleset: object, table_name: str, *, primary_key_columns: tuple[str, ...],
+        _ruleset: object,
+        table_name: str,
+        *,
+        primary_key_columns: tuple[str, ...],
         table_comment: str | None,
     ) -> object:
         del primary_key_columns, table_comment
@@ -314,7 +317,9 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
             if table_name == "mixed-key-repeats"
             else CanonicalKeyPolicy.DDL_PRIMARY_KEY
         )
-        return SimpleNamespace(record=SimpleNamespace(static_role=role, canonical_key_policy=policy))
+        return SimpleNamespace(
+            record=SimpleNamespace(static_role=role, canonical_key_policy=policy)
+        )
 
     def census_table(name: str, rows: tuple[tuple[object, ...], ...] | None) -> SimpleNamespace:
         reader = None
@@ -336,7 +341,9 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
             descriptor=SimpleNamespace(
                 table_name=name,
                 primary_key_columns=("id",),
-                columns=tuple(SimpleNamespace(name=column) for column in column_names[:column_count]),
+                columns=tuple(
+                    SimpleNamespace(name=column) for column in column_names[:column_count]
+                ),
             ),
             reader=reader,
         )
@@ -374,12 +381,6 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
     assert result.conflicting_extra_rows == shape.conflicting_extra_rows
     assert result.duplicate_details_by_table == shape.duplicate_details_by_table
     assert result.ordered_projection_by_table == {}
-
-
-
-
-
-
 
 
 @pytest.mark.unit
@@ -428,9 +429,7 @@ def test_sql_scan_fallback_keeps_tables_when_composite_stage_fails(
     failed_business = SimpleNamespace(
         status=SnapshotMaterializationStatus.FAILED,
         table_set=None,
-        diagnostics=(
-            SimpleNamespace(code=MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED),
-        ),
+        diagnostics=(SimpleNamespace(code=MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED),),
     )
 
     result = real_dump_census._sql_scan_source_after_composite_failure(
@@ -448,11 +447,22 @@ def test_sql_scan_fallback_keeps_tables_when_composite_stage_fails(
 def test_ordered_gid_census_uses_real_rust_projection_counts() -> None:
     from tests.support.snapshot_materialization import materialize_sql
     from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
-    from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
-    materialized = materialize_sql("CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL, payload TEXT) COMMENT='遥信引用表'; INSERT INTO b1_n1_iec104_syx_list VALUES (NULL,1,'a'),(0,2,'b'),(7,3,'c');", policy=MaterializationPolicy.READERS_REQUIRED)
+    from gateway_backend.capabilities.snapshot_materialization.contracts import (
+        MaterializationPolicy,
+    )
+
+    materialized = materialize_sql(
+        "CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL, payload TEXT) COMMENT='遥信引用表'; INSERT INTO b1_n1_iec104_syx_list VALUES (NULL,1,'a'),(0,2,'b'),(7,3,'c');",
+        policy=MaterializationPolicy.READERS_REQUIRED,
+    )
     assert materialized.table_set is not None
-    stats = real_dump_census._duplicate_and_effective_key_stats(table_set=materialized.table_set,
-        presentation=materialized.presentation, ruleset=migrated_table_ruleset_snapshot(), diagnostic_mode=True, materialization_complete=True)
+    stats = real_dump_census._duplicate_and_effective_key_stats(
+        table_set=materialized.table_set,
+        presentation=materialized.presentation,
+        ruleset=migrated_table_ruleset_snapshot(),
+        diagnostic_mode=True,
+        materialization_complete=True,
+    )
     facts = stats.ordered_projection_by_table["b1_n1_iec104_syx_list"]
     assert facts["status"] == "COMPLETE"
     assert facts["real_gid_count"] == 1 and facts["pseudo_gid_count"] == 2

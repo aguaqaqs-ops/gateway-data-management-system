@@ -56,9 +56,15 @@ def get_preview_result_route(
             ),
             "content": {"application/x-tar": {}},
             "headers": {
-                "Content-Length": {"schema": {"type": "integer"}, "description": "Exact complete tar byte count"},
+                "Content-Length": {
+                    "schema": {"type": "integer"},
+                    "description": "Exact complete tar byte count",
+                },
                 "ETag": {"schema": {"type": "string"}, "description": "Quoted bundle digest"},
-                "Content-Disposition": {"schema": {"type": "string"}, "description": "Safe attachment tar filename"},
+                "Content-Disposition": {
+                    "schema": {"type": "string"},
+                    "description": "Safe attachment tar filename",
+                },
             },
         },
         401: {"description": "AUTHENTICATION_REQUIRED"},

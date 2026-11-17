@@ -47,7 +47,10 @@ from gateway_backend.application.submission.job_payload import (
     SUBMIT_STEP_SUBMIT,
 )
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.bootstrap.operation_worker import bootstrap_control_database, build_worker_runtime
+from gateway_backend.bootstrap.operation_worker import (
+    bootstrap_control_database,
+    build_worker_runtime,
+)
 from gateway_backend.operations.worker import WorkerEvent, WorkerObserver
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
@@ -118,19 +121,21 @@ def build_dolt_compatible_prepare_publication(
         manifest=manifest,
         replay_sql=replay_sql,
     )
-    manifest_bytes = json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    manifest_bytes = json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     manifest_ref = put_with_built_ref(
         artifact_store,
         manifest_bytes,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"manifest-{build_input.submit_attempt_id}"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "test-fixture", f"manifest-{build_input.submit_attempt_id}"
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     )
     package_ref = put_with_built_ref(
         artifact_store,
         package_bytes,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"package-{build_input.submit_attempt_id}"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "test-fixture", f"package-{build_input.submit_attempt_id}"
+        ),
         media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
     )
     checkpoint = PrepareImportCheckpoint(
@@ -260,10 +265,14 @@ class RepositoryServiceClient:
     _server: Any = None
     _thread: Any = None
 
-    def repository_id_factory(self, *, idempotency_key: str = "create-submit-harness") -> SeededRepository:
+    def repository_id_factory(
+        self, *, idempotency_key: str = "create-submit-harness"
+    ) -> SeededRepository:
         return seed_minimal_repository(self, idempotency_key=idempotency_key)
 
-    def write_client(self, *, transport: httpx.AsyncBaseTransport | None = None) -> HttpRepositoryWriteClient:
+    def write_client(
+        self, *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> HttpRepositoryWriteClient:
         return HttpRepositoryWriteClient(
             base_url=self.base_url,
             bearer_token=self.bearer_token,
@@ -548,6 +557,7 @@ def build_submit_worker_harness(
         repository_base_url=repository_base_url,
         repository_bearer_token_file=token_file,
     )
+
     def control_now() -> datetime:
         if control_clock is not None:
             return control_clock["value"]
@@ -555,7 +565,9 @@ def build_submit_worker_harness(
 
     if control_clock is not None:
         settings.control_db_path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
-        from gateway_backend.infrastructure.control_db.database import initialize_and_verify_control_db
+        from gateway_backend.infrastructure.control_db.database import (
+            initialize_and_verify_control_db,
+        )
 
         initialize_and_verify_control_db(settings.control_db_path)
     else:
@@ -594,6 +606,7 @@ def build_submit_worker_harness(
     submit_definitions, submit_handlers, submit_decoders, bound_submit_deps = (
         submit_composition_bundle(submit_deps)
     )
+
     def _noop_observer(_event: WorkerEvent) -> None:
         return None
 

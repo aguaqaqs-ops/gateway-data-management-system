@@ -78,7 +78,13 @@ def test_preloaded_dependency_layers_are_source_ordered_and_offline_after_source
     assert "UV_OFFLINE=1 uv pip install" in runtime_after_source
     assert "source=/build/wheels,target=/tmp/backend-wheels,ro" in runtime_after_source
     assert "/tmp/backend-wheels/*.whl" in runtime_after_source
-    assert re.search(r"\bcurl\b|cargo fetch|uv python install|pip install --no-cache-dir", runtime_after_source) is None
+    assert (
+        re.search(
+            r"\bcurl\b|cargo fetch|uv python install|pip install --no-cache-dir",
+            runtime_after_source,
+        )
+        is None
+    )
     assert "COPY --from=builder /root/.cache/uv" not in dockerfile
     assert "COPY --from=builder /build/wheels" not in dockerfile
 
@@ -89,7 +95,9 @@ def test_dependency_base_label_is_bound_to_canonical_input_payload() -> None:
     script = (VNEXT_ROOT / "scripts" / "build-backend-dependency-base.sh").read_text(
         encoding="utf-8"
     )
-    assert 'LABEL gateway.backend.dependency-input-sha256="${DEPENDENCY_INPUT_SHA256}"' in dockerfile
+    assert (
+        'LABEL gateway.backend.dependency-input-sha256="${DEPENDENCY_INPUT_SHA256}"' in dockerfile
+    )
     assert 'LABEL gateway.backend.base-image-inspect-id="${BASE_IMAGE_ID}"' in dockerfile
     assert '"gateway.backend.dependency-input-sha256"' in script
     assert 'payload["tag_inputs"]' in dockerfile
@@ -111,7 +119,10 @@ def test_compose_backend_build_args_and_runtime_separation() -> None:
     block = backend_block.group(1)
     assert "UV_BOOTSTRAP_INDEX_URL: ${GATEWAY_BACKEND_UV_BOOTSTRAP_INDEX_URL" in block
     assert "UV_BOOTSTRAP_TRUSTED_HOST: ${GATEWAY_BACKEND_UV_BOOTSTRAP_TRUSTED_HOST" in block
-    assert "DEPENDENCY_BASE_IMAGE: ${GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE:-rust:1.97.0-bookworm}" in block
+    assert (
+        "DEPENDENCY_BASE_IMAGE: ${GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE:-rust:1.97.0-bookworm}"
+        in block
+    )
     assert "USE_PRELOADED_DEPENDENCIES: ${GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES:-0}" in block
     assert "network: ${GATEWAY_DOCKER_BUILD_NETWORK:-}" in block
     environment = block.split("environment:", maxsplit=1)[1].split("volumes:", maxsplit=1)[0]
@@ -132,7 +143,10 @@ def test_compose_worker_grace_and_backend_internal_bearer_secret() -> None:
     assert worker_block is not None
     block = worker_block.group(1)
     assert "stop_grace_period: 180s" in block
-    assert "DEPENDENCY_BASE_IMAGE: ${GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE:-rust:1.97.0-bookworm}" in block
+    assert (
+        "DEPENDENCY_BASE_IMAGE: ${GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE:-rust:1.97.0-bookworm}"
+        in block
+    )
     assert "USE_PRELOADED_DEPENDENCIES: ${GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES:-0}" in block
     backend_block = re.search(
         r"^  backend:\n(.*?)(?=^  worker:)",

@@ -64,7 +64,12 @@ FINGERPRINT_BASE = {
 REVIEW_ALLOWED_TRANSITIONS = (
     (ReviewStatus.PENDING, ReviewAction.APPROVE, ReviewEventKind.APPROVED, ReviewStatus.APPROVED),
     (ReviewStatus.PENDING, ReviewAction.REJECT, ReviewEventKind.REJECTED, ReviewStatus.REJECTED),
-    (ReviewStatus.PENDING, ReviewAction.WITHDRAW, ReviewEventKind.WITHDRAWN, ReviewStatus.WITHDRAWN),
+    (
+        ReviewStatus.PENDING,
+        ReviewAction.WITHDRAW,
+        ReviewEventKind.WITHDRAWN,
+        ReviewStatus.WITHDRAWN,
+    ),
 )
 
 REVIEW_DENIED_TRANSITIONS = (
@@ -92,7 +97,12 @@ REVIEW_REASON_CASES = (
     ("reason_surrogate", ReviewAction.REJECT, "bad\ud800reason", InvalidReviewReason),
     ("reason_noncharacter", ReviewAction.REJECT, "bad\uffffreason", InvalidReviewReason),
     ("reason_too_large", ReviewAction.REJECT, "x" * 4097, InvalidReviewReason),
-    ("review_reason_multiline_remains_invalid", ReviewAction.REJECT, "line one\nline two", InvalidReviewReason),
+    (
+        "review_reason_multiline_remains_invalid",
+        ReviewAction.REJECT,
+        "line one\nline two",
+        InvalidReviewReason,
+    ),
 )
 
 SUBMISSION_REASON_MODE_CASES = (
@@ -100,7 +110,9 @@ SUBMISSION_REASON_MODE_CASES = (
     pytest.param("line one\rline two", True, None, id="identity-cr-allowed"),
     pytest.param("tab\tallowed", True, None, id="identity-tab-allowed"),
     pytest.param("line one\nline two", False, InvalidReviewReason, id="review-newline-rejected"),
-    pytest.param("line one\rline two", False, InvalidReviewReason, id="review-carriage-return-rejected"),
+    pytest.param(
+        "line one\rline two", False, InvalidReviewReason, id="review-carriage-return-rejected"
+    ),
     pytest.param("tab\tallowed", False, InvalidReviewReason, id="review-tab-rejected"),
     pytest.param("bad\x00text", True, InvalidReviewReason, id="other-c0-rejected"),
     pytest.param("bad\x85text", True, InvalidReviewReason, id="other-c1-rejected"),
@@ -172,7 +184,9 @@ def _apply_command(**overrides: Any) -> ApplyReviewCommand:
     return ApplyReviewCommand(
         context=overrides.get("context", base.context),
         submission_id=overrides.get("submission_id", base.submission_id),
-        expected_review_version=overrides.get("expected_review_version", base.expected_review_version),
+        expected_review_version=overrides.get(
+            "expected_review_version", base.expected_review_version
+        ),
         action=overrides.get("action", base.action),
         reason=overrides.get("reason", base.reason),
         idempotency_key=overrides.get("idempotency_key", base.idempotency_key),
@@ -493,7 +507,9 @@ def test_validate_review_reason_contract(
     assert validate_review_reason(action, reason) == expected
 
 
-@pytest.mark.parametrize(("reason", "allow_multiline", "expected_error"), SUBMISSION_REASON_MODE_CASES)
+@pytest.mark.parametrize(
+    ("reason", "allow_multiline", "expected_error"), SUBMISSION_REASON_MODE_CASES
+)
 def test_shared_submission_reason_validation_selects_multiline_mode(
     reason: str,
     allow_multiline: bool,
@@ -537,7 +553,9 @@ def test_compute_review_apply_request_fingerprint_is_deterministic() -> None:
     assert first == second
 
 
-@pytest.mark.parametrize(("field_name", "baseline_value", "other_value"), FINGERPRINT_SENSITIVITY_CASES)
+@pytest.mark.parametrize(
+    ("field_name", "baseline_value", "other_value"), FINGERPRINT_SENSITIVITY_CASES
+)
 def test_compute_review_apply_request_fingerprint_changes_when_closed_object_changes(
     field_name: str,
     baseline_value: object,
@@ -552,7 +570,9 @@ def test_compute_review_apply_request_fingerprint_changes_when_closed_object_cha
     assert changed != baseline
 
 
-@pytest.mark.parametrize(("case_id", "overrides", "expected_error"), INVALID_APPLY_REVIEW_COMMAND_CASES)
+@pytest.mark.parametrize(
+    ("case_id", "overrides", "expected_error"), INVALID_APPLY_REVIEW_COMMAND_CASES
+)
 def test_validate_apply_review_command_rejects_invalid_inputs(
     case_id: str,
     overrides: dict[str, Any],

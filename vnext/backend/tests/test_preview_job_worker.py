@@ -26,6 +26,7 @@ from tests.support.preview_job_harness import (
     run_claimed_handler,
     step_id_for,
 )
+
 pytestmark = pytest.mark.integration
 
 RULESET_MISMATCH_STEPS = (
@@ -59,7 +60,9 @@ def test_preview_worker_topology_reaches_succeeded(tmp_path: Path) -> None:
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        materialize = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
+        materialize = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
         assemble = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
         publish = unit_of_work.operations.get_step(step_id_for(operation_id, "publish_preview"))
         workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)

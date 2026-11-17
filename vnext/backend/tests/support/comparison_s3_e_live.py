@@ -7,18 +7,30 @@ from dataclasses import replace
 
 from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput, ComparisonPlan, ComparisonRequest, DetailedFactsResult,
-    RecordsDetailPolicy, plan_comparison,
+    BoundSnapshotInput,
+    ComparisonPlan,
+    ComparisonRequest,
+    DetailedFactsResult,
+    RecordsDetailPolicy,
+    plan_comparison,
 )
 from gateway_backend.capabilities.comparison.artifacts import (
-    RecordsPublicationContext, RecordsPublicationPolicy, publish_records_closure_arrow,
+    RecordsPublicationContext,
+    RecordsPublicationPolicy,
+    publish_records_closure_arrow,
 )
 from gateway_backend.capabilities.comparison.production import NativeComparison, compare_plan_native
 from gateway_backend.capabilities.snapshot_materialization import snapshot_table_from_arrow
 from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.table_rules.contracts import TableArtifactScope
 from tests.support.comparison_s3_c_inputs import bound, canonical_stream
-from tests.support.table_rules import comparison_ruleset_for, fallback_record, ordered_record, snapshot_from_records, standard_rule_record
+from tests.support.table_rules import (
+    comparison_ruleset_for,
+    fallback_record,
+    ordered_record,
+    snapshot_from_records,
+    standard_rule_record,
+)
 
 
 def canonical_bound(sql: str) -> BoundSnapshotInput:
@@ -29,12 +41,15 @@ def canonical_bound(sql: str) -> BoundSnapshotInput:
         assert isinstance(table.reader, BoundSnapshotTableReader)
         with closing(canonical_stream(table)) as stream:
             backing = stream.read_all()
-        tables.append(snapshot_table_from_arrow(
-            table.descriptor, backing, table.reader.source_descriptor(),
-            ordered=table.ordered_metadata,
-        ))
+        tables.append(
+            snapshot_table_from_arrow(
+                table.descriptor,
+                backing,
+                table.reader.source_descriptor(),
+                ordered=table.ordered_metadata,
+            )
+        )
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
-
 
 
 def ordered_canonical_bound(sql: str) -> BoundSnapshotInput:
@@ -46,16 +61,29 @@ def ordered_canonical_bound(sql: str) -> BoundSnapshotInput:
     source = bound(sql)
     assert source.table_set is not None and source.presentation is not None
     ruleset = snapshot_from_records(ordered_record(r"^t$"), fallback_record())
-    projected = project_canonical_arrow_table_set(source.table_set, ruleset, presentation=source.presentation)
+    projected = project_canonical_arrow_table_set(
+        source.table_set, ruleset, presentation=source.presentation
+    )
     if projected.manifest is None:
         raise ValueError(f"ordered projection failed: {projected.diagnostics}")
     result = materialize_canonical_snapshot(
-        source.snapshot, projected.tables, artifact_store=InMemoryArtifactStore(),
-        context=ParserInvocationContext(NeverCancel()), repository_id="ordered-live-fixture",
+        source.snapshot,
+        projected.tables,
+        artifact_store=InMemoryArtifactStore(),
+        context=ParserInvocationContext(NeverCancel()),
+        repository_id="ordered-live-fixture",
     )
-    assert result.snapshot is not None and result.summary is not None and result.table_set is not None
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set,
-        _comparison_storage_facts(projected.manifest), presentation=projected.manifest.presentation)
+    assert (
+        result.snapshot is not None and result.summary is not None and result.table_set is not None
+    )
+    return BoundSnapshotInput(
+        result.snapshot,
+        result.summary,
+        result.table_set,
+        _comparison_storage_facts(projected.manifest),
+        presentation=projected.manifest.presentation,
+    )
+
 
 def native_product(
     before_sql: str,
@@ -70,18 +98,24 @@ def native_product(
     before, current = build(before_sql), build(current_sql)
     rule = (
         ordered_record(r"^t$", compare_excluded_columns=compare_excluded_columns)
-        if ordered else standard_rule_record(
-            "t", compare_excluded_columns=compare_excluded_columns,
+        if ordered
+        else standard_rule_record(
+            "t",
+            compare_excluded_columns=compare_excluded_columns,
             artifact_scope=artifact_scope,
         )
     )
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="s3-e-live-consumer", before=before, current=current,
-        rule_set=comparison_ruleset_for(rule),
-        options=() if detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES else (
-            ("row_diff_detail_policy", detail_policy.value),
-        ),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-e-live-consumer",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(rule),
+            options=()
+            if detail_policy is RecordsDetailPolicy.FULL_BEFORE_AFTER_VALUES
+            else (("row_diff_detail_policy", detail_policy.value),),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     return compare_plan_native(planned)
 
@@ -96,6 +130,10 @@ def publish_product(
 ) -> DetailedFactsResult:
     assert isinstance(product.result, DetailedFactsResult)
     return publish_records_closure_arrow(
-        product.result, product.handles, store, policy=policy, context=context,
+        product.result,
+        product.handles,
+        store,
+        policy=policy,
+        context=context,
         detail_policy=detail_policy,
     )

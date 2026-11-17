@@ -9,13 +9,16 @@ from typing import Protocol
 import pyarrow as pa
 
 from gateway_backend.capabilities.snapshot_materialization.arrow import (
-    ArrowSnapshotTableReader, operation_codec_budgets,
+    ArrowSnapshotTableReader,
+    operation_codec_budgets,
 )
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
-    canonical_comparison_profile, check_canonical_descriptor_budget,
+    canonical_comparison_profile,
+    check_canonical_descriptor_budget,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    SnapshotTable, normalize_sql_type_spelling,
+    SnapshotTable,
+    normalize_sql_type_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     try_declared_type_for_sql_spelling,
@@ -42,18 +45,17 @@ class _FreshViewOwner:
 
 
 def _has_canonical_profile_metadata(schema: pa.Schema) -> bool:
-    return ((schema.metadata is not None
-             and b"gdds.canonical_mapping_version" in schema.metadata)
-            or any(field.metadata is not None
-                   and b"gdds.canonical_type" in field.metadata
-                   for field in schema))
+    return (
+        schema.metadata is not None and b"gdds.canonical_mapping_version" in schema.metadata
+    ) or any(
+        field.metadata is not None and b"gdds.canonical_type" in field.metadata for field in schema
+    )
 
 
 def fresh_canonical_view_budget(table: SnapshotTable) -> tuple[int, int]:
     """Bound only a writer-verified fresh canonical view before native M split."""
     reader = table.reader
-    if (not isinstance(reader, ArrowSnapshotTableReader)
-            or not reader.canonical_comparison_verified):
+    if not isinstance(reader, ArrowSnapshotTableReader) or not reader.canonical_comparison_verified:
         return 0, 0
     try:
         schema = reader.arrow_schema
@@ -64,8 +66,8 @@ def fresh_canonical_view_budget(table: SnapshotTable) -> tuple[int, int]:
         return 0, 0
     columns = table.descriptor.columns
     source_bytes = sum(
-        256 + len(column.name) + len(column.display_name)
-        + len(column.scalar_type or "") for column in columns
+        256 + len(column.name) + len(column.display_name) + len(column.scalar_type or "")
+        for column in columns
     )
     descriptor_upper = 0
     try:
@@ -77,7 +79,8 @@ def fresh_canonical_view_budget(table: SnapshotTable) -> tuple[int, int]:
     except MemoryError:
         pass
     metadata_upper = max(
-        65536 + 64 * source_bytes + 16384 * len(columns), descriptor_upper,
+        65536 + 64 * source_bytes + 16384 * len(columns),
+        descriptor_upper,
     )
     rows = table.descriptor.row_count
     batches = batch_count + (rows + 65535) // 65536
@@ -86,8 +89,7 @@ def fresh_canonical_view_budget(table: SnapshotTable) -> tuple[int, int]:
         declared = try_declared_type_for_sql_spelling(
             normalize_sql_type_spelling(column.scalar_type or "UNKNOWN")
         )
-        if (declared is None or declared.kind.value != "bit"
-                or declared.bit_width is None):
+        if declared is None or declared.kind.value != "bit" or declared.bit_width is None:
             continue
         index = schema.get_field_index(column.name)
         if index < 0 or pa.types.is_fixed_size_binary(schema.field(index).type):
@@ -99,7 +101,9 @@ def fresh_canonical_view_budget(table: SnapshotTable) -> tuple[int, int]:
 
 
 def canonical_comparison_input(
-    table: SnapshotTable, *, field_order: tuple[str, ...] | None = None,
+    table: SnapshotTable,
+    *,
+    field_order: tuple[str, ...] | None = None,
 ) -> tuple[pa.RecordBatchReader, CanonicalInputOwner]:
     """Borrow the persisted IPC profile or a verified fresh writer's bounded view."""
     context = current_kernel_context()
@@ -121,7 +125,9 @@ def canonical_comparison_input(
         profile_charge = context.memory.reserve(metadata_upper)
         try:
             profile, indices = canonical_comparison_profile(
-                table.descriptor, schema, metadata_budget_bytes=metadata_upper,
+                table.descriptor,
+                schema,
+                metadata_budget_bytes=metadata_upper,
             )
             if field_order is not None:
                 # The IPC profile uses UTF8 field-name order, while the
@@ -129,22 +135,29 @@ def canonical_comparison_input(
                 # already-reserved profile metadata envelope covers this
                 # bounded schema/index reorder before any record batches.
                 positions = tuple(profile.get_field_index(name) for name in field_order)
-                if (len(positions) != len(profile) or len(set(positions)) != len(profile)
-                        or any(position < 0 for position in positions)):
+                if (
+                    len(positions) != len(profile)
+                    or len(set(positions)) != len(profile)
+                    or any(position < 0 for position in positions)
+                ):
                     raise ValueError("canonical view field order differs from frozen descriptor")
-                profile = pa.schema([profile.field(position) for position in positions],
-                                    metadata=profile.metadata)
+                profile = pa.schema(
+                    [profile.field(position) for position in positions], metadata=profile.metadata
+                )
                 indices = tuple(indices[position] for position in positions)
             for position, source_index in enumerate(indices):
                 target = profile.field(position).type
                 actual = schema.field(source_index).type
                 if actual == target:
                     continue
-                if not (pa.types.is_fixed_size_binary(target)
-                        and (pa.types.is_binary(actual) or pa.types.is_large_binary(actual))):
+                if not (
+                    pa.types.is_fixed_size_binary(target)
+                    and (pa.types.is_binary(actual) or pa.types.is_large_binary(actual))
+                ):
                     raise ValueError("canonical comparison view has an unsupported conversion")
             bit_charge = context.memory.reserve(bit_upper) if bit_upper else None
             try:
+
                 def batches() -> Iterator[pa.RecordBatch]:
                     for batch in original:
                         step = 65536 if bit_upper else max(1, batch.num_rows)
@@ -155,7 +168,9 @@ def canonical_comparison_input(
                             for position, source_index in enumerate(indices):
                                 array = part.column(source_index)
                                 target = profile.field(position).type
-                                arrays.append(array if array.type == target else array.cast(target, safe=True))
+                                arrays.append(
+                                    array if array.type == target else array.cast(target, safe=True)
+                                )
                             yield pa.RecordBatch.from_arrays(arrays, schema=profile)
                     context.checkpoint()
 
@@ -167,9 +182,13 @@ def canonical_comparison_input(
         except BaseException:
             profile_charge.close()
             raise
-        return view, _FreshViewOwner(tuple(
-            item for item in (original, isolated, bit_charge, profile_charge) if item is not None
-        ))
+        return view, _FreshViewOwner(
+            tuple(
+                item
+                for item in (original, isolated, bit_charge, profile_charge)
+                if item is not None
+            )
+        )
     except BaseException:
         if original is not None:
             original.close()

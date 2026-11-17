@@ -16,6 +16,8 @@ from gateway_backend.capabilities.storage_projection.contracts import (
 from gateway_backend.capabilities.table_rules.contracts import StorageRuleView
 
 MANIFEST_DIGEST_PREFIX = b"gateway-vnext:canonicalization-manifest:v1\0"
+
+
 def compute_storage_rule_digest(view: StorageRuleView) -> DigestRef:
     payload = {
         "canonical_key_columns": list(view.canonical_key_columns),
@@ -47,10 +49,20 @@ def compute_manifest_digest(manifest: CanonicalizationManifest) -> DigestRef:
     document = manifest_document(manifest)
     # Explicit canonical whitelist: durable presentation is protected by raw SHA,
     # while comment-only uploads retain their semantic identity in this version.
-    payload = canonicalize_json_value({key: document[key] for key in (
-        "contract_version", "ruleset_digest", "ruleset_id", "ruleset_version",
-        "source_artifact_digest", "storage_projection_version", "tables",
-    )})
+    payload = canonicalize_json_value(
+        {
+            key: document[key]
+            for key in (
+                "contract_version",
+                "ruleset_digest",
+                "ruleset_id",
+                "ruleset_version",
+                "source_artifact_digest",
+                "storage_projection_version",
+                "tables",
+            )
+        }
+    )
     return DigestRef.from_raw_digest(hashlib.sha256(MANIFEST_DIGEST_PREFIX + payload).digest())
 
 
@@ -95,6 +107,6 @@ def _optional_digest(digest: DigestRef | None) -> str | None:
 
 
 def _sha256_jcs(payload: Mapping[str, object]) -> DigestRef:
-    return DigestRef.from_raw_digest(hashlib.sha256(canonicalize_json_value(dict(payload))).digest())
-
-
+    return DigestRef.from_raw_digest(
+        hashlib.sha256(canonicalize_json_value(dict(payload))).digest()
+    )

@@ -1,4 +1,5 @@
 """The real comment-only producer still reaches Submit's canonical no-op boundary."""
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,8 @@ import pytest
 
 @pytest.mark.unit
 def test_comment_only_fixture_reaches_canonical_noop_without_writes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     vnext = Path(__file__).resolve().parents[2]
     monkeypatch.syspath_prepend(str(vnext / "scripts"))

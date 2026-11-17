@@ -47,7 +47,9 @@ class ArchiveCandidateReadPort(Protocol):
         """Read bounded unclosed current-baseline pending facts, including broken closure."""
         ...
 
-    def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]:
+    def list_active_submit_attempts(
+        self, repository_id: str
+    ) -> tuple[ArchiveActiveAttemptFacts, ...]:
         """Return non-terminal submit attempts for one repository."""
 
 

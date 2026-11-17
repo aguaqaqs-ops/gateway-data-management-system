@@ -46,7 +46,9 @@ class RiskRecordView:
     """Reopen the in-memory facts-order minimum projection for each risk rule."""
 
     def __init__(
-        self, handle: object, metrics: dict[str, float] | None = None,
+        self,
+        handle: object,
+        metrics: dict[str, float] | None = None,
         operation: RiskOperationPort | None = None,
     ) -> None:
         self._handle = handle
@@ -66,24 +68,36 @@ class RiskRecordView:
                     operation.checkpoint()
                 # One Arrow→Python conversion per needed column/batch. The
                 # full values/field changes never cross into Risk.
-                scratch = (nullcontext() if operation is None else operation.memory.reserve(
-                    8192 + batch.nbytes * 16 + batch.num_rows * 512,
-                ))
+                scratch = (
+                    nullcontext()
+                    if operation is None
+                    else operation.memory.reserve(
+                        8192 + batch.nbytes * 16 + batch.num_rows * 512,
+                    )
+                )
                 with scratch:
                     started = perf_counter()
                     columns = batch.to_pydict()
-                    records = [RiskRecord(
-                        record_kind=ComparisonRecordKind(kind),
-                        row_identity=None if identity is None else DigestRef("sha256:" + identity.hex()),
-                        changed_columns=tuple(changed),
-                    ) for kind, identity, changed in zip(
-                        columns["record_kind"], columns["row_identity"],
-                        columns["changed_columns"], strict=True,
-                    )]
+                    records = [
+                        RiskRecord(
+                            record_kind=ComparisonRecordKind(kind),
+                            row_identity=None
+                            if identity is None
+                            else DigestRef("sha256:" + identity.hex()),
+                            changed_columns=tuple(changed),
+                        )
+                        for kind, identity, changed in zip(
+                            columns["record_kind"],
+                            columns["row_identity"],
+                            columns["changed_columns"],
+                            strict=True,
+                        )
+                    ]
                     if self._metrics is not None:
                         self._metrics["necessary_arrow_conversion_seconds"] = (
                             self._metrics.get("necessary_arrow_conversion_seconds", 0.0)
-                            + perf_counter() - started
+                            + perf_counter()
+                            - started
                         )
                     yield from records
 
@@ -187,10 +201,14 @@ def has_visible_change(item: ExtractedRiskFacts) -> bool:
         or table.row_deleted_count
         or table.row_modified_count
         or item.records
-        or (table.ordered_extension is not None
-            and table.ordered_extension.ordered_summary.row_moved_count > 0)
-        or (table.blank_extension is not None
-            and table.blank_extension.blank_summary.blank_changed_count > 0)
+        or (
+            table.ordered_extension is not None
+            and table.ordered_extension.ordered_summary.row_moved_count > 0
+        )
+        or (
+            table.blank_extension is not None
+            and table.blank_extension.blank_summary.blank_changed_count > 0
+        )
         or item.ordered_unsupported
         or item.uncovered_targets
     )
@@ -219,8 +237,10 @@ def _risk_scope(
         return RiskScope.TABLE
     if key_degraded or ordered_unsupported or table.status is ComparisonTableStatus.DEGRADED:
         return RiskScope.DEGRADED_TABLE
-    if table.ordered_extension is not None or (table.blank_extension is not None
-            and table.blank_extension.blank_summary.blank_changed_count):
+    if table.ordered_extension is not None or (
+        table.blank_extension is not None
+        and table.blank_extension.blank_summary.blank_changed_count
+    ):
         return RiskScope.ORDERED_TABLE
     if table.row_added_count or table.row_deleted_count or table.row_modified_count or has_records:
         return RiskScope.STANDARD_ROWS
@@ -240,7 +260,9 @@ def _ordered_unsupported(table: ComparisonTableFact, diagnostics: tuple[str, ...
     if extension is not None:
         if extension.status is OrderedStatus.DEGRADED:
             return True
-        if any(record.record_kind is OrderedRecordKind.TABLE_DEGRADED for record in extension.records):
+        if any(
+            record.record_kind is OrderedRecordKind.TABLE_DEGRADED for record in extension.records
+        ):
             return True
         if any(ORDERED_UNSUPPORTED_TOKEN in diagnostic for diagnostic in extension.diagnostics):
             return True

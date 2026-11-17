@@ -17,7 +17,10 @@ import pytest
 from gateway_backend.application.submission.contracts import RepositoryImportOperation
 from gateway_shared_kernel import raw_blob_digest
 
-from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
+from gateway_backend.application.submission.job_payload import (
+    SUBMIT_STEP_PREPARE,
+    SUBMIT_STEP_SUBMIT,
+)
 from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
     put_checkpoint_envelope,
@@ -61,7 +64,10 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.application.submit_jobs import _submit_attempt_id_from_operation
 from gateway_backend.domain.submission.models import RepositoryArtifactRef, SubmitAttemptState
 from gateway_backend.bootstrap.worker_instance import worker_id_for
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.operations import StepStatus
 from gateway_backend.operations.contracts import OperationStatus
 from gateway_backend.operations.state import TransitionDisposition
@@ -147,7 +153,9 @@ def db_path(tmp_path: Path) -> Path:
     return path
 
 
-def _materialize_snapshot(store: InMemoryArtifactStore, repository_id: str) -> tuple[ArtifactRef, str]:
+def _materialize_snapshot(
+    store: InMemoryArtifactStore, repository_id: str
+) -> tuple[ArtifactRef, str]:
     from tests.support.preview_fixtures import make_canonical_artifact_fixture
 
     fixture = make_canonical_artifact_fixture(repository_id)
@@ -168,7 +176,9 @@ def _materialize_ready_preview(
     for index in range(70):
         payload = f"preview-output-{index}".encode("ascii")
         ref = ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"preview-derived-{index:03d}"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE, "test-fixture", f"preview-derived-{index:03d}"
+            ),
             media_type="application/octet-stream",
             size_bytes=len(payload),
             raw_sha256=raw_blob_digest(payload),
@@ -176,8 +186,10 @@ def _materialize_ready_preview(
         store.put(payload, ref)
         additional_refs.append(ref)
     from tests.support.review_result_fixtures import closed_review_preview
+
     preview, closed_refs, payloads = closed_review_preview(
-        seed.preview_result, (*fixture.refs, *additional_refs))
+        seed.preview_result, (*fixture.refs, *additional_refs)
+    )
     for ref in closed_refs:
         if ref.artifact_id in payloads:
             store.put(payloads[ref.artifact_id], ref)
@@ -200,7 +212,11 @@ def _materialize_ready_preview(
             owner_id=seed.workspace.workspace_id,
             intent="current-preview",
         )
-    return replace(seed, preview_result=preview, protected_refs=protected_refs), snapshot_ref, snapshot_digest
+    return (
+        replace(seed, preview_result=preview, protected_refs=protected_refs),
+        snapshot_ref,
+        snapshot_digest,
+    )
 
 
 def _accept_prepared_operation(
@@ -432,16 +448,26 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
 
     # T1 is already accepted. Removing its actual IPC row file must abort from
     # the frozen closure, without asking any live repository/source to rebuild it.
-    row_id = next(artifact_id for artifact_id, (ref, _raw) in store._artifacts.items()
-        if ref.media_type == "application/vnd.apache.arrow.file")
+    row_id = next(
+        artifact_id
+        for artifact_id, (ref, _raw) in store._artifacts.items()
+        if ref.media_type == "application/vnd.apache.arrow.file"
+    )
     del store._artifacts[row_id]
 
     def forbidden_source(*_args: object, **_kwargs: object) -> Never:
         raise AssertionError("frozen T1 must never reselect source tables")
 
-    dependencies = replace(_submit_runtime_dependencies(db_path, store), publication=SubmitImportPublicationAdapter(
-        repository_provider_factory=forbidden_source, committed_table_factory=forbidden_source))
-    monkeypatch.setattr("tests.test_submit_job_prepare._submit_runtime_dependencies", lambda *_args, **_kwargs: dependencies)
+    dependencies = replace(
+        _submit_runtime_dependencies(db_path, store),
+        publication=SubmitImportPublicationAdapter(
+            repository_provider_factory=forbidden_source, committed_table_factory=forbidden_source
+        ),
+    )
+    monkeypatch.setattr(
+        "tests.test_submit_job_prepare._submit_runtime_dependencies",
+        lambda *_args, **_kwargs: dependencies,
+    )
 
     acknowledgment = _run_prepare_handler(db_path, store, operation_id)
 
@@ -788,7 +814,9 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         harness.artifact_store,
         operation_id,
         control_now=control_now,
-        worker_id=worker_id_for(harness.settings.deployment_config, harness.settings.instance_index),
+        worker_id=worker_id_for(
+            harness.settings.deployment_config, harness.settings.instance_index
+        ),
     )
     assert len(transport.requests) == requests_before
 
@@ -846,7 +874,9 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
             intent="current-preview",
         )
     preflight = AcceptSubmitPreflight(
-        preview_ready_closure_digest=derive_preview_ready_closure_digest(seed_for_reaccept.preview_result),
+        preview_ready_closure_digest=derive_preview_ready_closure_digest(
+            seed_for_reaccept.preview_result
+        ),
         preview_operation_id=seed_for_reaccept.preview_operation_id,
         protected_artifact_refs=protected_refs,
         current_storage_projection_ruleset_digest=(
@@ -873,15 +903,25 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
     assert accepted.replay is False
 
 
-def test_prepare_memory_rejection_aborts_frozen_attempt_and_releases_occupancy(db_path: Path) -> None:
+def test_prepare_memory_rejection_aborts_frozen_attempt_and_releases_occupancy(
+    db_path: Path,
+) -> None:
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        NeverCancel,
+        kernel_execution_scope,
     )
+
     store = InMemoryArtifactStore()
     operation_id = _accept_prepared_operation(db_path, store)
     memory = OperationMemoryBudget(2 * 1024**3)
-    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
-        assert _run_prepare_handler(db_path, store, operation_id) is ExecutorAcknowledgment.PUBLISHED
+    with kernel_execution_scope(
+        KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True
+    ):
+        assert (
+            _run_prepare_handler(db_path, store, operation_id) is ExecutorAcknowledgment.PUBLISHED
+        )
     assert any(stage["stage"] == "submit-package-replay" for stage in memory.stage_admissions)
     with ControlDbUnitOfWork(db_path, read_only=True) as uow:
         operation = uow.operations.get_operation(operation_id)
@@ -889,7 +929,13 @@ def test_prepare_memory_rejection_aborts_frozen_attempt_and_releases_occupancy(d
         attempt = uow.submission.get_submit_attempt(_submit_attempt_id_from_operation(operation))
         assert attempt is not None
         assert operation.status is OperationStatus.FAILED and step.status is StepStatus.FAILED
-        assert operation.diagnostic is not None and operation.diagnostic.code == "RESOURCE_LIMIT_EXCEEDED"
-        assert attempt.state is SubmitAttemptState.ABORTED and attempt.abort_code == "RESOURCE_LIMIT_EXCEEDED"
+        assert (
+            operation.diagnostic is not None
+            and operation.diagnostic.code == "RESOURCE_LIMIT_EXCEEDED"
+        )
+        assert (
+            attempt.state is SubmitAttemptState.ABORTED
+            and attempt.abort_code == "RESOURCE_LIMIT_EXCEEDED"
+        )
         assert uow.submission.get_workspace_occupancy(attempt.workspace_id) is None
         assert uow.submission.get_repository_occupancy(attempt.repository_id) is None

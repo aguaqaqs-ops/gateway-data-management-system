@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from gateway_backend.statistics.metrics import timed
 
-from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation, ColumnPresentation
+from gateway_backend.capabilities.table_presentation.contracts import (
+    PresentationMetadata,
+    TablePresentation,
+    ColumnPresentation,
+)
 
 import dataclasses
 import secrets
@@ -21,7 +25,9 @@ from gateway_shared_kernel import (
     canonicalize_identifier,
 )
 
-from gateway_backend.capabilities.composite_signal.contracts import COMPOSITE_SIGNAL_CONTRACT_VERSION
+from gateway_backend.capabilities.composite_signal.contracts import (
+    COMPOSITE_SIGNAL_CONTRACT_VERSION,
+)
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     raw_state_digest_of,
@@ -127,16 +133,30 @@ def materialize_sql_snapshot(
 
 @timed("materialize")
 def materialize_canonical_snapshot(
-    source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
-    context: ParserInvocationContext, repository_id: str,
+    source_snapshot: Snapshot,
+    tables: tuple[SnapshotTable, ...],
+    *,
+    artifact_store: object,
+    context: ParserInvocationContext,
+    repository_id: str,
     lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
     before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> SnapshotMaterializationResult:
     """Production canonical tables use only the Rust IPC store."""
-    return _publish_canonical_snapshot(source_snapshot, tables, artifact_store=artifact_store,
+    return _publish_canonical_snapshot(
+        source_snapshot,
+        tables,
+        artifact_store=artifact_store,
         context=context,
-        publish_tables=lambda items, digest, store: publish_canonical_tables(items, snapshot_digest=digest,
-            store=store, repository_id=repository_id, lookup=lookup, before_write=before_write))
+        publish_tables=lambda items, digest, store: publish_canonical_tables(
+            items,
+            snapshot_digest=digest,
+            store=store,
+            repository_id=repository_id,
+            lookup=lookup,
+            before_write=before_write,
+        ),
+    )
 
 
 def _publish_canonical_snapshot(
@@ -145,7 +165,9 @@ def _publish_canonical_snapshot(
     *,
     artifact_store: object,
     context: ParserInvocationContext,
-    publish_tables: Callable[[tuple[SnapshotTable, ...], DigestRef, ArtifactStorePort], tuple[SnapshotTable, ...]],
+    publish_tables: Callable[
+        [tuple[SnapshotTable, ...], DigestRef, ArtifactStorePort], tuple[SnapshotTable, ...]
+    ],
 ) -> SnapshotMaterializationResult:
     """Build and publish a Snapshot from tables produced by a canonical projection."""
     if type(source_snapshot) is not Snapshot:
@@ -266,7 +288,9 @@ def _materialize_selected(
         diagnostics.extend(table_diagnostics)
         if table is not None:
             published.append(table)
-    ready = [item for item in descriptors if item.degraded_reason is not DegradedReason.TABLE_FAILED]
+    ready = [
+        item for item in descriptors if item.degraded_reason is not DegradedReason.TABLE_FAILED
+    ]
     failed_count = len(descriptors) - len(ready)
     if descriptors and not ready:
         if not diagnostics:
@@ -353,9 +377,19 @@ def _materialize_selected(
         snapshot=snapshot,
         summary=summary,
         table_set=table_set,
-        presentation=PresentationMetadata(tuple(TablePresentation(p.descriptor.canonical_name, p.descriptor.comment,
-            tuple(ColumnPresentation(c.canonical_name, c.comment) for c in p.descriptor.columns))
-            for p in sorted(selected, key=lambda p: p.descriptor.canonical_name.encode("utf-8")))),
+        presentation=PresentationMetadata(
+            tuple(
+                TablePresentation(
+                    p.descriptor.canonical_name,
+                    p.descriptor.comment,
+                    tuple(
+                        ColumnPresentation(c.canonical_name, c.comment)
+                        for c in p.descriptor.columns
+                    ),
+                )
+                for p in sorted(selected, key=lambda p: p.descriptor.canonical_name.encode("utf-8"))
+            )
+        ),
     )
 
 
@@ -437,14 +471,31 @@ def _materialize_table(
         )
         return descriptor, None, (diagnostic,)
     if not isinstance(parsed.reader, ArrowSourceTableReader):
-        diagnostic = _error(MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
-                            "SQL materialization requires the Arrow parser reader", table=source.canonical_name)
+        diagnostic = _error(
+            MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
+            "SQL materialization requires the Arrow parser reader",
+            table=source.canonical_name,
+        )
         parsed.reader.close()
-        return _failed_descriptor(source, stage, request.table_ruleset_version, compare_keys,
-                                  schema_digest=schema_digest), None, (diagnostic,)
+        return (
+            _failed_descriptor(
+                source,
+                stage,
+                request.table_ruleset_version,
+                compare_keys,
+                schema_digest=schema_digest,
+            ),
+            None,
+            (diagnostic,),
+        )
     try:
-        return materialize_source_arrow(parsed.reader, compare_keys=compare_keys, stage=stage,
-            table_ruleset_version=request.table_ruleset_version, invocation=request.context)
+        return materialize_source_arrow(
+            parsed.reader,
+            compare_keys=compare_keys,
+            stage=stage,
+            table_ruleset_version=request.table_ruleset_version,
+            invocation=request.context,
+        )
     finally:
         parsed.reader.close()
 
@@ -546,7 +597,9 @@ def _parser_unavailable_diagnostics(
 
 def _checkpoint(context: ParserInvocationContext) -> None:
     if context.cancel_requested.is_set():
-        raise _Halt(MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED, "materialization cancelled")
+        raise _Halt(
+            MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED, "materialization cancelled"
+        )
     deadline = context.deadline_monotonic
     if deadline is not None and time.monotonic() >= deadline:
         raise _Halt(

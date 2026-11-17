@@ -1,4 +1,5 @@
 """Closed response shapes for archive business diagnostics and frozen audit subjects."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -7,10 +8,21 @@ from pydantic import BaseModel, ConfigDict
 
 from gateway_backend.http.schemas.constraints import NonNegativeIJsonInt
 
-BusinessSubjectKind = Literal["CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"]
-TimeRelation = Literal["MODIFIED_BEFORE_INITIAL", "MODIFIED_BEFORE_BASELINE", "INITIAL_BEFORE_BASELINE"]
-BusinessIssueCode = Literal["INITIAL_SOURCE_UNEXPLAINED", "GENERATION_TIME_MISSING", "GENERATION_TIME_INVALID_VALUES",
-    "GENERATION_TIME_LAST_NOT_MAX", "TIME_ABNORMAL_MODIFIED", "TIME_ABNORMAL_INITIAL", "BASELINE_TIME_UNAVAILABLE"]
+BusinessSubjectKind = Literal[
+    "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"
+]
+TimeRelation = Literal[
+    "MODIFIED_BEFORE_INITIAL", "MODIFIED_BEFORE_BASELINE", "INITIAL_BEFORE_BASELINE"
+]
+BusinessIssueCode = Literal[
+    "INITIAL_SOURCE_UNEXPLAINED",
+    "GENERATION_TIME_MISSING",
+    "GENERATION_TIME_INVALID_VALUES",
+    "GENERATION_TIME_LAST_NOT_MAX",
+    "TIME_ABNORMAL_MODIFIED",
+    "TIME_ABNORMAL_INITIAL",
+    "BASELINE_TIME_UNAVAILABLE",
+]
 
 
 class ClosedResponse(BaseModel):
@@ -26,7 +38,9 @@ class ArchiveContentIdentityResponse(ClosedResponse):
 
 class ArchiveGeneratedTimeResponse(ClosedResponse):
     rule_id: Literal["gateway-vnext/configuration-generated-time/v1"]
-    status: Literal["VALID", "TABLE_ABSENT", "COLUMN_ABSENT", "NO_ROWS", "NO_VALUE", "NO_VALID_VALUE"]
+    status: Literal[
+        "VALID", "TABLE_ABSENT", "COLUMN_ABSENT", "NO_ROWS", "NO_VALUE", "NO_VALID_VALUE"
+    ]
     selected_time_utc: str | None
     max_valid_time_utc: str | None
     valid_count: NonNegativeIJsonInt
@@ -92,8 +106,13 @@ class ArchiveEmptyIssueDetailsResponse(ClosedResponse):
     pass
 
 
-ArchiveIssueDetailsResponse = (ArchiveSourceIssueDetailsResponse | ArchiveTimeQualityDetailsResponse |
-    ArchiveBaselineTimeDetailsResponse | ArchiveTimeRegressionDetailsResponse | ArchiveEmptyIssueDetailsResponse)
+ArchiveIssueDetailsResponse = (
+    ArchiveSourceIssueDetailsResponse
+    | ArchiveTimeQualityDetailsResponse
+    | ArchiveBaselineTimeDetailsResponse
+    | ArchiveTimeRegressionDetailsResponse
+    | ArchiveEmptyIssueDetailsResponse
+)
 
 
 class ArchiveBusinessIssueResponse(ClosedResponse):
@@ -140,4 +159,6 @@ class ArchiveIdentitySubjectResponse(ClosedResponse):
     assessment_set_digest: str
 
 
-ArchiveAuditSubjectResponse = ArchiveBusinessSubjectResponse | ArchiveSiblingSubjectResponse | ArchiveIdentitySubjectResponse
+ArchiveAuditSubjectResponse = (
+    ArchiveBusinessSubjectResponse | ArchiveSiblingSubjectResponse | ArchiveIdentitySubjectResponse
+)

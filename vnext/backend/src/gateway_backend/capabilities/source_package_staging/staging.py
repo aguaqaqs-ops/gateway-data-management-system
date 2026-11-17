@@ -97,7 +97,9 @@ def _collect_members(
             )
         payload = apply_transport(payload, source.transport, budgets, counter)
     collected: list[ArchiveMember] = []
-    for member in iter_members(source.package_kind, payload, source.directory_entries, budgets, counter):
+    for member in iter_members(
+        source.package_kind, payload, source.directory_entries, budgets, counter
+    ):
         _check_deadline(source)
         collected.append(member)
     members = tuple(collected)

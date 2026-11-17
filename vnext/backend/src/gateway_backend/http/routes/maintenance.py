@@ -1,4 +1,5 @@
 """Internal process-local creation drain; reads and recovery remain available."""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -19,7 +20,9 @@ class DrainSnapshot(BaseModel):
 def _gate(request: Request) -> ClosableAdmissionGate:
     gate = getattr(request.app.state, "admission_gate", None)
     if not isinstance(gate, ClosableAdmissionGate):
-        raise ApiError(code="SERVICE_NOT_READY", message="maintenance gate unavailable", status_code=503)
+        raise ApiError(
+            code="SERVICE_NOT_READY", message="maintenance gate unavailable", status_code=503
+        )
     return gate
 
 

@@ -26,7 +26,11 @@ from gateway_backend.capabilities.composite_signal.contracts import (
 from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationStage
 from gateway_backend.capabilities.table_access.contracts import CancelProbe
-from gateway_backend.capabilities.table_access import current_kernel_context, KernelMemoryLimit, merge_kernel_control
+from gateway_backend.capabilities.table_access import (
+    current_kernel_context,
+    KernelMemoryLimit,
+    merge_kernel_control,
+)
 
 ArrowMetadata = dict[str, Any]
 KernelBudgets = dict[str, int]
@@ -74,21 +78,29 @@ def call_arrow_kernel(
     if context is not None:
         context = merge_kernel_control(context, cast(CancelProbe, cancel_probe), deadline_monotonic)
         context.checkpoint()
-        budgets = {**budgets, "max_live_bytes": min(budgets["max_live_bytes"], context.memory.available_bytes)}
+        budgets = {
+            **budgets,
+            "max_live_bytes": min(budgets["max_live_bytes"], context.memory.available_bytes),
+        }
         cancel_probe = context.cancel_probe
         deadline_monotonic = context.deadline_monotonic
         pool_threads = context.threads
         context.memory.record_stage_admission("business-kernel", budgets["max_live_bytes"])
     check_metadata_budget((tables, plan), budgets)
     try:
-        result = cast(KernelResult, native(tables, plan, cancel_probe, budgets, deadline_monotonic, pool_threads))
+        result = cast(
+            KernelResult,
+            native(tables, plan, cancel_probe, budgets, deadline_monotonic, pool_threads),
+        )
     except BaseException as exc:
         if context is not None:
             # C Stream implementations normalize Python generator failures.
             # Recover the actual caller control before classifying that wrapper.
             context.checkpoint()
             if isinstance(exc, MemoryError):
-                raise KernelMemoryLimit("business kernel operation memory reservation exceeded") from exc
+                raise KernelMemoryLimit(
+                    "business kernel operation memory reservation exceeded"
+                ) from exc
         raise
     if context is not None:
         context.checkpoint()
@@ -109,7 +121,10 @@ def materialize_arrow_table(
     return call_arrow_kernel(
         _sql_materialize_native,
         [table],
-        {"stage": stage.value, "effective_compare_key_columns": list(effective_compare_key_columns)},
+        {
+            "stage": stage.value,
+            "effective_compare_key_columns": list(effective_compare_key_columns),
+        },
         cancel_probe=cancel_probe,
         budgets=budgets,
         deadline_monotonic=deadline_monotonic,
@@ -170,7 +185,10 @@ def _payload_value(column: ArrowMetadata, value: Any) -> Any:
 
 
 def catalog_from_arrow_result(
-    result: KernelResult, *, budgets: KernelBudgets, cancel_probe: CancelProbe,
+    result: KernelResult,
+    *,
+    budgets: KernelBudgets,
+    cancel_probe: CancelProbe,
     deadline_monotonic: float | None,
 ) -> SpecialDeviceCatalog:
     context = current_kernel_context()
@@ -179,8 +197,10 @@ def catalog_from_arrow_result(
     backings: list[pa.Table] = []
     converted: list[ArrowMetadata] = []
     with ExitStack() as temporary:
+
         def reserve(size: int) -> None:
             temporary.enter_context(context.memory.reserve(size))
+
         output = result["output"]
         try:
             if output is not None:
@@ -195,8 +215,13 @@ def catalog_from_arrow_result(
                 if backings:
                     del backing
                 result = {**result, "output": {**output, "tables": converted}}
-            catalog, upper = _convert_catalog_from_arrow_result(result, budgets=budgets,
-                cancel_probe=cancel_probe, deadline_monotonic=deadline_monotonic, reserve=reserve)
+            catalog, upper = _convert_catalog_from_arrow_result(
+                result,
+                budgets=budgets,
+                cancel_probe=cancel_probe,
+                deadline_monotonic=deadline_monotonic,
+                reserve=reserve,
+            )
         finally:
             for metadata in converted:
                 metadata["arrow_stream"].close()
@@ -214,7 +239,8 @@ def _convert_catalog_from_arrow_result(
     *,
     budgets: KernelBudgets,
     cancel_probe: CancelProbe,
-    deadline_monotonic: float | None, reserve: Callable[[int], None],
+    deadline_monotonic: float | None,
+    reserve: Callable[[int], None],
 ) -> tuple[SpecialDeviceCatalog, int]:
     """The existing composite exception: only filtered catalog rows cross back."""
     output = result["output"]
@@ -229,6 +255,7 @@ def _convert_catalog_from_arrow_result(
     points: list[SpecialPointFact] = []
     live = 256
     reserve(live)
+
     def checkpoint() -> None:
         if cancel_probe.is_set():
             raise InterruptedError("composite facts conversion cancelled")
@@ -253,7 +280,9 @@ def _convert_catalog_from_arrow_result(
                 # fields, encoded_rows and digest/list headers. Arrow backing
                 # and the later columnar conversion have separate reservations.
                 names = sum(len(column["canonical_name"]) for column in columns)
-                extra = batch.nbytes * 64 + batch.num_rows * (names * 256 + len(columns) * 1024 + 4096)
+                extra = batch.nbytes * 64 + batch.num_rows * (
+                    names * 256 + len(columns) * 1024 + 4096
+                )
                 live += extra
                 if live > budgets["max_live_bytes"] or live > budgets["max_output_bytes"]:
                     raise MemoryError("filtered composite facts exceed business budget")

@@ -105,15 +105,28 @@ class ArchiveRepository(ArchiveAuditWritePort, Protocol):
     def get_plan_by_id(self, plan_id: str) -> ArchivePlan | None:
         """Load one ArchivePlan by plan id."""
 
-    def get_result_by_id(self, result_id: str, *, repository_id: str | None = None,
-        gateway_device_external_key: str | None = None, business_project_id: str | None = None) -> ArchiveResult | None:
+    def get_result_by_id(
+        self,
+        result_id: str,
+        *,
+        repository_id: str | None = None,
+        gateway_device_external_key: str | None = None,
+        business_project_id: str | None = None,
+    ) -> ArchiveResult | None:
         """Load one ArchiveResult by result id."""
 
-    def list_dispositions_for_submission(self, submission_id: str) -> tuple[SubmissionDisposition, ...]:
+    def list_dispositions_for_submission(
+        self, submission_id: str
+    ) -> tuple[SubmissionDisposition, ...]:
         """Return all dispositions recorded for one submission."""
 
-    def find_manual_close_by_key(self, repository_id: str, gateway_device_external_key: str,
-        business_project_id: str, idempotency_key: str) -> SubmissionDisposition | None: ...
+    def find_manual_close_by_key(
+        self,
+        repository_id: str,
+        gateway_device_external_key: str,
+        business_project_id: str,
+        idempotency_key: str,
+    ) -> SubmissionDisposition | None: ...
 
     def insert_manual_close(self, disposition: SubmissionDisposition) -> None: ...
 

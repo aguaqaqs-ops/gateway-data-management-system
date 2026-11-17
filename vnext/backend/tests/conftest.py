@@ -40,9 +40,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     for item in items:
         if (
             item.get_closest_marker("serial") is not None
@@ -67,16 +65,22 @@ def initialize_kernel_pool() -> None:
 @pytest.fixture(autouse=True)
 def operation_kernel_context() -> Iterator[KernelExecutionContext]:
     from gateway_backend.capabilities.table_access import (
-        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
+        KernelExecutionContext,
+        OperationMemoryBudget,
+        kernel_execution_scope,
+        NeverCancel,
     )
 
-    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)) as context:
+    with kernel_execution_scope(
+        KernelExecutionContext(OperationMemoryBudget(8 * 1024**3), NeverCancel(), 1)
+    ) as context:
         yield context
 
 
 @pytest.fixture
 def scratch_space(tmp_path: Path) -> ScratchSpace:
     from gateway_backend.infrastructure.artifact_store.scratch import ScratchSpace
+
     root = tmp_path / "execution-scratch"
     root.mkdir()
     return ScratchSpace(root, max_bytes=2 * 1024**3)
@@ -85,6 +89,7 @@ def scratch_space(tmp_path: Path) -> ScratchSpace:
 @pytest.fixture(autouse=True)
 def operation_scratch_context(scratch_space: ScratchSpace) -> Iterator[ScratchSessionPort]:
     from gateway_backend.artifacts.scratch import scratch_scope
+
     with scratch_space.session(owner="operation:test-operation") as session, scratch_scope(session):
         yield session
 
@@ -95,6 +100,7 @@ def pair_comparison_metrics(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, A
     from dataclasses import asdict
     from gateway_backend.application import pair_pipeline
     from gateway_backend.capabilities.comparison.production import NativeComparison
+
     recorded: list[dict[str, Any]] = []
     original = pair_pipeline.compare_plan_native
 
@@ -102,17 +108,23 @@ def pair_comparison_metrics(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, A
         result = original(*args, **kwargs)
         metrics = result.metrics
         assert metrics is not None
-        recorded.append({'pair_id': args[0].pair_id, 'comparison': asdict(metrics),
-                         'comparison_kernel_calls': metrics.native_calls - metrics.ordered_single_side_calls})
+        recorded.append(
+            {
+                "pair_id": args[0].pair_id,
+                "comparison": asdict(metrics),
+                "comparison_kernel_calls": metrics.native_calls - metrics.ordered_single_side_calls,
+            }
+        )
         return result
 
-    monkeypatch.setattr(pair_pipeline, 'compare_plan_native', compare)
+    monkeypatch.setattr(pair_pipeline, "compare_plan_native", compare)
     return recorded
 
 
 @pytest.fixture
 def execution_statistics() -> Iterator[Any]:
     from gateway_backend.statistics.metrics import Metrics, set_metrics
+
     metrics = Metrics()
     set_metrics(metrics)
     try:

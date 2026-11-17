@@ -1,4 +1,5 @@
 """Configuration comparison is derived and only backend startup may publish."""
+
 from __future__ import annotations
 
 import json
@@ -6,14 +7,20 @@ from pathlib import Path
 
 import pytest
 
-from gateway_backend.bootstrap.deployment_identity import CONFIGURATION_RECORD, compare_configuration, publish_configuration
+from gateway_backend.bootstrap.deployment_identity import (
+    CONFIGURATION_RECORD,
+    compare_configuration,
+    publish_configuration,
+)
 from gateway_backend.deployment_config import DeploymentConfig
 from tests.support.artifact_layout import write_deployment_files
 
 pytestmark = pytest.mark.unit
 
 
-def test_worker_missing_record_never_creates_it_and_backend_startup_publishes(tmp_path: Path) -> None:
+def test_worker_missing_record_never_creates_it_and_backend_startup_publishes(
+    tmp_path: Path,
+) -> None:
     paths = write_deployment_files(tmp_path / "roots")
     config = DeploymentConfig.load(*paths)
     record = Path(config.storage.roots["be-metadata"].path) / CONFIGURATION_RECORD
@@ -30,7 +37,9 @@ def test_worker_missing_record_never_creates_it_and_backend_startup_publishes(tm
 
 
 @pytest.mark.parametrize("fault", ("missing", "malformed", "wrong-group", "digest"))
-def test_runtime_comparison_refuses_changed_bytes_without_repair_and_stopped_startup_can_rebuild(tmp_path: Path, fault: str) -> None:
+def test_runtime_comparison_refuses_changed_bytes_without_repair_and_stopped_startup_can_rebuild(
+    tmp_path: Path, fault: str
+) -> None:
     paths = write_deployment_files(tmp_path / "roots")
     config = DeploymentConfig.load(*paths)
     record = Path(config.storage.roots["be-metadata"].path) / CONFIGURATION_RECORD
@@ -52,7 +61,9 @@ def test_runtime_comparison_refuses_changed_bytes_without_repair_and_stopped_sta
 
 
 @pytest.mark.parametrize("kind", ("symlink", "directory"))
-def test_backend_startup_does_not_replace_redirected_configuration_records(tmp_path: Path, kind: str) -> None:
+def test_backend_startup_does_not_replace_redirected_configuration_records(
+    tmp_path: Path, kind: str
+) -> None:
     config = DeploymentConfig.load(*write_deployment_files(tmp_path / "roots"))
     record = Path(config.storage.roots["be-metadata"].path) / CONFIGURATION_RECORD
     outside = tmp_path / "outside"

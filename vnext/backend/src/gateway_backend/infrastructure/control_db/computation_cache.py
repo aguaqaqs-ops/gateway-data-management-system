@@ -15,15 +15,24 @@ from gateway_shared_kernel import CanonicalEncodingError, DigestRef, raw_blob_di
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.computation_cache import (
-    CACHE_ACTIVE_INTENT, COMPUTATION_CACHE_TTL_SECONDS, MAX_CACHE_MEMBER_REFS_BYTES,
-    CacheOperationOwner, CacheReserve, ComputationCacheArtifactStore,
-    ComputationCacheEntry, ComputationCacheKey, ComputationCacheKind,
-    InvalidComputationCachePayload, decode_cache_manifest,
+    CACHE_ACTIVE_INTENT,
+    COMPUTATION_CACHE_TTL_SECONDS,
+    MAX_CACHE_MEMBER_REFS_BYTES,
+    CacheOperationOwner,
+    CacheReserve,
+    ComputationCacheArtifactStore,
+    ComputationCacheEntry,
+    ComputationCacheKey,
+    ComputationCacheKind,
+    InvalidComputationCachePayload,
+    decode_cache_manifest,
 )
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteArtifactProtectionStore
+from gateway_backend.infrastructure.control_db.sqlite_protection import (
+    SQLiteArtifactProtectionStore,
+)
 
 if TYPE_CHECKING:
     from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -49,8 +58,10 @@ def _values(key: ComputationCacheKey) -> tuple[str, str, str]:
 
 def _ttl_owner(values: tuple[str, str, str]) -> tuple[str, str]:
     repository, kind, digest = values
-    return (f"{kind}-table-cache",
-            "computation-" + hashlib.sha256("\0".join((repository, kind, digest)).encode()).hexdigest())
+    return (
+        f"{kind}-table-cache",
+        "computation-" + hashlib.sha256("\0".join((repository, kind, digest)).encode()).hexdigest(),
+    )
 
 
 def _member_json(entry: ComputationCacheEntry) -> str:
@@ -72,10 +83,12 @@ def _integer(value: object) -> int:
     return value
 
 
-def computation_cache_entry_from_row(key: ComputationCacheKey, row: tuple[object, ...]) -> ComputationCacheEntry:
+def computation_cache_entry_from_row(
+    key: ComputationCacheKey, row: tuple[object, ...]
+) -> ComputationCacheEntry:
     try:
         return _parse_entry_row(key, row)
-    except (TypeError, ValueError, RecursionError, CanonicalEncodingError):
+    except TypeError, ValueError, RecursionError, CanonicalEncodingError:
         raise InvalidComputationCachePayload("invalid computation cache index payload") from None
 
 
@@ -84,12 +97,16 @@ def _parse_entry_row(key: ComputationCacheKey, row: tuple[object, ...]) -> Compu
     if len(raw_members.encode()) > MAX_CACHE_MEMBER_REFS_BYTES:
         raise ValueError("cache member references exceed bound")
     members = json.loads(raw_members)
-    if (not isinstance(members, list) or len(members) > 9
-            or any(not isinstance(ref, dict) for ref in members)
-            or canonicalize_json_value(members).decode() != raw_members):
+    if (
+        not isinstance(members, list)
+        or len(members) > 9
+        or any(not isinstance(ref, dict) for ref in members)
+        or canonicalize_json_value(members).decode() != raw_members
+    ):
         raise ValueError("cache member references are malformed")
     return ComputationCacheEntry(
-        key, _text(row[5]),
+        key,
+        _text(row[5]),
         ArtifactRef(_text(row[0]), _text(row[1]), _integer(row[2]), DigestRef(_text(row[3]))),
         tuple(artifact_ref_from_dict(ref) for ref in members),
     )
@@ -99,8 +116,12 @@ class SQLiteComputationCache:
     """Only bounded SQL; no hashing, artifact reads or computation in the transaction."""
 
     def __init__(
-        self, connection: sqlite3.Connection, *, protection: SQLiteArtifactProtectionStore,
-        now: datetime, read_only: bool = False,
+        self,
+        connection: sqlite3.Connection,
+        *,
+        protection: SQLiteArtifactProtectionStore,
+        now: datetime,
+        read_only: bool = False,
         ttl: timedelta = timedelta(seconds=COMPUTATION_CACHE_TTL_SECONDS),
     ) -> None:
         if not connection.in_transaction:
@@ -119,7 +140,9 @@ class SQLiteComputationCache:
             raise RuntimeError("computation cache is read-only in this transaction")
 
     def lookup_and_pin(
-        self, key: ComputationCacheKey, owner: CacheOperationOwner,
+        self,
+        key: ComputationCacheKey,
+        owner: CacheOperationOwner,
     ) -> ComputationCacheEntry | None:
         self._writable()
         self.prune_expired()
@@ -149,14 +172,20 @@ class SQLiteComputationCache:
                    (artifact_id,owner_kind,owner_id,intent,recorded_at_us)
                    VALUES (?,?,?,?,?)
                    ON CONFLICT(artifact_id,owner_kind,owner_id) DO NOTHING""",
-                (ref.artifact_id, owner.owner_kind, owner.operation_id,
-                 CACHE_ACTIVE_INTENT, self._now_us),
+                (
+                    ref.artifact_id,
+                    owner.owner_kind,
+                    owner.operation_id,
+                    CACHE_ACTIVE_INTENT,
+                    self._now_us,
+                ),
             )
 
     def release_operation_pins(self, owner: CacheOperationOwner) -> int:
         self._writable()
         return self._protection.clear_protection_intent(
-            owner_kind=owner.owner_kind, owner_id=owner.operation_id,
+            owner_kind=owner.owner_kind,
+            owner_id=owner.operation_id,
             intent=CACHE_ACTIVE_INTENT,
         )
 
@@ -179,8 +208,16 @@ class SQLiteComputationCache:
                  manifest_raw_sha256=excluded.manifest_raw_sha256,
                  member_refs_json=excluded.member_refs_json,format=excluded.format,
                  expires_at_us=excluded.expires_at_us""",
-            (*_values(entry.key), ref.artifact_id, ref.media_type, ref.size_bytes,
-             ref.raw_sha256.value, member_json, entry.format, self._expires_us),
+            (
+                *_values(entry.key),
+                ref.artifact_id,
+                ref.media_type,
+                ref.size_bytes,
+                ref.raw_sha256.value,
+                member_json,
+                entry.format,
+                self._expires_us,
+            ),
         )
         self._touch(entry)
         self._record_use(entry, owner.operation_id)
@@ -206,8 +243,14 @@ class SQLiteComputationCache:
     @staticmethod
     def _entry_row(entry: ComputationCacheEntry) -> tuple[object, ...]:
         ref = entry.manifest_ref
-        return (ref.artifact_id, ref.media_type, ref.size_bytes, ref.raw_sha256.value,
-                _member_json(entry), entry.format)
+        return (
+            ref.artifact_id,
+            ref.media_type,
+            ref.size_bytes,
+            ref.raw_sha256.value,
+            _member_json(entry),
+            entry.format,
+        )
 
     def discard_if_same(self, entry: ComputationCacheEntry) -> bool:
         self._writable()
@@ -219,7 +262,8 @@ class SQLiteComputationCache:
                WHERE repository_id=? AND kind=? AND task_digest=?
                  AND manifest_artifact_id IS ? AND manifest_media_type IS ?
                  AND manifest_size_bytes IS ? AND manifest_raw_sha256 IS ?
-                 AND member_refs_json IS ? AND format IS ?""", (*key, *row[:6]),
+                 AND member_refs_json IS ? AND format IS ?""",
+            (*key, *row[:6]),
         ).rowcount
         if deleted:
             owner_kind, owner_id = _ttl_owner(key)
@@ -251,7 +295,12 @@ class SQLiteComputationCache:
                ON CONFLICT(producer_operation_id,repository_id,kind,task_digest) DO UPDATE SET
                  manifest_artifact_id=excluded.manifest_artifact_id,
                  expires_at_us=excluded.expires_at_us""",
-            (producer_operation_id, *_values(entry.key), entry.manifest_ref.artifact_id, self._expires_us),
+            (
+                producer_operation_id,
+                *_values(entry.key),
+                entry.manifest_ref.artifact_id,
+                self._expires_us,
+            ),
         )
 
     def prune_expired(self) -> None:
@@ -272,7 +321,8 @@ class SQLiteComputationCache:
         self._connection.execute(
             """DELETE FROM computation_cache_uses WHERE rowid IN
                (SELECT rowid FROM computation_cache_uses WHERE expires_at_us<=?
-                ORDER BY expires_at_us LIMIT ?)""", (self._now_us, _PRUNE_LIMIT),
+                ORDER BY expires_at_us LIMIT ?)""",
+            (self._now_us, _PRUNE_LIMIT),
         )
 
     def touch_producer(self, *, producer_operation_id: str, repository_id: str) -> int:
@@ -291,13 +341,18 @@ class SQLiteComputationCache:
         touched = 0
         for kind, digest, manifest_id in rows:
             try:
-                key = ComputationCacheKey(repository_id, ComputationCacheKind(kind), DigestRef(digest))
-            except (TypeError, ValueError, CanonicalEncodingError):
-                raise InvalidComputationCachePayload("invalid computation cache use payload") from None
+                key = ComputationCacheKey(
+                    repository_id, ComputationCacheKind(kind), DigestRef(digest)
+                )
+            except TypeError, ValueError, CanonicalEncodingError:
+                raise InvalidComputationCachePayload(
+                    "invalid computation cache use payload"
+                ) from None
             row = self._connection.execute(
                 f"SELECT {_ROW_COLUMNS} FROM computation_cache_entries "
                 "WHERE repository_id=? AND kind=? AND task_digest=? AND expires_at_us>? "
-                "AND manifest_artifact_id=?", (*_values(key), self._now_us, manifest_id),
+                "AND manifest_artifact_id=?",
+                (*_values(key), self._now_us, manifest_id),
             ).fetchone()
             if row is None:
                 continue
@@ -318,9 +373,14 @@ def _retained_metadata_bytes(entry: ComputationCacheEntry) -> int:
 
 class _ReadLease:
     def __init__(
-        self, cache: ControlDbComputationCache, entry: ComputationCacheEntry,
-        owner: CacheOperationOwner, payload: dict[str, object], stack: ExitStack,
-        checkpoint: Callable[[], None], reserve: CacheReserve,
+        self,
+        cache: ControlDbComputationCache,
+        entry: ComputationCacheEntry,
+        owner: CacheOperationOwner,
+        payload: dict[str, object],
+        stack: ExitStack,
+        checkpoint: Callable[[], None],
+        reserve: CacheReserve,
     ) -> None:
         self._cache = cache
         self._entry = entry
@@ -379,15 +439,20 @@ class ControlDbComputationCache:
     """Root borrow always precedes DB mutation; hashes never hold a DB transaction."""
 
     def __init__(
-        self, unit_of_work_factory: Callable[[], ContextManager[ControlDbUnitOfWork]],
+        self,
+        unit_of_work_factory: Callable[[], ContextManager[ControlDbUnitOfWork]],
         store: ComputationCacheArtifactStore,
     ) -> None:
         self._uow = unit_of_work_factory
         self._store = store
 
     def lookup_and_pin(
-        self, key: ComputationCacheKey, *, owner: CacheOperationOwner,
-        checkpoint: Callable[[], None], reserve: CacheReserve,
+        self,
+        key: ComputationCacheKey,
+        *,
+        owner: CacheOperationOwner,
+        checkpoint: Callable[[], None],
+        reserve: CacheReserve,
     ) -> _ReadLease | None:
         checkpoint()
         stack = ExitStack()
@@ -416,13 +481,13 @@ class ControlDbComputationCache:
                         checkpoint()
             checkpoint()
             return _ReadLease(self, entry, owner, payload, stack, checkpoint, reserve)
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             stack.close()
             raise
         except MemoryError:
             stack.close()
             return None
-        except (ManifestVerificationError, InvalidComputationCachePayload, OSError):
+        except ManifestVerificationError, InvalidComputationCachePayload, OSError:
             try:
                 if entry is not None:
                     self.discard_if_same(entry)
@@ -434,31 +499,46 @@ class ControlDbComputationCache:
             raise
 
     def store(
-        self, entry: ComputationCacheEntry, blobs: tuple[tuple[ArtifactRef, bytes], ...], *,
-        owner: CacheOperationOwner, checkpoint: Callable[[], None], reserve: CacheReserve,
+        self,
+        entry: ComputationCacheEntry,
+        blobs: tuple[tuple[ArtifactRef, bytes], ...],
+        *,
+        owner: CacheOperationOwner,
+        checkpoint: Callable[[], None],
+        reserve: CacheReserve,
     ) -> bool:
         checkpoint()
         try:
-            with self._store.read_session(), reserve(
-                _DB_METADATA_BYTES + _retained_metadata_bytes(entry) + 64 * 1024,
+            with (
+                self._store.read_session(),
+                reserve(
+                    _DB_METADATA_BYTES + _retained_metadata_bytes(entry) + 64 * 1024,
+                ),
             ):
                 try:
                     if tuple(ref for ref, _raw in blobs) != entry.refs:
-                        raise ValueError("cache writes require the exact complete reference closure")
-                except (TypeError, ValueError):
+                        raise ValueError(
+                            "cache writes require the exact complete reference closure"
+                        )
+                except TypeError, ValueError:
                     return False
                 for ref, raw in blobs:
                     checkpoint()
                     try:
                         if len(raw) != ref.size_bytes or raw_blob_digest(raw) != ref.raw_sha256:
                             raise ValueError("cache candidate bytes differ from their reference")
-                    except (TypeError, ValueError, CanonicalEncodingError):
+                    except TypeError, ValueError, CanonicalEncodingError:
                         return False
                     checkpoint()
                 try:
                     _member_json(entry)
                     decode_cache_manifest(blobs[0][1], entry)
-                except (InvalidComputationCachePayload, TypeError, ValueError, CanonicalEncodingError):
+                except (
+                    InvalidComputationCachePayload,
+                    TypeError,
+                    ValueError,
+                    CanonicalEncodingError,
+                ):
                     return False
                 checkpoint()
                 with self._uow() as uow:
@@ -473,9 +553,9 @@ class ControlDbComputationCache:
                 with self._uow() as uow:
                     uow.computation_cache.store(entry, owner)
                 return True
-        except (InterruptedError, TimeoutError):
+        except InterruptedError, TimeoutError:
             raise
-        except (ManifestVerificationError, OSError, MemoryError):
+        except ManifestVerificationError, OSError, MemoryError:
             # Optional candidate failure leaves no partial index. Existing
             # operation pins are released by the operation's normal finally.
             return False

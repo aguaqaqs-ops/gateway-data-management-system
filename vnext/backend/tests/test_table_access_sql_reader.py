@@ -20,16 +20,20 @@ from gateway_shared_kernel import SignedIntegerScalar, StringScalar
 from tests.support.table_access_sql import sql_request
 from gateway_backend.capabilities.table_access import parse_arrow_sql
 
+
 def parse_text(sql: str) -> ParseResult:
     return parse_arrow_sql(sql_request(sql))
 
+
 class ReopenableTableReader(Protocol):
     def reopen(self) -> TableReader: ...
+
 
 _SQL = (
     "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL);"
     "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c');"
 )
+
 
 def test_reader_single_consumer_reopen_and_close() -> None:
     result = parse_text(_SQL)
@@ -60,6 +64,7 @@ def test_reader_single_consumer_reopen_and_close() -> None:
     ]
     reopened.close()
     reopened.close()
+
 
 def test_insert_column_list_permutes_to_descriptor_order() -> None:
     sql = (

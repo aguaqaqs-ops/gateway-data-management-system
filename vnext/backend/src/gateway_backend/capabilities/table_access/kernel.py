@@ -140,8 +140,13 @@ class OperationMemoryBudget:
             self._metadata[id(value)] = (value, reservation)
 
     def record_stage_admission(self, name: str, temporary_limit_bytes: int) -> None:
-        self.stage_admissions.append({"stage": name, "retained_bytes": self.used_bytes,
-                                      "temporary_limit_bytes": temporary_limit_bytes})
+        self.stage_admissions.append(
+            {
+                "stage": name,
+                "retained_bytes": self.used_bytes,
+                "temporary_limit_bytes": temporary_limit_bytes,
+            }
+        )
 
     def close(self) -> None:
         for _, reservation in self._metadata.values():
@@ -164,8 +169,15 @@ class OperationMemoryBudget:
                         continue
                     while buffer.parent is not None:
                         buffer = buffer.parent
-                    mapping = next((key for key, (address, size) in self._mappings.items()
-                                    if address <= buffer.address and buffer.address + buffer.size <= address + size), None)
+                    mapping = next(
+                        (
+                            key
+                            for key, (address, size) in self._mappings.items()
+                            if address <= buffer.address
+                            and buffer.address + buffer.size <= address + size
+                        ),
+                        None,
+                    )
                     if mapping is not None:
                         unique[mapping] = self._live[mapping].size
                     else:
@@ -200,7 +212,9 @@ class KernelExecutionContext:
     threads: int
     deadline_monotonic: float | None = None
     resources: ExitStack = field(default_factory=ExitStack, repr=False, compare=False)
-    _lifetime: _OperationLifetime = field(default_factory=_OperationLifetime, repr=False, compare=False)
+    _lifetime: _OperationLifetime = field(
+        default_factory=_OperationLifetime, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         if type(self.threads) is not int or not 1 <= self.threads <= 256:
@@ -228,13 +242,17 @@ class KernelExecutionContext:
     def require_same_operation(self, other: object) -> None:
         """Check a retained reader's budget and lifetime against this active scope."""
         self.require_active()
-        if (type(other) is not KernelExecutionContext
-                or other.memory is not self.memory
-                or other._lifetime is not self._lifetime):
+        if (
+            type(other) is not KernelExecutionContext
+            or other.memory is not self.memory
+            or other._lifetime is not self._lifetime
+        ):
             raise ValueError("Arrow reader belongs to another kernel operation")
 
 
-_active_context: ContextVar[KernelExecutionContext | None] = ContextVar("operation_kernel_context", default=None)
+_active_context: ContextVar[KernelExecutionContext | None] = ContextVar(
+    "operation_kernel_context", default=None
+)
 
 
 def current_kernel_context() -> KernelExecutionContext | None:
@@ -250,7 +268,9 @@ def require_active_kernel_context(value: object) -> KernelExecutionContext:
 
 
 @contextmanager
-def kernel_execution_scope(context: KernelExecutionContext, *, new_operation: bool = False) -> Iterator[KernelExecutionContext]:
+def kernel_execution_scope(
+    context: KernelExecutionContext, *, new_operation: bool = False
+) -> Iterator[KernelExecutionContext]:
     if context._lifetime.closed:
         raise ValueError("kernel operation context is closed")
     previous = _active_context.get()
@@ -281,16 +301,25 @@ class CombinedCancelProbe:
 
 
 def merge_kernel_control(
-    context: KernelExecutionContext, probe: CancelProbe, deadline_monotonic: float | None,
+    context: KernelExecutionContext,
+    probe: CancelProbe,
+    deadline_monotonic: float | None,
 ) -> KernelExecutionContext:
     deadlines = tuple(d for d in (context.deadline_monotonic, deadline_monotonic) if d is not None)
-    return KernelExecutionContext(context.memory, CombinedCancelProbe(context.cancel_probe, probe),
-                                  context.threads, min(deadlines) if deadlines else None,
-                                  context.resources, context._lifetime)
+    return KernelExecutionContext(
+        context.memory,
+        CombinedCancelProbe(context.cancel_probe, probe),
+        context.threads,
+        min(deadlines) if deadlines else None,
+        context.resources,
+        context._lifetime,
+    )
 
 
 @contextmanager
-def kernel_control_scope(probe: CancelProbe, deadline_monotonic: float | None) -> Iterator[KernelExecutionContext]:
+def kernel_control_scope(
+    probe: CancelProbe, deadline_monotonic: float | None
+) -> Iterator[KernelExecutionContext]:
     """Narrow control for nested callers while retaining the operation lifetime."""
     context = current_kernel_context()
     if context is None:

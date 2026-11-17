@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 
-from gateway_shared_kernel import DigestRef, NullScalar, SignedIntegerScalar, StringScalar, UnsignedIntegerScalar
+from gateway_shared_kernel import (
+    DigestRef,
+    NullScalar,
+    SignedIntegerScalar,
+    StringScalar,
+    UnsignedIntegerScalar,
+)
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_MATERIALIZATION_PROFILE,
@@ -190,7 +196,9 @@ def table_input(
             raw_content_digest=_DIGEST,
         )
         reader = FakeSnapshotTableReader(descriptor, rows, iter_error=iter_error)
-        binding = ArtifactSourceBinding(snapshot_digest=snapshot_digest or _DIGEST, descriptor=descriptor)
+        binding = ArtifactSourceBinding(
+            snapshot_digest=snapshot_digest or _DIGEST, descriptor=descriptor
+        )
         return reader, binding
     descriptor = table_descriptor(
         name,
@@ -202,7 +210,9 @@ def table_input(
         degraded_reason=degraded_reason,
     )
     reader = FakeSnapshotTableReader(descriptor, rows, iter_error=iter_error)
-    binding = ArtifactSourceBinding(snapshot_digest=snapshot_digest or _DIGEST, descriptor=descriptor)
+    binding = ArtifactSourceBinding(
+        snapshot_digest=snapshot_digest or _DIGEST, descriptor=descriptor
+    )
     return reader, binding
 
 

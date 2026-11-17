@@ -34,11 +34,16 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
 # Only these owners already bound their reference documents to 16 MiB. Generic
 # projection/diagnostic/OTHER JSON is business payload, not transport metadata;
 # the assembler validated its refs before freezing the final raw SHA.
-BUNDLE_REFERENCE_METADATA_KINDS = frozenset({
-    BundleArtifactKind.SURFACE, BundleArtifactKind.RECORDS_MANIFEST,
-    BundleArtifactKind.RECORDS_CLOSURE, BundleArtifactKind.RISK_REPORT,
-    BundleArtifactKind.RISK_ANNOTATION_MANIFEST, BundleArtifactKind.RISK_ANNOTATION_CLOSURE,
-})
+BUNDLE_REFERENCE_METADATA_KINDS = frozenset(
+    {
+        BundleArtifactKind.SURFACE,
+        BundleArtifactKind.RECORDS_MANIFEST,
+        BundleArtifactKind.RECORDS_CLOSURE,
+        BundleArtifactKind.RISK_REPORT,
+        BundleArtifactKind.RISK_ANNOTATION_MANIFEST,
+        BundleArtifactKind.RISK_ANNOTATION_CLOSURE,
+    }
+)
 
 
 class _BundleInputDocument(BaseModel):
@@ -87,11 +92,19 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
         if type(document) is not dict or canonicalize_json_value(document) != raw:
             raise ValueError("bundle manifest must be a canonical object")
         semantic_keys = {
-            "bundle_contract_version", "bundle_profile", "closure", "diagnostics",
-            "failed_pairs", "inputs", "pairs", "status",
+            "bundle_contract_version",
+            "bundle_profile",
+            "closure",
+            "diagnostics",
+            "failed_pairs",
+            "inputs",
+            "pairs",
+            "status",
         }
         if set(document) != semantic_keys | {
-            "bundle_digest", "closure_entries", "closure_manifest_digest",
+            "bundle_digest",
+            "closure_entries",
+            "closure_manifest_digest",
         }:
             raise ValueError("bundle manifest fields do not match the current contract")
         if document["bundle_contract_version"] != BUNDLE_CONTRACT_VERSION:
@@ -107,23 +120,33 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
         payload = closure_semantic_payload(closure)
         if document["closure"] != payload:
             raise ValueError("bundle closure semantic entries mismatch")
-        if raw_blob_digest(canonicalize_json_value(payload)).value != document["closure_manifest_digest"]:
+        if (
+            raw_blob_digest(canonicalize_json_value(payload)).value
+            != document["closure_manifest_digest"]
+        ):
             raise ValueError("bundle closure digest mismatch")
         paths = [entry.logical_path for entry in entries]
         for index, entry in enumerate(entries):
             validate_bundle_ref(entry.artifact_ref)
-            if any(entry.logical_path == reserved or entry.logical_path.startswith(reserved + "/")
-                   for reserved in ("manifest.json", "artifact-closure.json")) or "\0" in entry.logical_path:
+            if (
+                any(
+                    entry.logical_path == reserved or entry.logical_path.startswith(reserved + "/")
+                    for reserved in ("manifest.json", "artifact-closure.json")
+                )
+                or "\0" in entry.logical_path
+            ):
                 raise ValueError("bundle closure path is reserved or invalid")
             prefix = entry.logical_path + "/"
             descendant = bisect_left(paths, prefix, lo=index + 1)
             if descendant < len(paths) and paths[descendant].startswith(prefix):
                 raise ValueError("bundle ordinary file paths conflict with a parent file")
         inputs = TypeAdapter(tuple[_BundleInputDocument, ...]).validate_json(
-            canonicalize_json_value(document["inputs"]), strict=True)
+            canonicalize_json_value(document["inputs"]), strict=True
+        )
         pairs = document["pairs"]
         pair_documents = TypeAdapter(tuple[_BundlePairDocument, ...]).validate_json(
-            canonicalize_json_value(pairs), strict=True)
+            canonicalize_json_value(pairs), strict=True
+        )
         if type(pairs) is not list or not pairs:
             raise ValueError("bundle must contain published pairs")
         pair_ids: set[str] = set()
@@ -136,18 +159,24 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             if pair_id in pair_ids:
                 raise ValueError("bundle pair identity is repeated")
             pair_ids.add(pair_id)
-            surfaces = [entry for entry in entries if entry.kind is BundleArtifactKind.SURFACE and entry.pair_id == pair_id]
+            surfaces = [
+                entry
+                for entry in entries
+                if entry.kind is BundleArtifactKind.SURFACE and entry.pair_id == pair_id
+            ]
             if len(surfaces) != 1:
                 raise ValueError("bundle pair surface is not closed")
             pair_digests.append((pair_id, pair["surface_digest"], pair["comparison_digest"]))
             pair_risk_digests.append((pair_id, pair["risk_evaluation_digest"]))
-        expected = canonicalize_json_value({
-            "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
-            "bundle_digest": digest.value,
-            "bundle_manifest_digest": digest.value,
-            **payload,
-            "closure_entries": [entry.to_document() for entry in entries],
-        })
+        expected = canonicalize_json_value(
+            {
+                "bundle_contract_version": BUNDLE_CONTRACT_VERSION,
+                "bundle_digest": digest.value,
+                "bundle_manifest_digest": digest.value,
+                **payload,
+                "closure_entries": [entry.to_document() for entry in entries],
+            }
+        )
         if len(expected) > MAX_BUNDLE_CLOSURE_JSON_BYTES:
             raise ValueError("bundle closure exceeds its JSON budget")
         ref = ArtifactRef(
@@ -157,17 +186,28 @@ def read_bundle_transport_metadata(raw: bytes) -> BundleTransportMetadata:
             raw_sha256=raw_blob_digest(expected),
         )
         return BundleTransportMetadata(
-            digest.value, ref, expected, entries, tuple(pair_digests), tuple(pair_risk_digests),
+            digest.value,
+            ref,
+            expected,
+            entries,
+            tuple(pair_digests),
+            tuple(pair_risk_digests),
             tuple((item.input_index, item.role) for item in inputs),
-            tuple((item.pair_id, item.before_input_index, item.current_input_index) for item in pair_documents),
+            tuple(
+                (item.pair_id, item.before_input_index, item.current_input_index)
+                for item in pair_documents
+            ),
         )
     except (KeyError, TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise BundleIntegrityError("bundle metadata failed integrity verification") from exc
 
 
 def validate_bundle_member_metadata(
-    entry: BundleClosureEntry, raw: bytes, *,
-    refs: set[ArtifactRef], pair_digests: tuple[tuple[str, str, str], ...],
+    entry: BundleClosureEntry,
+    raw: bytes,
+    *,
+    refs: set[ArtifactRef],
+    pair_digests: tuple[tuple[str, str, str], ...],
 ) -> None:
     """Validate bounded JSON reference metadata against the final published closure."""
     try:

@@ -83,12 +83,15 @@ class SQLiteArtifactProtectionStore:
     def clear_protection(self, *, owner_kind: str, owner_id: str) -> int:
         if self._read_only:
             raise RuntimeError("artifact protection store is read-only in this transaction")
-        canonical_ids = tuple(row[0] for row in self._connection.execute(
-            """SELECT p.artifact_id FROM artifact_protection_intents p
+        canonical_ids = tuple(
+            row[0]
+            for row in self._connection.execute(
+                """SELECT p.artifact_id FROM artifact_protection_intents p
                JOIN canonical_table_cache c ON c.artifact_id = p.artifact_id
                WHERE p.owner_kind = ? AND p.owner_id = ?""",
-            (owner_kind, owner_id),
-        ))
+                (owner_kind, owner_id),
+            )
+        )
         cursor = self._connection.execute(
             """
             DELETE FROM artifact_protection_intents
@@ -97,7 +100,8 @@ class SQLiteArtifactProtectionStore:
             (owner_kind, owner_id),
         )
         self.touch_canonical_ttl(
-            canonical_ids, recorded_at=datetime.now(UTC) if self._now is None else self._now,
+            canonical_ids,
+            recorded_at=datetime.now(UTC) if self._now is None else self._now,
         )
         return int(cursor.rowcount)
 
@@ -139,26 +143,28 @@ class SQLiteArtifactProtectionStore:
         """Release one derived intent without removing this owner's workflow pins."""
         if self._read_only:
             raise RuntimeError("artifact protection store is read-only in this transaction")
-        canonical_ids = tuple(row[0] for row in self._connection.execute(
-            """SELECT p.artifact_id FROM artifact_protection_intents p
+        canonical_ids = tuple(
+            row[0]
+            for row in self._connection.execute(
+                """SELECT p.artifact_id FROM artifact_protection_intents p
                JOIN canonical_table_cache c ON c.artifact_id=p.artifact_id
                WHERE p.owner_kind=? AND p.owner_id=? AND p.intent=?""",
-            (owner_kind, owner_id, intent),
-        ))
+                (owner_kind, owner_id, intent),
+            )
+        )
         cursor = self._connection.execute(
             "DELETE FROM artifact_protection_intents WHERE owner_kind=? AND owner_id=? AND intent=?",
             (owner_kind, owner_id, intent),
         )
         self.touch_canonical_ttl(
-            canonical_ids, recorded_at=datetime.now(UTC) if self._now is None else self._now,
+            canonical_ids,
+            recorded_at=datetime.now(UTC) if self._now is None else self._now,
         )
         return int(cursor.rowcount)
 
     def is_protected(self, artifact_id: str) -> bool:
         validate_artifact_id(artifact_id)
-        now_us = _datetime_to_epoch_us(
-            datetime.now(UTC) if self._now is None else self._now
-        )
+        now_us = _datetime_to_epoch_us(datetime.now(UTC) if self._now is None else self._now)
         row = self._connection.execute(
             """
             SELECT 1 FROM artifact_protection_intents

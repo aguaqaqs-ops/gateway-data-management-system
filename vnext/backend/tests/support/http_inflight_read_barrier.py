@@ -67,7 +67,7 @@ class HttpInflightReadBarrier:
                 pytest.fail("server exited before the listening socket closed during drain")
             try:
                 httpx.get(f"{base_url}/readyz", timeout=0.3)
-            except (httpx.ConnectError, httpx.RemoteProtocolError):
+            except httpx.ConnectError, httpx.RemoteProtocolError:
                 socket_closed = True
                 break
             except httpx.HTTPError:

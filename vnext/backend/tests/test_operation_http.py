@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from tests.support.configuration_fact_faults import (
-    CONFIGURATION_BODY_FAULTS, corrupt_configuration_body, forbid_configuration_object_reads,
+    CONFIGURATION_BODY_FAULTS,
+    corrupt_configuration_body,
+    forbid_configuration_object_reads,
 )
 
 import json
@@ -18,7 +20,10 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
 from gateway_backend.http.dependencies import ReadOnlyOperationStore
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, connect_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    connect_control_db,
+)
 from gateway_backend.operations.store import StoreBusy
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
@@ -249,7 +254,9 @@ def _accept_submit_operation(env: WorkspaceHttpTestEnvironment) -> tuple[str, st
     return body["operation_id"], body["submit_attempt_id"]
 
 
-def test_get_submit_operation_hides_missing_submit_attempt_ref(env: WorkspaceHttpTestEnvironment) -> None:
+def test_get_submit_operation_hides_missing_submit_attempt_ref(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
     operation_id, _submit_attempt_id = _accept_submit_operation(env)
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
@@ -317,7 +324,9 @@ def test_get_history_compare_operation_returns_200(db_path: Path, tmp_path: Path
     assert body["status"] == "QUEUED"
 
 
-def test_get_submit_operation_hides_missing_attempt_record(env: WorkspaceHttpTestEnvironment) -> None:
+def test_get_submit_operation_hides_missing_attempt_record(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
     operation_id, submit_attempt_id = _accept_submit_operation(env)
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         unit_of_work.connection.execute(
@@ -346,34 +355,57 @@ def test_get_submit_operation_hides_missing_attempt_record(env: WorkspaceHttpTes
 
 @pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
 def test_submit_operation_authorizes_workspace_before_configuration_decode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
 ) -> None:
-    env = create_workspace_http_environment(tmp_path, extra_sessions={
-        "other-reader": make_identity(actor_id="other-actor"),
-        "denied": make_identity(permissions=frozenset({"preview_workspace"})),
-    })
+    env = create_workspace_http_environment(
+        tmp_path,
+        extra_sessions={
+            "other-reader": make_identity(actor_id="other-actor"),
+            "denied": make_identity(permissions=frozenset({"preview_workspace"})),
+        },
+    )
     operation_id, attempt_id = _accept_submit_operation(env)
-    message = corrupt_configuration_body(env.db_path, kind="attempt", target_id=attempt_id, fault=fault)
+    message = corrupt_configuration_body(
+        env.db_path, kind="attempt", target_id=attempt_id, fault=fault
+    )
     url = f"/v1/operations/{operation_id}"
     other_headers = {**env.auth_headers(), "Authorization": "Bearer other-reader"}
     assert env.client.get(url, headers=other_headers).status_code == 404
-    other = env.client.post("/v1/workspaces", headers=other_headers,
-        json={"gateway_device_external_key": "device-1", "business_project_id": "project-1"})
+    other = env.client.post(
+        "/v1/workspaces",
+        headers=other_headers,
+        json={"gateway_device_external_key": "device-1", "business_project_id": "project-1"},
+    )
     assert other.status_code == 201
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
-        row = unit_of_work.connection.execute("SELECT business_refs FROM operation_records WHERE operation_id = ?", (operation_id,)).fetchone()
+        row = unit_of_work.connection.execute(
+            "SELECT business_refs FROM operation_records WHERE operation_id = ?", (operation_id,)
+        ).fetchone()
         assert row is not None
         original_refs = row[0]
         refs = json.loads(original_refs)
         for ref in refs:
             if ref["kind"] == "workspace":
                 ref["value"] = other.json()["workspace_id"]
-        unit_of_work.connection.execute("UPDATE operation_records SET business_refs = ? WHERE operation_id = ?", (canonicalize_json_value(refs), operation_id))
+        unit_of_work.connection.execute(
+            "UPDATE operation_records SET business_refs = ? WHERE operation_id = ?",
+            (canonicalize_json_value(refs), operation_id),
+        )
     assert env.client.get(url, headers=other_headers).status_code == 404
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
-        unit_of_work.connection.execute("UPDATE operation_records SET business_refs = ? WHERE operation_id = ?", (original_refs, operation_id))
+        unit_of_work.connection.execute(
+            "UPDATE operation_records SET business_refs = ? WHERE operation_id = ?",
+            (original_refs, operation_id),
+        )
     with forbid_configuration_object_reads(monkeypatch):
-        assert env.client.get(url, headers={**env.auth_headers(), "Authorization": "Bearer denied"}).status_code == 403
+        assert (
+            env.client.get(
+                url, headers={**env.auth_headers(), "Authorization": "Bearer denied"}
+            ).status_code
+            == 403
+        )
     with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
         with pytest.raises(ValueError, match=message):
             strict_client.get(url, headers=env.auth_headers())

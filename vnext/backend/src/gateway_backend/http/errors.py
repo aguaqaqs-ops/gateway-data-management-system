@@ -77,6 +77,7 @@ from gateway_backend.operations.store import StoreBusy
 INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
 INTERNAL_ERROR_MESSAGE = "internal server error"
 
+
 class ApiError(Exception):
     """Expected HTTP error mapped to the frozen 5A error family."""
 
@@ -147,7 +148,9 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
     if isinstance(exc, ScopeNotFound):
         return ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     if isinstance(exc, ScopeResolutionError):
-        return ApiError(code="DEPENDENCY_UNAVAILABLE", message="scope provider unavailable", status_code=503)
+        return ApiError(
+            code="DEPENDENCY_UNAVAILABLE", message="scope provider unavailable", status_code=503
+        )
     if isinstance(exc, IdempotencyConflict):
         return ApiError(
             code="IDEMPOTENCY_CONFLICT",
@@ -272,15 +275,25 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             status_code=422,
         )
     if isinstance(exc, OperationQueueFull):
-        return ApiError(code="OPERATION_QUEUE_FULL", message="operation queue is full", status_code=429)
+        return ApiError(
+            code="OPERATION_QUEUE_FULL", message="operation queue is full", status_code=429
+        )
     if isinstance(exc, HistoryCompareScopeLimit):
-        return ApiError(code="HISTORY_COMPARE_SCOPE_LIMIT", message=str(exc), status_code=409,
-                        details={"operation_ids": list(exc.operation_ids)})
+        return ApiError(
+            code="HISTORY_COMPARE_SCOPE_LIMIT",
+            message=str(exc),
+            status_code=409,
+            details={"operation_ids": list(exc.operation_ids)},
+        )
     if isinstance(exc, HistoryCompareRequestExpired):
         return ApiError(code="HISTORY_COMPARE_REQUEST_EXPIRED", message=str(exc), status_code=409)
     if isinstance(exc, HistoryCompareAliasLimit):
-        return ApiError(code="HISTORY_COMPARE_ALIAS_LIMIT", message=str(exc), status_code=429,
-                        details={"operation_id": exc.operation_id})
+        return ApiError(
+            code="HISTORY_COMPARE_ALIAS_LIMIT",
+            message=str(exc),
+            status_code=429,
+            details={"operation_id": exc.operation_id},
+        )
     if isinstance(exc, HistoryComparePreflightFailure):
         return map_domain_exception(exc.cause)
     if isinstance(exc, HistoryCompareNodeNotFound):
@@ -415,10 +428,14 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(OperationQueueFull)
-    async def operation_queue_full_handler(_request: Request, exc: OperationQueueFull) -> JSONResponse:
+    async def operation_queue_full_handler(
+        _request: Request, exc: OperationQueueFull
+    ) -> JSONResponse:
         mapped = map_domain_exception(exc)
         assert mapped is not None
-        return error_response(code=mapped.code, message=mapped.message, status_code=mapped.status_code)
+        return error_response(
+            code=mapped.code, message=mapped.message, status_code=mapped.status_code
+        )
 
     @app.exception_handler(WorkspaceDomainError)
     async def workspace_domain_error_handler(

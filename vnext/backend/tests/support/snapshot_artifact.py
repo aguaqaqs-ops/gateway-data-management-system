@@ -24,10 +24,14 @@ from tests.support.snapshot_materialization import materialize_sql, parse_fixtur
 def readers_result(
     relative_sql: str = "sql/valid/s2-minimal-create-insert/input.sql",
 ) -> SnapshotMaterializationResult:
-    return materialize_sql(parse_fixture(relative_sql), policy=MaterializationPolicy.READERS_REQUIRED)
+    return materialize_sql(
+        parse_fixture(relative_sql), policy=MaterializationPolicy.READERS_REQUIRED
+    )
 
 
-def first_ready_table(relative_sql: str = "sql/valid/s2-minimal-create-insert/input.sql") -> SnapshotTable:
+def first_ready_table(
+    relative_sql: str = "sql/valid/s2-minimal-create-insert/input.sql",
+) -> SnapshotTable:
     result = readers_result(relative_sql)
     assert result.snapshot is not None
     assert result.table_set is not None

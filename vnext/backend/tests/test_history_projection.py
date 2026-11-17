@@ -49,7 +49,10 @@ from gateway_backend.domain.submission.review import ReviewAction, ReviewStatus
 from gateway_backend.domain.workspace.errors import PermissionDenied
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.infrastructure.control_db.sqlite_history import HistorySubmissionRow, SQLiteHistoryReader
+from gateway_backend.infrastructure.control_db.sqlite_history import (
+    HistorySubmissionRow,
+    SQLiteHistoryReader,
+)
 from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
@@ -107,7 +110,9 @@ def _seed_history_diff_fixture(db_path: Path) -> ReviewSeed:
     primary = _seed_pending_review_submission(db_path)
     _apply_review(
         primary,
-        _apply_command(primary, action=ReviewAction.APPROVE, idempotency_key="approve-diff-primary"),
+        _apply_command(
+            primary, action=ReviewAction.APPROVE, idempotency_key="approve-diff-primary"
+        ),
     )
     sibling = _seed_additional_pending_review_submission(
         db_path,
@@ -118,7 +123,9 @@ def _seed_history_diff_fixture(db_path: Path) -> ReviewSeed:
     )
     _apply_review(
         sibling,
-        _apply_command(sibling, action=ReviewAction.APPROVE, idempotency_key="approve-diff-sibling"),
+        _apply_command(
+            sibling, action=ReviewAction.APPROVE, idempotency_key="approve-diff-sibling"
+        ),
     )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
@@ -189,7 +196,9 @@ def _assert_history_projections_equal(
         _assert_history_nodes_equal(left_node, right_node)
 
 
-def _collect_tree_path_pages(*, facts: HistoryFacts, limit: int) -> tuple[HistoryTreeProjection, ...]:
+def _collect_tree_path_pages(
+    *, facts: HistoryFacts, limit: int
+) -> tuple[HistoryTreeProjection, ...]:
     pages: list[HistoryTreeProjection] = []
     cursor: str | None = None
     while True:
@@ -293,8 +302,18 @@ def _submission(
         business_baseline_commit_id="commit-base",
         repository_commit_id=repository_commit_id,
         canonical_business_digest="sha256:" + "a" * 64,
-        source_artifact_refs=(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39"),),
-        canonicalization_manifest_ref=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6"),
+        source_artifact_refs=(
+            build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "704120dda033b99b1bb403884a0ae12c2145797645918d0cb452e47c19f12d39",
+            ),
+        ),
+        canonicalization_manifest_ref=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
+        ),
         canonicalization_manifest_digest="sha256:" + "b" * 64,
         repository_import_artifact_raw_sha256="sha256:" + "c" * 64,
         repository_artifact_id="d70d201c-9ae4-5cce-9de5-38836fb5ff39",
@@ -600,7 +619,10 @@ def test_projection_paginates_with_opaque_cursor() -> None:
 
 def test_sqlite_history_reader_loads_submission_review_facts(db_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(review_seed, _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-history"))
+    _apply_review(
+        review_seed,
+        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-history"),
+    )
     facts = HttpHistoryReader(db_path).load_facts(
         repository_id="repo-1",
         gateway_device_external_key="device-1",
@@ -616,7 +638,23 @@ def test_history_reader_source_artifact_refs_match_submission_repository(db_path
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
             "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
-            (canonicalize_json_value([build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"), build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303")]), review_seed.submission_id),
+            (
+                canonicalize_json_value(
+                    [
+                        build_artifact_id(
+                            ArtifactLocation.DURABLE,
+                            "test-fixture",
+                            "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+                        ),
+                        build_artifact_id(
+                            ArtifactLocation.DURABLE,
+                            "test-fixture",
+                            "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+                        ),
+                    ]
+                ),
+                review_seed.submission_id,
+            ),
         )
     facts = HttpHistoryReader(db_path).load_facts(
         repository_id="repo-1",
@@ -626,8 +664,22 @@ def test_history_reader_source_artifact_refs_match_submission_repository(db_path
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
         assert repository_submission is not None
-    assert facts.submissions[0].submission.source_artifact_refs == repository_submission.source_artifact_refs
-    assert facts.submissions[0].submission.source_artifact_refs == (build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf"), build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303"))
+    assert (
+        facts.submissions[0].submission.source_artifact_refs
+        == repository_submission.source_artifact_refs
+    )
+    assert facts.submissions[0].submission.source_artifact_refs == (
+        build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+        ),
+        build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "ba818a521fed3b2757a17badbc09fd4393d77f7c1c1887a65a74edb8905fe303",
+        ),
+    )
 
 
 def test_sqlite_history_reader_loads_scope_filtered_facts(db_path: Path) -> None:
@@ -739,10 +791,7 @@ def test_promoted_baseline_node_is_deterministic_for_duplicate_source_submission
     assert tree_submission.promoted_baseline_node_id == expected_winner
     query_pages = _collect_page_path_pages(db_path, limit=10)
     query_submission = next(
-        node
-        for page in query_pages
-        for node in page.nodes
-        if node.ref_id == primary.submission_id
+        node for page in query_pages for node in page.nodes if node.ref_id == primary.submission_id
     )
     assert query_submission.promoted_baseline_node_id == expected_winner
 
@@ -806,13 +855,32 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
                 NULL, 1, 'actor-1', 1, NULL, NULL, 1, 'IMPORT_FAILED'
             )
             """,
-            (configuration_facts_blob(workspace_id="ws-failed-import", baseline_node_id=BASELINE_HEAD.business_baseline_node_id, baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id), *(
-                BASELINE_HEAD.business_baseline_node_id,
-                BASELINE_HEAD.business_baseline_commit_id,
-                canonicalize_json_value([build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041")]),
-                build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e"),
-                "sha256:canonical-closure",
-            )),
+            (
+                configuration_facts_blob(
+                    workspace_id="ws-failed-import",
+                    baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+                    baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+                ),
+                *(
+                    BASELINE_HEAD.business_baseline_node_id,
+                    BASELINE_HEAD.business_baseline_commit_id,
+                    canonicalize_json_value(
+                        [
+                            build_artifact_id(
+                                ArtifactLocation.DURABLE,
+                                "test-fixture",
+                                "6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041",
+                            )
+                        ]
+                    ),
+                    build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
+                    ),
+                    "sha256:canonical-closure",
+                ),
+            ),
         )
         unit_of_work.connection.execute(
             """
@@ -973,7 +1041,9 @@ def test_paginated_history_loader_bounds_promotion_fetch(
     assert sub_1.promoted_baseline_node_id == "zz-node"
 
 
-def test_paginated_history_loader_bounds_submission_fetch(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_paginated_history_loader_bounds_submission_fetch(
+    db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,

@@ -6,20 +6,29 @@ import pyarrow as pa
 from gateway_compute._native import _encode_canonical_ipc_native
 
 from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput, ComparisonPlan, ComparisonRequest, plan_comparison,
+    BoundSnapshotInput,
+    ComparisonPlan,
+    ComparisonRequest,
+    plan_comparison,
 )
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_columns
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    BlankRowProvenance, MaterializationPolicy, SnapshotTable,
+    BlankRowProvenance,
+    MaterializationPolicy,
+    SnapshotTable,
 )
 from gateway_backend.capabilities.table_access import NeverCancel
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.table_rules import comparison_ruleset_for, ordered_record, standard_rule_record
 
 _CODEC_BUDGETS = {
-    "max_columns": 2048, "max_input_batches": 4096, "max_rows": 10_000_000,
-    "max_descriptor_bytes": 16 * 1024**2, "max_input_bytes": 1024**3,
-    "max_output_bytes": 1024**3, "max_codec_peak_bytes": 24 * 1024**3,
+    "max_columns": 2048,
+    "max_input_batches": 4096,
+    "max_rows": 10_000_000,
+    "max_descriptor_bytes": 16 * 1024**2,
+    "max_input_bytes": 1024**3,
+    "max_output_bytes": 1024**3,
+    "max_codec_peak_bytes": 24 * 1024**3,
 }
 
 
@@ -29,19 +38,28 @@ def bound(sql: str) -> BoundSnapshotInput:
     assert materialized.summary is not None
     assert materialized.table_set is not None
     return BoundSnapshotInput(
-        materialized.snapshot, materialized.summary, materialized.table_set,
+        materialized.snapshot,
+        materialized.summary,
+        materialized.table_set,
         presentation=materialized.presentation,
     )
 
 
 def plan(
-    before: BoundSnapshotInput, current: BoundSnapshotInput, *, ordered: bool = False,
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    *,
+    ordered: bool = False,
 ) -> ComparisonPlan:
     record = ordered_record(r"^t$") if ordered else standard_rule_record("t")
-    result = plan_comparison(ComparisonRequest(
-        pair_id="s3-c-frozen-arrow", before=before, current=current,
-        rule_set=comparison_ruleset_for(record),
-    ))
+    result = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-c-frozen-arrow",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(record),
+        )
+    )
     assert isinstance(result, ComparisonPlan)
     return result
 
@@ -56,7 +74,10 @@ def canonical_stream(table: SnapshotTable) -> pa.RecordBatchReader:
                 raise AssertionError("reopened Arrow reader has no stream")
             with arrow_stream() as source:
                 raw = _encode_canonical_ipc_native(
-                    canonical_columns(table.descriptor), source, NeverCancel(), _CODEC_BUDGETS,
+                    canonical_columns(table.descriptor),
+                    source,
+                    NeverCancel(),
+                    _CODEC_BUDGETS,
                 )
         finally:
             isolated.close()
@@ -65,11 +86,15 @@ def canonical_stream(table: SnapshotTable) -> pa.RecordBatchReader:
         isolated_batches = table.batch_reader.reopen()
         try:
             source = pa.RecordBatchReader.from_batches(
-                isolated_batches.schema(), isolated_batches.iter_record_batches(),
+                isolated_batches.schema(),
+                isolated_batches.iter_record_batches(),
             )
             try:
                 raw = _encode_canonical_ipc_native(
-                    canonical_columns(table.descriptor), source, NeverCancel(), _CODEC_BUDGETS,
+                    canonical_columns(table.descriptor),
+                    source,
+                    NeverCancel(),
+                    _CODEC_BUDGETS,
                 )
             finally:
                 source.close()

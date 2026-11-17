@@ -34,6 +34,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     enum_set_labels_for_sql_spelling,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class _SchemaView:
     before_columns: dict[str, SnapshotColumnDescriptor]
@@ -48,6 +49,7 @@ class _SchemaView:
     source_key_changed: bool
     key_invalid: bool
     enum_set_added: bool
+
 
 def _schema_view(
     before: SnapshotTableDescriptor,
@@ -67,8 +69,7 @@ def _schema_view(
         if not _column_signatures_compatible(before_columns[column], current_columns[column])
     )
     enum_set_added = any(
-        _enum_set_addition(before_columns[column], current_columns[column])
-        for column in selected
+        _enum_set_addition(before_columns[column], current_columns[column]) for column in selected
     )
     before_key = policy.effective_key_before
     current_key = policy.effective_key_current
@@ -111,7 +112,9 @@ def _schema_view(
 def _pure_column_change(schema: _SchemaView) -> bool:
     """Only added/deleted columns; no inferred rename or shared type evolution."""
     return bool(schema.before_only or schema.current_only) and not (
-        schema.incompatible or schema.key_changed or schema.source_key_changed
+        schema.incompatible
+        or schema.key_changed
+        or schema.source_key_changed
         or schema.enum_set_added
     )
 
@@ -124,14 +127,17 @@ def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> 
         diagnostics.append("CURRENT_ONLY_COLUMNS")
     if schema.incompatible:
         diagnostics.append("INCOMPATIBLE_SELECTED_COLUMNS")
-    if (any(name not in schema.before_columns for name in schema.before_key)
-            or any(name not in schema.current_columns for name in schema.current_key)):
+    if any(name not in schema.before_columns for name in schema.before_key) or any(
+        name not in schema.current_columns for name in schema.current_key
+    ):
         diagnostics.append("EFFECTIVE_KEY_MISSING")
     if schema.key_changed:
         diagnostics.append("EFFECTIVE_KEY_CHANGED")
     if schema.source_key_changed:
         diagnostics.append("SOURCE_PRIMARY_KEY_CHANGED")
-    if any(item in policy.compare_excluded_columns for item in schema.before_key + schema.current_key):
+    if any(
+        item in policy.compare_excluded_columns for item in schema.before_key + schema.current_key
+    ):
         diagnostics.append("EFFECTIVE_KEY_IGNORED")
     return diagnostics
 
@@ -176,12 +182,6 @@ def _schema_only_fact(
     )
 
 
-
-
-
-
-
-
 def _schema_record(
     table_name: str,
     diagnostics: Iterable[str],
@@ -193,10 +193,6 @@ def _schema_record(
         changed_columns=selected,
         diagnostics=tuple(diagnostics),
     )
-
-
-
-
 
 
 def _row_occurrence_digest(row_digest: DigestRef, occurrence: int) -> DigestRef:
@@ -212,14 +208,6 @@ def _row_occurrence_digest(row_digest: DigestRef, occurrence: int) -> DigestRef:
         + encode_uleb128(occurrence)
     )
     return semantic_digest(DigestKind.ROW, payload).digest_ref
-
-
-
-
-
-
-
-
 
 
 def _column_map(descriptor: SnapshotTableDescriptor) -> dict[str, SnapshotColumnDescriptor]:
@@ -295,11 +283,22 @@ def _is_columns_added(schema: _SchemaView) -> bool:
 def _schema_evolution(schema: _SchemaView) -> SchemaEvolution:
     if _is_columns_added(schema):
         return SchemaEvolution.COLUMNS_ADDED
-    if schema.before_only and not schema.current_only and not schema.incompatible and not (
-        schema.key_changed or schema.source_key_changed or schema.key_invalid
+    if (
+        schema.before_only
+        and not schema.current_only
+        and not schema.incompatible
+        and not (schema.key_changed or schema.source_key_changed or schema.key_invalid)
     ):
         return SchemaEvolution.COLUMNS_REMOVED
-    if schema.before_only or schema.current_only or schema.incompatible or schema.key_changed or schema.source_key_changed or schema.key_invalid or schema.enum_set_added:
+    if (
+        schema.before_only
+        or schema.current_only
+        or schema.incompatible
+        or schema.key_changed
+        or schema.source_key_changed
+        or schema.key_invalid
+        or schema.enum_set_added
+    ):
         return SchemaEvolution.INCOMPATIBLE
     return SchemaEvolution.NONE
 
@@ -423,9 +422,7 @@ def _storage_policy_facts(facts: ComparisonStorageFacts) -> tuple[object, ...]:
 def _with_table_digest(fact: ComparisonTableFact) -> ComparisonTableFact:
     return replace(
         fact,
-        table_fact_digest=raw_blob_digest(
-            canonicalize_json_value(_table_digest_payload(fact))
-        ),
+        table_fact_digest=raw_blob_digest(canonicalize_json_value(_table_digest_payload(fact))),
     )
 
 
@@ -457,10 +454,7 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
         "row_modified_count": fact.row_modified_count,
         "suppressed_added_count": fact.suppressed_added_count,
         "suppressed_deleted_count": fact.suppressed_deleted_count,
-        "records": [
-            _record_digest_payload(record)
-            for record in fact.records
-        ],
+        "records": [_record_digest_payload(record) for record in fact.records],
         "ordered_extension": _ordered_extension_digest_payload(fact.ordered_extension),
         "blank_extension": _blank_extension_digest_payload(fact.blank_extension),
     }
@@ -488,7 +482,9 @@ def _ordered_policy_payload(policy: Any) -> dict[str, object] | None:
         "policy_id": policy.policy_id,
         "policy_version": policy.policy_version,
         "order_key": list(policy.order_key),
-        "row_identity_key": None if policy.row_identity_key is None else list(policy.row_identity_key),
+        "row_identity_key": None
+        if policy.row_identity_key is None
+        else list(policy.row_identity_key),
         "stable_key_candidates": list(policy.stable_key_candidates),
         "value_columns": list(policy.value_columns),
         "blank_row_policy": policy.blank_row_policy.value,
@@ -519,14 +515,20 @@ def _ordered_extension_digest_payload(
             "degraded": extension.ordered_summary.degraded_count,
         },
         "before_ordered_digest": (
-            None if extension.before_ordered_digest is None else extension.before_ordered_digest.value
+            None
+            if extension.before_ordered_digest is None
+            else extension.before_ordered_digest.value
         ),
         "current_ordered_digest": (
-            None if extension.current_ordered_digest is None else extension.current_ordered_digest.value
+            None
+            if extension.current_ordered_digest is None
+            else extension.current_ordered_digest.value
         ),
         "replay_guarantee": extension.replay_guarantee.value,
         "table_processing_mode": (
-            None if extension.table_processing_mode is None else extension.table_processing_mode.value
+            None
+            if extension.table_processing_mode is None
+            else extension.table_processing_mode.value
         ),
         "policy_digest": None if extension.policy_digest is None else extension.policy_digest.value,
         "records": [
@@ -592,8 +594,6 @@ def _blank_extension_digest_payload(extension: Any) -> dict[str, object] | None:
             for record in extension.records
         ],
     }
-
-
 
 
 def _summary_payload(summary: ComparisonSummary) -> dict[str, object]:

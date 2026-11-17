@@ -38,7 +38,9 @@ from gateway_backend.capabilities.storage_projection import (
     RepositoryImportColumn,
     RepositoryImportTable,
 )
-from gateway_backend.capabilities.storage_projection import contracts as storage_projection_contracts
+from gateway_backend.capabilities.storage_projection import (
+    contracts as storage_projection_contracts,
+)
 from gateway_backend.capabilities.table_rules.contracts import (
     RULESET_ID,
     RULESET_VERSION,
@@ -98,9 +100,7 @@ def _storage_view() -> StorageRuleView:
         canonical_table="net_cfg",
         canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
         ordered_policy=OrderedPolicy.NONE,
-        dropped_columns=(
-            DroppedColumn(name="no", reason="legacy_ignored_column:net_cfg"),
-        ),
+        dropped_columns=(DroppedColumn(name="no", reason="legacy_ignored_column:net_cfg"),),
         retained_columns=("board", "link_no"),
         canonical_key_columns=("board", "link_no"),
     )
@@ -125,9 +125,7 @@ def _manifest(ruleset_digest: object) -> CanonicalizationManifest:
                 ordered_policy=OrderedPolicy.NONE,
                 retained_columns=("board", "link_no"),
                 structural_columns=(),
-                dropped_columns=(
-                    DroppedColumn(name="no", reason="legacy_ignored_column:net_cfg"),
-                ),
+                dropped_columns=(DroppedColumn(name="no", reason="legacy_ignored_column:net_cfg"),),
                 canonical_key_columns=("board", "link_no"),
             ),
         ),
@@ -162,9 +160,7 @@ def test_versions_and_publication_budgets_match_s0() -> None:
     assert MAX_DIAGNOSTICS == 1024
     assert MAX_DIAGNOSTIC_MESSAGE_BYTES == 4 * _KIB
     assert CANONICALIZATION_MANIFEST_MEDIA_TYPE == "application/json"
-    assert REPOSITORY_IMPORT_MEDIA_TYPE == (
-        "application/vnd.gateway.repository-import.v1+tar+zstd"
-    )
+    assert REPOSITORY_IMPORT_MEDIA_TYPE == ("application/vnd.gateway.repository-import.v1+tar+zstd")
     assert ProjectionStatus.COMPLETE.value == "COMPLETE"
     assert ProjectionStatus.FAILED.value == "FAILED"
     assert "PARTIAL" not in ProjectionStatus.__members__

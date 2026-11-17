@@ -131,8 +131,12 @@ def _map_page_entry(row: object) -> HistoryPageEntry:
         based_on_baseline_node_id=row.based_on_baseline_node_id,
         review_status=ReviewStatus(row.review_status),
         submission_disposition=disposition,
-        disposition_source_kind=None if row.disposition_record is None else row.disposition_record.source_kind,
-        disposition_result_id=None if row.disposition_record is None else row.disposition_record.result_id,
+        disposition_source_kind=None
+        if row.disposition_record is None
+        else row.disposition_record.source_kind,
+        disposition_result_id=None
+        if row.disposition_record is None
+        else row.disposition_record.result_id,
         closure=None if row.disposition_record is None else row.disposition_record.manual_closure,
         identity_exception=row.identity_exception,
     )

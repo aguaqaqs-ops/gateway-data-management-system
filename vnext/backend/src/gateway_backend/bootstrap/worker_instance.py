@@ -1,4 +1,5 @@
 """Fixed worker ownership for one process lifetime in the cooperative group."""
+
 from __future__ import annotations
 
 import fcntl
@@ -32,16 +33,25 @@ def acquire_worker_instance(config: DeploymentConfig, instance_index: int) -> st
     """Acquire before kernel/runtime/telemetry; never unlink or release on return."""
     identity = worker_id_for(config, instance_index)
     check_configured_root(config.storage, "be-metadata")
-    directory = os.open(config.storage.roots["be-metadata"].path,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    directory = os.open(
+        config.storage.roots["be-metadata"].path,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
     descriptor: int | None = None
     try:
-        descriptor = os.open(f".gateway-worker-{instance_index}.lock",
-                             os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
-                             0o600, dir_fd=directory)
+        descriptor = os.open(
+            f".gateway-worker-{instance_index}.lock",
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+            0o600,
+            dir_fd=directory,
+        )
         info = os.fstat(descriptor)
-        if (not stat.S_ISREG(info.st_mode) or descriptor_mount_id(descriptor) != descriptor_mount_id(directory)
-                or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or descriptor_mount_id(descriptor) != descriptor_mount_id(directory)
+            or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+        ):
             raise ValueError("worker instance lock has invalid file identity or permissions")
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)

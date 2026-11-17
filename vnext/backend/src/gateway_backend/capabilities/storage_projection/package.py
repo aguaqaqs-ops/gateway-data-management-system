@@ -253,7 +253,9 @@ def validate_repository_import_package(payload: bytes) -> RepositoryImportArtifa
     return repository_import_input_from_bytes(manifest_bytes)
 
 
-def pack_repository_import_entries(manifest_bytes: bytes, replay_sql: bytes) -> WrittenImportPackage:
+def pack_repository_import_entries(
+    manifest_bytes: bytes, replay_sql: bytes
+) -> WrittenImportPackage:
     if type(manifest_bytes) is not bytes:
         raise PackageError(
             ProjectionDiagnosticCode.BINDING_INVALID,
@@ -426,7 +428,9 @@ def _unsafe_member_name(name: str) -> str | None:
 def _durable_table(value: object, index: int) -> CanonicalizationManifestTable:
     mapping = _exact_object(value, _DURABLE_TABLE_KEYS, f"tables[{index}]")
     dropped_raw = _array(mapping["dropped_columns"], f"tables[{index}].dropped_columns")
-    dropped = tuple(_dropped_column(item, index, drop_index) for drop_index, item in enumerate(dropped_raw))
+    dropped = tuple(
+        _dropped_column(item, index, drop_index) for drop_index, item in enumerate(dropped_raw)
+    )
     try:
         return CanonicalizationManifestTable(
             name=_text(mapping["name"], "name"),
@@ -437,7 +441,9 @@ def _durable_table(value: object, index: int) -> CanonicalizationManifestTable:
             retained_columns=_name_tuple(mapping["retained_columns"], "retained_columns"),
             structural_columns=_name_tuple(mapping["structural_columns"], "structural_columns"),
             dropped_columns=dropped,
-            canonical_key_columns=_name_tuple(mapping["canonical_key_columns"], "canonical_key_columns"),
+            canonical_key_columns=_name_tuple(
+                mapping["canonical_key_columns"], "canonical_key_columns"
+            ),
             source_schema_digest=_optional_digest(
                 mapping["source_schema_digest"],
                 "source_schema_digest",
@@ -586,7 +592,9 @@ def _optional_int(value: object, label: str) -> int | None:
 
 def _digest(value: object, label: str) -> DigestRef:
     if type(value) is not str:
-        raise PackageError(ProjectionDiagnosticCode.BINDING_INVALID, f"{label} must be a digest string")
+        raise PackageError(
+            ProjectionDiagnosticCode.BINDING_INVALID, f"{label} must be a digest string"
+        )
     try:
         return DigestRef(value)
     except ValueError as exc:

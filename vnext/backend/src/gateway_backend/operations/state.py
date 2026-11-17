@@ -136,7 +136,9 @@ def validate_operation_transition(
         _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
         _validate_operation_mutable_fields(current, candidate)
         _require_updated_at_monotonic(current.updated_at, candidate.updated_at)
-        _require_optimistic_version_increment(current.optimistic_version, candidate.optimistic_version)
+        _require_optimistic_version_increment(
+            current.optimistic_version, candidate.optimistic_version
+        )
         return TransitionDisposition.APPLY
     _validate_operation_identity_unchanged(current, candidate)
     _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
@@ -170,7 +172,9 @@ def validate_step_transition(
         _validate_step_started_at(current, candidate)
         _require_updated_at_monotonic(current.updated_at, candidate.updated_at)
         _validate_step_attempt_and_lease(current, candidate)
-        _require_optimistic_version_increment(current.optimistic_version, candidate.optimistic_version)
+        _require_optimistic_version_increment(
+            current.optimistic_version, candidate.optimistic_version
+        )
         return TransitionDisposition.APPLY
     _validate_step_identity_unchanged(current, candidate)
     _validate_cancel_requested_monotonic(current.cancel_requested, candidate.cancel_requested)
@@ -186,7 +190,9 @@ def validate_step_transition(
     return TransitionDisposition.APPLY
 
 
-def _validate_operation_identity_unchanged(current: OperationRecord, candidate: OperationRecord) -> None:
+def _validate_operation_identity_unchanged(
+    current: OperationRecord, candidate: OperationRecord
+) -> None:
     if current.contract_version != candidate.contract_version:
         raise ValueError("contract_version is immutable")
     if current.operation_id != candidate.operation_id:
@@ -225,7 +231,9 @@ def _validate_cancel_requested_monotonic(current: bool, candidate: bool) -> None
         raise ValueError("cancel_requested cannot be reset")
 
 
-def _validate_operation_mutable_fields(current: OperationRecord, candidate: OperationRecord) -> None:
+def _validate_operation_mutable_fields(
+    current: OperationRecord, candidate: OperationRecord
+) -> None:
     if current.repository_operation_id is not None:
         if candidate.repository_operation_id != current.repository_operation_id:
             raise ValueError("repository_operation_id can only be set once")
@@ -253,9 +261,7 @@ def _validate_step_attempt_and_lease(current: StepRecord, candidate: StepRecord)
     if from_pending_or_retry and entering_running:
         expected_attempt_count = claim_attempt_count(current)
         if candidate.attempt_count != expected_attempt_count:
-            raise ValueError(
-                "attempt_count does not match the claim session transition"
-            )
+            raise ValueError("attempt_count does not match the claim session transition")
     elif candidate.attempt_count != current.attempt_count:
         raise ValueError(
             "attempt_count can only change when entering RUNNING from PENDING or RETRY_WAIT"
@@ -269,7 +275,10 @@ def _validate_step_attempt_and_lease(current: StepRecord, candidate: StepRecord)
         ):
             raise ValueError("RUNNING step requires lease identity")
         if current.status is StepStatus.RUNNING:
-            if candidate.worker_id != current.worker_id or candidate.lease_token != current.lease_token:
+            if (
+                candidate.worker_id != current.worker_id
+                or candidate.lease_token != current.lease_token
+            ):
                 raise ValueError("worker_id and lease_token are immutable during RUNNING heartbeat")
     elif leaving_running:
         if (
@@ -298,7 +307,8 @@ def claim_attempt_count(step: StepRecord) -> int:
         in {
             DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
             DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
-            DIAGNOSTIC_PURE_DRAIN_HANDOFF, DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR,
+            DIAGNOSTIC_PURE_DRAIN_HANDOFF,
+            DIAGNOSTIC_PURE_DRAIN_HANDOFF_OPERATOR,
         }
     ):
         return step.attempt_count
@@ -331,7 +341,9 @@ def operator_recovery_session_active(step: StepRecord) -> bool:
     )
 
 
-def _require_updated_at_monotonic(current_updated_at: datetime, candidate_updated_at: datetime) -> None:
+def _require_updated_at_monotonic(
+    current_updated_at: datetime, candidate_updated_at: datetime
+) -> None:
     if candidate_updated_at < current_updated_at:
         raise ValueError("updated_at must be >= current updated_at")
 

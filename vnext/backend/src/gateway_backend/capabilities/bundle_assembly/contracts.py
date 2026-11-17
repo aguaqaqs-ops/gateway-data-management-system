@@ -10,7 +10,11 @@ from typing import TypeAlias
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.artifacts import ArtifactRef, assert_no_host_path_identity, artifact_ref_to_dict
+from gateway_backend.artifacts import (
+    ArtifactRef,
+    assert_no_host_path_identity,
+    artifact_ref_to_dict,
+)
 from gateway_backend.artifacts.types import validate_artifact_id
 from gateway_backend.capabilities.surface_assembly.contracts import (
     SurfaceAssemblyResult,
@@ -94,7 +98,9 @@ def _binding_side_from_path(logical_path: str) -> BundleTableSide:
         table_index = parts.index("tables")
         return BundleTableSide(parts[table_index + 1])
     except (ValueError, IndexError) as exc:
-        raise ValueError("snapshot table binding path must identify before/current/browse side") from exc
+        raise ValueError(
+            "snapshot table binding path must identify before/current/browse side"
+        ) from exc
 
 
 def _text(value: object, label: str) -> str:
@@ -197,7 +203,9 @@ class BundleInput:
         _non_negative(self.input_index, "input_index")
         _text(self.role, "role")
         _text(self.display_name, "display_name")
-        object.__setattr__(self, "display_metadata", _string_pairs(self.display_metadata, "display_metadata"))
+        object.__setattr__(
+            self, "display_metadata", _string_pairs(self.display_metadata, "display_metadata")
+        )
         _optional_digest(self.snapshot_digest, "snapshot_digest")
 
     def to_document(self) -> dict[str, object]:
@@ -252,7 +260,9 @@ class BundleArtifactBinding:
                     ),
                 )
             ordered = tuple(
-                sorted(set(bindings), key=lambda item: (item.pair_id, item.side.value, item.table_name))
+                sorted(
+                    set(bindings), key=lambda item: (item.pair_id, item.side.value, item.table_name)
+                )
             )
             object.__setattr__(self, "table_bindings", ordered)
         elif self.table_bindings:
@@ -285,7 +295,13 @@ class BundleArtifactClosure:
         ordered = tuple(sorted(self.entries, key=lambda item: (item.logical_path, item.kind.value)))
         if len({item.logical_path for item in ordered}) != len(ordered):
             raise ValueError("closure logical paths must be unique")
-        if len({item.source_ref for item in ordered if item.kind is not BundleArtifactKind.SNAPSHOT_TABLE}) != len(
+        if len(
+            {
+                item.source_ref
+                for item in ordered
+                if item.kind is not BundleArtifactKind.SNAPSHOT_TABLE
+            }
+        ) != len(
             tuple(item for item in ordered if item.kind is not BundleArtifactKind.SNAPSHOT_TABLE)
         ):
             raise ValueError("closure source refs must be unique")
@@ -375,7 +391,10 @@ class BundleClosureEntry:
             if not self.table_bindings:
                 raise ValueError("snapshot table closure entry requires table bindings")
             ordered = tuple(
-                sorted(set(self.table_bindings), key=lambda item: (item.pair_id, item.side.value, item.table_name))
+                sorted(
+                    set(self.table_bindings),
+                    key=lambda item: (item.pair_id, item.side.value, item.table_name),
+                )
             )
             object.__setattr__(self, "table_bindings", ordered)
         elif self.table_bindings:
@@ -510,9 +529,13 @@ class ComparisonBundle:
             raise ValueError("bundle_profile must be BundleProfile")
         if type(self.status) is not BundleAssemblyStatus:
             raise ValueError("status must be BundleAssemblyStatus")
-        if type(self.inputs) is not tuple or any(type(item) is not BundleInput for item in self.inputs):
+        if type(self.inputs) is not tuple or any(
+            type(item) is not BundleInput for item in self.inputs
+        ):
             raise ValueError("inputs must contain BundleInput")
-        if type(self.pairs) is not tuple or any(type(item) is not BundlePair for item in self.pairs):
+        if type(self.pairs) is not tuple or any(
+            type(item) is not BundlePair for item in self.pairs
+        ):
             raise ValueError("pairs must contain BundlePair")
         if type(self.failed_pairs) is not tuple or any(
             type(item) is not BundlePairFailure for item in self.failed_pairs
@@ -560,9 +583,13 @@ class BundleAssemblyInput:
             raise ValueError("unsupported bundle contract version")
         if type(self.bundle_profile) is not BundleProfile:
             raise ValueError("bundle_profile must be BundleProfile")
-        if type(self.inputs) is not tuple or any(type(item) is not BundleInput for item in self.inputs):
+        if type(self.inputs) is not tuple or any(
+            type(item) is not BundleInput for item in self.inputs
+        ):
             raise ValueError("inputs must contain BundleInput")
-        if type(self.pairs) is not tuple or any(type(item) is not BundlePairInput for item in self.pairs):
+        if type(self.pairs) is not tuple or any(
+            type(item) is not BundlePairInput for item in self.pairs
+        ):
             raise ValueError("pairs must contain BundlePairInput")
         if type(self.shared_artifacts) is not BundleArtifactClosure:
             raise ValueError("shared_artifacts must be BundleArtifactClosure")
@@ -597,9 +624,14 @@ class BundleAssemblyPolicy:
             raise ValueError("max_bundle_wall_time_seconds must be numeric")
         if self.max_bundle_wall_time_seconds <= 0:
             raise ValueError("max_bundle_wall_time_seconds must be positive")
-        if type(self.max_pair_concurrency) is not int or not 1 <= self.max_pair_concurrency <= MAX_PAIR_CONCURRENCY:
+        if (
+            type(self.max_pair_concurrency) is not int
+            or not 1 <= self.max_pair_concurrency <= MAX_PAIR_CONCURRENCY
+        ):
             raise ValueError("max_pair_concurrency must be between 1 and 8")
-        object.__setattr__(self, "max_bundle_wall_time_seconds", float(self.max_bundle_wall_time_seconds))
+        object.__setattr__(
+            self, "max_bundle_wall_time_seconds", float(self.max_bundle_wall_time_seconds)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -626,7 +658,9 @@ class BundleAssemblyResult:
             raise ValueError("status must be BundleAssemblyStatus")
         published = self.status in {BundleAssemblyStatus.READY, BundleAssemblyStatus.DEGRADED}
         if published != (self.bundle is not None):
-            raise ValueError("published statuses require a bundle and failure statuses must not publish one")
+            raise ValueError(
+                "published statuses require a bundle and failure statuses must not publish one"
+            )
         if published:
             if self.manifest_ref is None or self.artifact_closure_ref is None:
                 raise ValueError("published result requires manifest and closure refs")

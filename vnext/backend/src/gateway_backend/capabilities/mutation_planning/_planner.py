@@ -16,7 +16,9 @@ from gateway_backend.capabilities.mutation_planning._changeset import (
 )
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.mutation_planning._decision import (
-    choose_mutation_kind, keyed_patchable, storage_views_compatible,
+    choose_mutation_kind,
+    keyed_patchable,
+    storage_views_compatible,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationFailureCode,
@@ -245,9 +247,11 @@ def _operation_kind(
     after_row_count: int,
 ) -> TableMutationKind:
     return choose_mutation_kind(
-        policy=policy, threshold=threshold_policy,
+        policy=policy,
+        threshold=threshold_policy,
         patchable=keyed_patchable(before.storage_view) and keyed_patchable(after.storage_view),
-        before_rows=before_row_count, after_rows=after_row_count,
+        before_rows=before_row_count,
+        after_rows=after_row_count,
         changed_rows=changed_row_count,
     )
 

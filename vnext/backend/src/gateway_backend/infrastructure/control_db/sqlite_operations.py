@@ -272,7 +272,9 @@ class SQLiteOperationStore:
                 raise CorruptPersistedRecord("claim query returned a non-claimable step")
             if step.retry_not_before is not None and step.status is StepStatus.PENDING:
                 raise CorruptPersistedRecord("PENDING step has retry metadata")
-            eligible_at = step.created_at if step.status is StepStatus.PENDING else step.retry_not_before
+            eligible_at = (
+                step.created_at if step.status is StepStatus.PENDING else step.retry_not_before
+            )
             if eligible_at is None:
                 raise CorruptPersistedRecord("claimable step has no eligibility time")
             candidates.append(
@@ -395,9 +397,7 @@ class SQLiteOperationStore:
         operation: OperationRecord,
         step: StepRecord,
     ) -> TransitionDisposition:
-        return self._run_mutation(
-            lambda: self._insert_operation_with_initial_step(operation, step)
-        )
+        return self._run_mutation(lambda: self._insert_operation_with_initial_step(operation, step))
 
     def _insert_operation_with_initial_step(
         self,
@@ -417,7 +417,11 @@ class SQLiteOperationStore:
         existing_operation_row = self._select_operation_row(operation.operation_id)
         existing_step_row = self._select_step_row(step.step_id)
         existing_named_step_row = self._select_step_by_name(step.operation_id, step.step_name)
-        if existing_operation_row is not None or existing_step_row is not None or existing_named_step_row is not None:
+        if (
+            existing_operation_row is not None
+            or existing_step_row is not None
+            or existing_named_step_row is not None
+        ):
             existing_operation = (
                 operation_record_from_row(_as_mapping(existing_operation_row))
                 if existing_operation_row is not None
@@ -512,14 +516,18 @@ class SQLiteOperationStore:
             recovery_authorized=recovery_authorized,
         )
         if disposition is TransitionDisposition.IDEMPOTENT:
-            if candidate.status.is_final_terminal() and self._has_active_step(candidate.operation_id):
+            if candidate.status.is_final_terminal() and self._has_active_step(
+                candidate.operation_id
+            ):
                 raise ConflictingDuplicate("terminal operation cannot own an active step")
             return disposition
         self._validate_precondition(current, precondition)
         if candidate.status.is_final_terminal() and self._has_active_step(candidate.operation_id):
             raise ConflictingDuplicate("terminal operation cannot own an active step")
         row = operation_record_to_row(candidate)
-        assignments = ", ".join(f"{column} = :{column}" for column in _OPERATION_UPDATE_COLUMNS.split(", "))
+        assignments = ", ".join(
+            f"{column} = :{column}" for column in _OPERATION_UPDATE_COLUMNS.split(", ")
+        )
         parameters = dict(row)
         parameters["where_operation_id"] = candidate.operation_id
         parameters["expected_version"] = precondition.expected_optimistic_version
@@ -574,10 +582,15 @@ class SQLiteOperationStore:
             return disposition
         self._validate_precondition(current, precondition)
         if require_live_lease:
-            if current.lease_expires_at is None or current.lease_expires_at <= self._transaction_now:
+            if (
+                current.lease_expires_at is None
+                or current.lease_expires_at <= self._transaction_now
+            ):
                 raise LeaseExpired("step lease is no longer live")
         row = step_record_to_row(candidate)
-        assignments = ", ".join(f"{column} = :{column}" for column in _STEP_UPDATE_COLUMNS.split(", "))
+        assignments = ", ".join(
+            f"{column} = :{column}" for column in _STEP_UPDATE_COLUMNS.split(", ")
+        )
         parameters = dict(row)
         parameters["where_step_id"] = candidate.step_id
         parameters["expected_version"] = precondition.expected_optimistic_version
@@ -672,22 +685,31 @@ class SQLiteOperationStore:
         raise ConflictingDuplicate("step CAS affected an unexpected row count")
 
     def _select_operation_row(self, operation_id: str) -> sqlite3.Row | None:
-        return cast(sqlite3.Row | None, self._execute(
-            f"SELECT {_OPERATION_COLUMNS} FROM operation_records WHERE operation_id = ?",
-            (operation_id,),
-        ).fetchone())
+        return cast(
+            sqlite3.Row | None,
+            self._execute(
+                f"SELECT {_OPERATION_COLUMNS} FROM operation_records WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone(),
+        )
 
     def _select_step_row(self, step_id: str) -> sqlite3.Row | None:
-        return cast(sqlite3.Row | None, self._execute(
-            f"SELECT {_STEP_COLUMNS} FROM step_records WHERE step_id = ?",
-            (step_id,),
-        ).fetchone())
+        return cast(
+            sqlite3.Row | None,
+            self._execute(
+                f"SELECT {_STEP_COLUMNS} FROM step_records WHERE step_id = ?",
+                (step_id,),
+            ).fetchone(),
+        )
 
     def _select_step_by_name(self, operation_id: str, step_name: str) -> sqlite3.Row | None:
-        return cast(sqlite3.Row | None, self._execute(
-            f"SELECT {_STEP_COLUMNS} FROM step_records WHERE operation_id = ? AND step_name = ?",
-            (operation_id, step_name),
-        ).fetchone())
+        return cast(
+            sqlite3.Row | None,
+            self._execute(
+                f"SELECT {_STEP_COLUMNS} FROM step_records WHERE operation_id = ? AND step_name = ?",
+                (operation_id, step_name),
+            ).fetchone(),
+        )
 
     def _select_active_operation_rows(
         self,
@@ -1223,7 +1245,13 @@ def _decode_integrity_cursor(
         if canonicalize_jcs(raw) != raw:
             raise ValueError("cursor JSON is not canonical")
         payload = json.loads(raw)
-    except (UnicodeEncodeError, UnicodeDecodeError, ValueError, json.JSONDecodeError, CanonicalEncodingError) as exc:
+    except (
+        UnicodeEncodeError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+        CanonicalEncodingError,
+    ) as exc:
         raise ValueError("integrity cursor is malformed") from exc
     if type(payload) is not dict:
         raise ValueError("integrity cursor payload must be an object")

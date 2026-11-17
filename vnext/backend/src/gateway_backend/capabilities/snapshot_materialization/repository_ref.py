@@ -101,14 +101,18 @@ def materialize_repository_ref(
 
 
 def _run_materializer(
-    request: RepositoryRefMaterializationRequest, *, complete_table_set: bool,
+    request: RepositoryRefMaterializationRequest,
+    *,
+    complete_table_set: bool,
 ) -> SnapshotMaterializationResult:
     if type(request) is not RepositoryRefMaterializationRequest:
         raise ValueError("request must be RepositoryRefMaterializationRequest")
     stage = request.materialization_stage
     trust = CacheTrustLevel.CONTENT_VERIFIED
     try:
-        with kernel_control_scope(request.context.cancel_requested, request.context.deadline_monotonic):
+        with kernel_control_scope(
+            request.context.cancel_requested, request.context.deadline_monotonic
+        ):
             return _materialize(request, stage, trust, complete_table_set=complete_table_set)
     except ArtifactPublishError as exc:
         return _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
@@ -133,24 +137,47 @@ def describe_repository_ref(
     """Verify a complete exact-commit description before any row demand is known."""
     ref = request.repository_ref.ref
     if not ref or ref in ("main", "HEAD") or ref.startswith("refs/"):
-        return _failed(request.materialization_stage, CacheTrustLevel.CONTENT_VERIFIED,
-            (_error(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
-                    "canonical description requires an exact immutable commit"),))
-    result = _run_materializer(dataclasses.replace(request,
-        policy=MaterializationPolicy.READERS_REQUIRED, requested_tables=(), export_tables=()),
-        complete_table_set=True)
-    if (result.snapshot is not None
-            and result.snapshot.source_context.resolved_commit_hash != ref):
-        return _failed(request.materialization_stage, CacheTrustLevel.CONTENT_VERIFIED,
-            (_error(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
-                    "canonical description is not pinned to the requested exact commit"),))
+        return _failed(
+            request.materialization_stage,
+            CacheTrustLevel.CONTENT_VERIFIED,
+            (
+                _error(
+                    MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
+                    "canonical description requires an exact immutable commit",
+                ),
+            ),
+        )
+    result = _run_materializer(
+        dataclasses.replace(
+            request,
+            policy=MaterializationPolicy.READERS_REQUIRED,
+            requested_tables=(),
+            export_tables=(),
+        ),
+        complete_table_set=True,
+    )
+    if result.snapshot is not None and result.snapshot.source_context.resolved_commit_hash != ref:
+        return _failed(
+            request.materialization_stage,
+            CacheTrustLevel.CONTENT_VERIFIED,
+            (
+                _error(
+                    MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
+                    "canonical description is not pinned to the requested exact commit",
+                ),
+            ),
+        )
     return result
 
 
 def ensure_committed_tables(
-    table_set: SnapshotTableSet, *, repository_ref: RepositoryRef,
-    canonical_binding: CanonicalBinding, committed_tables: CommittedCanonicalTablesPort,
-    requested_tables: tuple[str, ...], context: ParserInvocationContext,
+    table_set: SnapshotTableSet,
+    *,
+    repository_ref: RepositoryRef,
+    canonical_binding: CanonicalBinding,
+    committed_tables: CommittedCanonicalTablesPort,
+    requested_tables: tuple[str, ...],
+    context: ParserInvocationContext,
     timeout_policy: RepositoryRefTimeoutPolicy | None = None,
 ) -> SnapshotTableSet:
     """Fill only missing readers for this exact metadata/commit, retaining the full set."""
@@ -161,9 +188,15 @@ def ensure_committed_tables(
             upper += sum(len(table.descriptor.table_name) * 64 for table in table_set.tables)
             upper += sum(len(name) * 64 + 1024 for name in requested_tables)
             with active.memory.reserve(upper):
-                result = _ensure_committed_tables(table_set, repository_ref=repository_ref,
-                    canonical_binding=canonical_binding, committed_tables=committed_tables,
-                    requested_tables=requested_tables, context=context, timeout_policy=timeout_policy)
+                result = _ensure_committed_tables(
+                    table_set,
+                    repository_ref=repository_ref,
+                    canonical_binding=canonical_binding,
+                    committed_tables=committed_tables,
+                    requested_tables=requested_tables,
+                    context=context,
+                    timeout_policy=timeout_policy,
+                )
                 active.memory.retain_metadata(result, 4096 + len(result.tables) * 512)
                 return result
     except BaseException:
@@ -181,9 +214,13 @@ def ensure_committed_tables(
 
 
 def _ensure_committed_tables(
-    table_set: SnapshotTableSet, *, repository_ref: RepositoryRef,
-    canonical_binding: CanonicalBinding, committed_tables: CommittedCanonicalTablesPort,
-    requested_tables: tuple[str, ...], context: ParserInvocationContext,
+    table_set: SnapshotTableSet,
+    *,
+    repository_ref: RepositoryRef,
+    canonical_binding: CanonicalBinding,
+    committed_tables: CommittedCanonicalTablesPort,
+    requested_tables: tuple[str, ...],
+    context: ParserInvocationContext,
     timeout_policy: RepositoryRefTimeoutPolicy | None,
 ) -> SnapshotTableSet:
     active = current_kernel_context()
@@ -200,23 +237,38 @@ def _ensure_committed_tables(
         raise ValueError("row demands must be unique canonical table names")
     tables = {table.descriptor.table_name: table for table in table_set.tables}
     views = {view.canonical_table: view for view in canonical_binding.tables}
-    identities = {identity.canonical_table: identity for identity in canonical_binding.table_identities}
-    if (set(tables) != set(views) or set(identities) != set(views)
-            or any(name not in tables for name in names)):
+    identities = {
+        identity.canonical_table: identity for identity in canonical_binding.table_identities
+    }
+    if (
+        set(tables) != set(views)
+        or set(identities) != set(views)
+        or any(name not in tables for name in names)
+    ):
         raise ValueError("row demands and complete canonical binding disagree")
     for name, current in tables.items():
-        described = committed_tables.describe_table(commit_id=commit_id, descriptor=current.descriptor,
-            identity=identities[name], storage_view=views[name], context=context,
-            timeout_policy=timeout_policy)
+        described = committed_tables.describe_table(
+            commit_id=commit_id,
+            descriptor=current.descriptor,
+            identity=identities[name],
+            storage_view=views[name],
+            context=context,
+            timeout_policy=timeout_policy,
+        )
         if described.ordered_metadata != current.ordered_metadata:
             raise ValueError("row demand ordered provenance differs from the complete metadata")
     # Prepare the complete demand before a preceding table can retain root SH.
     for name in names:
         current = tables[name]
         if current.reader is None:
-            committed_tables.prepare_table(commit_id=commit_id, descriptor=current.descriptor,
-                identity=identities[name], storage_view=views[name], context=context,
-                timeout_policy=timeout_policy)
+            committed_tables.prepare_table(
+                commit_id=commit_id,
+                descriptor=current.descriptor,
+                identity=identities[name],
+                storage_view=views[name],
+                context=context,
+                timeout_policy=timeout_policy,
+            )
     loaded: list[SnapshotTable] = []
     try:
         for name in names:
@@ -224,14 +276,21 @@ def _ensure_committed_tables(
             current = tables[name]
             if current.reader is not None:
                 continue
-            table = committed_tables.load_table(commit_id=commit_id, descriptor=current.descriptor,
-                identity=identities[name], storage_view=views[name], context=context,
-                timeout_policy=timeout_policy)
+            table = committed_tables.load_table(
+                commit_id=commit_id,
+                descriptor=current.descriptor,
+                identity=identities[name],
+                storage_view=views[name],
+                context=context,
+                timeout_policy=timeout_policy,
+            )
             loaded.append(table)
             tables[name] = table
         active.checkpoint()
-        return dataclasses.replace(table_set,
-            tables=tuple(tables[table.descriptor.table_name] for table in table_set.tables))
+        return dataclasses.replace(
+            table_set,
+            tables=tuple(tables[table.descriptor.table_name] for table in table_set.tables),
+        )
     except BaseException:
         for table in loaded:
             if table.reader is not None:
@@ -245,7 +304,8 @@ def _materialize(
     request: RepositoryRefMaterializationRequest,
     stage: MaterializationStage,
     trust: CacheTrustLevel,
-    *, complete_table_set: bool,
+    *,
+    complete_table_set: bool,
 ) -> SnapshotMaterializationResult:
     _checkpoint(request.context)
     mismatch = _ruleset_mismatch(request)
@@ -260,8 +320,9 @@ def _materialize(
     close_diagnostic: MaterializationDiagnostic | None = None
     try:
         session = working.provider.open_ref(working.repository_ref, working.timeout_policy)
-        result = _materialize_open_session(working, session, stage, trust,
-            complete_table_set=complete_table_set)
+        result = _materialize_open_session(
+            working, session, stage, trust, complete_table_set=complete_table_set
+        )
         if original_policy is MaterializationPolicy.ARTIFACTS_REQUIRED:
             result = _with_artifacts(result, request)
     except ArtifactPublishError as exc:
@@ -304,7 +365,8 @@ def _materialize_open_session(
     session: RepositoryRefSession,
     stage: MaterializationStage,
     trust: CacheTrustLevel,
-    *, complete_table_set: bool,
+    *,
+    complete_table_set: bool,
 ) -> SnapshotMaterializationResult:
     _checkpoint(request.context)
     pinned = session.pinned_commit_hash()
@@ -315,8 +377,10 @@ def _materialize_open_session(
         )
     catalog = session.get_catalog()
     if catalog.repository_id != request.repository_ref.repository_id:
-        raise _Halt(MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
-                    "catalog repository differs from the requested repository scope")
+        raise _Halt(
+            MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
+            "catalog repository differs from the requested repository scope",
+        )
     if catalog.resolved_commit_hash != pinned:
         raise _Halt(
             MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
@@ -341,8 +405,10 @@ def _materialize_open_session(
     materialized_set = selected_set | export_set
     identities = {item.canonical_table: item for item in binding.table_identities}
     if set(identities) != set(binding_by_name):
-        raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
-                    "canonical metadata must cover every table before row materialization")
+        raise _Halt(
+            MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+            "canonical metadata must cover every table before row materialization",
+        )
     diagnostics: list[MaterializationDiagnostic] = []
     published: list[SnapshotTable] = []
     descriptors: list[SnapshotTableDescriptor] = []
@@ -353,13 +419,20 @@ def _materialize_open_session(
         if request.committed_tables is None:
             raise ValueError("repository tables require scoped committed canonical access")
         if request.committed_tables.repository_id != request.repository_ref.repository_id:
-            raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
-                        "canonical table owner differs from the requested repository scope")
+            raise _Halt(
+                MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                "canonical table owner differs from the requested repository scope",
+            )
         identity = identities[name]
         descriptor = _describe_without_rows(request, catalog_table, identity, stage, storage_view)
-        table = request.committed_tables.describe_table(commit_id=pinned, descriptor=descriptor,
-            identity=identity, storage_view=storage_view, context=request.context,
-            timeout_policy=request.timeout_policy)
+        table = request.committed_tables.describe_table(
+            commit_id=pinned,
+            descriptor=descriptor,
+            identity=identity,
+            storage_view=storage_view,
+            context=request.context,
+            timeout_policy=request.timeout_policy,
+        )
         descriptors.append(descriptor)
         diagnostics.extend(table.diagnostics)
         published.append(table)
@@ -369,18 +442,28 @@ def _materialize_open_session(
     for table in published:
         name = table.descriptor.table_name
         if name in materialized_set:
-            request.committed_tables.prepare_table(commit_id=pinned, descriptor=table.descriptor,
-                identity=identities[name], storage_view=binding_by_name[name],
-                context=request.context, timeout_policy=request.timeout_policy)
+            request.committed_tables.prepare_table(
+                commit_id=pinned,
+                descriptor=table.descriptor,
+                identity=identities[name],
+                storage_view=binding_by_name[name],
+                context=request.context,
+                timeout_policy=request.timeout_policy,
+            )
     try:
         for index, table in enumerate(published):
             name = table.descriptor.table_name
             if name not in materialized_set:
                 continue
             assert request.committed_tables is not None
-            published[index] = request.committed_tables.load_table(commit_id=pinned,
-                descriptor=table.descriptor, identity=identities[name], storage_view=binding_by_name[name],
-                context=request.context, timeout_policy=request.timeout_policy)
+            published[index] = request.committed_tables.load_table(
+                commit_id=pinned,
+                descriptor=table.descriptor,
+                identity=identities[name],
+                storage_view=binding_by_name[name],
+                context=request.context,
+                timeout_policy=request.timeout_policy,
+            )
     except BaseException:
         for table in published:
             if table.reader is not None:
@@ -441,8 +524,11 @@ def _materialize_open_session(
             snapshot_id=snapshot_id,
             snapshot_digest=snapshot_digest,
             table_ruleset_version=request.table_ruleset_version,
-            tables=tuple(table for table in published
-                if complete_table_set or table.descriptor.table_name in materialized_set),
+            tables=tuple(
+                table
+                for table in published
+                if complete_table_set or table.descriptor.table_name in materialized_set
+            ),
             diagnostics=tuple(diagnostics),
         )
     return SnapshotMaterializationResult(
@@ -480,7 +566,9 @@ def _describe_without_rows(
     else:
         assert request.ruleset is not None
         try:
-            compare_keys = effective_key_columns(source_descriptor, compare_key_index(request.ruleset))
+            compare_keys = effective_key_columns(
+                source_descriptor, compare_key_index(request.ruleset)
+            )
         except CompareKeyError as exc:
             raise _Halt(
                 MaterializationDiagnosticCode.COMPARE_KEY_UNKNOWN_COLUMN,
@@ -638,7 +726,9 @@ def _with_artifacts(
         store=store,
         repository_id=request.repository_ref.repository_id,
         lookup=None if request.committed_tables is None else request.committed_tables.lookup,
-        before_write=None if request.committed_tables is None else request.committed_tables.register,
+        before_write=None
+        if request.committed_tables is None
+        else request.committed_tables.register,
     )
     table_set = SnapshotTableSet(
         snapshot_id=result.table_set.snapshot_id,
@@ -660,7 +750,9 @@ def _with_artifacts(
 
 def _checkpoint(context: ParserInvocationContext) -> None:
     if context.cancel_requested.is_set():
-        raise _Halt(MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED, "materialization cancelled")
+        raise _Halt(
+            MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED, "materialization cancelled"
+        )
     deadline = context.deadline_monotonic
     if deadline is not None and time.monotonic() >= deadline:
         raise _Halt(

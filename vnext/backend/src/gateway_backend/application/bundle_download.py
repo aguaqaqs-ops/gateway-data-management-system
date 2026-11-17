@@ -27,7 +27,10 @@ from gateway_backend.capabilities.bundle_assembly import (
 
 def decode_bundle_manifest(ref: ArtifactRef, read: Callable[[], bytes]) -> BundleTransportMetadata:
     """Check manifest transport bounds and decode its verified bytes."""
-    if ref.media_type != BUNDLE_MANIFEST_MEDIA_TYPE or ref.size_bytes > MAX_BUNDLE_MANIFEST_JSON_BYTES:
+    if (
+        ref.media_type != BUNDLE_MANIFEST_MEDIA_TYPE
+        or ref.size_bytes > MAX_BUNDLE_MANIFEST_JSON_BYTES
+    ):
         raise BundleIntegrityError("invalid bundle manifest")
     return read_bundle_transport_metadata(read())
 
@@ -51,13 +54,20 @@ def _metadata_bytes(store: ArtifactStreamingStorePort, ref: ArtifactRef) -> byte
         return b"".join(chunks)
 
 
-def _preflight_members(store: ArtifactStreamingStorePort, metadata: BundleTransportMetadata) -> None:
+def _preflight_members(
+    store: ArtifactStreamingStorePort, metadata: BundleTransportMetadata
+) -> None:
     refs = {entry.artifact_ref for entry in metadata.entries}
     for entry in metadata.entries:
-        if "json" in entry.artifact_ref.media_type.casefold() and entry.kind in BUNDLE_REFERENCE_METADATA_KINDS:
+        if (
+            "json" in entry.artifact_ref.media_type.casefold()
+            and entry.kind in BUNDLE_REFERENCE_METADATA_KINDS
+        ):
             validate_bundle_member_metadata(
-                entry, _metadata_bytes(store, entry.artifact_ref),
-                refs=refs, pair_digests=metadata.pair_digests,
+                entry,
+                _metadata_bytes(store, entry.artifact_ref),
+                refs=refs,
+                pair_digests=metadata.pair_digests,
             )
         else:
             with _read_chunks(store, entry.artifact_ref) as chunks:
@@ -65,7 +75,9 @@ def _preflight_members(store: ArtifactStreamingStorePort, metadata: BundleTransp
                     pass
 
 
-def prepare_bundle_download(store: ArtifactStreamingStorePort, artifact_id: str) -> PreparedBundleDownload:
+def prepare_bundle_download(
+    store: ArtifactStreamingStorePort, artifact_id: str
+) -> PreparedBundleDownload:
     resources = ExitStack()
     try:
         resources.enter_context(store.read_session())
@@ -94,7 +106,7 @@ def prepare_bundle_download(store: ArtifactStreamingStorePort, artifact_id: str)
                 for member, raw in zip(members[:2], (manifest_raw, closure_raw), strict=True):
                     yield from member.prefix()
                     for offset in range(0, len(raw), STREAM_CHUNK_BYTES):
-                        yield raw[offset:offset + STREAM_CHUNK_BYTES]
+                        yield raw[offset : offset + STREAM_CHUNK_BYTES]
                     yield from member.suffix()
                 for member, entry in zip(members[2:], entries, strict=True):
                     yield from member.prefix()

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from gateway_backend.application.history.errors import HistoryIntegrityFailure, HistoryRequestValidation
+from gateway_backend.application.history.errors import (
+    HistoryIntegrityFailure,
+    HistoryRequestValidation,
+)
 from gateway_backend.application.history.queries import get_project_history
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.dependencies import HistoryHttpDependencies

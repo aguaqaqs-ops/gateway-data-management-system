@@ -83,8 +83,7 @@ def _parsed_table(item: object) -> ParsedTable:
         display_name=_require_str(item, "display_name"),
         canonical_name=_require_str(item, "canonical_name"),
         columns=tuple(
-            _column(column, index)
-            for index, column in enumerate(_require_list(item, "columns"))
+            _column(column, index) for index, column in enumerate(_require_list(item, "columns"))
         ),
         primary_key_canonical_names=tuple(
             _require_str_item(name) for name in _require_list(item, "primary_key_canonical_names")
@@ -170,7 +169,9 @@ def _cell(item: object) -> SourceCell:
     if kind == "time-duration":
         return TimeDurationScalar(_require_str(item, "text"))
     if kind == "set":
-        return SqlSetValue(tuple(_require_str_item(member) for member in _require_list(item, "members")))
+        return SqlSetValue(
+            tuple(_require_str_item(member) for member in _require_list(item, "members"))
+        )
     raise ValueError(f"unsupported cell kind {kind}")
 
 

@@ -39,7 +39,8 @@ from gateway_backend.capabilities.mutation_planning import (
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     describe_repository_ref,
-    open_snapshot_table_artifact, current_kernel_context,
+    open_snapshot_table_artifact,
+    current_kernel_context,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
@@ -47,8 +48,10 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
-    RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
-    RepositoryTableAccessProvider, RepositoryProviderError,
+    RepositoryRefMaterializationRequest,
+    CommittedCanonicalTablesPort,
+    RepositoryTableAccessProvider,
+    RepositoryProviderError,
     SnapshotMaterializationStatus,
     SnapshotTable,
     SnapshotTableDescriptor,
@@ -61,7 +64,9 @@ from gateway_backend.capabilities.storage_projection import (
     PACKAGE_VERSION,
     ImportReplayError as ProjectionImportReplayError,
     ProjectionTable,
-    ProjectionInvocationContext, MAX_MANIFEST_JSON_BYTES, MAX_REPLAY_SQL_BYTES,
+    ProjectionInvocationContext,
+    MAX_MANIFEST_JSON_BYTES,
+    MAX_REPLAY_SQL_BYTES,
     ProjectionDiagnostic,
     CanonicalizationManifest,
     ProjectionStatus,
@@ -118,7 +123,9 @@ def _reserve_submit_stage(name: str, upper: int) -> None:
     context.resources.enter_context(context.memory.reserve(upper))
 
 
-def _format_projection_diagnostics(prefix: str, diagnostics: tuple[ProjectionDiagnostic, ...]) -> str:
+def _format_projection_diagnostics(
+    prefix: str, diagnostics: tuple[ProjectionDiagnostic, ...]
+) -> str:
     if not diagnostics:
         return f"{prefix}: FAILED"
     first = diagnostics[0]
@@ -126,8 +133,7 @@ def _format_projection_diagnostics(prefix: str, diagnostics: tuple[ProjectionDia
     message = f"{prefix}: {first.code.value}: {first.message}{table_suffix}"
     if len(diagnostics) > 1:
         also = "; ".join(
-            f"{item.code.value}:{item.message}"
-            + (f"@{item.table_name}" if item.table_name else "")
+            f"{item.code.value}:{item.message}" + (f"@{item.table_name}" if item.table_name else "")
             for item in diagnostics[1:3]
         )
         message += f"; also={also}"
@@ -149,8 +155,10 @@ class SubmitImportPublicationAdapter:
     def __init__(
         self,
         *,
-        repository_provider_factory: Callable[[str, str], RepositoryTableAccessProvider] | None = None,
-        committed_table_factory: Callable[[ArtifactStorePort, str], CommittedCanonicalTablesPort] | None = None,
+        repository_provider_factory: Callable[[str, str], RepositoryTableAccessProvider]
+        | None = None,
+        committed_table_factory: Callable[[ArtifactStorePort, str], CommittedCanonicalTablesPort]
+        | None = None,
     ) -> None:
         self._repository_provider_factory = repository_provider_factory
         self._committed_tables = committed_table_factory
@@ -203,17 +211,28 @@ class SubmitImportPublicationAdapter:
             or frozen_manifest.storage_projection_version != STORAGE_PROJECTION_VERSION
         ):
             raise SubmitImportPublicationError("frozen canonicalization manifest binding mismatch")
-        if not frozen_manifest.tables and frozen_manifest.source_artifact_digest.value != build_input.source_artifact_digest:
-            raise SubmitImportPublicationError("source_artifact_digest does not match frozen manifest")
+        if (
+            not frozen_manifest.tables
+            and frozen_manifest.source_artifact_digest.value != build_input.source_artifact_digest
+        ):
+            raise SubmitImportPublicationError(
+                "source_artifact_digest does not match frozen manifest"
+            )
         frozen_by_name = {item.name: item for item in frozen_manifest.tables}
         bindings = {item.table_name: item for item in build_input.snapshot_tables}
-        if len(bindings) != len(build_input.snapshot_tables) or set(bindings) != set(frozen_by_name):
-            raise SubmitImportPublicationError("canonical table artifacts do not match frozen manifest")
+        if len(bindings) != len(build_input.snapshot_tables) or set(bindings) != set(
+            frozen_by_name
+        ):
+            raise SubmitImportPublicationError(
+                "canonical table artifacts do not match frozen manifest"
+            )
         # A committed parent can alias a frozen current row object even when
         # source schema makes the table changed. Prove the entire frozen input
         # before any parent recovery could reconstruct those shared bytes.
         for name in sorted(frozen_by_name, key=lambda value: value.encode("utf-8")):
-            frozen_table = _open_frozen_table(bindings[name], frozen_by_name[name], build_input, store)
+            frozen_table = _open_frozen_table(
+                bindings[name], frozen_by_name[name], build_input, store
+            )
             try:
                 _frozen_table_metadata(frozen_table, frozen_by_name[name])
             finally:
@@ -221,9 +240,12 @@ class SubmitImportPublicationAdapter:
         parent_by_name = {item.name: item for item in parent_manifest.tables}
         changed = set(changed_names)
         parent_read_names = frozenset(
-            name for name in changed_names
-            if name in frozen_by_name and name in parent_by_name
-            and parent_manifest.storage_projection_version == frozen_manifest.storage_projection_version
+            name
+            for name in changed_names
+            if name in frozen_by_name
+            and name in parent_by_name
+            and parent_manifest.storage_projection_version
+            == frozen_manifest.storage_projection_version
             and parent_by_name[name].canonical_row_count > 0
             and _patch_comparable(parent_by_name[name], frozen_by_name[name])
         )
@@ -232,7 +254,8 @@ class SubmitImportPublicationAdapter:
             if self._repository_provider_factory is None or self._committed_tables is None:
                 raise SubmitImportPublicationError("Repository parent row access is unavailable")
             parent_access = self._describe_parent(
-                build_input, _canonical_binding_from_manifest(parent_manifest),
+                build_input,
+                _canonical_binding_from_manifest(parent_manifest),
                 self._committed_tables(store, build_input.repository_id),
             )
         projected_tables: list[ProjectionTable] = []
@@ -255,7 +278,9 @@ class SubmitImportPublicationAdapter:
                     assert parent_access is not None
                     parent_started = monotonic()
                     parent_table = self._materialize_parent_table(
-                        build_input, table_name=name, parent_access=parent_access,
+                        build_input,
+                        table_name=name,
+                        parent_access=parent_access,
                     )
                     parent_elapsed = monotonic() - parent_started
                     parent_reads += 1
@@ -276,28 +301,48 @@ class SubmitImportPublicationAdapter:
                     after_lease: StorageInputLease | None = None
                     table_sql_start = dml_size
                     try:
-                        before_side = None if before_manifest_table is None else StorageTableSideV1(
-                            before_manifest_table, _storage_view_from_frozen_table(before_manifest_table),
-                            parent_manifest.storage_projection_version,
-                            metadata_manifest=parent_manifest,
+                        before_side = (
+                            None
+                            if before_manifest_table is None
+                            else StorageTableSideV1(
+                                before_manifest_table,
+                                _storage_view_from_frozen_table(before_manifest_table),
+                                parent_manifest.storage_projection_version,
+                                metadata_manifest=parent_manifest,
+                            )
                         )
-                        if parent_table is not None and before_side is not None and before_manifest_table is not None:
-                            before_lease = open_storage_input(parent_table, parent_manifest,
-                                                              before_manifest_table, context)
-                            before_side = replace(before_side, stream=before_lease.stream,
-                                                  schema=before_lease.schema, input_owner=before_lease)
+                        if (
+                            parent_table is not None
+                            and before_side is not None
+                            and before_manifest_table is not None
+                        ):
+                            before_lease = open_storage_input(
+                                parent_table, parent_manifest, before_manifest_table, context
+                            )
+                            before_side = replace(
+                                before_side,
+                                stream=before_lease.stream,
+                                schema=before_lease.schema,
+                                input_owner=before_lease,
+                            )
                         after_lease = open_storage_input(table, frozen_manifest, frozen, context)
                         after_side = StorageTableSideV1(
-                            frozen, _storage_view_from_frozen_table(frozen),
+                            frozen,
+                            _storage_view_from_frozen_table(frozen),
                             frozen_manifest.storage_projection_version,
-                            after_lease.stream, after_lease.schema, after_lease, frozen_manifest,
+                            after_lease.stream,
+                            after_lease.schema,
+                            after_lease,
+                            frozen_manifest,
                         )
                         task = StorageTableTaskV1(name, before_side, after_side, import_table)
                         prepare_started = monotonic()
                         with prepare_storage_table(task, context) as handle:
                             summary = handle.summary()
                             decision = choose_table_mutation(
-                                task, summary, policy=MutationPolicy.ADAPTIVE_PATCH,
+                                task,
+                                summary,
+                                policy=MutationPolicy.ADAPTIVE_PATCH,
                                 threshold=MutationThresholdPolicy(),
                             )
                             prepare_elapsed = monotonic() - prepare_started
@@ -308,19 +353,25 @@ class SubmitImportPublicationAdapter:
                             render_started = monotonic()
                             for chunk in handle.render(decision):
                                 if len(chunk) > MAX_REPLAY_SQL_BYTES - dml_size:
-                                    raise SubmitImportPublicationError("repository replay SQL exceeds 200 MiB")
+                                    raise SubmitImportPublicationError(
+                                        "repository replay SQL exceeds 200 MiB"
+                                    )
                                 dml_chunks.append(chunk)
                                 dml_size += len(chunk)
                             render_elapsed = monotonic() - render_started
                             counts = summary.net_counts
                             table_metrics = {
-                                "event": "submit_storage_table", "table": name,
-                                "decision": decision.operation.value, "reason": decision.reason,
-                                "before_rows": summary.before_rows, "after_rows": summary.after_rows,
+                                "event": "submit_storage_table",
+                                "table": name,
+                                "decision": decision.operation.value,
+                                "reason": decision.reason,
+                                "before_rows": summary.before_rows,
+                                "after_rows": summary.after_rows,
                                 "net_inserted": None if counts is None else counts.inserted,
                                 "net_updated": None if counts is None else counts.updated,
                                 "net_deleted": None if counts is None else counts.deleted,
-                                "parent_read": int(parent_table is not None), "native_calls": 2,
+                                "parent_read": int(parent_table is not None),
+                                "native_calls": 2,
                                 "sql_bytes": dml_size - table_sql_start,
                                 "parent_seconds": round(parent_elapsed, 6),
                                 "storage_diff_seconds": round(prepare_elapsed, 6),
@@ -344,7 +395,9 @@ class SubmitImportPublicationAdapter:
                         table_metrics["memory_before_bytes"] = memory_before
                         table_metrics["memory_after_bytes"] = context.memory.used_bytes
                         table_metrics["memory_high_water_bytes"] = context.memory.high_water_bytes
-                        _LOG.info("%s", json.dumps(table_metrics, sort_keys=True, separators=(",", ":")))
+                        _LOG.info(
+                            "%s", json.dumps(table_metrics, sort_keys=True, separators=(",", ":"))
+                        )
             full_import_input = RepositoryImportArtifactInput(
                 package_version=PACKAGE_VERSION,
                 canonicalization_manifest_digest=frozen_manifest.manifest_digest,
@@ -373,15 +426,27 @@ class SubmitImportPublicationAdapter:
             if len(schema_sql) > MAX_REPLAY_SQL_BYTES - dml_size:
                 raise SubmitImportPublicationError("repository replay SQL exceeds 200 MiB")
             replay_sql = schema_sql + b"".join(dml_chunks)
-            _LOG.info("%s", json.dumps({
-                "event": "submit_storage_summary",
-                "manifest_candidates": len(changed_names), "storage_noops": storage_noops,
-                "replay_tables": len(changed_names) - len(build_input.removed_tables) - storage_noops,
-                "parent_reads": parent_reads, "ddl_bytes": len(schema_sql),
-                "dml_bytes": dml_size, "sql_bytes": len(replay_sql),
-                "memory_used_bytes": context.memory.used_bytes,
-                "memory_high_water_bytes": context.memory.high_water_bytes,
-            }, sort_keys=True, separators=(",", ":")))
+            _LOG.info(
+                "%s",
+                json.dumps(
+                    {
+                        "event": "submit_storage_summary",
+                        "manifest_candidates": len(changed_names),
+                        "storage_noops": storage_noops,
+                        "replay_tables": len(changed_names)
+                        - len(build_input.removed_tables)
+                        - storage_noops,
+                        "parent_reads": parent_reads,
+                        "ddl_bytes": len(schema_sql),
+                        "dml_bytes": dml_size,
+                        "sql_bytes": len(replay_sql),
+                        "memory_used_bytes": context.memory.used_bytes,
+                        "memory_high_water_bytes": context.memory.high_water_bytes,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
         except SubmitImportPublicationError:
             raise
         except (ProjectionImportReplayError, ValueError) as exc:
@@ -392,15 +457,26 @@ class SubmitImportPublicationAdapter:
             projection,
             store=store,
             replay_sql=replay_sql,
-            context=ProjectionInvocationContext(cancel_requested=context.cancel_probe, deadline_monotonic=context.deadline_monotonic),
+            context=ProjectionInvocationContext(
+                cancel_requested=context.cancel_probe, deadline_monotonic=context.deadline_monotonic
+            ),
         )
         context.checkpoint()
-        _LOG.info("%s", json.dumps({
-            "event": "submit_package_publish", "elapsed_seconds": round(monotonic() - publish_started, 6),
-            "sql_bytes": len(replay_sql), "memory_used_bytes": context.memory.used_bytes,
-            "memory_high_water_bytes": context.memory.high_water_bytes,
-            "status": published.status.value,
-        }, sort_keys=True, separators=(",", ":")))
+        _LOG.info(
+            "%s",
+            json.dumps(
+                {
+                    "event": "submit_package_publish",
+                    "elapsed_seconds": round(monotonic() - publish_started, 6),
+                    "sql_bytes": len(replay_sql),
+                    "memory_used_bytes": context.memory.used_bytes,
+                    "memory_high_water_bytes": context.memory.high_water_bytes,
+                    "status": published.status.value,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
         if published.status is not ProjectionStatus.COMPLETE or published.publication is None:
             raise SubmitImportPublicationError(
                 _format_projection_diagnostics(
@@ -434,7 +510,9 @@ class SubmitImportPublicationAdapter:
         return PrepareImportPublicationResult(checkpoint=checkpoint, replay=False)
 
     def _describe_parent(
-        self, build_input: PrepareImportBuildInput, binding: CanonicalBinding,
+        self,
+        build_input: PrepareImportBuildInput,
+        binding: CanonicalBinding,
         committed_tables: CommittedCanonicalTablesPort,
     ) -> _ParentAccess:
         if self._repository_provider_factory is None:
@@ -443,46 +521,80 @@ class SubmitImportPublicationAdapter:
         if context is None:
             raise ValueError("Submit parent reads require an operation kernel context")
         request = RepositoryRefMaterializationRequest(
-            repository_ref=RepositoryRef(repository_id=build_input.repository_id,
-                                         ref=build_input.expected_parent_commit_id),
-            provider=self._repository_provider_factory(build_input.repository_id,
-                                                       build_input.expected_parent_commit_id),
-            ruleset=None, canonical_binding=binding, table_ruleset_version=TABLE_RULESET_VERSION,
+            repository_ref=RepositoryRef(
+                repository_id=build_input.repository_id, ref=build_input.expected_parent_commit_id
+            ),
+            provider=self._repository_provider_factory(
+                build_input.repository_id, build_input.expected_parent_commit_id
+            ),
+            ruleset=None,
+            canonical_binding=binding,
+            table_ruleset_version=TABLE_RULESET_VERSION,
             materialization_stage=MaterializationStage.FINAL,
             policy=MaterializationPolicy.READERS_REQUIRED,
             context=ParserInvocationContext(context.cancel_probe, context.deadline_monotonic),
-            requested_tables=(), committed_tables=committed_tables, frozen_storage_only=True,
+            requested_tables=(),
+            committed_tables=committed_tables,
+            frozen_storage_only=True,
         )
         result = describe_repository_ref(request)
         if result.status is not SnapshotMaterializationStatus.COMPLETE or result.table_set is None:
             diagnostic = result.diagnostics[0] if result.diagnostics else None
             raise SubmitImportPublicationError(
-                "parent rows could not be materialized" if diagnostic is None else diagnostic.message
+                "parent rows could not be materialized"
+                if diagnostic is None
+                else diagnostic.message
             )
-        if (result.snapshot is None or result.snapshot.source_context is None
-                or result.snapshot.source_context.resolved_commit_hash != build_input.expected_parent_commit_id):
+        if (
+            result.snapshot is None
+            or result.snapshot.source_context is None
+            or result.snapshot.source_context.resolved_commit_hash
+            != build_input.expected_parent_commit_id
+        ):
             raise SubmitImportPublicationError("parent rows do not match the frozen exact commit")
-        return _ParentAccess(binding, committed_tables,
-            {table.descriptor.table_name: table for table in result.table_set.tables})
+        return _ParentAccess(
+            binding,
+            committed_tables,
+            {table.descriptor.table_name: table for table in result.table_set.tables},
+        )
 
     def _materialize_parent_table(
-        self, build_input: PrepareImportBuildInput, *, table_name: str, parent_access: _ParentAccess,
+        self,
+        build_input: PrepareImportBuildInput,
+        *,
+        table_name: str,
+        parent_access: _ParentAccess,
     ) -> SnapshotTable:
         context = current_kernel_context()
         if context is None:
             raise ValueError("Submit parent reads require an operation kernel context")
         descriptor = parent_access.tables[table_name].descriptor
-        identity = next(item for item in parent_access.binding.table_identities
-                        if item.canonical_table == table_name)
-        view = next(item for item in parent_access.binding.tables if item.canonical_table == table_name)
+        identity = next(
+            item
+            for item in parent_access.binding.table_identities
+            if item.canonical_table == table_name
+        )
+        view = next(
+            item for item in parent_access.binding.tables if item.canonical_table == table_name
+        )
         invocation = ParserInvocationContext(context.cancel_probe, context.deadline_monotonic)
         try:
             parent_access.committed_tables.prepare_table(
-                commit_id=build_input.expected_parent_commit_id, descriptor=descriptor, identity=identity,
-                storage_view=view, context=invocation, timeout_policy=None)
+                commit_id=build_input.expected_parent_commit_id,
+                descriptor=descriptor,
+                identity=identity,
+                storage_view=view,
+                context=invocation,
+                timeout_policy=None,
+            )
             return parent_access.committed_tables.load_table(
-                commit_id=build_input.expected_parent_commit_id, descriptor=descriptor, identity=identity,
-                storage_view=view, context=invocation, timeout_policy=None)
+                commit_id=build_input.expected_parent_commit_id,
+                descriptor=descriptor,
+                identity=identity,
+                storage_view=view,
+                context=invocation,
+                timeout_policy=None,
+            )
         except RepositoryProviderError as exc:
             if exc.retryable:
                 raise
@@ -505,15 +617,25 @@ class SubmitImportPublicationAdapter:
         try:
             payload = store.locate(ref)
         except ManifestVerificationError as exc:
-            raise SubmitImportPublicationError(str(exc) or "import package is missing or corrupt") from exc
+            raise SubmitImportPublicationError(
+                str(exc) or "import package is missing or corrupt"
+            ) from exc
         if raw_blob_digest(payload).value != checkpoint.package_raw_sha256:
             raise SubmitImportPublicationError("read-back package raw SHA mismatch")
         if len(payload) != checkpoint.package_raw_size:
             raise SubmitImportPublicationError("read-back package size mismatch")
-        _LOG.info("%s", json.dumps({
-            "event": "submit_package_readback", "elapsed_seconds": round(monotonic() - started, 6),
-            "package_bytes": len(payload),
-        }, sort_keys=True, separators=(",", ":")))
+        _LOG.info(
+            "%s",
+            json.dumps(
+                {
+                    "event": "submit_package_readback",
+                    "elapsed_seconds": round(monotonic() - started, 6),
+                    "package_bytes": len(payload),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
         return payload
 
     def verify_checkpoint_semantic_binding(
@@ -555,16 +677,29 @@ class SubmitImportPublicationAdapter:
             try:
                 package_payload = store.locate(package_ref)
             except ManifestVerificationError as exc:
-                raise SubmitImportPublicationError(str(exc) or "import package is missing or corrupt") from exc
+                raise SubmitImportPublicationError(
+                    str(exc) or "import package is missing or corrupt"
+                ) from exc
             import_input = validate_repository_import_package(package_payload)
-            if import_input.canonicalization_manifest_digest.value != checkpoint.canonicalization_manifest_digest:
+            if (
+                import_input.canonicalization_manifest_digest.value
+                != checkpoint.canonicalization_manifest_digest
+            ):
                 raise SubmitImportPublicationError(
                     "package manifest digest does not match checkpoint semantic digest"
                 )
-        _LOG.info("%s", json.dumps({
-            "event": "submit_checkpoint_verify", "elapsed_seconds": round(monotonic() - started, 6),
-            "package_bytes": package_ref.size_bytes,
-        }, sort_keys=True, separators=(",", ":")))
+        _LOG.info(
+            "%s",
+            json.dumps(
+                {
+                    "event": "submit_checkpoint_verify",
+                    "elapsed_seconds": round(monotonic() - started, 6),
+                    "package_bytes": package_ref.size_bytes,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
 
 
 def _assert_adaptive_policy(build_input: PrepareImportBuildInput) -> None:
@@ -577,7 +712,10 @@ def _parent_manifest_for_plan(
     current_manifest: CanonicalizationManifest,
 ) -> CanonicalizationManifest:
     if build_input.parent_is_initial:
-        if build_input.parent_manifest is not None or build_input.parent_manifest_digest is not None:
+        if (
+            build_input.parent_manifest is not None
+            or build_input.parent_manifest_digest is not None
+        ):
             raise SubmitImportPublicationError("INITIAL parent must not carry a canonical manifest")
         return CanonicalizationManifest(
             contract_version=current_manifest.contract_version,
@@ -742,9 +880,12 @@ def _open_frozen_table(
             raw_sha256=DigestRef(binding.raw_sha256),
         )
         table = open_snapshot_table_artifact(
-            store, ref, repository_id=build_input.repository_id, canonical_required=True,
+            store,
+            ref,
+            repository_id=build_input.repository_id,
+            canonical_required=True,
         )
-    except (InterruptedError, TimeoutError, MemoryError):
+    except InterruptedError, TimeoutError, MemoryError:
         raise
     except (ArtifactPublishError, ManifestVerificationError, OSError, ValueError) as exc:
         raise SubmitImportPublicationError(
@@ -768,7 +909,8 @@ def _open_frozen_table(
             or descriptor != table.artifact.manifest.descriptor
             or descriptor.row_count != manifest_table.canonical_row_count
             or descriptor.raw_content_digest != manifest_table.content_digest
-            or tuple(column.name for column in descriptor.columns) != manifest_table.retained_columns
+            or tuple(column.name for column in descriptor.columns)
+            != manifest_table.retained_columns
             or descriptor.primary_key_columns != manifest_table.canonical_key_columns
             or descriptor.compare_key_columns != manifest_table.canonical_key_columns
             or table.artifact.manifest.snapshot_digest.value != build_input.source_artifact_digest
@@ -777,7 +919,10 @@ def _open_frozen_table(
                 f"canonical table artifact {binding.table_name} does not match frozen facts"
             )
         schema_columns = _schema_columns_from_descriptor(descriptor, manifest_table)
-        if _schema_digest(schema_columns, manifest_table.canonical_key_columns) != manifest_table.canonical_schema_digest:
+        if (
+            _schema_digest(schema_columns, manifest_table.canonical_key_columns)
+            != manifest_table.canonical_schema_digest
+        ):
             raise SubmitImportPublicationError(
                 f"canonical table artifact {binding.table_name} schema does not match frozen manifest"
             )
@@ -788,7 +933,8 @@ def _open_frozen_table(
 
 
 def _frozen_table_metadata(
-    table: SnapshotTable, manifest_table: CanonicalizationManifestTable,
+    table: SnapshotTable,
+    manifest_table: CanonicalizationManifestTable,
 ) -> tuple[RepositoryImportTable, ProjectionTable]:
     descriptor = table.descriptor
     columns = _schema_columns_from_descriptor(descriptor, manifest_table)
@@ -797,7 +943,8 @@ def _frozen_table_metadata(
             name=manifest_table.name,
             columns=tuple(
                 RepositoryImportColumn(
-                    name=str(column["name"]), sql_type=str(column["sql_type"]),
+                    name=str(column["name"]),
+                    sql_type=str(column["sql_type"]),
                     nullable=bool(column["nullable"]),
                 )
                 for column in columns
@@ -880,9 +1027,7 @@ def _schema_digest(
         "columns": columns,
         "primary_key": list(primary_key),
     }
-    return DigestRef.from_raw_digest(
-        hashlib.sha256(canonicalize_json_value(payload)).digest()
-    )
+    return DigestRef.from_raw_digest(hashlib.sha256(canonicalize_json_value(payload)).digest())
 
 
 def _open_frozen_manifest(

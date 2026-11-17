@@ -28,18 +28,28 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     normalize_sql_type_spelling,
 )
 from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, StorageRuleView
-from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
+from gateway_backend.capabilities.storage_projection._digest import (
+    compute_manifest_digest,
+    compute_schema_digest,
+)
 from gateway_backend.capabilities.storage_projection.contracts import (
-    CanonicalizationManifest, CanonicalizationManifestTable,
+    CanonicalizationManifest,
+    CanonicalizationManifestTable,
 )
 
 
 class StorageInputLease:
     """One verified canonical reader and its charged Arrow/mmap lifetime."""
 
-    def __init__(self, table: SnapshotTable, input_owner: CanonicalInputOwner,
-                 stream: Any, operation: object, manifest: CanonicalizationManifest,
-                 manifest_table: CanonicalizationManifestTable) -> None:
+    def __init__(
+        self,
+        table: SnapshotTable,
+        input_owner: CanonicalInputOwner,
+        stream: Any,
+        operation: object,
+        manifest: CanonicalizationManifest,
+        manifest_table: CanonicalizationManifestTable,
+    ) -> None:
         self.table = table
         self.input_owner = input_owner
         self.stream = stream
@@ -68,7 +78,8 @@ class StorageInputLease:
 
 
 def open_storage_input(
-    table: SnapshotTable, manifest: CanonicalizationManifest,
+    table: SnapshotTable,
+    manifest: CanonicalizationManifest,
     manifest_table: CanonicalizationManifestTable,
     operation: object,
 ) -> StorageInputLease:
@@ -79,17 +90,24 @@ def open_storage_input(
     that complete document for every table.
     """
     active = require_active_kernel_context(operation)
-    if (type(manifest) is not CanonicalizationManifest or manifest.manifest_digest is None
-            or manifest_table not in manifest.tables):
+    if (
+        type(manifest) is not CanonicalizationManifest
+        or manifest.manifest_digest is None
+        or manifest_table not in manifest.tables
+    ):
         raise ValueError("storage input lacks complete frozen manifest membership")
     if type(table) is not SnapshotTable or type(table.reader) is not ArrowSnapshotTableReader:
         raise ValueError("storage input requires a canonical Arrow table reader")
     reader = table.reader
     active.require_same_operation(reader.execution_context)
     committed = reader.canonical_committed_read_verified
-    if not committed and (table.artifact is None or table.artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC):
+    if not committed and (
+        table.artifact is None or table.artifact.manifest.row_format != ROW_FORMAT_CANONICAL_IPC
+    ):
         raise ValueError("storage input requires a canonical IPC artifact binding")
-    if not (reader.canonical_comparison_verified or reader.canonical_artifact_read_verified or committed):
+    if not (
+        reader.canonical_comparison_verified or reader.canonical_artifact_read_verified or committed
+    ):
         raise ValueError("storage input has no verified canonical producer")
     if table.artifact is not None and table.artifact.manifest.descriptor != table.descriptor:
         raise ValueError("storage artifact descriptor binding changed")
@@ -103,13 +121,17 @@ def open_storage_input(
     ):
         raise ValueError("storage input manifest binding differs from canonical reader")
     schema_digest = compute_schema_digest(
-        columns=[{"name": column.name, "nullable": column.nullable, "sql_type": column.scalar_type}
-                 for column in descriptor.columns],
+        columns=[
+            {"name": column.name, "nullable": column.nullable, "sql_type": column.scalar_type}
+            for column in descriptor.columns
+        ],
         primary_key=descriptor.primary_key_columns,
     )
     if schema_digest != manifest_table.canonical_schema_digest:
         raise ValueError("storage input schema digest differs from canonical reader")
-    stream, input_owner = canonical_comparison_input(table, field_order=manifest_table.retained_columns)
+    stream, input_owner = canonical_comparison_input(
+        table, field_order=manifest_table.retained_columns
+    )
     try:
         return StorageInputLease(table, input_owner, stream, active, manifest, manifest_table)
     except BaseException:
@@ -121,31 +143,43 @@ def open_storage_input(
 
 
 def require_storage_input_owner(
-    value: object, stream: object, schema: object, operation: object,
-    manifest: CanonicalizationManifest, manifest_table: CanonicalizationManifestTable,
+    value: object,
+    stream: object,
+    schema: object,
+    operation: object,
+    manifest: CanonicalizationManifest,
+    manifest_table: CanonicalizationManifestTable,
     projection_version: str,
 ) -> StorageInputLease:
     active = require_active_kernel_context(operation)
-    if (type(value) is not StorageInputLease or value.closed
-            or value.stream is not stream or value.schema != schema
-            or value.manifest is not manifest or value.manifest_table != manifest_table
-            or manifest_table not in manifest.tables
-            or manifest.storage_projection_version != projection_version):
+    if (
+        type(value) is not StorageInputLease
+        or value.closed
+        or value.stream is not stream
+        or value.schema != schema
+        or value.manifest is not manifest
+        or value.manifest_table != manifest_table
+        or manifest_table not in manifest.tables
+        or manifest.storage_projection_version != projection_version
+    ):
         raise ValueError("storage Arrow stream lacks its verified same-operation input owner")
     active.require_same_operation(value.operation)
     return value
 
 
 def verify_storage_metadata_manifest(
-    manifest: CanonicalizationManifest, table: CanonicalizationManifestTable,
+    manifest: CanonicalizationManifest,
+    table: CanonicalizationManifestTable,
     projection_version: str,
 ) -> None:
     """Verify a metadata-only before side against the complete frozen manifest."""
-    if (type(manifest) is not CanonicalizationManifest
-            or manifest.manifest_digest is None
-            or compute_manifest_digest(manifest) != manifest.manifest_digest
-            or manifest.storage_projection_version != projection_version
-            or table not in manifest.tables):
+    if (
+        type(manifest) is not CanonicalizationManifest
+        or manifest.manifest_digest is None
+        or compute_manifest_digest(manifest) != manifest.manifest_digest
+        or manifest.storage_projection_version != projection_version
+        or table not in manifest.tables
+    ):
         raise ValueError("storage metadata side lacks a complete manifest binding")
 
 
@@ -158,8 +192,9 @@ def storage_memory_limit(message: str) -> KernelMemoryLimit:
     return KernelMemoryLimit(message)
 
 
-def render_storage_schema_native(payload: bytes, context: KernelExecutionContext,
-                                 max_bytes: int, output_upper: int) -> bytes:
+def render_storage_schema_native(
+    payload: bytes, context: KernelExecutionContext, max_bytes: int, output_upper: int
+) -> bytes:
     """Render schema through the one Rust SQL encoder under the caller's M."""
     active = require_active_kernel_context(context)
     # Retain the returned bytes until the operation ends. Conversion scratch
@@ -169,7 +204,10 @@ def render_storage_schema_native(payload: bytes, context: KernelExecutionContext
         output_charge = active.memory.reserve(output_upper * 8 + len(payload) * 64)
         try:
             result: bytes = _render_storage_schema_native(
-                payload, max_bytes, active.cancel_probe, active.deadline_monotonic,
+                payload,
+                max_bytes,
+                active.cancel_probe,
+                active.deadline_monotonic,
                 active.threads,
             )
             if len(result) > output_upper:
@@ -196,7 +234,10 @@ def build_projection_plan(
     Missing/unsupported retained columns belong to the core diagnostic owner.
     Python supplies no duplicated precomputed schema failures for these cases.
     """
-    if len(descriptor.columns) > budgets["max_columns"] or len(view.retained_columns) > budgets["max_columns"]:
+    if (
+        len(descriptor.columns) > budgets["max_columns"]
+        or len(view.retained_columns) > budgets["max_columns"]
+    ):
         raise MemoryError("projection column budget exceeded")
     # Conservative source+plan object/string/normalizer envelope, before copies.
     size = 4096 + len(descriptor.columns) * 4096 + len(view.retained_columns) * 4096
@@ -240,14 +281,18 @@ def build_projection_plan(
                 "ordinal": ordinal,
                 "sql_type": spelling,
                 "logical_type": logical,
-                "declared_type": None if declared is None else {
+                "declared_type": None
+                if declared is None
+                else {
                     "kind": declared.kind.value,
                     "bits": declared.bits,
                     "precision": declared.precision,
                     "scale": declared.scale,
                     "bit_width": declared.bit_width,
                 },
-                "nullable": source.nullable and name not in non_null if source is not None else True,
+                "nullable": source.nullable and name not in non_null
+                if source is not None
+                else True,
                 "labels": labels,
                 "source_index": source_index,
             }
@@ -259,7 +304,11 @@ def build_projection_plan(
         "columns": columns,
         "canonical_key_columns": list(view.canonical_key_columns),
         "structural_columns": list(view.structural_columns),
-        "row_policy": "ORDERED_GID_NO" if ordered else "KEYED" if view.canonical_key_columns else "KEYLESS",
+        "row_policy": "ORDERED_GID_NO"
+        if ordered
+        else "KEYED"
+        if view.canonical_key_columns
+        else "KEYLESS",
         "canonicalized_input": canonicalized_input,
         "schema_diagnostics": [],
         "omitted_schema_diagnostic_count": 0,
@@ -280,7 +329,9 @@ def project_arrow_table(
     pool_threads: int,
 ) -> KernelResult:
     check_metadata_budget(table, budgets)
-    plan = build_projection_plan(descriptor, view, canonicalized_input=canonicalized_input, budgets=budgets)
+    plan = build_projection_plan(
+        descriptor, view, canonicalized_input=canonicalized_input, budgets=budgets
+    )
     return call_arrow_kernel(
         _canonical_project_native,
         [table],

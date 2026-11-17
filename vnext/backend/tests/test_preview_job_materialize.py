@@ -119,12 +119,10 @@ class ProjectionFailureCase:
 
 _TRUNCATED_FAILURE_COLUMNS = tuple(f"bad_{index:03d}" for index in range(400))
 _MODIFIED_TRUNCATED_FAILURE_TABLES = tuple(
-    (f"modified_broken_{index:02d}", _TRUNCATED_FAILURE_COLUMNS)
-    for index in range(3)
+    (f"modified_broken_{index:02d}", _TRUNCATED_FAILURE_COLUMNS) for index in range(3)
 )
 _INITIAL_TRUNCATED_FAILURE_TABLES = tuple(
-    (f"initial_broken_{index:02d}", _TRUNCATED_FAILURE_COLUMNS)
-    for index in range(3)
+    (f"initial_broken_{index:02d}", _TRUNCATED_FAILURE_COLUMNS) for index in range(3)
 )
 
 
@@ -267,7 +265,11 @@ def _replace_projection_failure_packages(
         SourceArtifactRole.MODIFIED: store_source_package(
             harness.artifact_store,
             modified_sql.encode("utf-8"),
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "aac831a7c19de167c6efcde6e8e10989bd747cb665855e0ce0155559d9d93fae"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "aac831a7c19de167c6efcde6e8e10989bd747cb665855e0ce0155559d9d93fae",
+            ),
         )
     }
     input_completeness = InputCompleteness.MODIFIED_ONLY
@@ -276,7 +278,11 @@ def _replace_projection_failure_packages(
         source_artifacts[SourceArtifactRole.INITIAL] = store_source_package(
             harness.artifact_store,
             initial_sql.encode("utf-8"),
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "6565e1aa33fb5ba223f242919ed02c593c36f0668538bb6225b19f2d56d0937c"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "6565e1aa33fb5ba223f242919ed02c593c36f0668538bb6225b19f2d56d0937c",
+            ),
         )
     harness.upload_revision = replace(
         harness.upload_revision,
@@ -346,8 +352,12 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
     run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
-        assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, PREVIEW_STEP_ASSEMBLE))
+        materialize_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
+        assemble_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, PREVIEW_STEP_ASSEMBLE)
+        )
     assert materialize_step.status is StepStatus.SUCCEEDED
     assert materialize_step.checkpoint_ref is not None
     assert assemble_step.status is StepStatus.PENDING
@@ -364,9 +374,18 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
     assert isinstance(canonical, dict)
     configuration_facts = ConfigurationFacts.from_document(canonical["configuration_facts"])
     assert configuration_facts.initial_origin == "UPLOADED"
-    assert configuration_facts.initial.content_identity.canonical_state_digest == canonical["initial_canonical_state_digest"]
-    assert configuration_facts.modified.content_identity.canonical_state_digest == canonical["modified_canonical_state_digest"]
-    assert configuration_facts.initial.source_artifact_id == harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL].artifact_id
+    assert (
+        configuration_facts.initial.content_identity.canonical_state_digest
+        == canonical["initial_canonical_state_digest"]
+    )
+    assert (
+        configuration_facts.modified.content_identity.canonical_state_digest
+        == canonical["modified_canonical_state_digest"]
+    )
+    assert (
+        configuration_facts.initial.source_artifact_id
+        == harness.upload_revision.source_artifacts[SourceArtifactRole.INITIAL].artifact_id
+    )
     assert canonical["baseline_canonical_state_digest"].startswith("sha256:")
     assert canonical["modified_canonical_state_digest"].startswith("sha256:")
     assert canonical["storage_projection_ruleset_digest"].startswith("sha256:")
@@ -404,7 +423,9 @@ def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> 
     ) == ("t",)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
+        materialize_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
     sides = _materialized_side_documents(envelope.job_state, harness)
@@ -450,8 +471,7 @@ def test_preview_reads_changed_and_deleted_baseline_tables_only(tmp_path: Path) 
         harness,
         initial_sql=None,
         modified_sql=(
-            "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
-            "INSERT INTO t VALUES (1), (2);\n"
+            "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\nINSERT INTO t VALUES (1), (2);\n"
         ),
     )
     harness.seed_workspace()
@@ -600,9 +620,13 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
 
     original_factory = harness.deps.control_transaction_factory
     with original_factory() as unit_of_work:
-        baseline_metadata = unit_of_work.commit_canonical_metadata.resolve(repository_id=REPOSITORY_ID,
+        baseline_metadata = unit_of_work.commit_canonical_metadata.resolve(
+            repository_id=REPOSITORY_ID,
             commit_id=BASELINE_HEAD.business_baseline_commit_id,
-            scope=CommitCanonicalScope(gateway_device_external_key="device-1", business_project_id="project-1"))
+            scope=CommitCanonicalScope(
+                gateway_device_external_key="device-1", business_project_id="project-1"
+            ),
+        )
     assert baseline_metadata.manifest is not None
     assert baseline_metadata.manifest.ruleset_digest.value == ruleset_a_digest
     metadata_port = CatalogCommitCanonicalMetadataPort(
@@ -670,16 +694,28 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     assert isinstance(canonical, dict)
     assert canonical["storage_projection_ruleset_digest"] == ruleset_b_digest
     configuration_facts = ConfigurationFacts.from_document(canonical["configuration_facts"])
-    assert configuration_facts.baseline_content_identity.storage_projection_ruleset_digest == ruleset_a_digest
-    assert configuration_facts.initial.content_identity == configuration_facts.baseline_content_identity
-    assert configuration_facts.modified.content_identity.storage_projection_ruleset_digest == ruleset_b_digest
+    assert (
+        configuration_facts.baseline_content_identity.storage_projection_ruleset_digest
+        == ruleset_a_digest
+    )
+    assert (
+        configuration_facts.initial.content_identity
+        == configuration_facts.baseline_content_identity
+    )
+    assert (
+        configuration_facts.modified.content_identity.storage_projection_ruleset_digest
+        == ruleset_b_digest
+    )
     manifest_ref = artifact_ref_from_dict(canonical["canonicalization_manifest_ref"])
     modified_manifest = open_canonicalization_manifest(harness.artifact_store, manifest_ref)
     assert modified_manifest.ruleset_digest == ruleset_b.ruleset_digest
     assert baseline_metadata.manifest.ruleset_digest.value == ruleset_a_digest
     assert baseline_metadata.manifest.ruleset_digest != modified_manifest.ruleset_digest
     assert harness.baseline_provider.sessions
-    assert all(session.pinned_commit_hash() == "commit-base" for session in harness.baseline_provider.sessions)
+    assert all(
+        session.pinned_commit_hash() == "commit-base"
+        for session in harness.baseline_provider.sessions
+    )
 
     observed_pairs: list[Any] = []
     original_run_pair = preview_jobs._run_pair_pipeline
@@ -732,7 +768,11 @@ def test_invalid_logics_xml_fails_preview_with_public_diagnostic(
     _replace_modified_source_package(
         harness,
         xml_bytes=xml_bytes,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "04a7a9d33001c7cb7c785528b819e509937b29c834e93177c20757ea007f738a"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "04a7a9d33001c7cb7c785528b819e509937b29c834e93177c20757ea007f738a",
+        ),
     )
     operation_id = "op-preview-invalid-logics"
     insert_preview_operation(harness, operation_id)
@@ -761,7 +801,11 @@ def test_missing_logics_xml_materializes_stable_empty_source(tmp_path: Path) -> 
     _replace_modified_source_package(
         harness,
         xml_bytes=None,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "e86c56dfc344cc632e819fc9c4dead333cc78544dc4f2336825f4d84a1a9e7d5"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "e86c56dfc344cc632e819fc9c4dead333cc78544dc4f2336825f4d84a1a9e7d5",
+        ),
     )
     operation_id = "op-preview-empty-logics"
     insert_preview_operation(harness, operation_id)
@@ -807,7 +851,11 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
     bad_binding = store_source_package(
         harness.artifact_store,
         b"not-a-valid-package",
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "647b09cc535a8eef4116dd12172c0d707e8b79d97baf0cac9690fac1315ad609"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "647b09cc535a8eef4116dd12172c0d707e8b79d97baf0cac9690fac1315ad609",
+        ),
     )
     upload_revision = replace(
         harness.upload_revision,
@@ -867,25 +915,35 @@ def test_deterministic_catalog_failure_is_publicly_diagnostic(
 
 
 def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gateway_backend.application import preview_jobs
+
     harness = build_preview_harness(tmp_path, empty_baseline=True)
     sql = "CREATE TABLE version_manager (id INT PRIMARY KEY, project_guid TEXT, saved_time TEXT); "
     initial_sql = sql + "INSERT INTO version_manager VALUES (1,'p','2026-11-07T10:00:00Z');"
-    modified_sql = sql + ("INSERT INTO version_manager VALUES (90,'p','2026-11-07T12:00:00Z'); "
-        "INSERT INTO version_manager VALUES (1,'p','2026-11-07T11:00:00Z');")
-    _replace_projection_failure_packages(harness, initial_sql=initial_sql, modified_sql=modified_sql)
+    modified_sql = sql + (
+        "INSERT INTO version_manager VALUES (90,'p','2026-11-07T12:00:00Z'); "
+        "INSERT INTO version_manager VALUES (1,'p','2026-11-07T11:00:00Z');"
+    )
+    _replace_projection_failure_packages(
+        harness, initial_sql=initial_sql, modified_sql=modified_sql
+    )
     harness.seed_workspace()
     operation_id = "op-frozen-time"
     insert_preview_operation(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
+
     def lose_after_checkpoint(*args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("process stopped after durable materialize checkpoint")
+
     with monkeypatch.context() as fault:
         fault.setattr(type(session), "publish_successor", lose_after_checkpoint)
         with pytest.raises(RuntimeError, match="after durable materialize checkpoint"):
-            run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+            run_claimed_handler(
+                harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step
+            )
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(step.step_id)
@@ -899,19 +957,29 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     assert frozen.modified.generated_time.selected_time_utc == "2026-11-07T11:00:00Z"
     assert frozen.modified.generated_time.max_valid_source_row == 1
     assert frozen.modified.generated_time.last_not_max
+
     def reject_reextract(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("checkpoint recovery must not reextract SQL facts")
+
     monkeypatch.setattr(preview_jobs, "parse_arrow_sql", reject_reextract)
     from gateway_backend.operations.lease_session import LeaseSession
     from gateway_backend.operations.worker import ExecutionControl, WriteUnitOfWorkFactory
     from typing import cast
+
     assert step.worker_id is not None and step.lease_token is not None
     control = ExecutionControl()
-    recovered_session = LeaseSession(worker_id=step.worker_id, lease_token=step.lease_token,
-        operation_id=operation.operation_id, step_id=step.step_id,
+    recovered_session = LeaseSession(
+        worker_id=step.worker_id,
+        lease_token=step.lease_token,
+        operation_id=operation.operation_id,
+        step_id=step.step_id,
         write_uow_factory=cast(WriteUnitOfWorkFactory, harness.control_transaction_factory),
-        control=control, observer=lambda _event: None)
-    run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, recovered_session, control, operation, step)
+        control=control,
+        observer=lambda _event: None,
+    )
+    run_claimed_handler(
+        harness, PREVIEW_MATERIALIZE_HANDLER, recovered_session, control, operation, step
+    )
     for handler in (preview_jobs.PREVIEW_ASSEMBLE_HANDLER, preview_jobs.PREVIEW_PUBLISH_HANDLER):
         session, control, operation, step = claim_next_step(harness)
         run_claimed_handler(harness, handler, session, control, operation, step)
@@ -926,7 +994,9 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
         preview_jobs._canonical_preview_metadata_from_document(damaged)
 
 
-def test_baseline_time_facts_must_match_original_manifest_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_baseline_time_facts_must_match_original_manifest_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
     harness.seed_workspace()
     with harness.deps.control_transaction_factory() as unit_of_work:
@@ -934,20 +1004,42 @@ def test_baseline_time_facts_must_match_original_manifest_rules(tmp_path: Path, 
         source = unit_of_work.submission.get_submission("submission-baseline")
     assert source is not None
     old = source.configuration_facts
-    altered = replace(source, configuration_facts=replace(old, modified=replace(old.modified,
-        content_identity=replace(old.modified.content_identity, storage_projection_ruleset_digest="sha256:" + "8" * 64))))
+    altered = replace(
+        source,
+        configuration_facts=replace(
+            old,
+            modified=replace(
+                old.modified,
+                content_identity=replace(
+                    old.modified.content_identity,
+                    storage_projection_ruleset_digest="sha256:" + "8" * 64,
+                ),
+            ),
+        ),
+    )
+
     def read_altered(*args: Any, **kwargs: Any) -> Any:
         return altered
+
     monkeypatch.setattr(repository_type, "get_submission", read_altered)
     payload = decode_preview_payload(decode_payload_object(harness))
     with pytest.raises(PreviewJobError, match="identity does not match source manifest"):
-        preview_jobs._materialize_all_sides(payload, harness.deps, operation_id="op-invalid-baseline-facts")
+        preview_jobs._materialize_all_sides(
+            payload, harness.deps, operation_id="op-invalid-baseline-facts"
+        )
 
 
-def test_illegal_typed_time_keeps_parser_failure_diagnostic_and_publishes_no_facts(tmp_path: Path) -> None:
-    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, empty_baseline=True)
-    _replace_projection_failure_packages(harness, initial_sql=None,
-        modified_sql="CREATE TABLE version_manager(saved_time DATETIME); INSERT INTO version_manager VALUES ('2026-11-07T12:00:00+01:00');")
+def test_illegal_typed_time_keeps_parser_failure_diagnostic_and_publishes_no_facts(
+    tmp_path: Path,
+) -> None:
+    harness = build_preview_harness(
+        tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, empty_baseline=True
+    )
+    _replace_projection_failure_packages(
+        harness,
+        initial_sql=None,
+        modified_sql="CREATE TABLE version_manager(saved_time DATETIME); INSERT INTO version_manager VALUES ('2026-11-07T12:00:00+01:00');",
+    )
     harness.seed_workspace()
     operation_id = "op-invalid-typed-time"
     insert_preview_operation(harness, operation_id)
@@ -955,7 +1047,12 @@ def test_illegal_typed_time_keeps_parser_failure_diagnostic_and_publishes_no_fac
     run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted = unit_of_work.operations.get_operation(operation_id)
-        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM preview_result_records").fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM preview_result_records"
+            ).fetchone()[0]
+            == 0
+        )
     assert persisted.status is OperationStatus.FAILED
     assert persisted.diagnostic is not None
     assert persisted.diagnostic.code == "TABLE_READER_UNAVAILABLE"
@@ -967,35 +1064,55 @@ def test_illegal_typed_time_keeps_parser_failure_diagnostic_and_publishes_no_fac
     (("新标签", True), ("新引用表", False)),
 )
 def test_preview_freezes_rule_equivalence_for_comment_changes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modified_comment: str, expected_equal: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modified_comment: str,
+    expected_equal: bool,
 ) -> None:
     from tests.support import preview_job_harness
 
     table_sql = "CREATE TABLE b1_n1_example (id INT PRIMARY KEY) COMMENT='{comment}'; INSERT INTO b1_n1_example VALUES (1);"
     monkeypatch.setattr(preview_job_harness, "BASELINE_SQL", table_sql.format(comment="原标签"))
     original_catalog = preview_job_harness._canonical_baseline_catalog
+
     def catalog_with_example_rows(baseline_sql: str) -> Any:
         tables, rows = original_catalog(baseline_sql)
         return tables, {**rows, "b1_n1_example": ((1,),)}
-    monkeypatch.setattr(preview_job_harness, "_canonical_baseline_catalog", catalog_with_example_rows)
-    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, canonical_noop=True)
+
+    monkeypatch.setattr(
+        preview_job_harness, "_canonical_baseline_catalog", catalog_with_example_rows
+    )
+    harness = build_preview_harness(
+        tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, canonical_noop=True
+    )
     harness.seed_workspace()
-    _replace_projection_failure_packages(harness, initial_sql=None, modified_sql=table_sql.format(comment=modified_comment))
+    _replace_projection_failure_packages(
+        harness, initial_sql=None, modified_sql=table_sql.format(comment=modified_comment)
+    )
     payload = decode_preview_payload(decode_payload_object(harness))
-    materialized = preview_jobs._materialize_all_sides(payload, harness.deps, operation_id="op-rule-equivalence")
-    assert materialized.canonical.baseline_canonical_state_digest == materialized.canonical.modified_canonical_state_digest
+    materialized = preview_jobs._materialize_all_sides(
+        payload, harness.deps, operation_id="op-rule-equivalence"
+    )
+    assert (
+        materialized.canonical.baseline_canonical_state_digest
+        == materialized.canonical.modified_canonical_state_digest
+    )
     assert materialized.canonical.rules_semantically_equal is expected_equal
 
 
 def test_recovery_rejects_tampered_frozen_rule_equivalence(tmp_path: Path) -> None:
-    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, canonical_noop=True)
+    harness = build_preview_harness(
+        tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY, canonical_noop=True
+    )
     harness.seed_workspace()
     operation_id = "op-recover-rules"
     insert_preview_operation(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        completed = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
+        completed = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
     assert completed.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, completed.checkpoint_ref)
     canonical = envelope.job_state["canonical_preview"]
@@ -1005,5 +1122,8 @@ def test_recovery_rejects_tampered_frozen_rule_equivalence(tmp_path: Path) -> No
     job_state = {**envelope.job_state, "canonical_preview": damaged}
     with pytest.raises(CheckpointDecodeError, match="resolved rules do not match"):
         preview_jobs._materialized_preview_inputs_from_checkpoint(
-            job_state, harness.artifact_store, repository_id=REPOSITORY_ID, dependencies=harness.deps,
+            job_state,
+            harness.artifact_store,
+            repository_id=REPOSITORY_ID,
+            dependencies=harness.deps,
         )

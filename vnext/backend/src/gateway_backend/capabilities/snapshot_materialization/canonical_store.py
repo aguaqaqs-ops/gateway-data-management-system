@@ -14,7 +14,8 @@ from typing import Any
 
 import pyarrow as pa
 from gateway_compute._native import (
-    _canonical_comparison_profile_native, _encode_canonical_ipc_native,
+    _canonical_comparison_profile_native,
+    _encode_canonical_ipc_native,
     _inspect_canonical_ipc_native,
 )
 from gateway_shared_kernel import raw_blob_digest
@@ -40,16 +41,23 @@ from gateway_backend.capabilities.snapshot_materialization.sql_declared_types im
 from gateway_backend.capabilities.table_rules.contracts import STORAGE_PROJECTION_VERSION
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, SourceTableDescriptor
 from gateway_backend.capabilities.table_access import (
-    current_kernel_context, KernelMemoryLimit, source_descriptor_from_arrow,
+    current_kernel_context,
+    KernelMemoryLimit,
+    source_descriptor_from_arrow,
 )
 
 
-def canonical_table_key(repository_id: str, descriptor: SnapshotTableDescriptor) -> CanonicalTableKey:
+def canonical_table_key(
+    repository_id: str, descriptor: SnapshotTableDescriptor
+) -> CanonicalTableKey:
     if descriptor.raw_content_digest is None:
         raise ValueError("canonical table requires a bound business digest")
     return CanonicalTableKey(
-        repository_id, STORAGE_PROJECTION_VERSION, descriptor.business_schema_digest,
-        descriptor.row_count, descriptor.raw_content_digest,
+        repository_id,
+        STORAGE_PROJECTION_VERSION,
+        descriptor.business_schema_digest,
+        descriptor.row_count,
+        descriptor.raw_content_digest,
     )
 
 
@@ -70,32 +78,46 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
                 declared = None
         if declared is None and logical != "set":
             raise ValueError("canonical column has no supported declaration")
-        result.append({
-            "canonical_name": column.name, "display_name": column.display_name,
-            "ordinal": ordinal, "sql_type": sql_type, "logical_type": logical,
-            "nullable": column.nullable, "labels": labels,
-            "declared_type": None if declared is None else {
-                "kind": declared.kind.value, "bits": declared.bits,
-                "precision": declared.precision, "scale": declared.scale,
-                "bit_width": declared.bit_width,
-            },
-        })
+        result.append(
+            {
+                "canonical_name": column.name,
+                "display_name": column.display_name,
+                "ordinal": ordinal,
+                "sql_type": sql_type,
+                "logical_type": logical,
+                "nullable": column.nullable,
+                "labels": labels,
+                "declared_type": None
+                if declared is None
+                else {
+                    "kind": declared.kind.value,
+                    "bits": declared.bits,
+                    "precision": declared.precision,
+                    "scale": declared.scale,
+                    "bit_width": declared.bit_width,
+                },
+            }
+        )
     return result
 
 
 def canonical_source_descriptor(descriptor: SnapshotTableDescriptor) -> SourceTableDescriptor:
     """The same canonical declaration for loaded readers and metadata-only exports."""
-    return source_descriptor_from_arrow({
-        "canonical_name": descriptor.table_name,
-        "display_name": descriptor.display_table_name,
-        "columns": canonical_columns(descriptor),
-        "primary_key": list(descriptor.primary_key_columns),
-        "reader_ready": True,
-    })
+    return source_descriptor_from_arrow(
+        {
+            "canonical_name": descriptor.table_name,
+            "display_name": descriptor.display_table_name,
+            "columns": canonical_columns(descriptor),
+            "primary_key": list(descriptor.primary_key_columns),
+            "reader_ready": True,
+        }
+    )
 
 
 def canonical_comparison_profile(
-    descriptor: SnapshotTableDescriptor, input_schema: pa.Schema, *,
+    descriptor: SnapshotTableDescriptor,
+    input_schema: pa.Schema,
+    *,
     metadata_budget_bytes: int,
 ) -> tuple[pa.Schema, tuple[int, ...]]:
     """Ask the canonical mapping owner for a schema-only comparison view."""
@@ -108,13 +130,18 @@ def canonical_comparison_profile(
     budgets["max_codec_peak_bytes"] = metadata_budget_bytes
     check_canonical_descriptor_budget(descriptor, budgets)
     schema, indices = _canonical_comparison_profile_native(
-        canonical_columns(descriptor), input_schema, context.cancel_probe,
-        budgets, context.deadline_monotonic,
+        canonical_columns(descriptor),
+        input_schema,
+        context.cancel_probe,
+        budgets,
+        context.deadline_monotonic,
     )
     return schema, tuple(indices)
 
 
-def check_canonical_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> int:
+def check_canonical_descriptor_budget(
+    descriptor: SnapshotTableDescriptor, budgets: dict[str, int]
+) -> int:
     if max(len(descriptor.columns), len(descriptor.primary_key_columns)) > budgets["max_columns"]:
         raise MemoryError("canonical descriptor column limit exceeded")
     size = 4096 + len(descriptor.columns) * 4096
@@ -134,8 +161,11 @@ class ArtifactReadHandle:
     """Independent reader lifetime; batches/streams are borrowed within it."""
 
     def __init__(
-        self, store: ArtifactBufferStorePort, ref: ArtifactRef,
-        descriptor: SnapshotTableDescriptor, budgets: dict[str, int],
+        self,
+        store: ArtifactBufferStorePort,
+        ref: ArtifactRef,
+        descriptor: SnapshotTableDescriptor,
+        budgets: dict[str, int],
     ) -> None:
         self._stack = ExitStack()
         self._reader: pa.ipc.RecordBatchFileReader | None = None
@@ -151,27 +181,49 @@ class ArtifactReadHandle:
             if self._context is not None:
                 self._context.checkpoint()
                 mapping_key = ("canonical-mapping", id(self))
-                self._stack.enter_context(self._context.memory.reserve(ref.size_bytes, backing=mapping_key))
-                metadata = 4096 + len(descriptor.columns) * 4096 + ((descriptor.row_count + 65535) // 65536) * (len(descriptor.columns) * 256 + 4096)
+                self._stack.enter_context(
+                    self._context.memory.reserve(ref.size_bytes, backing=mapping_key)
+                )
+                metadata = (
+                    4096
+                    + len(descriptor.columns) * 4096
+                    + ((descriptor.row_count + 65535) // 65536)
+                    * (len(descriptor.columns) * 256 + 4096)
+                )
                 self._stack.enter_context(self._context.memory.reserve(metadata))
                 self._context.resources.callback(self.close)
             buffer = self._stack.enter_context(store.open_buffer(ref, checkpoint=checkpoint))
             if self._context is not None:
                 self._context.memory.register_mapping(mapping_key, buffer)
-                budgets = {**budgets, "max_codec_peak_bytes": min(budgets["max_codec_peak_bytes"], self._context.memory.available_bytes)}
-                self._context.memory.record_stage_admission("canonical-ipc-inspect", budgets["max_codec_peak_bytes"])
+                budgets = {
+                    **budgets,
+                    "max_codec_peak_bytes": min(
+                        budgets["max_codec_peak_bytes"], self._context.memory.available_bytes
+                    ),
+                }
+                self._context.memory.record_stage_admission(
+                    "canonical-ipc-inspect", budgets["max_codec_peak_bytes"]
+                )
             # LargeBinary is only a safe zero-copy buffer bridge to A preflight.
-            array = pa.Array.from_buffers(pa.large_binary(), 1, [
-                None, pa.py_buffer(struct.pack("<qq", 0, len(buffer))), buffer,
-            ])
+            array = pa.Array.from_buffers(
+                pa.large_binary(),
+                1,
+                [
+                    None,
+                    pa.py_buffer(struct.pack("<qq", 0, len(buffer))),
+                    buffer,
+                ],
+            )
             bridge = pa.RecordBatchReader.from_batches(
                 pa.schema([pa.field("ipc", pa.large_binary())]),
                 [pa.record_batch([array], names=["ipc"])],
             )
             try:
                 rows = _inspect_canonical_ipc_native(
-                    canonical_columns(descriptor), bridge,
-                    NeverCancel() if self._context is None else self._context.cancel_probe, budgets,
+                    canonical_columns(descriptor),
+                    bridge,
+                    NeverCancel() if self._context is None else self._context.cancel_probe,
+                    budgets,
                     None if self._context is None else self._context.deadline_monotonic,
                 )
             finally:
@@ -195,7 +247,9 @@ class ArtifactReadHandle:
             if self._context is not None:
                 self._context.checkpoint()
                 if isinstance(exc, MemoryError):
-                    raise KernelMemoryLimit("canonical reader operation memory reservation exceeded") from exc
+                    raise KernelMemoryLimit(
+                        "canonical reader operation memory reservation exceeded"
+                    ) from exc
             raise
 
     @property
@@ -261,7 +315,11 @@ class ArtifactReadHandle:
 
 class CanonicalTableStore:
     def __init__(
-        self, store: ArtifactBufferStorePort, *, repository_id: str, budgets: dict[str, int],
+        self,
+        store: ArtifactBufferStorePort,
+        *,
+        repository_id: str,
+        budgets: dict[str, int],
     ) -> None:
         self._store = store
         self._repository_id = repository_id
@@ -272,7 +330,10 @@ class CanonicalTableStore:
         return self._repository_id
 
     def put(
-        self, stream: pa.RecordBatchReader, bound_descriptor: SnapshotTableDescriptor, *,
+        self,
+        stream: pa.RecordBatchReader,
+        bound_descriptor: SnapshotTableDescriptor,
+        *,
         before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
         restore_exact_commit: bool = False,
     ) -> ArtifactRef:
@@ -280,13 +341,24 @@ class CanonicalTableStore:
         metadata_size = check_canonical_descriptor_budget(bound_descriptor, self._budgets)
         if context is not None:
             context.memory.retain_metadata(bound_descriptor, metadata_size)
-        budgets = self._budgets if context is None else {**self._budgets,
-            "max_codec_peak_bytes": min(self._budgets["max_codec_peak_bytes"], context.memory.available_bytes)}
+        budgets = (
+            self._budgets
+            if context is None
+            else {
+                **self._budgets,
+                "max_codec_peak_bytes": min(
+                    self._budgets["max_codec_peak_bytes"], context.memory.available_bytes
+                ),
+            }
+        )
         if context is not None:
             context.checkpoint()
-            context.memory.record_stage_admission("canonical-ipc-encode", budgets["max_codec_peak_bytes"])
+            context.memory.record_stage_admission(
+                "canonical-ipc-encode", budgets["max_codec_peak_bytes"]
+            )
         check_canonical_descriptor_budget(bound_descriptor, budgets)
         key = canonical_table_key(self._repository_id, bound_descriptor)
+
         def bound_batches() -> Iterator[pa.RecordBatch]:
             rows = 0
             for batch in stream:
@@ -304,40 +376,55 @@ class CanonicalTableStore:
         bound_stream = pa.RecordBatchReader.from_batches(stream.schema, bound_batches())
         try:
             raw = _encode_canonical_ipc_native(
-                canonical_columns(bound_descriptor), bound_stream,
-                NeverCancel() if context is None else context.cancel_probe, budgets,
+                canonical_columns(bound_descriptor),
+                bound_stream,
+                NeverCancel() if context is None else context.cancel_probe,
+                budgets,
                 None if context is None else context.deadline_monotonic,
             )
         except BaseException as exc:
             if context is not None:
                 context.checkpoint()
                 if isinstance(exc, MemoryError):
-                    raise KernelMemoryLimit("canonical codec operation memory reservation exceeded") from exc
+                    raise KernelMemoryLimit(
+                        "canonical codec operation memory reservation exceeded"
+                    ) from exc
             raise
         finally:
             bound_stream.close()
-        reservation = nullcontext() if context is None else context.memory.reserve(len(raw), backing=("python-bytes", id(raw)))
+        reservation = (
+            nullcontext()
+            if context is None
+            else context.memory.reserve(len(raw), backing=("python-bytes", id(raw)))
+        )
         with reservation:
             if context is not None:
                 context.checkpoint()
                 context.memory.record_stage_admission("canonical-ipc-publication", len(raw))
-            ref = ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(raw), raw_blob_digest(raw))
+            ref = ArtifactRef(
+                key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(raw), raw_blob_digest(raw)
+            )
             if before_write is not None:
                 before_write(key, ref)
             if context is not None:
                 context.checkpoint()
             if restore_exact_commit:
                 if not isinstance(self._store, CanonicalArtifactRepairPort):
-                    raise ManifestVerificationError("canonical store does not support exact-commit repair")
-                published = self._store.restore_canonical_from_exact_commit(raw, ref,
-                    checkpoint=(lambda: None) if context is None else context.checkpoint)
+                    raise ManifestVerificationError(
+                        "canonical store does not support exact-commit repair"
+                    )
+                published = self._store.restore_canonical_from_exact_commit(
+                    raw, ref, checkpoint=(lambda: None) if context is None else context.checkpoint
+                )
             else:
                 published = self._store.put(raw, ref)
             if context is not None:
                 context.checkpoint()
             return published
 
-    def open(self, ref: ArtifactRef, bound_descriptor: SnapshotTableDescriptor) -> ArtifactReadHandle:
+    def open(
+        self, ref: ArtifactRef, bound_descriptor: SnapshotTableDescriptor
+    ) -> ArtifactReadHandle:
         metadata_size = check_canonical_descriptor_budget(bound_descriptor, self._budgets)
         context = current_kernel_context()
         if context is not None:

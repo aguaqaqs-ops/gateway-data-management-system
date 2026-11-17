@@ -81,13 +81,30 @@ class ManualSubmissionClosure:
     configuration_facts_digest: str
 
     def __post_init__(self) -> None:
-        for name in ("closed_by", "reason", "idempotency_key", "request_fingerprint",
-            "expected_baseline_node_id", "workspace_id", "upload_revision_id", "preview_result_id", "configuration_facts_digest"):
+        for name in (
+            "closed_by",
+            "reason",
+            "idempotency_key",
+            "request_fingerprint",
+            "expected_baseline_node_id",
+            "workspace_id",
+            "upload_revision_id",
+            "preview_result_id",
+            "configuration_facts_digest",
+        ):
             value = getattr(self, name)
-            if type(value) is not str or not value or len(value.encode("utf-8")) > (4096 if name == "reason" else 255):
+            if (
+                type(value) is not str
+                or not value
+                or len(value.encode("utf-8")) > (4096 if name == "reason" else 255)
+            ):
                 raise ValueError("invalid manual closure text binding")
-        for value in (self.expected_review_version, self.expected_baseline_head_version,
-            self.workspace_generation, self.workspace_version):
+        for value in (
+            self.expected_review_version,
+            self.expected_baseline_head_version,
+            self.workspace_generation,
+            self.workspace_version,
+        ):
             if type(value) is not int or not 0 <= value <= 9007199254740991:
                 raise ValueError("invalid manual closure safe integer")
         if self.closed_at.tzinfo is None or self.closed_at.utcoffset() is None:
@@ -111,12 +128,23 @@ class SubmissionDisposition:
         for value in (self.submission_id, self.repository_id):
             if type(value) is not str or not value:
                 raise ValueError("submission disposition requires exact target/scope")
-        if type(self.disposition) is not SubmissionDispositionKind or type(self.source_kind) is not SubmissionDispositionSourceKind:
+        if (
+            type(self.disposition) is not SubmissionDispositionKind
+            or type(self.source_kind) is not SubmissionDispositionSourceKind
+        ):
             raise ValueError("invalid submission disposition kind/source")
         if self.source_kind is SubmissionDispositionSourceKind.ARCHIVE:
-            if type(self.result_id) is not str or not self.result_id or self.manual_closure is not None:
+            if (
+                type(self.result_id) is not str
+                or not self.result_id
+                or self.manual_closure is not None
+            ):
                 raise ValueError("archive disposition requires only a real result source")
-        elif self.disposition is not SubmissionDispositionKind.CLOSED_NOT_ARCHIVED or self.result_id is not None or type(self.manual_closure) is not ManualSubmissionClosure:
+        elif (
+            self.disposition is not SubmissionDispositionKind.CLOSED_NOT_ARCHIVED
+            or self.result_id is not None
+            or type(self.manual_closure) is not ManualSubmissionClosure
+        ):
             raise ValueError("manual close requires only a closed-not-archived source")
 
 
@@ -213,9 +241,7 @@ class ArchiveConfirmationEvent:
         if self.action is ArchiveConfirmationAction.REVOKE:
             if type(self.reason) is not str or not self.reason:
                 raise ValueError("reason must be a non-empty string")
-        elif self.reason is not None and (
-            type(self.reason) is not str or not self.reason
-        ):
+        elif self.reason is not None and (type(self.reason) is not str or not self.reason):
             raise ValueError("reason must be null or a non-empty string")
         if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
             raise ValueError("occurred_at must be an aware datetime")

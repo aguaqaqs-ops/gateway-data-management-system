@@ -111,7 +111,9 @@ def deterministic_history_compare_ids(
 
 
 def nodes_json_from_bindings(nodes: Sequence[HistoryCompareNodeBinding]) -> str:
-    from gateway_backend.application.history.contracts import nodes_json_from_bindings as _from_contracts
+    from gateway_backend.application.history.contracts import (
+        nodes_json_from_bindings as _from_contracts,
+    )
 
     return _from_contracts(nodes)
 

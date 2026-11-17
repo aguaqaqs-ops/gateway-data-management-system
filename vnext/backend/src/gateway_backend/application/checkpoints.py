@@ -139,13 +139,18 @@ class StepCheckpointEnvelope:
 
     @classmethod
     def from_document(cls, document: object) -> StepCheckpointEnvelope:
-        payload = _require_closed_document(document, _CHECKPOINT_DOCUMENT_KEYS, "checkpoint document")
+        payload = _require_closed_document(
+            document, _CHECKPOINT_DOCUMENT_KEYS, "checkpoint document"
+        )
         if _require_string(payload, "document_type") != CHECKPOINT_DOCUMENT_TYPE:
             raise CheckpointDecodeError(
                 "document_type is not a checkpoint axis",
                 code="CHECKPOINT_DOCUMENT_KIND_MISMATCH",
             )
-        if _require_string(payload, "checkpoint_contract_version") != STEP_CHECKPOINT_CONTRACT_VERSION:
+        if (
+            _require_string(payload, "checkpoint_contract_version")
+            != STEP_CHECKPOINT_CONTRACT_VERSION
+        ):
             raise CheckpointDecodeError(
                 "unsupported checkpoint contract version",
                 code="CHECKPOINT_CONTRACT_VERSION_UNSUPPORTED",
@@ -156,7 +161,9 @@ class StepCheckpointEnvelope:
         )
         job_state_raw = payload["job_state"]
         if type(job_state_raw) is not dict:
-            raise CheckpointDecodeError("job_state must be a JSON object", code="CHECKPOINT_SHAPE_INVALID")
+            raise CheckpointDecodeError(
+                "job_state must be a JSON object", code="CHECKPOINT_SHAPE_INVALID"
+            )
         job_state = cast(dict[str, object], job_state_raw)
         try:
             validate_json_structure(job_state)
@@ -202,11 +209,15 @@ class ReadyClosureEntry:
     @classmethod
     def from_document(cls, payload: object) -> ReadyClosureEntry:
         if type(payload) is not dict:
-            raise CheckpointDecodeError("closure output entry must be an object", code="CLOSURE_SHAPE_INVALID")
+            raise CheckpointDecodeError(
+                "closure output entry must be an object", code="CLOSURE_SHAPE_INVALID"
+            )
         entry = cast(dict[str, object], payload)
         extra = set(entry) - _OUTPUT_ENTRY_KEYS
         if extra or set(entry) != _OUTPUT_ENTRY_KEYS:
-            raise CheckpointDecodeError("closure output entry has unexpected keys", code="CLOSURE_SHAPE_INVALID")
+            raise CheckpointDecodeError(
+                "closure output entry has unexpected keys", code="CLOSURE_SHAPE_INVALID"
+            )
         artifact_ref = artifact_ref_from_dict(_object(entry, "artifact_ref"))
         size_bytes = _require_non_negative_int(entry, "size_bytes")
         raw_sha256 = DigestRef(_require_string(entry, "raw_sha256"))
@@ -276,7 +287,9 @@ class ReadyClosureDocument:
 
     @classmethod
     def from_document(cls, document: object) -> ReadyClosureDocument:
-        payload = _require_closed_document(document, _READY_CLOSURE_DOCUMENT_KEYS, "ready closure document")
+        payload = _require_closed_document(
+            document, _READY_CLOSURE_DOCUMENT_KEYS, "ready closure document"
+        )
         if _require_string(payload, "document_type") != READY_CLOSURE_DOCUMENT_TYPE:
             raise CheckpointDecodeError(
                 "document_type is not a ready closure axis",
@@ -289,7 +302,9 @@ class ReadyClosureDocument:
             )
         raw_outputs = payload["outputs"]
         if type(raw_outputs) is not list:
-            raise CheckpointDecodeError("closure outputs must be a list", code="CLOSURE_SHAPE_INVALID")
+            raise CheckpointDecodeError(
+                "closure outputs must be a list", code="CLOSURE_SHAPE_INVALID"
+            )
         outputs = tuple(ReadyClosureEntry.from_document(item) for item in raw_outputs)
         document_value = cls(
             job_contract_version=_require_string(payload, "job_contract_version"),
@@ -314,7 +329,9 @@ class ReadyClosureDocument:
         return tuple(entry.artifact_ref for entry in self.outputs)
 
 
-def definition_matches_checkpoint(definition: JobDefinition, envelope: StepCheckpointEnvelope) -> bool:
+def definition_matches_checkpoint(
+    definition: JobDefinition, envelope: StepCheckpointEnvelope
+) -> bool:
     """Return whether one checkpoint envelope matches a JobDefinition identity axis."""
 
     if type(definition) is not JobDefinition:
@@ -371,8 +388,12 @@ def put_checkpoint_state_artifact(
 ) -> ArtifactRef:
     """Persist variable-size job state outside the bounded checkpoint envelope."""
 
-    if artifact_id_prefix not in {"preview-materialized-sides", "preview-assemble-state",
-            "history-compare-materialized-sides", "history-compare-assemble-state"}:
+    if artifact_id_prefix not in {
+        "preview-materialized-sides",
+        "preview-assemble-state",
+        "history-compare-materialized-sides",
+        "history-compare-assemble-state",
+    }:
         raise ValueError("checkpoint state kind is not an owning producer")
     raw_bytes = canonicalize_json_value(dict(document))
     return put_with_built_ref(
@@ -393,7 +414,9 @@ def load_checkpoint_state_artifact(
     """Load an exact canonical job-state artifact with its owning contract identity."""
 
     if type(ref) is not ArtifactRef:
-        raise CheckpointDecodeError("checkpoint state ref is invalid", code="CHECKPOINT_REF_INVALID")
+        raise CheckpointDecodeError(
+            "checkpoint state ref is invalid", code="CHECKPOINT_REF_INVALID"
+        )
     try:
         locate = getattr(store, "locate", None)
         if callable(locate):
@@ -436,7 +459,9 @@ def load_checkpoint_state_artifact(
 _Document = TypeVar("_Document")
 
 
-def _read_checkpoint_document(store: ArtifactStorePort, ref: ArtifactRef, decode: Callable[[bytes], _Document]) -> _Document:
+def _read_checkpoint_document(
+    store: ArtifactStorePort, ref: ArtifactRef, decode: Callable[[bytes], _Document]
+) -> _Document:
     context = current_kernel_context()
     if context is None:
         return decode(store.locate(ref))
@@ -644,7 +669,9 @@ def _require_closed_document(
     label: str,
 ) -> dict[str, object]:
     if type(document) is not dict:
-        raise CheckpointDecodeError(f"{label} must be a JSON object", code="CHECKPOINT_SHAPE_INVALID")
+        raise CheckpointDecodeError(
+            f"{label} must be a JSON object", code="CHECKPOINT_SHAPE_INVALID"
+        )
     payload = cast(dict[str, object], document)
     extra = set(payload) - allowed_keys
     missing = allowed_keys - set(payload)
@@ -659,10 +686,14 @@ def _parse_artifact_ref_list(value: object, *, label: str) -> tuple[ArtifactRef,
     refs: list[ArtifactRef] = []
     for item in value:
         if type(item) is not dict:
-            raise CheckpointDecodeError(f"{label} entries must be objects", code="CHECKPOINT_SHAPE_INVALID")
+            raise CheckpointDecodeError(
+                f"{label} entries must be objects", code="CHECKPOINT_SHAPE_INVALID"
+            )
         refs.append(artifact_ref_from_dict(cast(dict[str, object], item)))
     if len(refs) > _MAX_PRIOR_OUTPUT_REFS:
-        raise CheckpointDecodeError(f"{label} exceeds bounded document size", code="CHECKPOINT_SHAPE_INVALID")
+        raise CheckpointDecodeError(
+            f"{label} exceeds bounded document size", code="CHECKPOINT_SHAPE_INVALID"
+        )
     refs_tuple = tuple(refs)
     try:
         _reject_duplicate_artifact_ids(refs_tuple)
@@ -683,7 +714,9 @@ def _require_string(payload: Mapping[str, object], key: str) -> str:
 def _require_non_negative_int(payload: Mapping[str, object], key: str) -> int:
     value = payload[key]
     if type(value) is not int or isinstance(value, bool) or value < 0:
-        raise CheckpointDecodeError(f"{key} must be a non-negative int", code="CHECKPOINT_SHAPE_INVALID")
+        raise CheckpointDecodeError(
+            f"{key} must be a non-negative int", code="CHECKPOINT_SHAPE_INVALID"
+        )
     return value
 
 

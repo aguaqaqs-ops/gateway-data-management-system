@@ -88,7 +88,10 @@ def test_store_port_methods_have_frozen_signatures() -> None:
         signature = inspect.signature(getattr(OperationStore, method_name))
         assert tuple(signature.parameters) == names
 
-    assert inspect.signature(OperationStore.list_steps).parameters["limit"].default == DEFAULT_PAGE_LIMIT
+    assert (
+        inspect.signature(OperationStore.list_steps).parameters["limit"].default
+        == DEFAULT_PAGE_LIMIT
+    )
     assert (
         inspect.signature(OperationStore.list_operations_by_status).parameters["limit"].default
         == DEFAULT_PAGE_LIMIT
@@ -101,9 +104,12 @@ def test_store_port_methods_have_frozen_signatures() -> None:
         inspect.signature(OperationStore.scan_active_integrity).parameters["limit"].default
         == DEFAULT_PAGE_LIMIT
     )
-    assert inspect.signature(OperationStore.compare_and_set_operation).parameters[
-        "recovery_authorized"
-    ].default is False
+    assert (
+        inspect.signature(OperationStore.compare_and_set_operation)
+        .parameters["recovery_authorized"]
+        .default
+        is False
+    )
     step_signature = inspect.signature(OperationStore.compare_and_set_step)
     assert step_signature.parameters["recovery_authorized"].default is False
     assert step_signature.parameters["require_live_lease"].default is False
@@ -197,7 +203,9 @@ def test_claim_candidate_rejects_non_utc_timestamps(created_at: datetime) -> Non
         (UnsupportedSchemaVersion, (CorruptPersistedRecord, RecordNotFound)),
     ],
 )
-def test_store_errors_are_distinct(error_type: type[Exception], other_types: tuple[type[Exception], ...]) -> None:
+def test_store_errors_are_distinct(
+    error_type: type[Exception], other_types: tuple[type[Exception], ...]
+) -> None:
     error = error_type("safe diagnostic")
     assert isinstance(error, Exception)
     assert all(not isinstance(error, other_type) for other_type in other_types)

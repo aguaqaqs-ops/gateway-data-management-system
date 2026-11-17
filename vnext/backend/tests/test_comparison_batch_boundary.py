@@ -53,7 +53,10 @@ def test_parquet_batch_reader_preserves_metadata_and_reopens_without_rows() -> N
     assert all(batch.schema.equals(reader.schema(), check_metadata=False) for batch in batches)
 
     reopened = reader.reopen()
-    assert sum(batch.num_rows for batch in reopened.iter_record_batches()) == table.descriptor.row_count
+    assert (
+        sum(batch.num_rows for batch in reopened.iter_record_batches())
+        == table.descriptor.row_count
+    )
     reopened.close()
     reader.close()
 

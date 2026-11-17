@@ -57,9 +57,7 @@ _ACTIVE_STEP_STATUSES = frozenset(
         StepStatus.MANUAL_RECOVERY_REQUIRED,
     }
 )
-_REGISTRY_STEP_STATUSES = frozenset(
-    {StepStatus.PENDING, StepStatus.RUNNING, StepStatus.RETRY_WAIT}
-)
+_REGISTRY_STEP_STATUSES = frozenset({StepStatus.PENDING, StepStatus.RUNNING, StepStatus.RETRY_WAIT})
 
 
 def _new_worker_id() -> str:
@@ -171,7 +169,12 @@ class WorkerStartup:
         except StaleWrite:
             self._emit_startup_block("stale_write")
             return StartupDisposition.RETRYABLE_BLOCK
-        except (CorruptPersistedRecord, UnsupportedSchemaVersion, RecordNotFound, ValueError) as exc:
+        except (
+            CorruptPersistedRecord,
+            UnsupportedSchemaVersion,
+            RecordNotFound,
+            ValueError,
+        ) as exc:
             self._emit_startup_block(_failure_category(exc))
             return StartupDisposition.FATAL_BLOCK
 
@@ -301,8 +304,10 @@ class WorkerStartup:
         own_running = 0
         for pair in pairs:
             if pair.step.status is StepStatus.RUNNING:
-                if (self._running_worker_ids is not None
-                        and pair.step.worker_id not in self._running_worker_ids):
+                if (
+                    self._running_worker_ids is not None
+                    and pair.step.worker_id not in self._running_worker_ids
+                ):
                     raise ValueError("RUNNING owner is outside the configured worker instances")
                 own_running += pair.step.worker_id == self._worker_id
         if own_running > 1:

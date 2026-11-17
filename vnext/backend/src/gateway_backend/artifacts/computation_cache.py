@@ -76,13 +76,18 @@ class ComputationCacheEntry:
         if type(self.key) is not ComputationCacheKey:
             raise ValueError("cache entry requires its exact scoped key")
         _identity(self.format, "cache format")
-        if (type(self.manifest_ref) is not ArtifactRef
-                or self.manifest_ref.media_type != "application/json"
-                or self.manifest_ref.size_bytes > MAX_CACHE_MANIFEST_BYTES):
+        if (
+            type(self.manifest_ref) is not ArtifactRef
+            or self.manifest_ref.media_type != "application/json"
+            or self.manifest_ref.size_bytes > MAX_CACHE_MANIFEST_BYTES
+        ):
             raise ValueError("cache manifest must be bounded JSON")
         limit = 9 if self.key.kind is ComputationCacheKind.COMPARISON else 1
-        if (type(self.member_refs) is not tuple or len(self.member_refs) > limit
-                or any(type(ref) is not ArtifactRef for ref in self.member_refs)):
+        if (
+            type(self.member_refs) is not tuple
+            or len(self.member_refs) > limit
+            or any(type(ref) is not ArtifactRef for ref in self.member_refs)
+        ):
             raise ValueError("cache member reference closure exceeds its kind bound")
         refs = self.refs
         if len({ref.artifact_id for ref in refs}) != len(refs):
@@ -94,18 +99,23 @@ class ComputationCacheEntry:
 
 
 def encode_cache_manifest(
-    key: ComputationCacheKey, *, format: str, member_refs: tuple[ArtifactRef, ...],
+    key: ComputationCacheKey,
+    *,
+    format: str,
+    member_refs: tuple[ArtifactRef, ...],
     payload: dict[str, object],
 ) -> bytes:
     """Encode the shared reference envelope; payload remains capability-owned."""
-    raw = canonicalize_json_value({
-        "format": format,
-        "kind": key.kind.value,
-        "repository_id": key.repository_id,
-        "task_digest": key.task_digest.value,
-        "member_refs": [artifact_ref_to_dict(ref) for ref in member_refs],
-        "payload": payload,
-    })
+    raw = canonicalize_json_value(
+        {
+            "format": format,
+            "kind": key.kind.value,
+            "repository_id": key.repository_id,
+            "task_digest": key.task_digest.value,
+            "member_refs": [artifact_ref_to_dict(ref) for ref in member_refs],
+            "payload": payload,
+        }
+    )
     if len(raw) > MAX_CACHE_MANIFEST_BYTES:
         raise ValueError("cache manifest exceeds optional retention bound")
     return raw
@@ -114,7 +124,7 @@ def encode_cache_manifest(
 def decode_cache_manifest(raw: bytes, entry: ComputationCacheEntry) -> dict[str, object]:
     try:
         return _decode_cache_manifest(raw, entry)
-    except (ValueError, TypeError, RecursionError, CanonicalEncodingError):
+    except ValueError, TypeError, RecursionError, CanonicalEncodingError:
         raise InvalidComputationCachePayload("invalid computation cache manifest") from None
 
 
@@ -123,15 +133,18 @@ def _decode_cache_manifest(raw: bytes, entry: ComputationCacheEntry) -> dict[str
     if len(raw) > MAX_CACHE_MANIFEST_BYTES:
         raise ValueError("cache manifest exceeds optional retention bound")
     value = json.loads(raw)
-    if (not isinstance(value, dict)
-            or set(value) != {"format", "kind", "repository_id", "task_digest", "member_refs", "payload"}
-            or value["format"] != entry.format
-            or value["kind"] != entry.key.kind.value
-            or value["repository_id"] != entry.key.repository_id
-            or value["task_digest"] != entry.key.task_digest.value
-            or not isinstance(value["member_refs"], list)
-            or not isinstance(value["payload"], dict)
-            or canonicalize_json_value(value) != raw):
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {"format", "kind", "repository_id", "task_digest", "member_refs", "payload"}
+        or value["format"] != entry.format
+        or value["kind"] != entry.key.kind.value
+        or value["repository_id"] != entry.key.repository_id
+        or value["task_digest"] != entry.key.task_digest.value
+        or not isinstance(value["member_refs"], list)
+        or not isinstance(value["payload"], dict)
+        or canonicalize_json_value(value) != raw
+    ):
         raise ValueError("cache manifest scope/format/envelope mismatch")
     members = value["member_refs"]
     if any(not isinstance(ref, dict) for ref in members):
@@ -164,15 +177,23 @@ class ComputationCacheLease(Protocol):
 
 class ComputationCachePort(Protocol):
     def lookup_and_pin(
-        self, key: ComputationCacheKey, *, owner: CacheOperationOwner,
-        checkpoint: Callable[[], None], reserve: CacheReserve,
+        self,
+        key: ComputationCacheKey,
+        *,
+        owner: CacheOperationOwner,
+        checkpoint: Callable[[], None],
+        reserve: CacheReserve,
     ) -> ComputationCacheLease | None:
         """Root read borrow -> short DB pin -> bounded complete file/envelope validation."""
 
     def store(
-        self, entry: ComputationCacheEntry,
-        blobs: tuple[tuple[ArtifactRef, bytes], ...], *, owner: CacheOperationOwner,
-        checkpoint: Callable[[], None], reserve: CacheReserve,
+        self,
+        entry: ComputationCacheEntry,
+        blobs: tuple[tuple[ArtifactRef, bytes], ...],
+        *,
+        owner: CacheOperationOwner,
+        checkpoint: Callable[[], None],
+        reserve: CacheReserve,
     ) -> bool:
         """After pair success: protect before writing, then atomically index the complete value."""
 

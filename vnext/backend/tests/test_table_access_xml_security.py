@@ -12,7 +12,7 @@ from tests.support.table_access_xml import parse_xml_text
 XML_SECURITY_PAYLOADS = (
     (
         "doctype",
-        b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE foo>\n<root/>\n",
+        b'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE foo>\n<root/>\n',
         ParserDiagnosticCode.XML_DTD_FORBIDDEN,
         "DOCTYPE",
     ),
@@ -71,7 +71,12 @@ XML_SECURITY_PAYLOADS = (
 )
 
 VECTOR_ROOT = (
-    Path(__file__).resolve().parents[2] / "fixtures" / "vectors" / "table-access" / "xml-security" / "v1"
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "vectors"
+    / "table-access"
+    / "xml-security"
+    / "v1"
 )
 
 

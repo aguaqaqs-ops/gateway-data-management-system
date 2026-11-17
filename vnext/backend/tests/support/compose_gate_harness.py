@@ -94,7 +94,7 @@ def _assert_port_8000_available_for_gate(compose_project_name: str | None) -> No
             "--filter",
             "publish=8000",
             "--format",
-            "{{.ID}}\t{{.Names}}\t{{.Label \"com.docker.compose.project\"}}",
+            '{{.ID}}\t{{.Names}}\t{{.Label "com.docker.compose.project"}}',
         ],
         check=False,
         capture_output=True,
@@ -121,8 +121,7 @@ def _assert_port_8000_available_for_gate(compose_project_name: str | None) -> No
         conflicts.append(f"{name} ({container_id}, project={project or 'unknown'})")
     if conflicts:
         pytest.fail(
-            "port 8000 is already published by non-gate containers: "
-            + "; ".join(conflicts)
+            "port 8000 is already published by non-gate containers: " + "; ".join(conflicts)
         )
 
 
@@ -177,10 +176,22 @@ def compose_gate_prebuilt() -> bool:
     return os.environ.get(PREBUILT_ENV, "").strip() in {"1", "true", "yes"}
 
 
-def run_compose(env: dict[str, str], *args: str, timeout: float = 600.0) -> subprocess.CompletedProcess[str]:
+def run_compose(
+    env: dict[str, str], *args: str, timeout: float = 600.0
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_FILE),
-         *(["-f", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]] if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env else []), *args],
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            *(
+                ["-f", env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]]
+                if "GATEWAY_RUNTIME_COMPOSE_OVERRIDE" in env
+                else []
+            ),
+            *args,
+        ],
         cwd=DEPLOY_ROOT,
         env=env,
         check=False,
@@ -214,8 +225,11 @@ def ensure_repository_service_image(*, candidate_revision: str | None = None) ->
     image = repository_service_image()
     expected_identity = _repository_service_image_identity()
     current = _inspect_image(image)
-    if (_repository_service_image_matches(current, expected_identity)
-            and (candidate_revision is None or (current.get("labels") or {}).get("org.opencontainers.image.revision") == candidate_revision)):
+    if _repository_service_image_matches(current, expected_identity) and (
+        candidate_revision is None
+        or (current.get("labels") or {}).get("org.opencontainers.image.revision")
+        == candidate_revision
+    ):
         return
     if not BUILD_REPOSITORY_SCRIPT.is_file():
         pytest.fail(f"missing repository-service build script: {BUILD_REPOSITORY_SCRIPT}")
@@ -233,8 +247,11 @@ def ensure_repository_service_image(*, candidate_revision: str | None = None) ->
             f"stdout={completed.stdout[-500:]} stderr={completed.stderr[-500:]}"
         )
     rebuilt = _inspect_image(image)
-    if (not _repository_service_image_matches(rebuilt, expected_identity)
-            or (candidate_revision is not None and (rebuilt.get("labels") or {}).get("org.opencontainers.image.revision") != candidate_revision)):
+    if not _repository_service_image_matches(rebuilt, expected_identity) or (
+        candidate_revision is not None
+        and (rebuilt.get("labels") or {}).get("org.opencontainers.image.revision")
+        != candidate_revision
+    ):
         labels = rebuilt.get("labels", {})
         pytest.fail(
             "repository-service image provenance does not match current build context after build; "
@@ -349,7 +366,7 @@ def wait_http_ok(url: str, *, timeout_seconds: float = 180.0) -> None:
             with urllib.request.urlopen(url, timeout=5.0) as response:
                 if response.status == 200:
                     return
-        except (urllib.error.URLError, ConnectionResetError):
+        except urllib.error.URLError, ConnectionResetError:
             time.sleep(2.0)
     raise RuntimeError(f"endpoint did not become ready: {url}")
 
@@ -432,19 +449,25 @@ print(json.dumps(sorted(commits)))
 
 def configured_worker_services(env: dict[str, str]) -> tuple[str, ...]:
     document = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
-    return tuple(name for name in document["services"]
-                 if name == "worker" or name.startswith("worker-"))
+    return tuple(
+        name for name in document["services"] if name == "worker" or name.startswith("worker-")
+    )
 
 
 def capture_worker_container_state(env: dict[str, str]) -> dict[str, str]:
-    running = normalize_running_images(capture_running_container_provenance(env),
-                                       env["COMPOSE_PROJECT_NAME"])
+    running = normalize_running_images(
+        capture_running_container_provenance(env), env["COMPOSE_PROJECT_NAME"]
+    )
     states: dict[str, str] = {}
     for service in configured_worker_services(env):
         container = running[service]["container_id"]
-        result = subprocess.run(["docker", "inspect", "--format",
-            "{{.RestartCount}} {{.State.StartedAt}}", container],
-            check=False, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["docker", "inspect", "--format", "{{.RestartCount}} {{.State.StartedAt}}", container],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         if result.returncode:
             pytest.fail("worker state inspection failed: " + result.stderr)
         states[service] = container + " " + result.stdout.strip()
@@ -485,8 +508,7 @@ print(f"{{workspace_count}},{{repository_count}}")
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(
-            "failed to read submit occupancy from control DB: "
-            f"{result.stderr}\n{result.stdout}"
+            f"failed to read submit occupancy from control DB: {result.stderr}\n{result.stdout}"
         )
     parts = result.stdout.strip().split(",")
     if len(parts) != 2:
@@ -535,23 +557,35 @@ def normalize_running_images(
 
 
 def capture_running_container_provenance(env: dict[str, str]) -> dict[str, dict[str, str]]:
-    result = subprocess.run(["docker", "ps", "-q", "--filter",
-        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]],
-        check=False, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "-q",
+            "--filter",
+            "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"],
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
     if result.returncode:
         pytest.fail("project container enumeration failed: " + result.stderr)
     ids = result.stdout.split()
     if not ids:
         return {}
-    inspected = subprocess.run(["docker", "inspect", *ids], check=False,
-        capture_output=True, text=True, timeout=30)
+    inspected = subprocess.run(
+        ["docker", "inspect", *ids], check=False, capture_output=True, text=True, timeout=30
+    )
     if inspected.returncode:
         pytest.fail("project container inspection failed: " + inspected.stderr)
     captured: dict[str, dict[str, str]] = {}
     for container in json.loads(inspected.stdout):
         labels = container["Config"]["Labels"]
         captured[container["Name"].lstrip("/")] = {
-            "container_id": container["Id"], "image": container["Image"],
+            "container_id": container["Id"],
+            "image": container["Image"],
             "project": labels["com.docker.compose.project"],
             "service": labels["com.docker.compose.service"],
         }
@@ -568,7 +602,9 @@ def persist_compose_gate_provenance(
         repository_service_info,
         _repository_service_image_identity(),
     ):
-        pytest.fail("repository-service image provenance is missing or stale when persisting gate evidence")
+        pytest.fail(
+            "repository-service image provenance is missing or stale when persisting gate evidence"
+        )
     if not isinstance(labels, dict):
         pytest.fail("repository-service image labels are unavailable when persisting gate evidence")
     payload = {
@@ -589,8 +625,9 @@ def persist_compose_gate_provenance(
 
 def assert_running_backend_worker_images_match_build(env: dict[str, str]) -> None:
     built = compose_image_ids(env)
-    running = normalize_running_images(capture_running_container_provenance(env),
-                                       env["COMPOSE_PROJECT_NAME"])
+    running = normalize_running_images(
+        capture_running_container_provenance(env), env["COMPOSE_PROJECT_NAME"]
+    )
     for service in ("backend", *configured_worker_services(env)):
         running_image = running.get(service, {}).get("image")
         built_image = built["worker" if service.startswith("worker") else service].get("id")
@@ -601,11 +638,24 @@ def assert_running_backend_worker_images_match_build(env: dict[str, str]) -> Non
 def check_fixed_worker_deployment(env: dict[str, str]) -> dict[str, Any]:
     rendered = json.loads(Path(env["GATEWAY_RUNTIME_COMPOSE_OVERRIDE"]).read_bytes())
     mounts = {item["target"]: item["source"] for item in rendered["services"]["worker"]["volumes"]}
-    result = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/render-runtime-config.py"),
-        "--storage-layout", mounts["/run/gateway/storage-layout.json"],
-        "--resource-profile", mounts["/run/gateway/resource-profile.json"],
-        "check-workers", "--project", env["COMPOSE_PROJECT_NAME"]],
-        env=env, check=False, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(VNEXT_ROOT / "scripts/render-runtime-config.py"),
+            "--storage-layout",
+            mounts["/run/gateway/storage-layout.json"],
+            "--resource-profile",
+            mounts["/run/gateway/resource-profile.json"],
+            "check-workers",
+            "--project",
+            env["COMPOSE_PROJECT_NAME"],
+        ],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     observed = cast(dict[str, Any], json.loads(result.stdout))
     print("fixed_worker_deployment=" + json.dumps(observed, sort_keys=True), flush=True)
@@ -626,7 +676,11 @@ def compose_auth_headers(
     device_key: str = DEVICE_KEY,
 ) -> dict[str, str]:
     from gateway_backend.device_identity import device_route_key
-    headers = {"Authorization": f"Bearer {token}", "X-Gateway-Device-Key": device_route_key(device_key)}
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-Gateway-Device-Key": device_route_key(device_key),
+    }
     if idempotency_key is not None:
         headers["Idempotency-Key"] = idempotency_key
     return headers
@@ -635,8 +689,7 @@ def compose_auth_headers(
 def wait_repository_service_ready(env: dict[str, str], *, timeout_seconds: float = 180.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     probe = (
-        "import urllib.request; "
-        "urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)"
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)"
     )
     while time.monotonic() < deadline:
         result = run_compose(
@@ -824,26 +877,53 @@ def capture_container_diagnostics(env: dict[str, str], destination: Path) -> Pat
     """Preserve original state/full logs before this test's containers are removed."""
     destination.mkdir(mode=0o700)
     records: list[dict[str, Any]] = []
+
     def capture(name: str, command: list[str]) -> bytes:
         result = subprocess.run(command, capture_output=True, check=False, timeout=30)
         for suffix, data in (("stdout", result.stdout), ("stderr", result.stderr)):
-            descriptor = os.open(destination / (name + "." + suffix), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            descriptor = os.open(
+                destination / (name + "." + suffix), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(data)
         records.append({"name": name, "command": command, "exit_code": result.returncode})
         return result.stdout if result.returncode == 0 else b""
-    candidate = capture("candidate", ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"]).decode().strip()
-    identifiers = capture("containers", ["docker", "ps", "-aq", "--filter",
-        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]]).decode().split()
+
+    candidate = (
+        capture("candidate", ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"]).decode().strip()
+    )
+    identifiers = (
+        capture(
+            "containers",
+            [
+                "docker",
+                "ps",
+                "-aq",
+                "--filter",
+                "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"],
+            ],
+        )
+        .decode()
+        .split()
+    )
     if identifiers:
         capture("inspect", ["docker", "inspect", *identifiers])
         for identifier in identifiers:
             capture("logs-" + identifier, ["docker", "logs", "--timestamps", identifier])
     descriptor = os.open(destination / "source.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w") as stream:
-        json.dump({"candidate": candidate, "hostname": socket.gethostname(), "utc": datetime.now(UTC).isoformat(),
-            "project": env["COMPOSE_PROJECT_NAME"], "runtime_override": env.get("GATEWAY_RUNTIME_COMPOSE_OVERRIDE"),
-            "records": records}, stream, sort_keys=True)
+        json.dump(
+            {
+                "candidate": candidate,
+                "hostname": socket.gethostname(),
+                "utc": datetime.now(UTC).isoformat(),
+                "project": env["COMPOSE_PROJECT_NAME"],
+                "runtime_override": env.get("GATEWAY_RUNTIME_COMPOSE_OVERRIDE"),
+                "records": records,
+            },
+            stream,
+            sort_keys=True,
+        )
     print("container_diagnostics=" + str(destination), flush=True)
     return destination
 
@@ -851,17 +931,39 @@ def capture_container_diagnostics(env: dict[str, str], destination: Path) -> Pat
 def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
     retain = sys.exc_info()[0] is not None
     _teardown_compose_project_resources(env)
-    remaining = subprocess.run(["docker", "ps", "-aq", "--filter",
-        "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"]],
-        capture_output=True, text=True, check=False, timeout=30)
+    remaining = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "-aq",
+            "--filter",
+            "label=com.docker.compose.project=" + env["COMPOSE_PROJECT_NAME"],
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
     if remaining.returncode or remaining.stdout.strip():
         pytest.fail("owned Compose containers remain; runtime data retained")
     fixture = _runtime_fixtures.get(env["COMPOSE_PROJECT_NAME"])
     if fixture is not None:
         directory, owner = fixture
-        completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
-            str(directory), "--owner", owner, "--cleanup", *(["--retain"] if retain else [])],
-            capture_output=True, text=True, check=False, timeout=60)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+                str(directory),
+                "--owner",
+                owner,
+                "--cleanup",
+                *(["--retain"] if retain else []),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
         print(completed.stdout, end="", flush=True)
         if completed.returncode:
             pytest.fail("owned runtime fixture cleanup refused: " + completed.stderr)
@@ -899,7 +1001,9 @@ print(json.dumps(sorted(manifest_ids)))
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
-        pytest.fail(f"failed to list canonicalization manifest artifacts: {result.stderr}\n{result.stdout}")
+        pytest.fail(
+            f"failed to list canonicalization manifest artifacts: {result.stderr}\n{result.stdout}"
+        )
     payload = json.loads(result.stdout.strip() or "[]")
     return frozenset(str(item) for item in payload)
 
@@ -950,12 +1054,14 @@ def _history_checkpoint_readers_script(
     repository_id: str,
 ) -> str:
     """Give the two diagnostic consumers real rows from their exact checkpoint commits."""
-    return f"""
+    return (
+        f"""
 operation_id = {operation_id!r}
 repository_id = {repository_id!r}
 gateway_device_external_key = {DEVICE_KEY!r}
 business_project_id = {PROJECT_ID!r}
-""" + """
+"""
+        + """
 import json, os, sqlite3
 from contextlib import closing, contextmanager, ExitStack
 from dataclasses import replace
@@ -1037,6 +1143,7 @@ def checkpoint_readers():
                 loaded[commit] = replace(bound, table_set=tables, presentation=presentation_for_commit(metadata))
             yield store, loaded, rule_set
 """
+    )
 
 
 def local_history_compare_digest_from_materialize_checkpoint(
@@ -1048,7 +1155,9 @@ def local_history_compare_digest_from_materialize_checkpoint(
     repository_id: str,
 ) -> str:
     """Check integration consistency through the existing comparison owner, not a golden."""
-    script = _history_checkpoint_readers_script(operation_id, repository_id=repository_id) + f"""
+    script = (
+        _history_checkpoint_readers_script(operation_id, repository_id=repository_id)
+        + f"""
 from gateway_backend.application.history.compare_jobs import _run_pair_pipeline
 from gateway_backend.operations.worker import ExecutionControl
 
@@ -1063,11 +1172,11 @@ with checkpoint_readers() as (store, sides, rule_set):
     )
     print(result.comparison_digest)
 """
+    )
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(
-            f"failed to compute local history compare digest: "
-            f"{result.stderr}\n{result.stdout}"
+            f"failed to compute local history compare digest: {result.stderr}\n{result.stdout}"
         )
     return result.stdout.strip()
 
@@ -1080,7 +1189,9 @@ def ordered_compare_facts_from_materialize_checkpoint(
     current_commit: str,
     repository_id: str,
 ) -> dict[str, object]:
-    script = _history_checkpoint_readers_script(operation_id, repository_id=repository_id) + f"""
+    script = (
+        _history_checkpoint_readers_script(operation_id, repository_id=repository_id)
+        + f"""
 from gateway_backend.capabilities.comparison import (
     ComparisonPlan, ComparisonRequest, DetailedFactsResult, plan_comparison,
 )
@@ -1115,11 +1226,10 @@ with checkpoint_readers() as (store, sides, rule_set):
     finally:
         product.close()
 """
+    )
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
-        pytest.fail(
-            f"failed to compute ordered compare facts: {result.stderr}\n{result.stdout}"
-        )
+        pytest.fail(f"failed to compute ordered compare facts: {result.stderr}\n{result.stdout}")
     payload_line = result.stdout.strip().splitlines()[-1]
     return cast(dict[str, object], json.loads(payload_line))
 
@@ -1178,7 +1288,9 @@ if catalog["tables"]:
 """
     result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
     if result.returncode != 0:
-        pytest.fail(f"new repository INITIAL commit was not empty: {result.stderr}\n{result.stdout}")
+        pytest.fail(
+            f"new repository INITIAL commit was not empty: {result.stderr}\n{result.stdout}"
+        )
 
 
 def read_repository_catalog(
@@ -1265,7 +1377,9 @@ def start_three_container_stack(
         pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
     wait_repository_service_ready(env)
     repository_id, initial_commit_id = seed_repository_and_mapping(env)
-    up_stack = run_compose(env, "up", "-d", "--no-build", "backend", *configured_worker_services(env))
+    up_stack = run_compose(
+        env, "up", "-d", "--no-build", "backend", *configured_worker_services(env)
+    )
     if up_stack.returncode != 0:
         pytest.fail(f"compose up backend/worker failed: {up_stack.stderr}\n{up_stack.stdout}")
     wait_http_ok(f"{BACKEND_URL}/readyz")
@@ -1383,8 +1497,7 @@ print(json.dumps(states, sort_keys=True))
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:
         pytest.fail(
-            f"failed to read preview surface table states: "
-            f"{result.stderr}\n{result.stdout}"
+            f"failed to read preview surface table states: {result.stderr}\n{result.stdout}"
         )
     return cast(list[dict[str, Any]], json.loads(result.stdout.strip() or "[]"))
 
@@ -1408,10 +1521,7 @@ print(json.dumps(state))
     if result.returncode != 0:
         pytest.fail(f"failed to capture business table state: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip() or "{}")
-    return {
-        table: (int(values[0]), str(values[1]))
-        for table, values in payload.items()
-    }
+    return {table: (int(values[0]), str(values[1])) for table, values in payload.items()}
 
 
 def poll_history_compare_result(
@@ -1558,9 +1668,7 @@ def canonical_rules_ordered_upload_files(
             ORDERED_SYX_SIZED_DDL.rstrip(),
         ]
         for gid, number, value in ordered_rows:
-            lines.append(
-                f"INSERT INTO `{ORDERED_SYX_TABLE}` VALUES ({gid}, {number}, '{value}');"
-            )
+            lines.append(f"INSERT INTO `{ORDERED_SYX_TABLE}` VALUES ({gid}, {number}, '{value}');")
         return ("\n".join(lines) + "\n").encode()
 
     initial_sql = source_sql(
@@ -1653,7 +1761,12 @@ def resolve_archive_preview_anomalies(
         if action is None:
             raise AssertionError(f"unsupported archive anomaly subject kind: {subject_kind}")
         if anomaly.get("resolution_status") == "ACCEPTED":
-            references.append({"subject_digest": anomaly["subject_digest"], "sequence": anomaly["latest_sequence"]})
+            references.append(
+                {
+                    "subject_digest": anomaly["subject_digest"],
+                    "sequence": anomaly["latest_sequence"],
+                }
+            )
             continue
         response = client.post(
             "/v1/archive-anomaly-resolutions",
@@ -1727,7 +1840,9 @@ def run_accept_to_submission_read_journey(
         upload_payload = upload_builder(workspace_body["optimistic_version"])
         upload = client.post(
             f"/v1/workspaces/{workspace_id}/upload-revisions",
-            headers=compose_auth_headers(device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-upload"),
+            headers=compose_auth_headers(
+                device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-upload"
+            ),
             files=upload_payload,
         )
         assert upload.status_code == 201, upload.text
@@ -1735,7 +1850,9 @@ def run_accept_to_submission_read_journey(
 
         preview = client.post(
             f"/v1/workspaces/{workspace_id}/preview-operations",
-            headers=compose_auth_headers(device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-preview"),
+            headers=compose_auth_headers(
+                device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-preview"
+            ),
             json={
                 "expected_workspace_version": upload_body["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],
@@ -1762,8 +1879,10 @@ def run_accept_to_submission_read_journey(
         assert preview_result_body["business_baseline_commit_id"] == initial_commit_id
         identity_pairs = cast(list[dict[str, Any]], preview_result_body["identity_pairs"])
         from benchmarks.bundle_tar import download_bundle_tar
+
         preview_bundle, _bundle_transfer = download_bundle_tar(
-            client, f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+            client,
+            f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
         )
         preview_summaries = [
             cast(dict[str, Any], pair["summary"])
@@ -1802,7 +1921,9 @@ def run_accept_to_submission_read_journey(
             submit_body["identity_confirmations"] = identity_confirmations
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
-            headers=compose_auth_headers(device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-submit"),
+            headers=compose_auth_headers(
+                device_key=device_key, token=token, idempotency_key=f"{journey_key_prefix}-submit"
+            ),
             json=submit_body,
         )
         if expected_submit_code is not None:
@@ -1848,9 +1969,7 @@ def run_accept_to_submission_read_journey(
             "preview_summaries": preview_summaries,
             "identity_pairs": identity_pairs,
             "identity_confirmations": identity_confirmations,
-            "identity_assessment_set_digest": preview_result_body[
-                "identity_assessment_set_digest"
-            ],
+            "identity_assessment_set_digest": preview_result_body["identity_assessment_set_digest"],
         }
         if include_preview_surfaces:
             result["preview_surfaces"] = read_preview_surface_table_states(env, preview_bundle)
@@ -1898,8 +2017,22 @@ def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
     directory = Path(tempfile.mkdtemp(prefix="gateway-bind-", dir=os.environ.get("TMPDIR")))
     owner = env["COMPOSE_PROJECT_NAME"] + "-" + uuid4().hex
     _runtime_fixtures[env["COMPOSE_PROJECT_NAME"]] = (directory, owner)
-    completed = subprocess.run([sys.executable, str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
-        str(directory), "--owner", owner, "--workers", str(workers)], capture_output=True, text=True, check=False, timeout=30, env=env)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(VNEXT_ROOT / "scripts/tests/runtime_config_fixture.py"),
+            str(directory),
+            "--owner",
+            owner,
+            "--workers",
+            str(workers),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env=env,
+    )
     if completed.returncode:
         print(f"runtime_fixture_retained={directory}", flush=True)
         pytest.fail(f"runtime fixture preparation failed: {completed.stderr}")
@@ -1918,18 +2051,49 @@ def prepare_runtime_config(env: dict[str, str], *, workers: int = 1) -> None:
     manifest = json.loads((VNEXT_ROOT / "fixtures/processing-groups/v1/groups.json").read_bytes())
     manifest["environment_id"] = storage["environment_id"]
     manifest["host"] = json.loads((directory / "resource-profile.json").read_bytes())["host_budget"]
-    target = dict(manifest["groups"][0], group_id=storage["group_id"], backend_port=8000,
-        project=env["COMPOSE_PROJECT_NAME"], storage_config=str(directory / "storage-layout.json"),
-        resource_config=str(directory / "resource-profile.json"), session_directory=str(session_directory),
+    target = dict(
+        manifest["groups"][0],
+        group_id=storage["group_id"],
+        backend_port=8000,
+        project=env["COMPOSE_PROJECT_NAME"],
+        storage_config=str(directory / "storage-layout.json"),
+        resource_config=str(directory / "resource-profile.json"),
+        session_directory=str(session_directory),
         internal_token_file=env["GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE"],
-        repository_token_file=env["GATEWAY_P2R2_BEARER_TOKEN_FILE"])
-    if all(name in env for name in ("GATEWAY_BACKEND_CANDIDATE_SHA", "GATEWAY_BACKEND_IMAGE", "GATEWAY_WORKER_IMAGE")):
-        target["images"] = dict(backend=env["GATEWAY_BACKEND_IMAGE"], worker=env["GATEWAY_WORKER_IMAGE"],
-            repository_service=repository_service_image(), revision=env["GATEWAY_BACKEND_CANDIDATE_SHA"])
+        repository_token_file=env["GATEWAY_P2R2_BEARER_TOKEN_FILE"],
+    )
+    if all(
+        name in env
+        for name in (
+            "GATEWAY_BACKEND_CANDIDATE_SHA",
+            "GATEWAY_BACKEND_IMAGE",
+            "GATEWAY_WORKER_IMAGE",
+        )
+    ):
+        target["images"] = dict(
+            backend=env["GATEWAY_BACKEND_IMAGE"],
+            worker=env["GATEWAY_WORKER_IMAGE"],
+            repository_service=repository_service_image(),
+            revision=env["GATEWAY_BACKEND_CANDIDATE_SHA"],
+        )
     manifest["groups"] = [target]
     write_container_readable_text(public / "groups.json", json.dumps(manifest))
     mapping = json.loads(Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"]).read_bytes())
     devices = dict.fromkeys(row["gateway_device_external_key"] for row in mapping["mappings"])
-    write_container_readable_text(public / "device-directory.json", json.dumps(dict(schema_version=1,
-        environment_id=storage["environment_id"], devices=[dict(gateway_device_external_key=device,
-            group_id=storage["group_id"], enabled=True) for device in devices])))
+    write_container_readable_text(
+        public / "device-directory.json",
+        json.dumps(
+            dict(
+                schema_version=1,
+                environment_id=storage["environment_id"],
+                devices=[
+                    dict(
+                        gateway_device_external_key=device,
+                        group_id=storage["group_id"],
+                        enabled=True,
+                    )
+                    for device in devices
+                ],
+            )
+        ),
+    )

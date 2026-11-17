@@ -589,18 +589,40 @@ def test_observer_failure_does_not_rollback_a_committed_heartbeat() -> None:
 
 @pytest.mark.parametrize("operator", (False, True))
 @pytest.mark.parametrize("checkpoint", (False, True))
-def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, checkpoint: bool) -> None:
+def test_pure_drain_preserves_frozen_work_and_claim_budget(
+    operator: bool, checkpoint: bool
+) -> None:
     from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
     from gateway_backend.operations.contracts import OperationDiagnostic
     from gateway_backend.operations.state import (
-        DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, claim_attempt_count, claim_diagnostic,
+        DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+        claim_attempt_count,
+        claim_diagnostic,
     )
+
     operation, step = _active_records()
     store_bytes = InMemoryArtifactStore()
-    ref = put_with_built_ref(store_bytes, b"checkpoint", artifact_id='a1:durable:40605970df60eeaeaa2f1625d35bca1e168960eed77edf6c824d393389ea7f0a', media_type="application/json")
-    prior_ref = put_with_built_ref(store_bytes, b"prior", artifact_id='a1:durable:9932dae8c8d06a5d922f93e0886ecb2ee287dbf505016d54042df3716c1d2a13', media_type="application/json")
-    step = dataclasses.replace(step, attempt_count=3, checkpoint_ref=ref if checkpoint else None,
-        prior_output_refs=(prior_ref,), diagnostic=OperationDiagnostic(DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, "authorized") if operator else None)
+    ref = put_with_built_ref(
+        store_bytes,
+        b"checkpoint",
+        artifact_id="a1:durable:40605970df60eeaeaa2f1625d35bca1e168960eed77edf6c824d393389ea7f0a",
+        media_type="application/json",
+    )
+    prior_ref = put_with_built_ref(
+        store_bytes,
+        b"prior",
+        artifact_id="a1:durable:9932dae8c8d06a5d922f93e0886ecb2ee287dbf505016d54042df3716c1d2a13",
+        media_type="application/json",
+    )
+    step = dataclasses.replace(
+        step,
+        attempt_count=3,
+        checkpoint_ref=ref if checkpoint else None,
+        prior_output_refs=(prior_ref,),
+        diagnostic=OperationDiagnostic(DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, "authorized")
+        if operator
+        else None,
+    )
     store = FakeStore(operation, step)
     session, _factory, control, _events = _make_session(store)
     session.enable_pure_recompute_stop()
@@ -610,7 +632,11 @@ def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, check
     assert store.step.checkpoint_ref == step.checkpoint_ref
     assert store.step.prior_output_refs == (prior_ref,)
     assert store.step.attempt_count == claim_attempt_count(store.step) == 3
-    assert store.step.worker_id is None and store.step.lease_token is None and store.step.lease_expires_at is None
+    assert (
+        store.step.worker_id is None
+        and store.step.lease_token is None
+        and store.step.lease_expires_at is None
+    )
     assert claim_diagnostic(store.step) == step.diagnostic
     assert store.operation == operation
     assert session.completion_acknowledgment() is ExecutorAcknowledgment.SAFE_HANDOFF
@@ -634,8 +660,9 @@ def test_drain_release_requires_registered_pure_computation_and_actual_drain(gat
 def test_pure_drain_fresh_cancel_or_lease_loss_never_requeues(stop: str) -> None:
     operation, step = _active_records()
     store = FakeStore(operation, step)
-    session, _factory, control, _events = _make_session(store,
-        clocks=[BASE_TIME + timedelta(seconds=31 if stop == "expired" else 1)])
+    session, _factory, control, _events = _make_session(
+        store, clocks=[BASE_TIME + timedelta(seconds=31 if stop == "expired" else 1)]
+    )
     session.enable_pure_recompute_stop()
     control.request_drain()
     if stop == "cancel":
@@ -655,11 +682,17 @@ def test_pure_drain_fresh_cancel_or_lease_loss_never_requeues(stop: str) -> None
 
 def test_pure_success_publication_rechecks_drain_before_any_durable_write() -> None:
     from gateway_backend.operations.worker import CooperativeExecutionStopped
+
     operation, step = _active_records()
     store = FakeStore(operation, step)
     session, _factory, control, _events = _make_session(store)
     session.enable_pure_recompute_stop()
     control.request_drain()
     with pytest.raises(CooperativeExecutionStopped):
-        session.publish_successor(lambda op, current, now: (_terminal_step(current, now), _successor(op.operation_id, now)))
+        session.publish_successor(
+            lambda op, current, now: (
+                _terminal_step(current, now),
+                _successor(op.operation_id, now),
+            )
+        )
     assert store.step_writes == store.successor_writes == 0

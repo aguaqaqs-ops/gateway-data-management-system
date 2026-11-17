@@ -216,9 +216,7 @@ class StorageTableBudget(Protocol):
 
     def ensure(self, extra_bytes: int) -> None: ...
 
-    def reserve(
-        self, size: int, *, backing: Hashable | None = None
-    ) -> StorageTableReservation: ...
+    def reserve(self, size: int, *, backing: Hashable | None = None) -> StorageTableReservation: ...
 
 
 class StorageTableOperation(Protocol):
@@ -360,8 +358,7 @@ _RENDERER_CAPABILITY_KEYS = frozenset(
 
 @runtime_checkable
 class MutationCancellationProbe(Protocol):
-    def is_set(self) -> bool:
-        ...
+    def is_set(self) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -526,9 +523,7 @@ class TableMutationSummary:
     after_row_count: int
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "canonical_table", canonicalize_identifier(self.canonical_table)
-        )
+        object.__setattr__(self, "canonical_table", canonicalize_identifier(self.canonical_table))
         if type(self.operation) is not TableMutationKind:
             raise ValueError("operation must be TableMutationKind")
         for label in ("changed_row_count", "before_row_count", "after_row_count"):
@@ -603,9 +598,7 @@ class CanonicalStorageKey:
         object.__setattr__(self, "columns", _canonicalize_cell_columns(self.columns, "key"))
 
     def to_document(self) -> list[dict[str, object]]:
-        return [
-            {"column": column, "value": dict(value)} for column, value in self.columns
-        ]
+        return [{"column": column, "value": dict(value)} for column, value in self.columns]
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,9 +609,7 @@ class PersistedRowImage:
         object.__setattr__(self, "columns", _canonicalize_cell_columns(self.columns, "row"))
 
     def to_document(self) -> list[dict[str, object]]:
-        return [
-            {"column": column, "value": dict(value)} for column, value in self.columns
-        ]
+        return [{"column": column, "value": dict(value)} for column, value in self.columns]
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,9 +621,7 @@ class ChangeSetMutation:
     after_image: PersistedRowImage | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "canonical_table", canonicalize_identifier(self.canonical_table)
-        )
+        object.__setattr__(self, "canonical_table", canonicalize_identifier(self.canonical_table))
         if type(self.operation) is not RowMutationOperation:
             raise ValueError("operation must be RowMutationOperation")
         if type(self.canonical_storage_key) is not CanonicalStorageKey:
@@ -693,7 +682,11 @@ class ChangeSetManifest:
             raise ValueError("unsupported mutation contract version")
         if self.canonical_encoding_version != CANONICAL_ENCODING_VERSION:
             raise ValueError("canonical_encoding_version must be 1")
-        for label in ("source_identity_digest", "base_repository_ref_digest", "table_ruleset_digest"):
+        for label in (
+            "source_identity_digest",
+            "base_repository_ref_digest",
+            "table_ruleset_digest",
+        ):
             if type(getattr(self, label)) is not DigestRef:
                 raise ValueError(f"{label} must be DigestRef")
         if type(self.target_identity) is not RendererCapabilityDeclaration:
@@ -873,11 +866,17 @@ class MutationPlanningResult:
             raise ValueError("status must be MutationPlanStatus")
         if self.plan is not None and type(self.plan) is not StorageMutationPlan:
             raise ValueError("plan must be StorageMutationPlan or None")
-        if self.change_set_closure is not None and type(self.change_set_closure) is not ChangeSetClosure:
+        if (
+            self.change_set_closure is not None
+            and type(self.change_set_closure) is not ChangeSetClosure
+        ):
             raise ValueError("change_set_closure must be ChangeSetClosure or None")
         if self.failure_code is not None and type(self.failure_code) is not MutationFailureCode:
             raise ValueError("failure_code must be MutationFailureCode or None")
-        if self.published_closure is not None and type(self.published_closure) is not PublishedChangeSetClosure:
+        if (
+            self.published_closure is not None
+            and type(self.published_closure) is not PublishedChangeSetClosure
+        ):
             raise ValueError("published_closure must be PublishedChangeSetClosure or None")
         if self.status is not MutationPlanStatus.READY and self.published_closure is not None:
             raise ValueError("non-READY result must not publish closure refs")
@@ -996,7 +995,11 @@ def validate_change_set_ordering(mutations: Sequence[ChangeSetMutation]) -> None
         key_bytes = canonicalize_json_value(mutation.canonical_storage_key.to_document())
         if phase < previous_phase:
             raise ValueError("mutations must follow DELETE -> UPDATE -> INSERT within each table")
-        if phase == previous_phase and previous_key_bytes is not None and key_bytes < previous_key_bytes:
+        if (
+            phase == previous_phase
+            and previous_key_bytes is not None
+            and key_bytes < previous_key_bytes
+        ):
             raise ValueError("mutations must use canonical key order within each phase")
         previous_phase = phase
         previous_key_bytes = key_bytes
@@ -1092,14 +1095,18 @@ def change_set_manifest_from_document(document: Mapping[str, object]) -> ChangeS
             _require_string(document.get("source_identity_digest"), "source_identity_digest")
         ),
         base_repository_ref_digest=DigestRef(
-            _require_string(document.get("base_repository_ref_digest"), "base_repository_ref_digest")
+            _require_string(
+                document.get("base_repository_ref_digest"), "base_repository_ref_digest"
+            )
         ),
         target_identity=target,
         storage_projection_digest=_projection_binding_from_document(projection_payload),
         table_ruleset_digest=DigestRef(
             _require_string(document.get("table_ruleset_digest"), "table_ruleset_digest")
         ),
-        mutation_policy=MutationPolicy(_require_string(document.get("mutation_policy"), "mutation_policy")),
+        mutation_policy=MutationPolicy(
+            _require_string(document.get("mutation_policy"), "mutation_policy")
+        ),
         threshold_policy=_threshold_policy_from_document(threshold_payload),
         table_summaries=summaries,
         change_set_digest=DigestRef(
@@ -1142,7 +1149,9 @@ def _canonicalize_cell_columns(
             raise ValueError(f"{label} must not repeat columns")
         if previous is not None and canonical_column <= previous:
             raise ValueError(f"{label} must use canonical column order")
-        normalized.append((canonical_column, validate_canonical_cell_value(value, f"{label}.{column}")))
+        normalized.append(
+            (canonical_column, validate_canonical_cell_value(value, f"{label}.{column}"))
+        )
         previous = canonical_column
         seen.add(canonical_column)
     return tuple(normalized)
@@ -1264,8 +1273,10 @@ def _mutation_from_document(payload: object) -> ChangeSetMutation:
         _cell_column_from_document(item, "canonical_storage_key.value") for item in key_payload
     )
     before_payload = payload.get("before_row_digest")
-    before_digest = None if before_payload is None else DigestRef(
-        _require_string(before_payload, "before_row_digest")
+    before_digest = (
+        None
+        if before_payload is None
+        else DigestRef(_require_string(before_payload, "before_row_digest"))
     )
     after_payload = payload.get("after_image")
     after_image = None
@@ -1310,7 +1321,9 @@ def _require_int(value: object) -> int:
     return value
 
 
-def _reject_unknown_keys(payload: Mapping[str, object], allowed: frozenset[str], label: str) -> None:
+def _reject_unknown_keys(
+    payload: Mapping[str, object], allowed: frozenset[str], label: str
+) -> None:
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"{label} contains unknown fields: {', '.join(sorted(unknown))}")

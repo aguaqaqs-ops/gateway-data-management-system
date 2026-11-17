@@ -61,7 +61,10 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
 )
 from gateway_backend.capabilities.table_access import (
-    KernelExecutionContext, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+    KernelExecutionContext,
+    NeverCancel,
+    OperationMemoryBudget,
+    kernel_execution_scope,
 )
 from gateway_backend.infrastructure.control_db.database import (
     connect_control_db,
@@ -179,6 +182,7 @@ def _seed_repository_import_operation(
     finally:
         connection.close()
 
+
 CPU_STAT_INVALID_SHAPES = (
     ("missing usage", "user_usec 7\nsystem_usec 4\n"),
     ("malformed", "usage_usec nope\n"),
@@ -189,17 +193,32 @@ CPU_STAT_INVALID_SHAPES = (
 PREVIEW_SUMMARY_FAILURES = (
     (
         "empty table summary",
-        {"table_count": 0, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0},
+        {
+            "table_count": 0,
+            "changed_table_count": 0,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
         False,
     ),
     (
         "degraded table",
-        {"table_count": 3, "changed_table_count": 0, "degraded_table_count": 1, "failed_table_count": 0},
+        {
+            "table_count": 3,
+            "changed_table_count": 0,
+            "degraded_table_count": 1,
+            "failed_table_count": 0,
+        },
         False,
     ),
     (
         "repeat changed",
-        {"table_count": 3, "changed_table_count": 1, "degraded_table_count": 0, "failed_table_count": 0},
+        {
+            "table_count": 3,
+            "changed_table_count": 1,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
         True,
     ),
 )
@@ -216,10 +235,50 @@ IDENTITY_ASSESSMENT_CASES = (
 )
 
 S1B_PREVIEW_SUMMARY_CASES = (
-    ("composite unchanged", {"table_count": 125, "changed_table_count": 4, "degraded_table_count": 0, "failed_table_count": 0}, 4, True),
-    ("composite changed", {"table_count": 125, "changed_table_count": 5, "degraded_table_count": 0, "failed_table_count": 0}, 5, True),
-    ("unexpected changed count", {"table_count": 125, "changed_table_count": 6, "degraded_table_count": 0, "failed_table_count": 0}, 5, False),
-    ("unexpected table count", {"table_count": 124, "changed_table_count": 4, "degraded_table_count": 0, "failed_table_count": 0}, 4, False),
+    (
+        "composite unchanged",
+        {
+            "table_count": 125,
+            "changed_table_count": 4,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+        4,
+        True,
+    ),
+    (
+        "composite changed",
+        {
+            "table_count": 125,
+            "changed_table_count": 5,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+        5,
+        True,
+    ),
+    (
+        "unexpected changed count",
+        {
+            "table_count": 125,
+            "changed_table_count": 6,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+        5,
+        False,
+    ),
+    (
+        "unexpected table count",
+        {
+            "table_count": 124,
+            "changed_table_count": 4,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+        4,
+        False,
+    ),
 )
 
 CANONICAL_STATE_DIGEST_INPUTS: tuple[tuple[str, dict[str, Any], bool], ...] = (
@@ -320,7 +379,9 @@ def _seed_succeeded_submit_control_db(
                 canonical_business_digest="sha256:" + "5" * 64,
                 source_digest="sha256:source",
                 snapshot_digest="sha256:snapshot",
-                source_artifact_refs=("a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041",),
+                source_artifact_refs=(
+                    "a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041",
+                ),
                 canonical_table_set_closure_ref="a1:durable:9fc51f415c4c1c25fdffc47c8612c29870eb3491e40b9fbc6e91afc114e70db6",
                 canonical_table_set_closure_digest="sha256:table-closure",
                 preview_ready_closure_ref="a1:durable:5c6cbf4dc0f668d0e7bd5ac245ec89f6b2eeed1caf626587fd191bb8fced0abf",
@@ -389,10 +450,7 @@ def _run_submit_control_query_against_database(
             assert container_db_path == "/var/lib/gateway/be-metadata/control.sqlite3"
             local_db_path = db_path
         else:
-            assert (
-                container_db_path
-                == real_dump_journey.REPOSITORY_SERVICE_CONTROL_DB_PATH
-            )
+            assert container_db_path == real_dump_journey.REPOSITORY_SERVICE_CONTROL_DB_PATH
             assert repository_db_path is not None
             local_db_path = repository_db_path
         return subprocess.run(
@@ -700,11 +758,14 @@ def test_worker_heartbeat_log_resets_stall_clock_and_normal_heartbeats_do_not_tr
             "operation_id=operation-1 step_id=step-1 worker_id=worker-1 attempt=1",
             observed_at=current_time[0],
         )
-        assert tracker.check_running_operation(
-            "operation-1",
-            "RUNNING",
-            now=current_time[0],
-        ) is None
+        assert (
+            tracker.check_running_operation(
+                "operation-1",
+                "RUNNING",
+                now=current_time[0],
+            )
+            is None
+        )
 
     current_time[0] = 249.0
     assert tracker.check_running_operation("operation-1", "RUNNING") is None
@@ -736,10 +797,7 @@ def test_worker_stall_monitor_tracks_nonterminal_status_after_running() -> None:
     )
 
     current_time[0] = 529.0
-    assert (
-        tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED")
-        is None
-    )
+    assert tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED") is None
     current_time[0] = 530.0
     stalled = tracker.check_running_operation(
         "operation-1",
@@ -752,10 +810,7 @@ def test_worker_stall_monitor_tracks_nonterminal_status_after_running() -> None:
     current_time[0] = 600.0
     assert tracker.check_running_operation("operation-1", "FAILED") is None
     current_time[0] = 900.0
-    assert (
-        tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED")
-        is None
-    )
+    assert tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED") is None
 
 
 def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_reason(
@@ -811,7 +866,8 @@ def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_rea
 @pytest.mark.serial
 @pytest.mark.parametrize("fail_inside", [False, True], ids=("normal", "exception"))
 def test_worker_heartbeat_monitor_stops_log_child_holding_stdout(
-    tmp_path: Path, fail_inside: bool,
+    tmp_path: Path,
+    fail_inside: bool,
 ) -> None:
     marker = tmp_path / "log-child-started"
     script = (
@@ -833,7 +889,8 @@ def test_worker_heartbeat_monitor_stops_log_child_holding_stdout(
     )
     expected = (
         pytest.raises(JourneyFailure, match="monitor body failed")
-        if fail_inside else contextlib.nullcontext()
+        if fail_inside
+        else contextlib.nullcontext()
     )
     with expected:
         with monitor:
@@ -852,7 +909,8 @@ def test_worker_heartbeat_monitor_stops_log_child_holding_stdout(
 
 @pytest.mark.serial
 def test_worker_heartbeat_monitor_reports_incomplete_cleanup_without_masking_body_error(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     class StillAliveReader:
         def join(self, timeout: float | None = None) -> None:
@@ -862,7 +920,9 @@ def test_worker_heartbeat_monitor_reports_incomplete_cleanup_without_masking_bod
             return True
 
     monitor = WorkerHeartbeatMonitor(
-        env={}, repository_id="repository-1", repository_url="http://repository-service",
+        env={},
+        repository_id="repository-1",
+        repository_url="http://repository-service",
     )
     monkeypatch.setattr(monitor, "_reader_thread", StillAliveReader())
     with pytest.raises(JourneyFailure, match="original body failure"):
@@ -896,7 +956,9 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
 
         def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
             assert headers == {"Authorization": f"Bearer {BEARER_TOKEN}"}
-            return OperationResponse(_succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID))
+            return OperationResponse(
+                _succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID)
+            )
 
     monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())
     real_dump_journey._capture_repository_import_status(
@@ -1065,7 +1127,9 @@ def test_operation_timeout_remains_distinct_from_worker_stall(
             return httpx.Response(200, json={"status": "RUNNING"})
 
     monkeypatch.setattr(time, "monotonic", lambda: current_time[0])
-    monkeypatch.setattr(time, "sleep", lambda delay: current_time.__setitem__(0, current_time[0] + delay))
+    monkeypatch.setattr(
+        time, "sleep", lambda delay: current_time.__setitem__(0, current_time[0] + delay)
+    )
     with pytest.raises(JourneyFailure, match="before timeout") as caught:
         real_dump_journey._poll_operation(
             cast(httpx.Client, OperationClient()),
@@ -1106,42 +1170,106 @@ def test_preview_summary_requires_one_complete_pair() -> None:
 
 
 def test_full_preview_checks_both_pairs_and_selects_modified_business_summary() -> None:
-    baseline = {"pair_id": "baseline_to_initial", "summary": {
-        "table_count": 9, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0,
-    }}
-    modified = {"pair_id": "initial_to_modified", "summary": {
-        "table_count": 9, "changed_table_count": 2, "degraded_table_count": 0, "failed_table_count": 0,
-    }}
-    summary = _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL")
+    baseline = {
+        "pair_id": "baseline_to_initial",
+        "summary": {
+            "table_count": 9,
+            "changed_table_count": 0,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+    }
+    modified = {
+        "pair_id": "initial_to_modified",
+        "summary": {
+            "table_count": 9,
+            "changed_table_count": 2,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+    }
+    summary = _assert_preview_summaries(
+        {"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL"
+    )
     assert summary["pair_count"] == 1 and summary["changed_table_count"] == 2
-    preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
-        {"pair_id": "baseline_to_initial", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
-        {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
-    ]}}
-    assert _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")["status"] == "SAME_PROJECT"
+    preview = {
+        "result": {
+            "identity_assessment_set_digest": "sha256:" + "a" * 64,
+            "identity_pairs": [
+                {
+                    "pair_id": "baseline_to_initial",
+                    "applicability": "APPLICABLE",
+                    "status": "SAME_PROJECT",
+                    "mode": "DETAILED",
+                },
+                {
+                    "pair_id": "initial_to_modified",
+                    "applicability": "APPLICABLE",
+                    "status": "SAME_PROJECT",
+                    "mode": "DETAILED",
+                },
+            ],
+        }
+    }
+    assert (
+        _assert_identity_pair(
+            preview,
+            expected_status="SAME_PROJECT",
+            expected_mode="DETAILED",
+            input_completeness="FULL",
+        )["status"]
+        == "SAME_PROJECT"
+    )
     baseline["summary"]["changed_table_count"] = 1  # type: ignore[index]
     with pytest.raises(JourneyFailure, match="archived v1 baseline"):
-        _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL")
+        _assert_preview_summaries(
+            {"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL"
+        )
 
 
 def test_full_request_rejects_old_single_pair_summary_and_identity() -> None:
-    pair = {"pair_id": "initial_to_modified", "summary": {
-        "table_count": 1, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0,
-    }}
+    pair = {
+        "pair_id": "initial_to_modified",
+        "summary": {
+            "table_count": 1,
+            "changed_table_count": 0,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+    }
     with pytest.raises(JourneyFailure, match="requested input completeness"):
         _assert_preview_summaries({"pairs": [pair]}, unchanged=False, input_completeness="FULL")
-    preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
-        {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
-    ]}}
+    preview = {
+        "result": {
+            "identity_assessment_set_digest": "sha256:" + "a" * 64,
+            "identity_pairs": [
+                {
+                    "pair_id": "initial_to_modified",
+                    "applicability": "APPLICABLE",
+                    "status": "SAME_PROJECT",
+                    "mode": "DETAILED",
+                },
+            ],
+        }
+    }
     with pytest.raises(JourneyFailure, match="requested input completeness"):
-        _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")
+        _assert_identity_pair(
+            preview,
+            expected_status="SAME_PROJECT",
+            expected_mode="DETAILED",
+            input_completeness="FULL",
+        )
 
 
 def test_full_upload_uses_actual_initial_v1_and_modified_v2_multipart_bytes() -> None:
     observed: dict[str, bytes] = {}
+
     def transport(request: httpx.Request) -> httpx.Response:
         message = BytesParser(policy=policy.default).parsebytes(
-            b"Content-Type: " + request.headers["content-type"].encode() + b"\r\n\r\n" + request.read(),
+            b"Content-Type: "
+            + request.headers["content-type"].encode()
+            + b"\r\n\r\n"
+            + request.read(),
         )
         for part in message.iter_parts():
             name = part.get_param("name", header="content-disposition")
@@ -1150,13 +1278,24 @@ def test_full_upload_uses_actual_initial_v1_and_modified_v2_multipart_bytes() ->
             assert isinstance(content, bytes)
             observed[name] = content
         return httpx.Response(201, json={"upload_revision_id": "ur-full"})
-    with httpx.Client(transport=httpx.MockTransport(transport), base_url="http://bundle.test") as client:
-        real_dump_journey._upload_revision(client, workspace={"workspace_id": "ws", "optimistic_version": 3},
-            package=b"modified-v2", initial_package=b"initial-v1", idempotency_key="full-input")
+
+    with httpx.Client(
+        transport=httpx.MockTransport(transport), base_url="http://bundle.test"
+    ) as client:
+        real_dump_journey._upload_revision(
+            client,
+            workspace={"workspace_id": "ws", "optimistic_version": 3},
+            package=b"modified-v2",
+            initial_package=b"initial-v1",
+            idempotency_key="full-input",
+        )
     manifest = json.loads(observed["manifest"])
     assert manifest["input_completeness"] == "FULL"
     assert observed["initial"] == b"initial-v1" and observed["modified"] == b"modified-v2"
-    assert manifest["artifacts"]["INITIAL"]["raw_sha256"] == "sha256:" + hashlib.sha256(b"initial-v1").hexdigest()
+    assert (
+        manifest["artifacts"]["INITIAL"]["raw_sha256"]
+        == "sha256:" + hashlib.sha256(b"initial-v1").hexdigest()
+    )
 
 
 @pytest.mark.parametrize("fault", ("none", "length", "digest", "etag"))
@@ -1165,6 +1304,7 @@ def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fau
     from gateway_backend.application.bundle_download import prepare_bundle_download
     from gateway_backend.artifacts.bundle_download import BundleIntegrityError
     from tests.test_bundle_download import published_bundle
+
     store, ref = published_bundle(tmp_path)
     prepared = prepare_bundle_download(store, ref.artifact_id)
     raw = b"".join(prepared.stream)
@@ -1172,13 +1312,21 @@ def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fau
         # The last ordinary surface member has data before its block padding.
         import io
         import tarfile
+
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
             offset = archive.getmembers()[-1].offset_data
-        raw = raw[:offset] + bytes([raw[offset] ^ 1]) + raw[offset + 1:]
-    headers = {"Content-Type": "application/x-tar", "Content-Length": str(len(raw) + int(fault == "length")),
-               "ETag": '"wrong"' if fault == "etag" else prepared.etag}
-    with httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=raw, headers=headers)),
-                      base_url="http://bundle.test") as client:
+        raw = raw[:offset] + bytes([raw[offset] ^ 1]) + raw[offset + 1 :]
+    headers = {
+        "Content-Type": "application/x-tar",
+        "Content-Length": str(len(raw) + int(fault == "length")),
+        "ETag": '"wrong"' if fault == "etag" else prepared.etag,
+    }
+    with httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, content=raw, headers=headers)
+        ),
+        base_url="http://bundle.test",
+    ) as client:
         saved = tmp_path / "complete.tar"
         if fault != "none":
             with pytest.raises(BundleIntegrityError):
@@ -1198,25 +1346,45 @@ def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fau
             assert saved.read_bytes() == raw
 
 
-def test_preview_completion_clock_is_frozen_before_complete_bundle_download(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_preview_completion_clock_is_frozen_before_complete_bundle_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     clock = [0.0]
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     workspace = {"workspace_id": "ws", "current_preview_result_id": "pr"}
     monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: workspace)
+
     def poll(*_args: object, **_kwargs: object) -> None:
         clock[0] = 5.0
+
     monkeypatch.setattr(real_dump_journey, "_poll_operation", poll)
+
     def download(*_args: object, **_kwargs: object) -> tuple[dict[str, Any], dict[str, Any]]:
         clock[0] = 105.0
         return {"pairs": []}, {"actual_bytes": 2048, "get_to_complete_read_seconds": 100.0}
+
     monkeypatch.setattr(real_dump_journey, "download_bundle_tar", download)
+
     def transport(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(202, json={"operation_id": "op"}) if request.method == "POST" else httpx.Response(200, json={"operation_id": "op"})
-    with httpx.Client(transport=httpx.MockTransport(transport), base_url="http://bundle.test") as client:
+        return (
+            httpx.Response(202, json={"operation_id": "op"})
+            if request.method == "POST"
+            else httpx.Response(200, json={"operation_id": "op"})
+        )
+
+    with httpx.Client(
+        transport=httpx.MockTransport(transport), base_url="http://bundle.test"
+    ) as client:
         preview, _manifest = real_dump_journey._preview(
-            client, workspace=workspace, upload={"optimistic_version": 1, "upload_revision_id": "ur", "generation": 1},
-            baseline_node_id="bn", baseline_head_version=1, idempotency_key="preview", stage="test",
-            operation_timeout_seconds=100, collect_timing=True,
+            client,
+            workspace=workspace,
+            upload={"optimistic_version": 1, "upload_revision_id": "ur", "generation": 1},
+            baseline_node_id="bn",
+            baseline_head_version=1,
+            idempotency_key="preview",
+            stage="test",
+            operation_timeout_seconds=100,
+            collect_timing=True,
         )
     assert preview["operation_timing"]["completion_seconds"] == 5.0
     assert preview["operation_timing"]["user_visible_seconds"] == 5.0
@@ -1396,7 +1564,11 @@ def test_additive_column_preview_uses_s1b_changed_table_count() -> None:
     ("census", "expected", "expected_source"),
     [
         (
-            {"effective_key_scan": {"unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]}},
+            {
+                "effective_key_scan": {
+                    "unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]
+                }
+            },
             ("fallback_a", "fallback_b"),
             "S1 census effective_key_scan.unresolved_tables",
         ),
@@ -1409,7 +1581,9 @@ def test_additive_column_preview_uses_s1b_changed_table_count() -> None:
     ids=("s1-nested", "s3-flat-complete"),
 )
 def test_keyless_fallback_candidates_come_from_census_unresolved_tables(
-    census: dict[str, Any], expected: tuple[str, ...], expected_source: str,
+    census: dict[str, Any],
+    expected: tuple[str, ...],
+    expected_source: str,
 ) -> None:
     assert _keyless_fallback_candidates(census) == expected
     assert _keyless_fallback_source(census) == expected_source
@@ -1452,18 +1626,31 @@ def test_s3_larger_resource_guard_does_not_change_the_default_budget(tmp_path: P
     for budget, expected in ((24 * 1024**3, False), (40 * 1024**3, True)):
         context = KernelExecutionContext(OperationMemoryBudget(budget), NeverCancel(), 1)
         with kernel_execution_scope(context, new_operation=True):
-            assert real_dump_journey._s3_large_resource_guard_required(
-                s3_census=census, scope="t4-identity",
-            ) is expected
-            assert not real_dump_journey._s3_large_resource_guard_required(
-                s3_census=None, scope="t4-identity",
+            assert (
+                real_dump_journey._s3_large_resource_guard_required(
+                    s3_census=census,
+                    scope="t4-identity",
+                )
+                is expected
             )
-            assert real_dump_journey._s3_large_resource_guard_required(
-                s3_census=None, scope="full",
-            ) is expected
-            assert real_dump_journey._s3_large_resource_guard_required(
-                s3_census=census, scope="t4-v1-submit",
-            ) is expected
+            assert not real_dump_journey._s3_large_resource_guard_required(
+                s3_census=None,
+                scope="t4-identity",
+            )
+            assert (
+                real_dump_journey._s3_large_resource_guard_required(
+                    s3_census=None,
+                    scope="full",
+                )
+                is expected
+            )
+            assert (
+                real_dump_journey._s3_large_resource_guard_required(
+                    s3_census=census,
+                    scope="t4-v1-submit",
+                )
+                is expected
+            )
 
 
 @pytest.mark.parametrize(
@@ -1476,26 +1663,39 @@ def test_s3_larger_resource_guard_does_not_change_the_default_budget(tmp_path: P
     ),
 )
 def test_s3_larger_resource_guard_requires_host_margin_and_healthy_services(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
-    available_bytes: int, backend_oom: int, worker_hard_bytes: int, expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    available_bytes: int,
+    backend_oom: int,
+    worker_hard_bytes: int,
+    expected: str,
 ) -> None:
     services: dict[str, dict[str, Any]] = {}
     for service in ("backend", "worker", "repository-service"):
         services[service] = {
-            "container_id": service, "restart_count": 0,
+            "container_id": service,
+            "restart_count": 0,
             "memory_max": str(worker_hard_bytes) if service == "worker" else "max",
-            "memory_events": {"oom": backend_oom if service == "backend" else 0,
-                              "oom_kill": 0, "oom_group_kill": 0},
+            "memory_events": {
+                "oom": backend_oom if service == "backend" else 0,
+                "oom_kill": 0,
+                "oom_group_kill": 0,
+            },
             "host_config_memory_bytes": worker_hard_bytes if service == "worker" else 0,
             "resource_profile": {
                 "kernel_threads": 1,
                 "kernel_memory_bytes": 40 * 1024**3,
                 "memory_envelope_bytes": 48 * 1024**3,
                 "memory_reserve_bytes": 8 * 1024**3,
-            } if service == "worker" else {},
+            }
+            if service == "worker"
+            else {},
         }
-    monkeypatch.setattr(real_dump_journey, "_s3_ready_resource_snapshot",
-                        lambda _env: {"mem_available_bytes": available_bytes, "services": services})
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_s3_ready_resource_snapshot",
+        lambda _env: {"mem_available_bytes": available_bytes, "services": services},
+    )
     if expected == "FAILED":
         with pytest.raises(JourneyFailure, match="before first business observation"):
             real_dump_journey._check_s3_ready_resource_guard({})
@@ -1516,8 +1716,11 @@ def test_s3_larger_resource_guard_requires_host_margin_and_healthy_services(
     ids=("missing-keyscan", "complete-keyscan"),
 )
 def test_s3_census_shape_is_checked_before_starting_compose(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-    complete_keyscan: bool, expected_failure: str, expected_git_calls: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    complete_keyscan: bool,
+    expected_failure: str,
+    expected_git_calls: int,
 ) -> None:
     census = _synthetic_census()
     if complete_keyscan:
@@ -1527,8 +1730,10 @@ def test_s3_census_shape_is_checked_before_starting_compose(
     monkeypatch.setattr(
         real_dump_journey,
         "_read_metadata",
-        lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
-                                   real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
+        lambda _root, *, census_path: (
+            {},
+            {dataset_id: census for dataset_id in real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]},
+        ),
     )
     git_calls: list[list[str]] = []
 
@@ -1568,7 +1773,11 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
                             {
                                 "name": "composite_signal_point",
                                 "columns": [
-                                    {"name": "source_table", "sql_type": "VARCHAR(64)", "nullable": False},
+                                    {
+                                        "name": "source_table",
+                                        "sql_type": "VARCHAR(64)",
+                                        "nullable": False,
+                                    },
                                     {"name": "point_gid", "sql_type": "INT", "nullable": False},
                                 ],
                                 "primary_key": ["source_table", "point_gid"],
@@ -1737,8 +1946,9 @@ def test_public_submission_digest_is_recorded_as_canonical_state(
 ) -> None:
     del case
     if valid:
-        assert _canonical_state_digest_from_submission(submission, stage="test Submit") == (
-            submission["canonical_business_digest"]
+        assert (
+            _canonical_state_digest_from_submission(submission, stage="test Submit")
+            == (submission["canonical_business_digest"])
         )
     else:
         with pytest.raises(JourneyFailure, match="canonical state digest"):
@@ -1805,7 +2015,10 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
             "--keep-stack",
             "--project-name",
             "s2b-debug",
-            "--kernel-threads", "1", "--kernel-memory-budget-bytes", "8589934592",
+            "--kernel-threads",
+            "1",
+            "--kernel-memory-budget-bytes",
+            "8589934592",
         ]
     )
 
@@ -1840,7 +2053,9 @@ W1_W2_INVALID_CONTROLS: tuple[tuple[dict[str, Any], list[str]], ...] = (
 
 @pytest.mark.parametrize(("overrides", "cli"), W1_W2_INVALID_CONTROLS)
 def test_w1_w2_rejects_controls_before_reading_inputs_or_initializing_kernel(
-    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any], cli: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    overrides: dict[str, Any],
+    cli: list[str],
     tmp_path: Path,
 ) -> None:
     def forbidden(*_args: Any, **_kwargs: Any) -> Any:
@@ -1850,29 +2065,58 @@ def test_w1_w2_rejects_controls_before_reading_inputs_or_initializing_kernel(
     monkeypatch.setattr(real_dump_journey, "initialize_compute_kernel", forbidden)
     monkeypatch.setattr(real_dump_journey, "start_three_container_stack", forbidden)
     output = tmp_path / "submit-facts"
-    options: dict[str, Any] = {"tier_filter": "t4", "scope": "t4-w1-w2",
-                               "submit_measurements": output, **overrides}
+    options: dict[str, Any] = {
+        "tier_filter": "t4",
+        "scope": "t4-w1-w2",
+        "submit_measurements": output,
+        **overrides,
+    }
     with pytest.raises(JourneyFailure, match="requires fresh standard"):
         real_dump_journey.run_journey(**options)
-    assert real_dump_journey.main([
-        "--scope", "t4-w1-w2", *cli, "--submit-measurements", str(output),
-        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "25769803776",
-    ]) == 1
+    assert (
+        real_dump_journey.main(
+            [
+                "--scope",
+                "t4-w1-w2",
+                *cli,
+                "--submit-measurements",
+                str(output),
+                "--kernel-threads",
+                "1",
+                "--kernel-memory-budget-bytes",
+                "25769803776",
+            ]
+        )
+        == 1
+    )
     assert not output.exists()
 
 
 @pytest.mark.parametrize(("threads", "budget"), ((2, 25769803776), (1, 42949672960)))
 def test_w1_w2_cli_rejects_resource_overrides_before_kernel_initialization(
-    monkeypatch: pytest.MonkeyPatch, threads: int, budget: int,
+    monkeypatch: pytest.MonkeyPatch,
+    threads: int,
+    budget: int,
 ) -> None:
     def forbidden(*_args: Any, **_kwargs: Any) -> Any:
         pytest.fail("invalid resource configuration reached the kernel")
 
     monkeypatch.setattr(real_dump_journey, "initialize_compute_kernel", forbidden)
-    assert real_dump_journey.main([
-        "--scope", "t4-w1-w2", "--tier", "t4", "--kernel-threads", str(threads),
-        "--kernel-memory-budget-bytes", str(budget),
-    ]) == 1
+    assert (
+        real_dump_journey.main(
+            [
+                "--scope",
+                "t4-w1-w2",
+                "--tier",
+                "t4",
+                "--kernel-threads",
+                str(threads),
+                "--kernel-memory-budget-bytes",
+                str(budget),
+            ]
+        )
+        == 1
+    )
 
 
 def test_cli_passes_fresh_t4_w1_w2_scope(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1883,10 +2127,21 @@ def test_cli_passes_fresh_t4_w1_w2_scope(monkeypatch: pytest.MonkeyPatch) -> Non
         return {"conclusion": "PASS"}
 
     monkeypatch.setattr(real_dump_journey, "run_journey", run)
-    assert real_dump_journey.main([
-        "--scope", "t4-w1-w2", "--tier", "t4", "--kernel-threads", "1",
-        "--kernel-memory-budget-bytes", "25769803776",
-    ]) == 0
+    assert (
+        real_dump_journey.main(
+            [
+                "--scope",
+                "t4-w1-w2",
+                "--tier",
+                "t4",
+                "--kernel-threads",
+                "1",
+                "--kernel-memory-budget-bytes",
+                "25769803776",
+            ]
+        )
+        == 0
+    )
     assert calls["scope"] == "t4-w1-w2"
     assert calls["tier_filter"] == "t4"
     assert calls["v2_input_completeness"] == "MODIFIED_ONLY"
@@ -1898,10 +2153,12 @@ W1_W2_RESOURCE_FAULTS = (None, "budget", "hard_limit", "restart", "oom")
 
 @pytest.mark.parametrize("fault", W1_W2_RESOURCE_FAULTS)
 def test_w1_w2_checks_the_running_worker_resource_boundary(
-    monkeypatch: pytest.MonkeyPatch, fault: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str | None,
 ) -> None:
     worker = {
-        "memory_max": str(32 * 1024**3), "host_config_memory_bytes": 32 * 1024**3,
+        "memory_max": str(32 * 1024**3),
+        "host_config_memory_bytes": 32 * 1024**3,
         "restart_count": 0,
         "memory_events": {"oom": 0, "oom_kill": 0, "oom_group_kill": 0},
         "resource_profile": {
@@ -1912,17 +2169,18 @@ def test_w1_w2_checks_the_running_worker_resource_boundary(
         },
     }
     if fault == "budget":
-        cast(dict[str, int], worker["resource_profile"])[
-            "kernel_memory_bytes"
-        ] = 40 * 1024**3
+        cast(dict[str, int], worker["resource_profile"])["kernel_memory_bytes"] = 40 * 1024**3
     elif fault == "hard_limit":
         worker["memory_max"] = "max"
     elif fault == "restart":
         worker["restart_count"] = 1
     elif fault == "oom":
         cast(dict[str, int], worker["memory_events"])["oom_kill"] = 1
-    monkeypatch.setattr(real_dump_journey, "_s3_ready_resource_snapshot",
-                        lambda _env: {"services": {"worker": worker}})
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_s3_ready_resource_snapshot",
+        lambda _env: {"services": {"worker": worker}},
+    )
     if fault is None:
         real_dump_journey._check_w1_w2_ready_resource_guard({})
     else:
@@ -1931,8 +2189,16 @@ def test_w1_w2_checks_the_running_worker_resource_boundary(
 
 
 W1_W2_CHAIN_FAULTS = (
-    None, "v1-repository-read", "v1-approve", "v1-archive", "repeat-v1-preview",
-    "mutation", "submit-head", "archive-head", "repeat-head", "reused-operation",
+    None,
+    "v1-repository-read",
+    "v1-approve",
+    "v1-archive",
+    "repeat-v1-preview",
+    "mutation",
+    "submit-head",
+    "archive-head",
+    "repeat-head",
+    "reused-operation",
 )
 
 
@@ -1948,22 +2214,32 @@ def test_w1_w2_provisioned_submitters_create_separate_open_workspaces(tmp_path: 
             gateway_device_external_key=item["gateway_device_external_key"],
             business_project_id=item["business_project_id"],
             permissions=frozenset(item["permissions"]),
-        ) for item in sessions
+        )
+        for item in sessions
     }
     first_identity = identities[SESSION_TOKEN]
     repeat_identity = identities[real_dump_journey.REPEAT_SUBMITTER_TOKEN]
     assert first_identity.actor_id != repeat_identity.actor_id
     assert first_identity.gateway_device_external_key == repeat_identity.gateway_device_external_key
     assert first_identity.business_project_id == repeat_identity.business_project_id
-    assert repeat_identity.permissions == frozenset({
-        "workspace_read", "upload_submit_workspace", "preview_workspace",
-    })
-    env = create_workspace_http_environment(tmp_path, identity=first_identity, extra_sessions=identities)
+    assert repeat_identity.permissions == frozenset(
+        {
+            "workspace_read",
+            "upload_submit_workspace",
+            "preview_workspace",
+        }
+    )
+    env = create_workspace_http_environment(
+        tmp_path, identity=first_identity, extra_sessions=identities
+    )
     body = {"gateway_device_external_key": DEVICE_KEY, "business_project_id": PROJECT_ID}
     first = env.client.post("/v1/workspaces", json=body, headers=compose_auth_headers())
     same_actor = env.client.post("/v1/workspaces", json=body, headers=compose_auth_headers())
-    repeat = env.client.post("/v1/workspaces", json=body, headers=compose_auth_headers(
-        token=real_dump_journey.REPEAT_SUBMITTER_TOKEN))
+    repeat = env.client.post(
+        "/v1/workspaces",
+        json=body,
+        headers=compose_auth_headers(token=real_dump_journey.REPEAT_SUBMITTER_TOKEN),
+    )
     assert [first.status_code, same_actor.status_code, repeat.status_code] == [201, 200, 201]
     assert first.json()["workspace_id"] == same_actor.json()["workspace_id"]
     assert first.json()["workspace_id"] != repeat.json()["workspace_id"]
@@ -1991,27 +2267,52 @@ def test_w1_w2_upload_preview_and_submit_keep_the_repeat_session(
         return httpx.Response(200, json={"preview_result_id": "result"})
 
     monkeypatch.setattr(real_dump_journey, "_poll_operation", lambda *_a, **_kw: None)
-    monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: {
-        "current_preview_result_id": "result", "optimistic_version": 2, "generation": 1})
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_workspace",
+        lambda _client: {
+            "current_preview_result_id": "result",
+            "optimistic_version": 2,
+            "generation": 1,
+        },
+    )
     monkeypatch.setattr(real_dump_journey, "download_bundle_tar", lambda *_a, **_kw: ({}, {}))
-    with httpx.Client(base_url="http://backend.test", headers=compose_auth_headers(
-            token=token), transport=httpx.MockTransport(respond)) as client:
+    with httpx.Client(
+        base_url="http://backend.test",
+        headers=compose_auth_headers(token=token),
+        transport=httpx.MockTransport(respond),
+    ) as client:
         upload = real_dump_journey._upload_revision(
-            client, workspace={"workspace_id": "repeat", "optimistic_version": 0},
-            package=b"v1", idempotency_key="repeat-upload", token=token,
+            client,
+            workspace={"workspace_id": "repeat", "optimistic_version": 0},
+            package=b"v1",
+            idempotency_key="repeat-upload",
+            token=token,
         )
         upload.update({"optimistic_version": 1, "generation": 1})
         preview, _manifest = real_dump_journey._preview(
-            client, workspace={"workspace_id": "repeat"}, upload=upload,
-            baseline_node_id="archived", baseline_head_version=1,
-            idempotency_key="repeat-preview", stage="repeat", operation_timeout_seconds=60,
+            client,
+            workspace={"workspace_id": "repeat"},
+            upload=upload,
+            baseline_node_id="archived",
+            baseline_head_version=1,
+            idempotency_key="repeat-preview",
+            stage="repeat",
+            operation_timeout_seconds=60,
             token=token,
         )
         result = real_dump_journey._submit(
-            client, workspace={"workspace_id": "repeat"}, upload=upload, preview=preview,
-            baseline_node_id="archived", baseline_head_version=1,
-            idempotency_key="repeat-submit", stage="repeat", operation_timeout_seconds=60,
-            expect_no_change=True, token=token,
+            client,
+            workspace={"workspace_id": "repeat"},
+            upload=upload,
+            preview=preview,
+            baseline_node_id="archived",
+            baseline_head_version=1,
+            idempotency_key="repeat-submit",
+            stage="repeat",
+            operation_timeout_seconds=60,
+            expect_no_change=True,
+            token=token,
         )
     assert result == {"result": "NO_CANONICAL_CHANGE"}
     assert len(requests) == 4
@@ -2019,15 +2320,23 @@ def test_w1_w2_upload_preview_and_submit_keep_the_repeat_session(
 
 @pytest.mark.parametrize("fault", W1_W2_CHAIN_FAULTS)
 def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fault: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fault: str | None,
 ) -> None:
     steps: list[str] = []
     verified_mains: list[tuple[str, str, str]] = []
     snapshots: list[dict[str, list[str]]] = []
-    initial_head = {"business_baseline_node_id": BASELINE_NODE_ID,
-                    "business_baseline_commit_id": "initial", "baseline_head_version": 0}
-    archived_head = {"business_baseline_node_id": "archived-v1",
-                     "business_baseline_commit_id": "commit-v1", "baseline_head_version": 1}
+    initial_head = {
+        "business_baseline_node_id": BASELINE_NODE_ID,
+        "business_baseline_commit_id": "initial",
+        "baseline_head_version": 0,
+    }
+    archived_head = {
+        "business_baseline_node_id": "archived-v1",
+        "business_baseline_commit_id": "commit-v1",
+        "baseline_head_version": 1,
+    }
     head = dict(initial_head)
 
     class StepRunner:
@@ -2065,10 +2374,15 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
         assert client.headers["Authorization"] == f"Bearer {token}"
         assert kwargs["workspace"] == workspace(client)
         name = kwargs["workspace"]["workspace_id"]
-        return {"result": {"operation_id": "first" if fault == "reused-operation" else name,
-                           "preview_result_id": name, "workspace_id": name},
-                "bundle_transfer": {"bytes": 1024},
-                "operation_timing": {"visibility_observation": "post_terminal_result_read"}}, {}
+        return {
+            "result": {
+                "operation_id": "first" if fault == "reused-operation" else name,
+                "preview_result_id": name,
+                "workspace_id": name,
+            },
+            "bundle_transfer": {"bytes": 1024},
+            "operation_timing": {"visibility_observation": "post_terminal_result_read"},
+        }, {}
 
     def submit(client: httpx.Client, **kwargs: Any) -> dict[str, Any]:
         token = kwargs.get("token", SESSION_TOKEN)
@@ -2081,28 +2395,41 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
             return {"result": "NO_CANONICAL_CHANGE", "repository_main_unchanged": True}
         if fault == "submit-head":
             head.update(archived_head)
-        return {"submission_id": "submission", "repository_commit_id": "commit-v1",
-                "canonical_business_digest": "sha256:" + "b" * 64}
+        return {
+            "submission_id": "submission",
+            "repository_commit_id": "commit-v1",
+            "canonical_business_digest": "sha256:" + "b" * 64,
+        }
 
     def archive(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         head.update(archived_head)
         if fault == "archive-head":
             head["business_baseline_commit_id"] = "other"
-        return {"baseline_node_id": "archived-v1", "baseline_commit_id": "commit-v1",
-                "baseline_head_version": 1}
+        return {
+            "baseline_node_id": "archived-v1",
+            "baseline_commit_id": "commit-v1",
+            "baseline_head_version": 1,
+        }
 
     def mutation_ids(_env: Any) -> dict[str, list[str]]:
-        result = {"imports": ["v1"] + (["unexpected"] if snapshots and fault == "mutation" else []),
-                  "synchronous_requests": [], "synchronous_effects": []}
+        result = {
+            "imports": ["v1"] + (["unexpected"] if snapshots and fault == "mutation" else []),
+            "synchronous_requests": [],
+            "synchronous_effects": [],
+        }
         snapshots.append(result)
         return result
 
     http_client = httpx.Client
 
     def client(**kwargs: Any) -> httpx.Client:
-        return http_client(base_url="http://backend.test", headers=kwargs["headers"],
-                           transport=httpx.MockTransport(
-                               lambda _request: httpx.Response(200, json={"head": head})))
+        return http_client(
+            base_url="http://backend.test",
+            headers=kwargs["headers"],
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(200, json={"head": head})
+            ),
+        )
 
     monkeypatch.setattr(httpx, "Client", client)
     monkeypatch.setattr(real_dump_journey, "JourneyStepRunner", StepRunner)
@@ -2112,7 +2439,9 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
     monkeypatch.setattr(real_dump_journey, "_keyless_fallback_candidates", lambda _item: ())
     monkeypatch.setattr(real_dump_journey, "compose_image_ids", lambda _env: {})
     monkeypatch.setattr(real_dump_journey, "_repository_service_url", lambda _env: "http://rs.test")
-    monkeypatch.setattr(real_dump_journey, "_assert_initial_repository_commit_empty", lambda **_kw: {})
+    monkeypatch.setattr(
+        real_dump_journey, "_assert_initial_repository_commit_empty", lambda **_kw: {}
+    )
     monkeypatch.setattr(real_dump_journey, "_workspace", workspace)
     monkeypatch.setattr(real_dump_journey, "_upload_revision", upload)
     monkeypatch.setattr(real_dump_journey, "_preview", preview)
@@ -2120,41 +2449,74 @@ def test_w1_w2_stops_after_verified_repeat_and_stops_on_failed_preconditions(
     monkeypatch.setattr(real_dump_journey, "_approve", lambda *_a: None)
     monkeypatch.setattr(real_dump_journey, "_archive", archive)
     monkeypatch.setattr(real_dump_journey, "_repository_mutation_ids", mutation_ids)
-    monkeypatch.setattr(real_dump_journey, "_pseudo_counts_from_http", lambda **_kw: {
-        "pseudo_rows_total": real_dump_journey.EXPECTED_PSEUDO_TOTALS["rd-t4-d-v1"]})
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_pseudo_counts_from_http",
+        lambda **_kw: {"pseudo_rows_total": real_dump_journey.EXPECTED_PSEUDO_TOTALS["rd-t4-d-v1"]},
+    )
     monkeypatch.setattr(real_dump_journey, "_assert_s3_catalog_summary", lambda *_a, **_kw: None)
     monkeypatch.setattr(real_dump_journey, "_assert_s1b_preview_summary", lambda *_a, **_kw: None)
-    monkeypatch.setattr(real_dump_journey, "_assert_preview_summaries", lambda *_a, **kw: {
-        "changed_table_count": 0 if kw["unchanged"] else 1})
-    monkeypatch.setattr(real_dump_journey, "_assert_identity_pair", lambda *_a, **kw: {
-        "status": kw["expected_status"], "mode": kw["expected_mode"]})
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_assert_preview_summaries",
+        lambda *_a, **kw: {"changed_table_count": 0 if kw["unchanged"] else 1},
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_assert_identity_pair",
+        lambda *_a, **kw: {"status": kw["expected_status"], "mode": kw["expected_mode"]},
+    )
 
     def run() -> dict[str, Any]:
         return real_dump_journey._run_tier(
-            tier="t4", v1_id="rd-t4-d-v1", v2_id="rd-t4-d-v2", root=tmp_path,
+            tier="t4",
+            v1_id="rd-t4-d-v1",
+            v2_id="rd-t4-d-v2",
+            root=tmp_path,
             datasets={"rd-t4-d-v1": {"dataset_id": "rd-t4-d-v1"}},
-            census={"rd-t4-d-v1": {"table_count": 1, "row_count_total": 2,
-                    "ordered_projection": {"pseudo_rows_total":
-                        real_dump_journey.EXPECTED_PSEUDO_TOTALS["rd-t4-d-v1"]}}},
-            env={}, project_name="w1-w2", repository_id="repository",
-            initial_commit_id="initial", step_state={}, from_step=None, state_path=None,
-            offline_composite={"counts": {"before_row_count": 0, "current_row_count": 0,
-                                           "status": "UNCHANGED"}}, scope="t4-w1-w2",
+            census={
+                "rd-t4-d-v1": {
+                    "table_count": 1,
+                    "row_count_total": 2,
+                    "ordered_projection": {
+                        "pseudo_rows_total": real_dump_journey.EXPECTED_PSEUDO_TOTALS["rd-t4-d-v1"]
+                    },
+                }
+            },
+            env={},
+            project_name="w1-w2",
+            repository_id="repository",
+            initial_commit_id="initial",
+            step_state={},
+            from_step=None,
+            state_path=None,
+            offline_composite={
+                "counts": {"before_row_count": 0, "current_row_count": 0, "status": "UNCHANGED"}
+            },
+            scope="t4-w1-w2",
         )
 
     if fault is not None:
         with pytest.raises(JourneyFailure):
             run()
         assert "v2-workspace" not in steps
-        if fault in {"v1-repository-read", "v1-approve", "v1-archive", "submit-head", "archive-head"}:
+        if fault in {
+            "v1-repository-read",
+            "v1-approve",
+            "v1-archive",
+            "submit-head",
+            "archive-head",
+        }:
             assert "repeat-v1-workspace" not in steps
         elif fault in {"repeat-v1-preview", "reused-operation"}:
             assert "repeat-v1-submit" not in steps
     else:
         result = run()
         assert steps == list(real_dump_journey.JOURNEY_STEP_IDS[:11])
-        assert verified_mains == [("http://rs.test", "repository", "initial"),
-                                  ("http://rs.test", "repository", "commit-v1")]
+        assert verified_mains == [
+            ("http://rs.test", "repository", "initial"),
+            ("http://rs.test", "repository", "commit-v1"),
+        ]
         assert len(snapshots) == 2
         assert len(workspaces_by_actor) == 2
         assert result["dataset"]["head_after_submit"] == initial_head
@@ -2179,7 +2541,18 @@ def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
 
     monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
 
-    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit", "--kernel-threads", "1", "--kernel-memory-budget-bytes", "8589934592"])
+    result = real_dump_journey.main(
+        [
+            "--tier",
+            "t4",
+            "--scope",
+            "t4-v1-submit",
+            "--kernel-threads",
+            "1",
+            "--kernel-memory-budget-bytes",
+            "8589934592",
+        ]
+    )
 
     assert result == 0
     assert calls["tier_filter"] == "t4"
@@ -2200,11 +2573,22 @@ def test_s3_t4_preview_cli_distinguishes_scope_and_full_input(
 
     monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
     census = tmp_path / "accepted-t4-census.json"
-    result = real_dump_journey.main([
-        "--tier", "t4", "--scope", "t4-identity",
-        "--s3-census", str(census), "--v2-input-completeness", "FULL",
-        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "25769803776",
-    ])
+    result = real_dump_journey.main(
+        [
+            "--tier",
+            "t4",
+            "--scope",
+            "t4-identity",
+            "--s3-census",
+            str(census),
+            "--v2-input-completeness",
+            "FULL",
+            "--kernel-threads",
+            "1",
+            "--kernel-memory-budget-bytes",
+            "25769803776",
+        ]
+    )
     assert result == 0
     assert calls["tier_filter"] == "t4"
     assert calls["scope"] == "t4-identity"
@@ -2227,44 +2611,65 @@ def test_s3_t4_census_validates_only_the_two_selected_package_identities(
             payload = dataset_id.encode("ascii")
             if is_t4:
                 (packages / f"{dataset_id}.tar.gz").write_bytes(payload)
-            datasets.append({
-                "dataset_id": dataset_id,
-                "tier": "t4" if is_t4 else "other",
-                "pair_of": pair_of,
-                "has_logics_xml": True,
-                "files": [{
-                    "path": "package.tar.gz", "bytes": len(payload),
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                }],
-            })
+            datasets.append(
+                {
+                    "dataset_id": dataset_id,
+                    "tier": "t4" if is_t4 else "other",
+                    "pair_of": pair_of,
+                    "has_logics_xml": True,
+                    "files": [
+                        {
+                            "path": "package.tar.gz",
+                            "bytes": len(payload),
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                        }
+                    ],
+                }
+            )
             pseudo = 3 if dataset_id == v2_id and is_t4 else 2 if is_t4 else 0
-            census.append({
-                "dataset_id": dataset_id,
-                "table_count": 2 if is_t4 else 1, "row_count_total": 3,
-                **({
-                    "staging_status": "COMPLETE",
-                    "materialization_status": "COMPLETE",
-                    "composite_stage_status": "COMPLETE",
-                    "logics_xml_status": "complete",
-                    "duplicate_key_scan_status": "complete",
-                    "source_ddl_table_count": 1,
-                    "role_table_counts": {"SKIP": 0},
-                    "canonical_rows_by_table": {
-                        "ordered_t": 3,
-                        "composite_signal_point": 0,
+            census.append(
+                {
+                    "dataset_id": dataset_id,
+                    "table_count": 2 if is_t4 else 1,
+                    "row_count_total": 3,
+                    **(
+                        {
+                            "staging_status": "COMPLETE",
+                            "materialization_status": "COMPLETE",
+                            "composite_stage_status": "COMPLETE",
+                            "logics_xml_status": "complete",
+                            "duplicate_key_scan_status": "complete",
+                            "source_ddl_table_count": 1,
+                            "role_table_counts": {"SKIP": 0},
+                            "canonical_rows_by_table": {
+                                "ordered_t": 3,
+                                "composite_signal_point": 0,
+                            },
+                        }
+                        if is_t4
+                        else {}
+                    ),
+                    "ordered_projection": {
+                        "status": "COMPLETE",
+                        "pseudo_rows_total": pseudo,
+                        "tables": {
+                            "ordered_t": {
+                                "status": "COMPLETE",
+                                "pseudo_gid_count": pseudo,
+                                "row_count": 3,
+                            }
+                        },
                     },
-                } if is_t4 else {}),
-                "ordered_projection": {
-                    "status": "COMPLETE", "pseudo_rows_total": pseudo,
-                    "tables": {"ordered_t": {
-                        "status": "COMPLETE", "pseudo_gid_count": pseudo, "row_count": 3,
-                    }},
-                },
-                **({
-                    "effective_key_scan_status": "complete",
-                    "effective_key_unresolved_tables": [],
-                } if is_t4 else {"effective_key_scan": {"unresolved_tables": []}}),
-            })
+                    **(
+                        {
+                            "effective_key_scan_status": "complete",
+                            "effective_key_unresolved_tables": [],
+                        }
+                        if is_t4
+                        else {"effective_key_scan": {"unresolved_tables": []}}
+                    ),
+                }
+            )
     (root / "datasets.json").write_text(json.dumps({"datasets": datasets}), encoding="utf-8")
     census_path = tmp_path / "accepted-census.json"
     census_path.write_text(json.dumps({"datasets": census}), encoding="utf-8")
@@ -2272,7 +2677,8 @@ def test_s3_t4_census_validates_only_the_two_selected_package_identities(
     result = real_dump_journey.validate_inputs(s3_census=census_path, tier_filter="t4")
     assert result["conclusion"] == "INPUTS_VALID"
     assert [item["dataset_id"] for item in result["datasets"]] == [
-        "rd-t4-d-v1", "rd-t4-d-v2",
+        "rd-t4-d-v1",
+        "rd-t4-d-v2",
     ]
     assert [item["pseudo_rows_total"] for item in result["datasets"]] == [2, 3]
 
@@ -2293,7 +2699,8 @@ def test_failed_real_dump_saves_logs_and_preserves_requested_stack(
     monkeypatch.setenv("GATEWAY_REAL_DUMP_LOG_DIR", str(log_directory))
     monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
     monkeypatch.setattr(
-        real_dump_journey, "_read_metadata",
+        real_dump_journey,
+        "_read_metadata",
         lambda _root, *, census_path=None: ({}, {}),
     )
 
@@ -2308,17 +2715,20 @@ def test_failed_real_dump_saves_logs_and_preserves_requested_stack(
         "_compose_environment",
         lambda *_args, **_kwargs: {"COMPOSE_PROJECT_NAME": "unit-real-dump"},
     )
-    monkeypatch.setattr(real_dump_journey, "_repository_service_url", lambda _env: "http://repository")
+    monkeypatch.setattr(
+        real_dump_journey, "_repository_service_url", lambda _env: "http://repository"
+    )
     monkeypatch.setattr(
         real_dump_journey,
         "_offline_composite_comparison",
-            lambda **_kwargs: {"counts": {}, "elapsed_seconds": 0.0},
+        lambda **_kwargs: {"counts": {}, "elapsed_seconds": 0.0},
     )
     monkeypatch.setattr(
         real_dump_journey,
         "acquire_compose_gate_lock",
         lambda: None,
     )
+
     def start_stack(*_args: Any) -> tuple[str, str]:
         if failure_point == "stack startup":
             raise JourneyFailure(failure_message)
@@ -2383,9 +2793,7 @@ def test_failed_real_dump_saves_logs_and_preserves_requested_stack(
         )
 
     assert events == (
-        ["diagnostics", "logs"]
-        if failure_point == "worker stall"
-        else ["logs", "cleanup"]
+        ["diagnostics", "logs"] if failure_point == "worker stall" else ["logs", "cleanup"]
     )
     compose_logs = list(log_directory.glob("*.compose.log"))
     assert len(compose_logs) == 1
@@ -2402,15 +2810,24 @@ def test_debug_step_order_covers_every_business_action() -> None:
 
 
 @pytest.mark.parametrize("authorization", ["missing", "issue", "subject"])
-def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(monkeypatch: pytest.MonkeyPatch, authorization: str) -> None:
+def test_archive_consumer_requires_explicit_business_reason_and_references_each_latest_subject(
+    monkeypatch: pytest.MonkeyPatch, authorization: str
+) -> None:
     with_reason = authorization != "missing"
     calls: list[dict[str, Any]] = []
     selected = {"submission_id": "sub", "expected_candidate_digest": "sha256:" + "1" * 64}
     candidate = {**selected, "review_version": 1}
-    anomaly = {"subject_kind": "CONFIGURATION_TIME_QUALITY", "issue_code": "GENERATION_TIME_MISSING",
-        "subject_digest": "sha256:" + "2" * 64, "target_submission_id": "sub", "target_candidate_digest": selected["expected_candidate_digest"],
-        "latest_sequence": 4, "resolution_status": "REVOKED"}
+    anomaly = {
+        "subject_kind": "CONFIGURATION_TIME_QUALITY",
+        "issue_code": "GENERATION_TIME_MISSING",
+        "subject_digest": "sha256:" + "2" * 64,
+        "target_submission_id": "sub",
+        "target_candidate_digest": selected["expected_candidate_digest"],
+        "latest_sequence": 4,
+        "resolution_status": "REVOKED",
+    }
     previews = 0
+
     def respond(request: httpx.Request) -> httpx.Response:
         nonlocal previews
         assert request.headers["Authorization"] == "Bearer fresh-group-reviewer"
@@ -2421,22 +2838,50 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
         assert body["selected"] == selected
         if request.url.path == "/v1/archive-plan-preview":
             previews += 1
-            return httpx.Response(200, json={"can_start": previews > 1, "audit_validity": previews > 1,
-                "head": {"business_baseline_node_id": "node", "baseline_head_version": 1},
-                "candidate_set_digest": "sha256:" + "3" * 64, "selection_subject_digest": "sha256:" + "4" * 64,
-                "anomalies": [anomaly]})
+            return httpx.Response(
+                200,
+                json={
+                    "can_start": previews > 1,
+                    "audit_validity": previews > 1,
+                    "head": {"business_baseline_node_id": "node", "baseline_head_version": 1},
+                    "candidate_set_digest": "sha256:" + "3" * 64,
+                    "selection_subject_digest": "sha256:" + "4" * 64,
+                    "anomalies": [anomaly],
+                },
+            )
         calls.append(body)
         if request.url.path == "/v1/archive-anomaly-resolutions":
             assert body["expected_sequence"] == 4 and body["action"] == "ACKNOWLEDGE_TIME_QUALITY"
             return httpx.Response(201, json={"sequence": 5})
         if request.url.path == "/v1/archives":
-            assert body["anomaly_resolution_refs"] == [{"subject_digest": anomaly["subject_digest"], "sequence": 5}]
-            return httpx.Response(201, json={"archive_result_id": "result", "baseline_node_id": "archived-node"})
+            assert body["anomaly_resolution_refs"] == [
+                {"subject_digest": anomaly["subject_digest"], "sequence": 5}
+            ]
+            return httpx.Response(
+                201, json={"archive_result_id": "result", "baseline_node_id": "archived-node"}
+            )
         return httpx.Response(201, json={"sequence": 1})
-    monkeypatch.setenv("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", json.dumps({anomaly["subject_digest"] if authorization == "subject" else "GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"}) if with_reason else "{}")
+
+    monkeypatch.setenv(
+        "GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON",
+        json.dumps(
+            {
+                anomaly["subject_digest"]
+                if authorization == "subject"
+                else "GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"
+            }
+        )
+        if with_reason
+        else "{}",
+    )
     with httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond)) as client:
         if with_reason:
-            assert real_dump_journey._archive(client, "sub", "consumer", token="fresh-group-reviewer")["archive_result_id"] == "result"
+            assert (
+                real_dump_journey._archive(client, "sub", "consumer", token="fresh-group-reviewer")[
+                    "archive_result_id"
+                ]
+                == "result"
+            )
         else:
             with pytest.raises(JourneyFailure, match="explicit reason"):
                 real_dump_journey._archive(client, "sub", "consumer", token="fresh-group-reviewer")
@@ -2452,7 +2897,10 @@ SUBMIT_MAIN_RESPONSE_CASES = (
 
 @pytest.mark.parametrize(("status", "payload", "error"), SUBMIT_MAIN_RESPONSE_CASES)
 def test_submit_measurement_reads_a_validated_repository_main(
-    monkeypatch: pytest.MonkeyPatch, status: int, payload: dict[str, Any], error: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    payload: dict[str, Any],
+    error: str | None,
 ) -> None:
     client_type = httpx.Client
     seen: list[str] = []
@@ -2467,7 +2915,9 @@ def test_submit_measurement_reads_a_validated_repository_main(
 
     monkeypatch.setattr(httpx, "Client", client)
     if error is None:
-        assert real_dump_journey._repository_main_commit("http://repository.test", "repo") == "a" * 32
+        assert (
+            real_dump_journey._repository_main_commit("http://repository.test", "repo") == "a" * 32
+        )
     else:
         with pytest.raises(JourneyFailure, match=error):
             real_dump_journey._repository_main_commit("http://repository.test", "repo")
@@ -2475,7 +2925,9 @@ def test_submit_measurement_reads_a_validated_repository_main(
 
 
 def test_repository_mutation_snapshot_observes_async_and_synchronous_effects(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     database = tmp_path / "repository.sqlite3"
     connection = sqlite3.connect(database)
@@ -2519,7 +2971,9 @@ def test_repeated_submit_requires_zero_new_repository_mutations(
     after = {name: list(ids) for name, ids in before.items()}
     if change is None:
         assert real_dump_journey._assert_no_repository_mutations(before, after) == {
-            "before": before, "after": after, "new_operation_count": 0,
+            "before": before,
+            "after": after,
+            "new_operation_count": 0,
         }
     else:
         after[change[0]].append(change[1])
@@ -2528,7 +2982,8 @@ def test_repeated_submit_requires_zero_new_repository_mutations(
 
 
 def test_submit_measurement_cli_passes_its_evidence_directory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     calls: dict[str, Any] = {}
 
@@ -2538,17 +2993,32 @@ def test_submit_measurement_cli_passes_its_evidence_directory(
 
     monkeypatch.setattr(real_dump_journey, "run_journey", run)
     output = tmp_path / "submit-facts"
-    assert real_dump_journey.main([
-        "--tier", "t4", "--scope", "full", "--v2-input-completeness", "FULL",
-        "--submit-measurements", str(output),
-        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "42949672960",
-    ]) == 0
+    assert (
+        real_dump_journey.main(
+            [
+                "--tier",
+                "t4",
+                "--scope",
+                "full",
+                "--v2-input-completeness",
+                "FULL",
+                "--submit-measurements",
+                str(output),
+                "--kernel-threads",
+                "1",
+                "--kernel-memory-budget-bytes",
+                "42949672960",
+            ]
+        )
+        == 0
+    )
     assert calls["submit_measurements"] == output
     assert calls["v2_input_completeness"] == "FULL"
 
 
 def test_s4_cold_measurement_cli_passes_repeat_skip_only_for_synthetic_mode(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     calls: dict[str, Any] = {}
 
@@ -2557,32 +3027,55 @@ def test_s4_cold_measurement_cli_passes_repeat_skip_only_for_synthetic_mode(
         return {"conclusion": "PASS"}
 
     monkeypatch.setattr(real_dump_journey, "run_journey", run)
-    assert real_dump_journey.main([
-        "--tier", "t4", "--scope", "full", "--s3-census", str(tmp_path / "census.json"),
-        "--v2-input-completeness", "MODIFIED_ONLY", "--s4-skip-repeat-v1",
-        "--submit-measurements", str(tmp_path / "submit-facts"),
-        "--kernel-threads", "1", "--kernel-memory-budget-bytes", "42949672960",
-    ]) == 0
+    assert (
+        real_dump_journey.main(
+            [
+                "--tier",
+                "t4",
+                "--scope",
+                "full",
+                "--s3-census",
+                str(tmp_path / "census.json"),
+                "--v2-input-completeness",
+                "MODIFIED_ONLY",
+                "--s4-skip-repeat-v1",
+                "--submit-measurements",
+                str(tmp_path / "submit-facts"),
+                "--kernel-threads",
+                "1",
+                "--kernel-memory-budget-bytes",
+                "42949672960",
+            ]
+        )
+        == 0
+    )
     assert calls["skip_repeat_v1"] is True
 
 
 def test_s4_cold_repeat_skip_rejects_full_input_before_evidence_creation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     census = _synthetic_census()
     census["effective_key_scan_status"] = "complete"
     census["effective_key_unresolved_tables"] = []
     monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
     monkeypatch.setattr(
-        real_dump_journey, "_read_metadata",
-        lambda _root, *, census_path: ({}, {dataset_id: census for dataset_id in
-                                   real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]}),
+        real_dump_journey,
+        "_read_metadata",
+        lambda _root, *, census_path: (
+            {},
+            {dataset_id: census for dataset_id in real_dump_journey.EXPECTED_PAIRINGS["rd-t4-d"]},
+        ),
     )
     output = tmp_path / "submit-facts"
     with pytest.raises(JourneyFailure, match="cold modified-only measurement"):
         real_dump_journey.run_journey(
-            tier_filter="t4", s3_census=tmp_path / "census.json", scope="full",
-            v2_input_completeness="FULL", submit_measurements=output,
+            tier_filter="t4",
+            s3_census=tmp_path / "census.json",
+            scope="full",
+            v2_input_completeness="FULL",
+            submit_measurements=output,
             skip_repeat_v1=True,
         )
     assert not output.exists()
@@ -2590,12 +3083,18 @@ def test_s4_cold_repeat_skip_rejects_full_input_before_evidence_creation(
 
 def test_fresh_submit_attribution_requires_table_events_for_both_versions() -> None:
     phases = [
-        [{"event": "submit_storage_table", "table": "one"},
-         {"event": "submit_storage_summary"}, {"event": "submit_package_publish"},
-         {"event": "submit_package_readback"}],
-        [{"event": "submit_storage_table", "table": "two"},
-         {"event": "submit_storage_summary"}, {"event": "submit_package_publish"},
-         {"event": "submit_package_readback"}],
+        [
+            {"event": "submit_storage_table", "table": "one"},
+            {"event": "submit_storage_summary"},
+            {"event": "submit_package_publish"},
+            {"event": "submit_package_readback"},
+        ],
+        [
+            {"event": "submit_storage_table", "table": "two"},
+            {"event": "submit_storage_summary"},
+            {"event": "submit_package_publish"},
+            {"event": "submit_package_readback"},
+        ],
     ]
     assert len(_submit_event_phases(phases[0] + phases[1])) == 2
     with pytest.raises(RuntimeError, match="distinct table segment"):
@@ -2611,7 +3110,10 @@ SUBMIT_MAIN_MOVEMENT_CASES = (
 
 @pytest.mark.parametrize(("main_before", "main_after", "error"), SUBMIT_MAIN_MOVEMENT_CASES)
 def test_submit_completion_measurement_requires_technical_main_movement(
-    monkeypatch: pytest.MonkeyPatch, main_before: str, main_after: str, error: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    main_before: str,
+    main_after: str,
+    error: str | None,
 ) -> None:
     clock = [0.0]
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])
@@ -2636,15 +3138,26 @@ def test_submit_completion_measurement_requires_technical_main_movement(
 
     monkeypatch.setattr(real_dump_journey, "_repository_main_commit", read_main)
     monkeypatch.setattr(real_dump_journey, "_poll_operation", poll)
-    with httpx.Client(base_url="http://backend.test", transport=httpx.MockTransport(respond)) as client:
+    with httpx.Client(
+        base_url="http://backend.test", transport=httpx.MockTransport(respond)
+    ) as client:
+
         def submit() -> dict[str, Any]:
             return real_dump_journey._submit(
-                client, workspace={"workspace_id": "workspace"}, upload={"upload_revision_id": "upload"},
-                preview={"workspace": {"optimistic_version": 1, "generation": 1},
-                         "result": {"preview_result_id": "preview"}},
-                baseline_node_id="baseline", baseline_head_version=0,
-                idempotency_key="submit", stage="submit-clock", operation_timeout_seconds=100,
-                collect_timing=True, verify_repository=("http://repository.test", "repo", "a" * 32),
+                client,
+                workspace={"workspace_id": "workspace"},
+                upload={"upload_revision_id": "upload"},
+                preview={
+                    "workspace": {"optimistic_version": 1, "generation": 1},
+                    "result": {"preview_result_id": "preview"},
+                },
+                baseline_node_id="baseline",
+                baseline_head_version=0,
+                idempotency_key="submit",
+                stage="submit-clock",
+                operation_timeout_seconds=100,
+                collect_timing=True,
+                verify_repository=("http://repository.test", "repo", "a" * 32),
             )
 
         if error is not None:
@@ -2664,17 +3177,33 @@ def test_submit_completion_measurement_requires_technical_main_movement(
 
 def _s4_successful_journey(v1_seconds: object, v2_seconds: object) -> dict[str, Any]:
     def submit(seconds: object) -> dict[str, Any]:
-        return {"request_to_main_verified_seconds": seconds,
-                "technical_main_before": "a" * 32, "technical_main_after": "b" * 32,
-                "reconciliation": {"repository_import_status": "SUCCEEDED"}}
+        return {
+            "request_to_main_verified_seconds": seconds,
+            "technical_main_before": "a" * 32,
+            "technical_main_after": "b" * 32,
+            "reconciliation": {"repository_import_status": "SUCCEEDED"},
+        }
 
-    return {"head": "c" * 40, "conclusion": "PASS", "datasets": [{
-        "tier": "t4", "conclusion": "PASS",
-        "datasets": [{"input_completeness": "FULL"}, {"input_completeness": "MODIFIED_ONLY"}],
-        "repeat_v1": {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"},
-        "step_metrics": [],
-        "operation_timings": {"v1_submit": submit(v1_seconds), "v2_submit": submit(v2_seconds)},
-    }]}
+    return {
+        "head": "c" * 40,
+        "conclusion": "PASS",
+        "datasets": [
+            {
+                "tier": "t4",
+                "conclusion": "PASS",
+                "datasets": [
+                    {"input_completeness": "FULL"},
+                    {"input_completeness": "MODIFIED_ONLY"},
+                ],
+                "repeat_v1": {"status": "SKIPPED_FOR_S4_COLD_MODIFIED_ONLY"},
+                "step_metrics": [],
+                "operation_timings": {
+                    "v1_submit": submit(v1_seconds),
+                    "v2_submit": submit(v2_seconds),
+                },
+            }
+        ],
+    }
 
 
 S4_SLOW_VALID_SUBMITS = (
@@ -2684,11 +3213,16 @@ S4_SLOW_VALID_SUBMITS = (
 )
 
 
-@pytest.mark.parametrize(("profile", "v1_seconds", "v2_seconds", "v1_target", "v2_target"),
-                         S4_SLOW_VALID_SUBMITS)
+@pytest.mark.parametrize(
+    ("profile", "v1_seconds", "v2_seconds", "v1_target", "v2_target"), S4_SLOW_VALID_SUBMITS
+)
 def test_submit_measurement_reports_valid_slow_completion(
-    tmp_path: Path, profile: str, v1_seconds: float, v2_seconds: float,
-    v1_target: int | None, v2_target: int | None,
+    tmp_path: Path,
+    profile: str,
+    v1_seconds: float,
+    v2_seconds: float,
+    v1_target: int | None,
+    v2_target: int | None,
 ) -> None:
     log = tmp_path / "journey.log"
     log.write_text(json.dumps(_s4_successful_journey(v1_seconds, v2_seconds)) + "\n")
@@ -2697,10 +3231,16 @@ def test_submit_measurement_reports_valid_slow_completion(
 
     targets = result["datasets"][0]["submit_target_results"]
     assert targets == {
-        "v1_submit": {"elapsed_seconds": v1_seconds, "target_seconds": v1_target,
-                      "met": None if v1_target is None else False},
-        "v2_submit": {"elapsed_seconds": v2_seconds, "target_seconds": v2_target,
-                      "met": None if v2_target is None else False},
+        "v1_submit": {
+            "elapsed_seconds": v1_seconds,
+            "target_seconds": v1_target,
+            "met": None if v1_target is None else False,
+        },
+        "v2_submit": {
+            "elapsed_seconds": v2_seconds,
+            "target_seconds": v2_target,
+            "met": None if v2_target is None else False,
+        },
     }
 
 
@@ -2708,7 +3248,9 @@ S4_INVALID_COMPLETION_CLOCKS = (-1.0, float("nan"), float("inf"), -float("inf"),
 
 
 @pytest.mark.parametrize("seconds", S4_INVALID_COMPLETION_CLOCKS)
-def test_submit_measurement_rejects_invalid_completion_clock(tmp_path: Path, seconds: object) -> None:
+def test_submit_measurement_rejects_invalid_completion_clock(
+    tmp_path: Path, seconds: object
+) -> None:
     log = tmp_path / "journey.log"
     log.write_text(json.dumps(_s4_successful_journey(299.0, seconds)) + "\n")
 
@@ -2718,10 +3260,14 @@ def test_submit_measurement_rejects_invalid_completion_clock(tmp_path: Path, sec
 
 @pytest.mark.parametrize("prebuilt", (None, "1"))
 def test_real_journey_environment_preserves_explicit_build_phase(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prebuilt: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    prebuilt: str | None,
 ) -> None:
     monkeypatch.delenv("GATEWAY_COMPOSE_GATE_PREBUILT", raising=False)
     if prebuilt is not None:
         monkeypatch.setenv("GATEWAY_COMPOSE_GATE_PREBUILT", prebuilt)
-    environment = real_dump_journey._compose_environment(tmp_path, "journey-build-phase", write_secrets=False)
+    environment = real_dump_journey._compose_environment(
+        tmp_path, "journey-build-phase", write_secrets=False
+    )
     assert environment.get("GATEWAY_COMPOSE_GATE_PREBUILT") == prebuilt

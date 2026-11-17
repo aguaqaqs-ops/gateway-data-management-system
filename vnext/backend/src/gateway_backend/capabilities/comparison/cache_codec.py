@@ -3,6 +3,7 @@
 Facts, artifact and risk orders are separate Arrow views. Restoring them uses
 only the real Comparison facade, then the ordinary current-pair publishers.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,12 +18,17 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison import native
 from gateway_backend.capabilities.comparison.contracts import (
-    BlankExtension, BlankSummary, ComparisonSchemaChanges, ComparisonTableFact,
-    OrderedExtension, OrderedSummary,
+    BlankExtension,
+    BlankSummary,
+    ComparisonSchemaChanges,
+    ComparisonTableFact,
+    OrderedExtension,
+    OrderedSummary,
     TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.task_input import (
-    TABLE_CACHE_FORMAT, TableTaskIdentity,
+    TABLE_CACHE_FORMAT,
+    TableTaskIdentity,
 )
 from gateway_backend.capabilities.snapshot_materialization import KernelExecutionContext
 
@@ -86,8 +92,9 @@ class ComparisonCachePayload:
         self.charges.close()
 
 
-def _encode_view(name: str, reader: pa.RecordBatchReader,
-                 context: KernelExecutionContext, charges: ExitStack) -> ComparisonCacheView:
+def _encode_view(
+    name: str, reader: pa.RecordBatchReader, context: KernelExecutionContext, charges: ExitStack
+) -> ComparisonCacheView:
     # Preserve actual batch boundaries; 1024 bounds each batch, while the
     # total row bound also bounds the number of nonempty batches. The header
     # reservation precedes Python's tuple/Arrow wrapper allocation.
@@ -95,14 +102,21 @@ def _encode_view(name: str, reader: pa.RecordBatchReader,
         batches = tuple(reader)
         schema = reader.schema
         rows = tuple(batch.num_rows for batch in batches)
-        if (sum(rows) > MAX_CACHE_ROWS or any(count < 1 or count > 1024 for count in rows)
-                or len(rows) > MAX_CACHE_ROWS):
+        if (
+            sum(rows) > MAX_CACHE_ROWS
+            or any(count < 1 or count > 1024 for count in rows)
+            or len(rows) > MAX_CACHE_ROWS
+        ):
             raise ValueError("neutral cache batch/count bound exceeded")
         if not rows:
             return ComparisonCacheView(name, schema, b"", raw_blob_digest(b""), ())
         schema_size = schema.serialize().size
-        upper = 4 * (sum(batch.get_total_buffer_size() for batch in batches)
-                     + schema_size * (len(batches) + 1) + len(batches) * 8192 + 65536)
+        upper = 4 * (
+            sum(batch.get_total_buffer_size() for batch in batches)
+            + schema_size * (len(batches) + 1)
+            + len(batches) * 8192
+            + 65536
+        )
         reservation = context.memory.reserve(upper)
         try:
             with BytesIO() as sink:
@@ -139,8 +153,13 @@ def restore_table_fact(raw: bytes, task: TableComparisonTask) -> ComparisonTable
         value = data[name]
         if value is None:
             continue
-        for key in ("before_ordered_digest", "current_ordered_digest", "before_occupancy_digest",
-                    "current_occupancy_digest", "policy_digest"):
+        for key in (
+            "before_ordered_digest",
+            "current_ordered_digest",
+            "before_occupancy_digest",
+            "current_occupancy_digest",
+            "policy_digest",
+        ):
             if key in value and value[key] is not None:
                 value[key] = DigestRef(value[key])
         if name == "ordered_extension":
@@ -149,8 +168,12 @@ def restore_table_fact(raw: bytes, task: TableComparisonTask) -> ComparisonTable
         else:
             value["blank_summary"] = BlankSummary(**value["blank_summary"])
             data[name] = BlankExtension(**value)
-    return ComparisonTableFact(table_name=task.table_name, before_descriptor=task.before_descriptor,
-                               current_descriptor=task.current_descriptor, **data)
+    return ComparisonTableFact(
+        table_name=task.table_name,
+        before_descriptor=task.before_descriptor,
+        current_descriptor=task.current_descriptor,
+        **data,
+    )
 
 
 class _RestoreOwner:
@@ -190,8 +213,12 @@ def _open_view(view: ComparisonCacheView, context: KernelExecutionContext) -> pa
 
 class ComparisonCacheCodec:
     @staticmethod
-    def encode(handle: native.ComparisonRecordsHandle | None, identity: TableTaskIdentity,
-               fact: ComparisonTableFact, context: KernelExecutionContext) -> ComparisonCachePayload:
+    def encode(
+        handle: native.ComparisonRecordsHandle | None,
+        identity: TableTaskIdentity,
+        fact: ComparisonTableFact,
+        context: KernelExecutionContext,
+    ) -> ComparisonCachePayload:
         context.require_active()
         if handle is not None:
             handle.require_operation(id(context.memory))
@@ -213,46 +240,89 @@ class ComparisonCacheCodec:
             if handle is not None:
                 families = tuple(handle.cache_family_names())
                 for family in FAMILIES:
-                    views.append(_encode_view(f"facts/{family}", handle.facts_batches(family), context, charges))
+                    views.append(
+                        _encode_view(
+                            f"facts/{family}", handle.facts_batches(family), context, charges
+                        )
+                    )
                 for family in families:
-                    views.append(_encode_view(f"artifact/{family}", handle.neutral_record_batches(family), context, charges))
+                    views.append(
+                        _encode_view(
+                            f"artifact/{family}",
+                            handle.neutral_record_batches(family),
+                            context,
+                            charges,
+                        )
+                    )
                 for family in FAMILIES:
-                    views.append(_encode_view(f"risk/{family}", handle.risk_record_batches(family), context, charges))
-            return ComparisonCachePayload(identity.repository_id, identity.artifact_scope,
-                identity.task_digest, identity.task_input.kind, identity.task_input.detail_policy.value,
-                fact_jcs, metadata, families, tuple(views), charges=charges)
+                    views.append(
+                        _encode_view(
+                            f"risk/{family}", handle.risk_record_batches(family), context, charges
+                        )
+                    )
+            return ComparisonCachePayload(
+                identity.repository_id,
+                identity.artifact_scope,
+                identity.task_digest,
+                identity.task_input.kind,
+                identity.task_input.detail_policy.value,
+                fact_jcs,
+                metadata,
+                families,
+                tuple(views),
+                charges=charges,
+            )
         except BaseException:
             charges.close()
             raise
 
     @staticmethod
-    def restore(payload: ComparisonCachePayload, identity: TableTaskIdentity,
-                task: TableComparisonTask, operation: native.ComparisonOperation,
-                context: KernelExecutionContext) -> tuple[ComparisonTableFact, native.ComparisonRecordsHandle | None]:
+    def restore(
+        payload: ComparisonCachePayload,
+        identity: TableTaskIdentity,
+        task: TableComparisonTask,
+        operation: native.ComparisonOperation,
+        context: KernelExecutionContext,
+    ) -> tuple[ComparisonTableFact, native.ComparisonRecordsHandle | None]:
         context.require_active()
         operation.require_operation(id(context.memory))
         context.checkpoint()
-        if (payload.format != TABLE_CACHE_FORMAT or not payload.complete
-                or payload.repository_id != identity.repository_id
-                or payload.artifact_scope != identity.artifact_scope
-                or payload.task_digest != identity.task_digest
-                or payload.task_kind != identity.task_input.kind
-                or payload.detail_policy != identity.task_input.detail_policy.value):
+        if (
+            payload.format != TABLE_CACHE_FORMAT
+            or not payload.complete
+            or payload.repository_id != identity.repository_id
+            or payload.artifact_scope != identity.artifact_scope
+            or payload.task_digest != identity.task_digest
+            or payload.task_kind != identity.task_input.kind
+            or payload.detail_policy != identity.task_input.detail_policy.value
+        ):
             raise ValueError("neutral cache task/scope/version mismatch")
-        if len(payload.table_fact_jcs) + len((payload.native_metadata_json or "").encode()) > MAX_CACHE_MANIFEST_BYTES:
+        if (
+            len(payload.table_fact_jcs) + len((payload.native_metadata_json or "").encode())
+            > MAX_CACHE_MANIFEST_BYTES
+        ):
             raise ValueError("neutral cache manifest exceeds bound")
         upper = 4 * (sum(len(view.raw) for view in payload.views) + MAX_CACHE_MANIFEST_BYTES)
         owner = _RestoreOwner(context.memory.reserve(upper), payload)
         handle: native.ComparisonRecordsHandle | None = None
         try:
             fact = restore_table_fact(payload.table_fact_jcs, task)
-            for name, descriptor in (("row_count_before", task.before_descriptor), ("row_count_current", task.current_descriptor)):
+            for name, descriptor in (
+                ("row_count_before", task.before_descriptor),
+                ("row_count_current", task.current_descriptor),
+            ):
                 if getattr(fact, name) != (None if descriptor is None else descriptor.row_count):
                     raise ValueError("neutral table count differs from task descriptor")
             if payload.native_metadata_json is None:
-                if (payload.task_kind not in {"ordered-current-summary", "nonrecord-shared-multiset"}
-                        or payload.views or payload.families or fact.row_added_count
-                        or fact.row_deleted_count or fact.row_modified_count):
+                if (
+                    payload.task_kind
+                    not in {"ordered-current-summary", "nonrecord-shared-multiset"}
+                    or payload.views
+                    or payload.families
+                    or fact.row_added_count
+                    or fact.row_deleted_count
+                    or fact.row_modified_count
+                ):
                     raise ValueError("row-comparison cache is missing its complete row views")
                 owner.close()
                 return fact, None
@@ -263,26 +333,54 @@ class ComparisonCacheCodec:
                 raise ValueError("neutral native metadata must omit current table binding")
             if identity.task_input.native_kind == "ordered":
                 native_data["table_name"] = task.table_name
-            expected = tuple(f"facts/{family}" for family in FAMILIES) + tuple(
-                f"artifact/{family}" for family in payload.families) + tuple(f"risk/{family}" for family in FAMILIES)
-            if (len(payload.views) > 9 or tuple(view.name for view in payload.views) != expected
-                    or not payload.families or len(set(payload.families)) != len(payload.families)
-                    or any(family not in FAMILIES for family in payload.families)):
+            expected = (
+                tuple(f"facts/{family}" for family in FAMILIES)
+                + tuple(f"artifact/{family}" for family in payload.families)
+                + tuple(f"risk/{family}" for family in FAMILIES)
+            )
+            if (
+                len(payload.views) > 9
+                or tuple(view.name for view in payload.views) != expected
+                or not payload.families
+                or len(set(payload.families)) != len(payload.families)
+                or any(family not in FAMILIES for family in payload.families)
+            ):
                 raise ValueError("neutral cache view closure mismatch")
             with ExitStack() as streams:
-                readers = {view.name: streams.enter_context(closing(_open_view(view, context))) for view in payload.views}
-                handle = native.restore_table_cache(operation, table_name=task.table_name,
+                readers = {
+                    view.name: streams.enter_context(closing(_open_view(view, context)))
+                    for view in payload.views
+                }
+                handle = native.restore_table_cache(
+                    operation,
+                    table_name=task.table_name,
                     kind=identity.task_input.native_kind,
-                    metadata_json=json.dumps(native_data, separators=(",", ":")), detail_policy=payload.detail_policy,
-                    family_names=list(payload.families), facts=[readers[f"facts/{family}"] for family in FAMILIES],
+                    metadata_json=json.dumps(native_data, separators=(",", ":")),
+                    detail_policy=payload.detail_policy,
+                    family_names=list(payload.families),
+                    facts=[readers[f"facts/{family}"] for family in FAMILIES],
                     artifacts=[readers[f"artifact/{family}"] for family in payload.families],
-                    risk=readers["risk/STANDARD"], ordered_risk=readers["risk/ORDERED"],
-                    blank_risk=readers["risk/BLANK"], input_owner_charge=owner,
-                    max_records=MAX_CACHE_ROWS, max_row_bytes=MAX_FACT_ROW_BYTES, max_input_bytes=upper)
+                    risk=readers["risk/STANDARD"],
+                    ordered_risk=readers["risk/ORDERED"],
+                    blank_risk=readers["risk/BLANK"],
+                    input_owner_charge=owner,
+                    max_records=MAX_CACHE_ROWS,
+                    max_row_bytes=MAX_FACT_ROW_BYTES,
+                    max_input_bytes=upper,
+                )
             from gateway_backend.capabilities.comparison.row_encoding import _schema_view
-            if task.before_descriptor is None or task.current_descriptor is None or task.policy is None:
+
+            if (
+                task.before_descriptor is None
+                or task.current_descriptor is None
+                or task.policy is None
+            ):
                 raise ValueError("row task requires complete current descriptors")
-            expected_fact = native.table_fact(task, handle, _schema_view(task.before_descriptor, task.current_descriptor, task.policy))
+            expected_fact = native.table_fact(
+                task,
+                handle,
+                _schema_view(task.before_descriptor, task.current_descriptor, task.policy),
+            )
             if _neutral_fact(fact) != _neutral_fact(expected_fact):
                 raise ValueError("neutral table/native metadata outcome mismatch")
             context.checkpoint()

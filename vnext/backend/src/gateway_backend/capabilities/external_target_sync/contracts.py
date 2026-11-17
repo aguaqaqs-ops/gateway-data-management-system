@@ -93,9 +93,16 @@ class TargetRegistration:
         for label in ("canonical_projection_digest", "repository_base_digest"):
             if type(getattr(self, label)) is not DigestRef:
                 raise ValueError(f"{label} must be DigestRef")
-        if self.applied_change_set_digest is not None and type(self.applied_change_set_digest) is not DigestRef:
+        if (
+            self.applied_change_set_digest is not None
+            and type(self.applied_change_set_digest) is not DigestRef
+        ):
             raise ValueError("applied_change_set_digest must be DigestRef or None")
-        if type(self.generation) is not int or isinstance(self.generation, bool) or self.generation < 0:
+        if (
+            type(self.generation) is not int
+            or isinstance(self.generation, bool)
+            or self.generation < 0
+        ):
             raise ValueError("generation must be a non-negative int")
 
     def to_document(self) -> dict[str, object]:
@@ -136,10 +143,7 @@ class ExternalApplyInput:
             raise ValueError("unsupported external target sync contract version")
         if self.change_set_digest != self.change_set_closure.manifest.change_set_digest:
             raise ValueError("change_set_digest must match closure manifest")
-        if (
-            self.expected_repository_base_digest
-            != self.target_registration.repository_base_digest
-        ):
+        if self.expected_repository_base_digest != self.target_registration.repository_base_digest:
             raise ValueError("expected_repository_base_digest must match target registration")
 
 
@@ -161,9 +165,15 @@ class ExternalApplyResult:
             raise ValueError("outcome must be ExternalSyncOutcome")
         if type(self.change_set_digest) is not DigestRef:
             raise ValueError("change_set_digest must be DigestRef")
-        if self.failure_code is not None and type(self.failure_code) is not ExternalApplyFailureCode:
+        if (
+            self.failure_code is not None
+            and type(self.failure_code) is not ExternalApplyFailureCode
+        ):
             raise ValueError("failure_code must be ExternalApplyFailureCode or None")
-        if self.applied_change_set_digest is not None and type(self.applied_change_set_digest) is not DigestRef:
+        if (
+            self.applied_change_set_digest is not None
+            and type(self.applied_change_set_digest) is not DigestRef
+        ):
             raise ValueError("applied_change_set_digest must be DigestRef or None")
         if self.status is ExternalApplyStatus.SUCCEEDED:
             if self.failure_code is not None:
@@ -207,7 +217,10 @@ class ReferenceExecutorCheckpoint:
             raise ValueError("phase must be ExternalApplyPhase")
         if type(self.change_set_digest) is not DigestRef:
             raise ValueError("change_set_digest must be DigestRef")
-        if self.applied_change_set_digest is not None and type(self.applied_change_set_digest) is not DigestRef:
+        if (
+            self.applied_change_set_digest is not None
+            and type(self.applied_change_set_digest) is not DigestRef
+        ):
             raise ValueError("applied_change_set_digest must be DigestRef or None")
         if type(self.ledger_digest) is not DigestRef:
             raise ValueError("ledger_digest must be DigestRef")
@@ -235,7 +248,9 @@ def reference_executor_checkpoint_from_document(
         raise ValueError("reference executor checkpoint document must be a dict")
     _reject_unknown_keys(document, _CHECKPOINT_DOCUMENT_KEYS, "reference executor checkpoint")
     applied_payload = document.get("applied_change_set_digest")
-    applied_digest = None if applied_payload is None else DigestRef(_require_string(applied_payload))
+    applied_digest = (
+        None if applied_payload is None else DigestRef(_require_string(applied_payload))
+    )
     return ReferenceExecutorCheckpoint(
         checkpoint_contract_version=_require_string(document.get("checkpoint_contract_version")),
         target_id=_require_string(document.get("target_id")),
@@ -252,7 +267,9 @@ def target_registration_from_document(document: Mapping[str, object]) -> TargetR
         raise ValueError("target registration document must be a dict")
     _reject_unknown_keys(document, _REGISTRATION_DOCUMENT_KEYS, "target registration")
     applied_payload = document.get("applied_change_set_digest")
-    applied_digest = None if applied_payload is None else DigestRef(_require_string(applied_payload))
+    applied_digest = (
+        None if applied_payload is None else DigestRef(_require_string(applied_payload))
+    )
     return TargetRegistration(
         target_id=_require_string(document.get("target_id")),
         target_dialect=MutationTargetKind(_require_string(document.get("target_dialect"))),
@@ -283,7 +300,9 @@ def _require_int(value: object) -> int:
     return value
 
 
-def _reject_unknown_keys(payload: Mapping[str, object], allowed: frozenset[str], label: str) -> None:
+def _reject_unknown_keys(
+    payload: Mapping[str, object], allowed: frozenset[str], label: str
+) -> None:
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"{label} contains unknown fields: {', '.join(sorted(unknown))}")

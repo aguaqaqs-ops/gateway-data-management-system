@@ -1,4 +1,5 @@
 """Backend artifact ID and raw integrity helpers."""
+
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts.location import build_artifact_id

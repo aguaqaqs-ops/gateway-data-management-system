@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from gateway_backend.statistics.metrics import bind_scope
 
-from gateway_backend.artifacts.location import ArtifactLocation, build_artifact_id, parse_artifact_id
+from gateway_backend.artifacts.location import (
+    ArtifactLocation,
+    build_artifact_id,
+    parse_artifact_id,
+)
 
 import dataclasses
 import json
@@ -129,7 +133,11 @@ from gateway_backend.application.submission.ports import (
 )
 from gateway_backend.application.submission.artifact_refs import store_ref_from_backend_artifact_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
-from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
+from gateway_backend.artifacts.store import (
+    ArtifactStorePort,
+    ManifestVerificationError,
+    put_with_built_ref,
+)
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
@@ -217,7 +225,9 @@ _JOB_STATE_LAST_OBSERVED_REPOSITORY_STATUS = "last_observed_repository_status"
 _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF = "terminal_result_evidence_ref"
 
 _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE = "submit_repository_terminal_evidence"
-_TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION = "backend-vnext/submit/repository-terminal-evidence/v1"
+_TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION = (
+    "backend-vnext/submit/repository-terminal-evidence/v1"
+)
 
 _active_submit_transaction: ContextVar[SubmitFinalizeControlTransaction | None] = ContextVar(
     "_active_submit_transaction",
@@ -269,10 +279,13 @@ class SubmitJobPayload:
     builder_mutation_policy: BuilderMutationPolicy
     options: Mapping[str, object]
 
-
     def __post_init__(self) -> None:
-        for artifact_id in (*self.source_artifact_refs, self.preview_ready_closure_ref,
-                self.canonical_table_set_closure_ref, self.canonicalization_manifest_ref):
+        for artifact_id in (
+            *self.source_artifact_refs,
+            self.preview_ready_closure_ref,
+            self.canonical_table_set_closure_ref,
+            self.canonicalization_manifest_ref,
+        ):
             parse_artifact_id(artifact_id)
 
 
@@ -320,7 +333,9 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
     _reject_unknown_top_level_keys(payload_object)
     document_type = _require_non_empty_str(payload_object, "document_type")
     if document_type != "submit_job_payload":
-        raise PayloadDecodeError("document_type must be submit_job_payload", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "document_type must be submit_job_payload", code="PAYLOAD_SHAPE_INVALID"
+        )
     contract_version = _require_non_empty_str(payload_object, "contract_version")
     if contract_version != SUBMIT_JOB_CONTRACT_VERSION:
         raise PayloadDecodeError(
@@ -334,12 +349,20 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
     preview_result_id = _require_non_empty_str(payload_object, "preview_result_id")
     repository_id = _require_non_empty_str(payload_object, "repository_id")
     business_baseline_node_id = _require_non_empty_str(payload_object, "business_baseline_node_id")
-    business_baseline_commit_id = _require_non_empty_str(payload_object, "business_baseline_commit_id")
+    business_baseline_commit_id = _require_non_empty_str(
+        payload_object, "business_baseline_commit_id"
+    )
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
-    repository_expected_commit_id = _require_non_empty_str(payload_object, "repository_expected_commit_id")
+    repository_expected_commit_id = _require_non_empty_str(
+        payload_object, "repository_expected_commit_id"
+    )
     canonical_business_digest = _require_non_empty_str(payload_object, "canonical_business_digest")
-    configuration_facts_digest = _require_non_empty_str(payload_object, "configuration_facts_digest")
-    source_artifact_refs = _decode_string_tuple(payload_object.get("source_artifact_refs"), label="source_artifact_refs")
+    configuration_facts_digest = _require_non_empty_str(
+        payload_object, "configuration_facts_digest"
+    )
+    source_artifact_refs = _decode_string_tuple(
+        payload_object.get("source_artifact_refs"), label="source_artifact_refs"
+    )
     preview_ready_closure_ref = _require_non_empty_str(payload_object, "preview_ready_closure_ref")
     canonical_table_set_closure_ref = _require_non_empty_str(
         payload_object,
@@ -358,7 +381,9 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         "canonicalization_manifest_digest",
     )
     ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
-    storage_projection_version = _require_non_empty_str(payload_object, "storage_projection_version")
+    storage_projection_version = _require_non_empty_str(
+        payload_object, "storage_projection_version"
+    )
     canonicalization_manifest_contract_version = _require_non_empty_str(
         payload_object,
         "canonicalization_manifest_contract_version",
@@ -367,7 +392,9 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         payload_object,
         "repository_import_package_version",
     )
-    accept_request_fingerprint = _require_non_empty_str(payload_object, "accept_request_fingerprint")
+    accept_request_fingerprint = _require_non_empty_str(
+        payload_object, "accept_request_fingerprint"
+    )
     repository_upload_idempotency_key = _require_non_empty_str(
         payload_object,
         "repository_upload_idempotency_key",
@@ -377,7 +404,9 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         "repository_import_idempotency_key",
     )
     repository_policy = _decode_repository_policy(payload_object.get("repository_policy"))
-    builder_mutation_policy = _decode_builder_mutation_policy(payload_object.get("builder_mutation_policy"))
+    builder_mutation_policy = _decode_builder_mutation_policy(
+        payload_object.get("builder_mutation_policy")
+    )
     options = _decode_object_map(payload_object.get("options"), label="options")
     _validate_policy_constants(
         ruleset_version=ruleset_version,
@@ -421,8 +450,9 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
             options=options,
         )
     except ValueError as exc:
-        raise PayloadDecodeError("submit payload contains an invalid backend artifact ID",
-            code="PAYLOAD_SHAPE_INVALID") from exc
+        raise PayloadDecodeError(
+            "submit payload contains an invalid backend artifact ID", code="PAYLOAD_SHAPE_INVALID"
+        ) from exc
 
 
 def submit_payload_decoders() -> Mapping[str, PayloadDecoder]:
@@ -634,7 +664,9 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
         )
         if prepare_step.checkpoint_ref is None:
             raise SubmitJobError("prepare_import checkpoint is missing")
-        prepare_envelope = load_checkpoint_envelope(deps.artifact_store, prepare_step.checkpoint_ref)
+        prepare_envelope = load_checkpoint_envelope(
+            deps.artifact_store, prepare_step.checkpoint_ref
+        )
         if not definition_matches_checkpoint(prepare_definition, prepare_envelope):
             raise CheckpointDecodeError(
                 "prepare checkpoint does not match the prepare_import JobDefinition",
@@ -689,7 +721,9 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
                 expected_commit_id=payload.repository_expected_commit_id,
             )
             with deps.control_transaction_factory() as unit_of_work:
-                fresh_attempt = unit_of_work.submission.get_submit_attempt(payload.submit_attempt_id)
+                fresh_attempt = unit_of_work.submission.get_submit_attempt(
+                    payload.submit_attempt_id
+                )
                 if fresh_attempt is None:
                     raise SubmitJobError("submit attempt is missing")
                 bind_repository_operation_identity(
@@ -724,7 +758,9 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
                     ),
                     owner_kind="submit-checkpoint",
                     active_transaction=_active_submit_transaction.get,
-                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    transaction_missing=lambda: SubmitJobError(
+                        "submit checkpoint transaction is not bound"
+                    ),
                     deduplicate_refs=False,
                     intent="submit-import-checkpoint",
                 )
@@ -810,7 +846,9 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             checkpoint_ref=submit_step.checkpoint_ref,
         )
         if not submit_state.request_sent or submit_state.repository_operation_id is None:
-            raise SubmitJobError("submit_import checkpoint is missing durable repository operation identity")
+            raise SubmitJobError(
+                "submit_import checkpoint is missing durable repository operation identity"
+            )
 
         prepare_step = _load_step(
             deps,
@@ -819,7 +857,9 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
         )
         if prepare_step.checkpoint_ref is None:
             raise SubmitJobError("prepare_import checkpoint is missing")
-        prepare_envelope = load_checkpoint_envelope(deps.artifact_store, prepare_step.checkpoint_ref)
+        prepare_envelope = load_checkpoint_envelope(
+            deps.artifact_store, prepare_step.checkpoint_ref
+        )
         prepare_checkpoint = _prepare_checkpoint_from_job_state(
             prepare_envelope.job_state,
             expected_attempt_id=payload.submit_attempt_id,
@@ -857,7 +897,9 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     extra_refs=(),
                     owner_kind="submit-checkpoint",
                     active_transaction=_active_submit_transaction.get,
-                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    transaction_missing=lambda: SubmitJobError(
+                        "submit checkpoint transaction is not bound"
+                    ),
                     deduplicate_refs=False,
                     intent="await-import-reconcile-checkpoint",
                 )
@@ -952,14 +994,18 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             RepositoryOperationStatus.RUNNING,
         }:
             if await_checkpoint_ref is None:
-                raise SubmitJobError("await_import_result checkpoint is missing for reconcile handoff")
+                raise SubmitJobError(
+                    "await_import_result checkpoint is missing for reconcile handoff"
+                )
             checkpoint_generation = lease_session.publish_checkpoint(
                 pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(),
                     owner_kind="submit-checkpoint",
                     active_transaction=_active_submit_transaction.get,
-                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    transaction_missing=lambda: SubmitJobError(
+                        "submit checkpoint transaction is not bound"
+                    ),
                     deduplicate_refs=False,
                     intent="await-import-reconcile-checkpoint",
                 )
@@ -997,7 +1043,9 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     extra_refs=(evidence_ref,),
                     owner_kind="submit-checkpoint",
                     active_transaction=_active_submit_transaction.get,
-                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    transaction_missing=lambda: SubmitJobError(
+                        "submit checkpoint transaction is not bound"
+                    ),
                     deduplicate_refs=False,
                     intent="await-import-terminal-checkpoint",
                 )
@@ -1028,10 +1076,15 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     )
                 )
                 return ExecutorAcknowledgment.PUBLISHED
-            ready_ref = next(ref for ref in operation.artifact_refs
-                if ref.artifact_id == attempt.preview_ready_closure_ref)
-            review_artifact_refs = (ready_ref,
-                *load_ready_closure(deps.artifact_store, ready_ref).artifact_refs())
+            ready_ref = next(
+                ref
+                for ref in operation.artifact_refs
+                if ref.artifact_id == attempt.preview_ready_closure_ref
+            )
+            review_artifact_refs = (
+                ready_ref,
+                *load_ready_closure(deps.artifact_store, ready_ref).artifact_refs(),
+            )
             lease_session.publish_operation(
                 _make_finalize_success_builder(
                     submit_attempt_id=payload.submit_attempt_id,
@@ -1149,7 +1202,9 @@ def build_submit_operator_recovery_port(
                 if attempt is None:
                     raise ValueError("submit attempt is missing")
                 if attempt.repository_operation_id is None:
-                    raise ValueError("matching repository operation identity is required for business abort")
+                    raise ValueError(
+                        "matching repository operation identity is required for business abort"
+                    )
                 stable_failure_code = abort_evidence.resolve_stable_failure_code(
                     repository_id=attempt.repository_id,
                     repository_operation_id=attempt.repository_operation_id,
@@ -1191,7 +1246,11 @@ def _materialize_submit_checkpoint_state(
         and attempt.repository_artifact_ref is not None
     ):
         repository_artifact_ref = attempt.repository_artifact_ref
-        request_bytes = deps.repository_write.canonical_import_request_bytes(repository_id=payload.repository_id, artifact_ref=repository_artifact_ref, expected_commit_id=payload.repository_expected_commit_id)
+        request_bytes = deps.repository_write.canonical_import_request_bytes(
+            repository_id=payload.repository_id,
+            artifact_ref=repository_artifact_ref,
+            expected_commit_id=payload.repository_expected_commit_id,
+        )
         request_ref = put_with_built_ref(
             deps.artifact_store,
             request_bytes,
@@ -1239,7 +1298,9 @@ def _materialize_submit_checkpoint_state(
                 extra_refs=(prepare_checkpoint_ref, request_ref),
                 owner_kind="submit-checkpoint",
                 active_transaction=_active_submit_transaction.get,
-                transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                transaction_missing=lambda: SubmitJobError(
+                    "submit checkpoint transaction is not bound"
+                ),
                 deduplicate_refs=False,
                 intent="submit-import-checkpoint",
             )
@@ -1268,7 +1329,11 @@ def _materialize_submit_checkpoint_state(
         raw_sha256=prepare_checkpoint.package_raw_sha256,
         body=package_bytes,
     )
-    request_bytes = deps.repository_write.canonical_import_request_bytes(repository_id=payload.repository_id, artifact_ref=repository_artifact_ref, expected_commit_id=payload.repository_expected_commit_id)
+    request_bytes = deps.repository_write.canonical_import_request_bytes(
+        repository_id=payload.repository_id,
+        artifact_ref=repository_artifact_ref,
+        expected_commit_id=payload.repository_expected_commit_id,
+    )
     request_ref = put_with_built_ref(
         deps.artifact_store,
         request_bytes,
@@ -1311,7 +1376,9 @@ def _materialize_submit_checkpoint_state(
             extra_refs=(prepare_checkpoint_ref, request_ref),
             owner_kind="submit-checkpoint",
             active_transaction=_active_submit_transaction.get,
-            transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+            transaction_missing=lambda: SubmitJobError(
+                "submit checkpoint transaction is not bound"
+            ),
             deduplicate_refs=False,
             intent="submit-import-checkpoint",
         )
@@ -1527,10 +1594,7 @@ def _recover_external_effect_step(
     control: ExecutionControl,
     lease_session: LeaseSession,
 ) -> RecoveryOutcome:
-    if (
-        operation.status is OperationStatus.SUCCEEDED
-        and step.status is StepStatus.SUCCEEDED
-    ):
+    if operation.status is OperationStatus.SUCCEEDED and step.status is StepStatus.SUCCEEDED:
         return RecoveryOutcome(
             disposition=RecoveryOutcomeDisposition.PUBLISHED,
             diagnostic_code=None,
@@ -1663,7 +1727,9 @@ def _build_prepare_import_build_input(
             snapshot_tables=snapshot_tables,
         )
     except CheckpointPublicationError as exc:
-        raise SubmitImportPublicationError("frozen canonical input is unavailable or corrupt: " + str(exc)) from exc
+        raise SubmitImportPublicationError(
+            "frozen canonical input is unavailable or corrupt: " + str(exc)
+        ) from exc
     except SubmitImportBuilderError as exc:
         raise SubmitImportPublicationError(str(exc)) from exc
     return PrepareImportBuildInput(
@@ -1715,7 +1781,9 @@ def _prepare_step_checkpoint(
             extra_refs=_prepare_checkpoint_extra_refs(checkpoint),
             owner_kind="submit-checkpoint",
             active_transaction=_active_submit_transaction.get,
-            transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+            transaction_missing=lambda: SubmitJobError(
+                "submit checkpoint transaction is not bound"
+            ),
             deduplicate_refs=False,
             intent="prepare-import-checkpoint",
         )
@@ -1871,7 +1939,9 @@ _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS = frozenset(
 _TERMINAL_REPOSITORY_EVIDENCE_SUCCEEDED_KEYS = _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS | frozenset(
     {"result"}
 )
-_TERMINAL_REPOSITORY_EVIDENCE_FAILED_KEYS = _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS | frozenset({"error"})
+_TERMINAL_REPOSITORY_EVIDENCE_FAILED_KEYS = _TERMINAL_REPOSITORY_EVIDENCE_BASE_KEYS | frozenset(
+    {"error"}
+)
 
 
 def _require_terminal_repository_status_value(value: object, *, label: str) -> str:
@@ -1975,7 +2045,9 @@ def _await_checkpoint_from_job_state(
     )
 
 
-def _serialize_terminal_repository_evidence(operation: RepositoryImportOperation) -> dict[str, object]:
+def _serialize_terminal_repository_evidence(
+    operation: RepositoryImportOperation,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "document_type": _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE,
         "contract_version": _TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION,
@@ -2010,7 +2082,11 @@ def _persist_terminal_repository_evidence(
     return put_with_built_ref(
         store,
         evidence_bytes,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "submit-repository-terminal-evidence", raw_blob_digest(evidence_bytes).value),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "submit-repository-terminal-evidence",
+            raw_blob_digest(evidence_bytes).value,
+        ),
         media_type=_JCS_MEDIA_TYPE,
     )
 
@@ -2102,16 +2178,22 @@ def _prepare_checkpoint_from_job_state(
         schema_version=PREPARE_IMPORT_CHECKPOINT_SCHEMA,
         attempt_id=attempt_id,
         canonicalization_manifest_ref=_backend_ref_from_dict(
-            _require_mapping(job_state.get(_JOB_STATE_MANIFEST_REF), label="canonicalization_manifest_ref"),
+            _require_mapping(
+                job_state.get(_JOB_STATE_MANIFEST_REF), label="canonicalization_manifest_ref"
+            ),
         ),
         canonicalization_manifest_digest=_require_non_empty_str_value(
             job_state.get(_JOB_STATE_MANIFEST_DIGEST),
             label="canonicalization_manifest_digest",
         ),
         backend_import_artifact_ref=_backend_ref_from_dict(
-            _require_mapping(job_state.get(_JOB_STATE_BACKEND_IMPORT_REF), label="backend_import_artifact_ref"),
+            _require_mapping(
+                job_state.get(_JOB_STATE_BACKEND_IMPORT_REF), label="backend_import_artifact_ref"
+            ),
         ),
-        package_raw_size=_require_non_negative_int_value(job_state.get(_JOB_STATE_PACKAGE_RAW_SIZE)),
+        package_raw_size=_require_non_negative_int_value(
+            job_state.get(_JOB_STATE_PACKAGE_RAW_SIZE)
+        ),
         package_raw_sha256=_require_non_empty_str_value(
             job_state.get(_JOB_STATE_PACKAGE_RAW_SHA256),
             label="package_raw_sha256",
@@ -2143,7 +2225,9 @@ def _prepare_checkpoint_from_job_state(
             label="removed_tables",
         ),
         builder_mutation_policy=BuilderMutationPolicy(
-            _require_non_empty_str_value(job_state.get(_JOB_STATE_BUILDER_POLICY), label="builder_mutation_policy")
+            _require_non_empty_str_value(
+                job_state.get(_JOB_STATE_BUILDER_POLICY), label="builder_mutation_policy"
+            )
         ),
     )
 
@@ -2233,7 +2317,9 @@ def _submit_state_from_job_state(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     repository_artifact_ref = _repository_ref_from_dict(
-        _require_mapping(job_state.get(_JOB_STATE_REPOSITORY_ARTIFACT_REF), label="repository_artifact_ref"),
+        _require_mapping(
+            job_state.get(_JOB_STATE_REPOSITORY_ARTIFACT_REF), label="repository_artifact_ref"
+        ),
     )
     upload_key = job_state.get(_JOB_STATE_UPLOAD_KEY)
     if upload_key != expected_payload.repository_upload_idempotency_key:
@@ -2252,7 +2338,9 @@ def _submit_state_from_job_state(
         label="request_artifact_id",
     )
     request_artifact_ref = artifact_ref_from_dict(
-        _require_artifact_ref_dict(job_state.get(_JOB_STATE_REQUEST_ARTIFACT_REF), label="request_artifact_ref"),
+        _require_artifact_ref_dict(
+            job_state.get(_JOB_STATE_REQUEST_ARTIFACT_REF), label="request_artifact_ref"
+        ),
     )
     if request_artifact_ref.artifact_id != request_artifact_id:
         raise CheckpointDecodeError(
@@ -2322,17 +2410,13 @@ def _submit_state_from_job_state(
 def _verification_policy_from_repository(value: str) -> SubmitVerificationPolicy:
     if value == SubmitVerificationPolicy.STRUCTURAL.value:
         return SubmitVerificationPolicy.STRUCTURAL
-    raise FinalizeBindingMismatch(
-        f"completed verification policy {value!r} is not supported"
-    )
+    raise FinalizeBindingMismatch(f"completed verification policy {value!r} is not supported")
 
 
 def _unknown_type_policy_from_repository(value: str) -> SubmitUnknownTypePolicy:
     if value == SubmitUnknownTypePolicy.REJECT.value:
         return SubmitUnknownTypePolicy.REJECT
-    raise FinalizeBindingMismatch(
-        f"completed unknown type policy {value!r} is not supported"
-    )
+    raise FinalizeBindingMismatch(f"completed unknown type policy {value!r} is not supported")
 
 
 def _target_ref_from_repository(value: str) -> SubmitTargetRef:
@@ -2355,7 +2439,9 @@ def _matching_finalize_facts(
     result = repository_operation.result
     manifest_digest = str(result.canonicalization_manifest_digest)
     if manifest_digest != prepare_checkpoint.canonicalization_manifest_digest:
-        raise FinalizeBindingMismatch("repository manifest digest does not match prepare checkpoint")
+        raise FinalizeBindingMismatch(
+            "repository manifest digest does not match prepare checkpoint"
+        )
     expected_commit_id = str(result.expected_commit_id)
     if expected_commit_id != payload.repository_expected_commit_id:
         raise FinalizeBindingMismatch("repository expected commit does not match payload")
@@ -2364,9 +2450,7 @@ def _matching_finalize_facts(
     )
     if completed_verification_policy is not payload.repository_policy.verification_policy:
         raise FinalizeBindingMismatch("completed verification policy does not match request")
-    completed_unknown_type_policy = _unknown_type_policy_from_repository(
-        result.unknown_type_policy
-    )
+    completed_unknown_type_policy = _unknown_type_policy_from_repository(result.unknown_type_policy)
     if completed_unknown_type_policy is not payload.repository_policy.unknown_type_policy:
         raise FinalizeBindingMismatch("completed unknown type policy does not match request")
     target_ref = _target_ref_from_repository(str(result.target_ref))
@@ -2389,7 +2473,6 @@ def _matching_finalize_facts(
 
 def _wire_repository_raw_sha256(value: str) -> str:
     return value.removeprefix("sha256:")
-
 
 
 def _load_submit_payload(operation: OperationRecord, store: ArtifactStorePort) -> SubmitJobPayload:
@@ -2496,7 +2579,9 @@ def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
 def read_write_factory(
     factory: SubmitControlTransactionFactory,
 ) -> SubmitControlUnitOfWorkFactory:
-    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[SubmitControlTransaction]:
+    def unit_of_work_factory(
+        *, read_only: bool = False
+    ) -> ContextManager[SubmitControlTransaction]:
         del read_only
         return factory()
 
@@ -2548,7 +2633,9 @@ def _make_successor_builder(
     return builder
 
 
-def _terminal_step(step: StepRecord, transaction_now: datetime, *, status: StepStatus) -> StepRecord:
+def _terminal_step(
+    step: StepRecord, transaction_now: datetime, *, status: StepStatus
+) -> StepRecord:
     return dataclasses.replace(
         step,
         status=status,
@@ -2676,7 +2763,9 @@ def _make_finalize_success_builder(
     return builder
 
 
-def _prepare_projection_failure_diagnostic(exc: SubmitImportPublicationError) -> OperationDiagnostic:
+def _prepare_projection_failure_diagnostic(
+    exc: SubmitImportPublicationError,
+) -> OperationDiagnostic:
     message = str(exc)
     encoded = message.encode("utf-8")
     if len(encoded) > _MAX_PREPARE_PROJECTION_MESSAGE_BYTES:
@@ -2757,8 +2846,12 @@ def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
 
 
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
-    def execute(operation: OperationRecord, step: StepRecord, control: ExecutionControl,
-                lease_session: LeaseSession) -> ExecutorAcknowledgment:
+    def execute(
+        operation: OperationRecord,
+        step: StepRecord,
+        control: ExecutionControl,
+        lease_session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
         try:
             return handler(operation, step, control, lease_session)
         except MemoryError as error:
@@ -2769,9 +2862,15 @@ def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor
             if control.cancel_requested:
                 lease_session.publish_operation(_make_cancelled_terminal_builder())
             else:
-                _publish_prepare_terminal_abort(lease_session, OperationDiagnostic(
-                    code="RESOURCE_LIMIT_EXCEEDED", message=(str(error) or "operation memory budget exceeded")[:255]))
+                _publish_prepare_terminal_abort(
+                    lease_session,
+                    OperationDiagnostic(
+                        code="RESOURCE_LIMIT_EXCEEDED",
+                        message=(str(error) or "operation memory budget exceeded")[:255],
+                    ),
+                )
             return ExecutorAcknowledgment.PUBLISHED
+
     return execute
 
 
@@ -2857,7 +2956,9 @@ def _make_manual_recovery_terminal_builder(
 
 
 def _import_request_artifact_id(request_bytes: bytes) -> str:
-    return build_artifact_id(ArtifactLocation.DURABLE, "submit-import-request", raw_blob_digest(request_bytes).value)
+    return build_artifact_id(
+        ArtifactLocation.DURABLE, "submit-import-request", raw_blob_digest(request_bytes).value
+    )
 
 
 def _backend_ref_to_dict(ref: BackendArtifactRef) -> dict[str, object]:
@@ -2939,7 +3040,9 @@ def _validate_policy_constants(
             code="PAYLOAD_SHAPE_INVALID",
         )
     if repository_policy.target_ref is not SubmitTargetRef.MAIN:
-        raise PayloadDecodeError("repository_policy.target_ref must be main", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "repository_policy.target_ref must be main", code="PAYLOAD_SHAPE_INVALID"
+        )
     if repository_policy.verification_policy is not SubmitVerificationPolicy.STRUCTURAL:
         raise PayloadDecodeError(
             "repository_policy.verification_policy must be STRUCTURAL",
@@ -3018,19 +3121,25 @@ def _require_non_negative_int(payload_object: dict[str, object], key: str) -> in
 
 def _require_non_empty_str_value(value: object, *, label: str) -> str:
     if type(value) is not str or not value:
-        raise CheckpointDecodeError(f"{label} must be a non-empty string", code="CHECKPOINT_JOB_STATE_MISMATCH")
+        raise CheckpointDecodeError(
+            f"{label} must be a non-empty string", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        )
     return value
 
 
 def _require_non_negative_int_value(value: object) -> int:
     if type(value) is not int or isinstance(value, bool) or value < 0:
-        raise CheckpointDecodeError("checkpoint integer field is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH")
+        raise CheckpointDecodeError(
+            "checkpoint integer field is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        )
     return value
 
 
 def _require_mapping(value: object, *, label: str) -> dict[str, object]:
     if type(value) is not dict:
-        raise CheckpointDecodeError(f"{label} must be an object", code="CHECKPOINT_JOB_STATE_MISMATCH")
+        raise CheckpointDecodeError(
+            f"{label} must be an object", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        )
     return value
 
 
@@ -3039,7 +3148,9 @@ def _require_artifact_ref_dict(value: object, *, label: str) -> dict[str, object
     try:
         artifact_ref_from_dict(mapping)
     except (TypeError, ValueError, KeyError, ManifestVerificationError) as exc:
-        raise CheckpointDecodeError(f"{label} is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH") from exc
+        raise CheckpointDecodeError(
+            f"{label} is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        ) from exc
     return mapping
 
 
@@ -3049,14 +3160,18 @@ def _decode_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
     decoded: list[str] = []
     for item in value:
         if type(item) is not str or not item:
-            raise PayloadDecodeError(f"{label} must contain non-empty strings", code="PAYLOAD_SHAPE_INVALID")
+            raise PayloadDecodeError(
+                f"{label} must contain non-empty strings", code="PAYLOAD_SHAPE_INVALID"
+            )
         decoded.append(item)
     return tuple(decoded)
 
 
 def _decode_checkpoint_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
     if type(value) is not list:
-        raise CheckpointDecodeError(f"{label} must be an array", code="CHECKPOINT_JOB_STATE_MISMATCH")
+        raise CheckpointDecodeError(
+            f"{label} must be an array", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        )
     decoded: list[str] = []
     for item in value:
         if type(item) is not str or not item:
@@ -3082,12 +3197,16 @@ def _decode_object_map(value: object, *, label: str) -> dict[str, object]:
 
 def _decode_repository_policy(value: object) -> SubmitRepositoryPolicy:
     if type(value) is not dict:
-        raise PayloadDecodeError("repository_policy must be an object", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "repository_policy must be an object", code="PAYLOAD_SHAPE_INVALID"
+        )
     target_ref = value.get("target_ref")
     verification_policy = value.get("verification_policy")
     unknown_type_policy = value.get("unknown_type_policy")
     if type(target_ref) is not str:
-        raise PayloadDecodeError("repository_policy.target_ref must be a string", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "repository_policy.target_ref must be a string", code="PAYLOAD_SHAPE_INVALID"
+        )
     if type(verification_policy) is not str:
         raise PayloadDecodeError(
             "repository_policy.verification_policy must be a string",
@@ -3105,16 +3224,22 @@ def _decode_repository_policy(value: object) -> SubmitRepositoryPolicy:
             unknown_type_policy=SubmitUnknownTypePolicy(unknown_type_policy),
         )
     except ValueError as exc:
-        raise PayloadDecodeError("repository_policy contains invalid enum values", code="PAYLOAD_SHAPE_INVALID") from exc
+        raise PayloadDecodeError(
+            "repository_policy contains invalid enum values", code="PAYLOAD_SHAPE_INVALID"
+        ) from exc
 
 
 def _decode_builder_mutation_policy(value: object) -> BuilderMutationPolicy:
     if type(value) is not str:
-        raise PayloadDecodeError("builder_mutation_policy must be a string", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "builder_mutation_policy must be a string", code="PAYLOAD_SHAPE_INVALID"
+        )
     try:
         return BuilderMutationPolicy(value)
     except ValueError as exc:
-        raise PayloadDecodeError("builder_mutation_policy is invalid", code="PAYLOAD_SHAPE_INVALID") from exc
+        raise PayloadDecodeError(
+            "builder_mutation_policy is invalid", code="PAYLOAD_SHAPE_INVALID"
+        ) from exc
 
 
 __all__ = [

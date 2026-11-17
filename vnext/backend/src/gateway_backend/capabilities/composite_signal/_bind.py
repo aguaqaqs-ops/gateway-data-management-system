@@ -7,7 +7,10 @@ from typing import Any
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.composite_signal._ast import AstHalt, checkpoint
-from gateway_backend.capabilities.composite_signal._digest import formula_ast_json, formula_digest_of
+from gateway_backend.capabilities.composite_signal._digest import (
+    formula_ast_json,
+    formula_digest_of,
+)
 from gateway_backend.capabilities.composite_signal.contracts import (
     SPECIAL_DEV_ADDR,
     SPECIAL_DEVICE_DESCRIPTION,
@@ -85,7 +88,9 @@ def _named_formulas(formulas: tuple[ExpressNode, ...]) -> tuple[NamedFormula, ..
     for node in formulas:
         name = node.name
         if name is None or name == "":
-            raise AstHalt(CompositeDiagnosticCode.EMPTY_TOP_LEVEL_NAME, "top-level Express Name is empty")
+            raise AstHalt(
+                CompositeDiagnosticCode.EMPTY_TOP_LEVEL_NAME, "top-level Express Name is empty"
+            )
         if name in seen:
             raise AstHalt(
                 CompositeDiagnosticCode.DUPLICATE_TOP_LEVEL_FORMULA,

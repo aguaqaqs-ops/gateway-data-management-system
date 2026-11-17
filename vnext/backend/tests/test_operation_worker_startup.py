@@ -233,7 +233,9 @@ class FakeStore:
             operation = self.operation_records[step.operation_id]
             if operation.status not in {OperationStatus.QUEUED, OperationStatus.RUNNING}:
                 continue
-            eligible_at = step.created_at if step.status is StepStatus.PENDING else step.retry_not_before
+            eligible_at = (
+                step.created_at if step.status is StepStatus.PENDING else step.retry_not_before
+            )
             assert eligible_at is not None
             if eligible_at > now:
                 continue
@@ -420,8 +422,7 @@ class Registry:
 def _startup(
     store: FakeStore,
     registry: Registry,
-    recovery_hook: Callable[[OperationRecord, StepRecord], StartupDisposition]
-    | None = None,
+    recovery_hook: Callable[[OperationRecord, StepRecord], StartupDisposition] | None = None,
     *,
     page_limit: int = 50,
     worker_id_factory: Callable[[], str] | None = None,
@@ -475,9 +476,7 @@ def _page(
 ) -> tuple[tuple[PageValue, ...], str | None]:
     index = 0 if cursor is None else int(cursor.split(":")[1])
     batch = values[index : index + limit]
-    next_cursor = (
-        f"{prefix}:{index + len(batch)}" if index + len(batch) < len(values) else None
-    )
+    next_cursor = f"{prefix}:{index + len(batch)}" if index + len(batch) < len(values) else None
     return batch, next_cursor
 
 
@@ -548,6 +547,7 @@ def test_topology_faults_fail_closed_before_recovery(
     )
     registry = Registry({JobStepKey("import.package", "validate")})
     recovery_calls: list[str] = []
+
     def recovery(operation: OperationRecord, _step: StepRecord) -> StartupDisposition:
         recovery_calls.append(operation.operation_id)
         return StartupDisposition.READY
@@ -815,8 +815,11 @@ def test_running_owner_outside_configured_instances_refuses_startup(owner: str) 
     operation = _operation("op-1", status=OperationStatus.RUNNING)
     step = dataclasses.replace(_step("op-1", "step-1", status=StepStatus.RUNNING), worker_id=owner)
     store = FakeStore((operation,), (step,))
-    startup, *_ = _startup(store, Registry({JobStepKey("import.package", "validate")}),
-        running_worker_ids=frozenset({"worker-test", "worker-peer"}))
+    startup, *_ = _startup(
+        store,
+        Registry({JobStepKey("import.package", "validate")}),
+        running_worker_ids=frozenset({"worker-test", "worker-peer"}),
+    )
     assert startup.startup() is StartupDisposition.FATAL_BLOCK
 
 
@@ -824,8 +827,12 @@ def test_multiple_running_steps_owned_by_one_instance_refuse_startup() -> None:
     import dataclasses
 
     operations = tuple(_operation(f"op-{i}", status=OperationStatus.RUNNING) for i in range(2))
-    steps = tuple(dataclasses.replace(_step(f"op-{i}", f"step-{i}", status=StepStatus.RUNNING),
-        worker_id="worker-test") for i in range(2))
+    steps = tuple(
+        dataclasses.replace(
+            _step(f"op-{i}", f"step-{i}", status=StepStatus.RUNNING), worker_id="worker-test"
+        )
+        for i in range(2)
+    )
     store = FakeStore(operations, steps)
     startup, *_ = _startup(store, Registry({JobStepKey("import.package", "validate")}))
     assert startup.startup() is StartupDisposition.FATAL_BLOCK

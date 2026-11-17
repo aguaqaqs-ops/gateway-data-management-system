@@ -6,13 +6,22 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
+from gateway_backend.application.job_definitions import (
+    JobDefinitionLookupError,
+    JobDefinitionRegistry,
+)
 from gateway_backend.application.submit_registry import build_submit_recovery_capability_mapping
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.auth import require_internal_bearer
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
-from gateway_backend.http.orchestration.operator_recovery import CapabilityLookup, execute_operator_recovery
-from gateway_backend.http.schemas.operator_recovery import OperatorRecoveryRequestBody, OperatorRecoveryResponse
+from gateway_backend.http.orchestration.operator_recovery import (
+    CapabilityLookup,
+    execute_operator_recovery,
+)
+from gateway_backend.http.schemas.operator_recovery import (
+    OperatorRecoveryRequestBody,
+    OperatorRecoveryResponse,
+)
 
 router = APIRouter(tags=["operator-recovery"])
 

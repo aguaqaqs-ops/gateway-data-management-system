@@ -106,8 +106,10 @@ def validate_accept_submit(
         raise PreviewDerivedStale
 
     preview_digest = preview_canonical_business_digest(preview_result)
-    if (preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
-            and preview_result.canonical.rules_semantically_equal):
+    if (
+        preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
+        and preview_result.canonical.rules_semantically_equal
+    ):
         raise NoCanonicalChange
 
     _assert_identity_confirmations(command, preview_result)
@@ -264,8 +266,10 @@ def assert_accept_preflight_post_noop_guards(
 
 def assert_no_canonical_change(*, loaded: AcceptPreflightLoadedFacts) -> None:
     preview_digest = preview_canonical_business_digest(loaded.preview_result)
-    if (loaded.preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
-            and loaded.preview_result.canonical.rules_semantically_equal):
+    if (
+        loaded.preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
+        and loaded.preview_result.canonical.rules_semantically_equal
+    ):
         raise NoCanonicalChange
 
 
@@ -274,9 +278,14 @@ def _assert_identity_confirmations(
     preview_result: PreviewResult,
 ) -> None:
     required_actions: set[IdentityConfirmationAction] = set()
-    if any(pair.status is ProjectIdentityStatus.DIFFERENT_PROJECT for pair in preview_result.identity_pairs):
+    if any(
+        pair.status is ProjectIdentityStatus.DIFFERENT_PROJECT
+        for pair in preview_result.identity_pairs
+    ):
         required_actions.add(IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT)
-    if any(pair.status is ProjectIdentityStatus.UNVERIFIABLE for pair in preview_result.identity_pairs):
+    if any(
+        pair.status is ProjectIdentityStatus.UNVERIFIABLE for pair in preview_result.identity_pairs
+    ):
         required_actions.add(IdentityConfirmationAction.ACCEPT_UNVERIFIABLE_DETAILED_RESULT)
 
     supplied = {item.action: item for item in command.identity_confirmations}
@@ -359,8 +368,10 @@ def validate_accept_submit_with_frozen(
         raise PreviewDerivedStale
 
     preview_digest = preview_canonical_business_digest(preview_result)
-    if (preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
-            and preview_result.canonical.rules_semantically_equal):
+    if (
+        preview_result.canonical.baseline_canonical_state_digest.value == preview_digest
+        and preview_result.canonical.rules_semantically_equal
+    ):
         raise NoCanonicalChange
 
     _assert_identity_confirmations(command, preview_result)
@@ -471,8 +482,11 @@ def _load_preview_result(
     upload_revision: UploadRevision,
     workspace: Workspace,
 ) -> PreviewResult:
-    preview_result = workspace_repository.get_preview_result(command.preview_result_id,
-        workspace_id=workspace.workspace_id, repository_id=workspace.repository_id)
+    preview_result = workspace_repository.get_preview_result(
+        command.preview_result_id,
+        workspace_id=workspace.workspace_id,
+        repository_id=workspace.repository_id,
+    )
     if preview_result is None:
         raise PreviewBindingConflict("preview result is missing")
     if preview_result.workspace_id != command.workspace_id:
@@ -483,11 +497,19 @@ def _load_preview_result(
         raise PreviewBindingConflict("preview result generation does not match request")
     _assert_preview_repository_matches_workspace(preview_result, workspace)
     from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
+
     facts = preview_result.canonical.configuration_facts
-    if facts.modified.source_artifact_id != upload_revision.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id:
+    if (
+        facts.modified.source_artifact_id
+        != upload_revision.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id
+    ):
         raise PreviewBindingConflict("configuration modified source does not match upload")
     if upload_revision.input_completeness is InputCompleteness.FULL:
-        if facts.initial_origin != "UPLOADED" or facts.initial.source_artifact_id != upload_revision.source_artifacts[SourceArtifactRole.INITIAL].artifact_id:
+        if (
+            facts.initial_origin != "UPLOADED"
+            or facts.initial.source_artifact_id
+            != upload_revision.source_artifacts[SourceArtifactRole.INITIAL].artifact_id
+        ):
             raise PreviewBindingConflict("configuration initial source does not match upload")
     elif facts.initial_origin == "UPLOADED":
         raise PreviewBindingConflict("configuration initial origin does not match upload")
@@ -516,7 +538,9 @@ def _assert_baseline_heads_match(current: BaselineHead, expected: BaselineHead) 
         raise BaselineVersionConflict("current BaselineHead version does not match preflight Head")
 
 
-def _assert_preview_baseline_binding(preview_result: PreviewResult, baseline_head: BaselineHead) -> None:
+def _assert_preview_baseline_binding(
+    preview_result: PreviewResult, baseline_head: BaselineHead
+) -> None:
     if preview_result.business_baseline_node_id != baseline_head.business_baseline_node_id:
         raise PreviewBindingConflict("preview baseline node does not match current BaselineHead")
     if preview_result.business_baseline_commit_id != baseline_head.business_baseline_commit_id:

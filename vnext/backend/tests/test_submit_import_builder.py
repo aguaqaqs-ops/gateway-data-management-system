@@ -42,7 +42,10 @@ from gateway_backend.application.submission.import_builder import (
     resolve_canonical_snapshot_bindings,
     reuse_prepare_import_checkpoint,
 )
-from gateway_backend.application.submission.errors import PrepareCheckpointPayloadBindingError, SubmitImportPublicationError
+from gateway_backend.application.submission.errors import (
+    PrepareCheckpointPayloadBindingError,
+    SubmitImportPublicationError,
+)
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     NeverCancel,
@@ -56,10 +59,15 @@ from gateway_backend.capabilities.storage_projection import (
     open_canonicalization_manifest,
     project_canonical_arrow_table_set,
 )
-from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot, open_snapshot_table_artifact
+from gateway_backend.capabilities.snapshot_materialization import (
+    materialize_canonical_snapshot,
+    open_snapshot_table_artifact,
+)
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext, SourceRow
 from gateway_backend.capabilities.table_presentation.contracts import (
-    ColumnPresentation, PresentationMetadata, TablePresentation,
+    ColumnPresentation,
+    PresentationMetadata,
+    TablePresentation,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.storage_projection.package import (
@@ -78,7 +86,10 @@ from gateway_backend.domain.submission.models import BuilderMutationPolicy
 from gateway_backend.infrastructure.repository_write.import_publication import (
     SubmitImportPublicationAdapter,
 )
-from tests.support.snapshot_materialization import materialize_arrow_sql as materialize_sql, snapshot_table_as_arrow
+from tests.support.snapshot_materialization import (
+    materialize_arrow_sql as materialize_sql,
+    snapshot_table_as_arrow,
+)
 from tests.support.storage_projection import (
     as_row,
     digest_ref,
@@ -93,7 +104,9 @@ from tests.support.storage_projection import (
     varchar_column,
 )
 from tests.support.repository_ref_materialization import (
-    FakeRepositoryTableAccessProvider, catalog_table, make_catalog,
+    FakeRepositoryTableAccessProvider,
+    catalog_table,
+    make_catalog,
 )
 
 pytestmark = pytest.mark.unit
@@ -111,28 +124,41 @@ _SNAPSHOT_DIGEST = dummy_digest().value
 
 
 def _open_projection_inputs(
-    bindings: tuple[SnapshotTableBinding, ...], *, store: InMemoryArtifactStore,
+    bindings: tuple[SnapshotTableBinding, ...],
+    *,
+    store: InMemoryArtifactStore,
     repository_id: str,
 ) -> tuple[ProjectionTableInput, ...]:
     """Test setup for projecting already published canonical artifacts."""
     inputs: list[ProjectionTableInput] = []
     for binding in bindings:
-        ref = ArtifactRef(binding.artifact_id, binding.media_type, binding.size_bytes,
-                          DigestRef(binding.raw_sha256))
-        table = open_snapshot_table_artifact(store, ref, repository_id=repository_id,
-                                             canonical_required=True)
+        ref = ArtifactRef(
+            binding.artifact_id,
+            binding.media_type,
+            binding.size_bytes,
+            DigestRef(binding.raw_sha256),
+        )
+        table = open_snapshot_table_artifact(
+            store, ref, repository_id=repository_id, canonical_required=True
+        )
         assert table.reader is not None and table.artifact is not None
         reader = table.reader.reopen()
         table.reader.close()
         if table.batch_reader is not None:
             table.batch_reader.close()
-        inputs.append(ProjectionTableInput(
-            canonical_table=binding.table_name, reader=reader,
-            source_binding=ArtifactSourceBinding(
-                snapshot_digest=table.artifact.manifest.snapshot_digest,
-                descriptor=table.descriptor, repository_id=repository_id,
-            ), artifact=table.artifact, canonicalized_input=True,
-        ))
+        inputs.append(
+            ProjectionTableInput(
+                canonical_table=binding.table_name,
+                reader=reader,
+                source_binding=ArtifactSourceBinding(
+                    snapshot_digest=table.artifact.manifest.snapshot_digest,
+                    descriptor=table.descriptor,
+                    repository_id=repository_id,
+                ),
+                artifact=table.artifact,
+                canonicalized_input=True,
+            )
+        )
     return tuple(inputs)
 
 
@@ -177,13 +203,19 @@ def _build_input(
     presentation: PresentationMetadata | None = None,
 ) -> PrepareImportBuildInput:
     if store is not None and snapshot_tables is None:
-        return _frozen_build_input(store, projection_inputs or _projection_inputs(), presentation=presentation)
+        return _frozen_build_input(
+            store, projection_inputs or _projection_inputs(), presentation=presentation
+        )
     projection = _project_inputs(projection_inputs or _projection_inputs())
     assert projection.manifest is not None
     assert projection.manifest.manifest_digest is not None
     manifest_payload = durable_manifest_bytes(projection.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "dec0015e7400b207dac9e314a4eee902fafbcc0d8a46e975671f85ba5fbd2c1c"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "dec0015e7400b207dac9e314a4eee902fafbcc0d8a46e975671f85ba5fbd2c1c",
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -195,7 +227,11 @@ def _build_input(
         submit_attempt_id="sa-import-1",
         builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "d6b306489c64791e4da6ed5f68a4cdaa5b34b9a9f5bbd802db6f6cc3e8dd6568"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "d6b306489c64791e4da6ed5f68a4cdaa5b34b9a9f5bbd802db6f6cc3e8dd6568",
+            ),
             media_type="application/jcs",
             size_bytes=1,
             raw_sha256=DigestRef(closure_digest),
@@ -216,7 +252,11 @@ def _build_input(
             else (
                 SnapshotTableBinding(
                     table_name="net_cfg",
-                    artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "b5d020806e02827625ea712c7f804845e6eb1503c4f35a35c74c48270a2bcd44"),
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE,
+                        "test-fixture",
+                        "b5d020806e02827625ea712c7f804845e6eb1503c4f35a35c74c48270a2bcd44",
+                    ),
                     media_type="application/json",
                     size_bytes=1,
                     raw_sha256=_SNAPSHOT_DIGEST,
@@ -255,11 +295,13 @@ def _frozen_build_input(
         source_context=source_context,
     )
     source_tables = tuple(
-        snapshot_table_as_arrow(SnapshotTable(
-            descriptor=item.source_binding.descriptor,
-            reader=item.reader.reopen(),
-            artifact=item.artifact,
-        ))
+        snapshot_table_as_arrow(
+            SnapshotTable(
+                descriptor=item.source_binding.descriptor,
+                reader=item.reader.reopen(),
+                artifact=item.artifact,
+            )
+        )
         for item in raw_inputs
     )
     table_set = SnapshotTableSet(
@@ -268,9 +310,15 @@ def _frozen_build_input(
         table_ruleset_version=TABLE_RULESET_VERSION,
         tables=source_tables,
     )
-    frozen = project_canonical_arrow_table_set(table_set, ruleset, presentation=presentation or PresentationMetadata().project(
-        (table.descriptor.table_name, tuple(column.name for column in table.descriptor.columns))
-        for table in source_tables))
+    frozen = project_canonical_arrow_table_set(
+        table_set,
+        ruleset,
+        presentation=presentation
+        or PresentationMetadata().project(
+            (table.descriptor.table_name, tuple(column.name for column in table.descriptor.columns))
+            for table in source_tables
+        ),
+    )
     for table in source_tables:
         if table.reader is not None:
             table.reader.close()
@@ -282,7 +330,8 @@ def _frozen_build_input(
             source_snapshot,
             frozen.tables,
             artifact_store=store,
-            context=ParserInvocationContext(NeverCancel()), repository_id="test-repository",
+            context=ParserInvocationContext(NeverCancel()),
+            repository_id="test-repository",
         )
     finally:
         for table in frozen.tables:
@@ -294,7 +343,11 @@ def _frozen_build_input(
 
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "206c051310ed4bc3c1127eaaab0d94dd36b44e31f47d5b6365d41f53058e8b38"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "206c051310ed4bc3c1127eaaab0d94dd36b44e31f47d5b6365d41f53058e8b38",
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -317,7 +370,11 @@ def _frozen_build_input(
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "5ad5fdb651150671c6a572743e70cd426d6e521d2e2b28f0c5723e695b1e0f7e"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "5ad5fdb651150671c6a572743e70cd426d6e521d2e2b28f0c5723e695b1e0f7e",
+        ),
         media_type="application/jcs",
         size_bytes=len(closure_payload),
         raw_sha256=raw_blob_digest(closure_payload),
@@ -353,8 +410,11 @@ def _frozen_build_input(
 
 
 def _keyed_parent_submit(
-    *, fault: str | None = None, ruleset: TableRulesetSnapshot | None = None,
-    equivalent_source_schema: bool = False, two_tables: bool = False,
+    *,
+    fault: str | None = None,
+    ruleset: TableRulesetSnapshot | None = None,
+    equivalent_source_schema: bool = False,
+    two_tables: bool = False,
 ) -> tuple[SubmitImportPublicationAdapter, PrepareImportBuildInput, InMemoryArtifactStore]:
     """Use the real canonical IPC and committed-table owners around a fake Repository source."""
     before_rows = tuple(
@@ -365,13 +425,19 @@ def _keyed_parent_submit(
         for index in range(100)
     )
 
-    def raw_input(rows: tuple[SourceRow, ...], *, source_variant: bool = False) -> tuple[ProjectionTableInput, ...]:
+    def raw_input(
+        rows: tuple[SourceRow, ...], *, source_variant: bool = False
+    ) -> tuple[ProjectionTableInput, ...]:
         if equivalent_source_schema:
-            no_column = '' if source_variant else ', no INT'
-            values = ','.join(f"('port-{index}',{index}{'' if source_variant else ',9'})" for index in range(100))
+            no_column = "" if source_variant else ", no INT"
+            values = ",".join(
+                f"('port-{index}',{index}{'' if source_variant else ',9'})" for index in range(100)
+            )
             source = materialize_sql(
-                f'CREATE TABLE net_cfg (board VARCHAR(255) NOT NULL, link_no INT NOT NULL{no_column}, PRIMARY KEY(board,link_no));'
-                f'INSERT INTO net_cfg VALUES {values};', policy=MaterializationPolicy.READERS_REQUIRED)
+                f"CREATE TABLE net_cfg (board VARCHAR(255) NOT NULL, link_no INT NOT NULL{no_column}, PRIMARY KEY(board,link_no));"
+                f"INSERT INTO net_cfg VALUES {values};",
+                policy=MaterializationPolicy.READERS_REQUIRED,
+            )
             assert source.snapshot is not None and source.table_set is not None
             table = source.table_set.tables[0]
             assert table.reader is not None
@@ -379,17 +445,26 @@ def _keyed_parent_submit(
             table.reader.close()
             if table.batch_reader is not None:
                 table.batch_reader.close()
-            return (ProjectionTableInput('net_cfg', reader,
-                ArtifactSourceBinding(source.snapshot.snapshot_digest, table.descriptor)),)
+            return (
+                ProjectionTableInput(
+                    "net_cfg",
+                    reader,
+                    ArtifactSourceBinding(source.snapshot.snapshot_digest, table.descriptor),
+                ),
+            )
         reader, binding = table_input(
-            "a_widget", columns=(int_column("id"), varchar_column("value")),
-            primary_key_columns=("id",), rows=rows,
+            "a_widget",
+            columns=(int_column("id"), varchar_column("value")),
+            primary_key_columns=("id",),
+            rows=rows,
         )
         inputs = [ProjectionTableInput("a_widget", reader, binding)]
         if two_tables:
             second_reader, second_binding = table_input(
-                "b_widget", columns=(int_column("id"), varchar_column("value")),
-                primary_key_columns=("id",), rows=rows,
+                "b_widget",
+                columns=(int_column("id"), varchar_column("value")),
+                primary_key_columns=("id",),
+                rows=rows,
             )
             inputs.append(ProjectionTableInput("b_widget", second_reader, second_binding))
         return tuple(inputs)
@@ -397,7 +472,8 @@ def _keyed_parent_submit(
     before_store = InMemoryArtifactStore()
     before_input = _frozen_build_input(before_store, raw_input(before_rows), ruleset=ruleset)
     parent_manifest = open_canonicalization_manifest(
-        before_store, before_input.canonicalization_manifest_ref,
+        before_store,
+        before_input.canonicalization_manifest_ref,
     )
     assert parent_manifest.manifest_digest is not None
     parent_table = open_snapshot_table_artifact(
@@ -408,7 +484,8 @@ def _keyed_parent_submit(
             before_input.snapshot_tables[0].size_bytes,
             DigestRef(before_input.snapshot_tables[0].raw_sha256),
         ),
-        repository_id="test-repository", canonical_required=True,
+        repository_id="test-repository",
+        canonical_required=True,
     )
     descriptor = parent_table.descriptor
     assert parent_table.reader is not None
@@ -417,25 +494,36 @@ def _keyed_parent_submit(
         parent_table.batch_reader.close()
     columns = tuple(
         RepositoryColumn(
-            name=column.name, ordinal=index, scalar_type=column.scalar_type,
+            name=column.name,
+            ordinal=index,
+            scalar_type=column.scalar_type,
             nullable=column.nullable,
         )
         for index, column in enumerate(descriptor.columns)
     )
     catalog = make_catalog(
-        tuple(catalog_table(name, columns, primary_key=descriptor.primary_key_columns,
-                            row_count=99 if fault == "count" else 100)
-              for name in (("a_widget", "b_widget") if two_tables else (descriptor.table_name,))),
-        repository_id="test-repository", ref="parent-commit-1", commit="parent-commit-1",
+        tuple(
+            catalog_table(
+                name,
+                columns,
+                primary_key=descriptor.primary_key_columns,
+                row_count=99 if fault == "count" else 100,
+            )
+            for name in (("a_widget", "b_widget") if two_tables else (descriptor.table_name,))
+        ),
+        repository_id="test-repository",
+        ref="parent-commit-1",
+        commit="parent-commit-1",
     )
     source_rows: tuple[tuple[object | None, ...], ...] = tuple(
         (index, "wrong-value" if fault == "content" and index == 42 else f"value-{index}")
         for index in range(100)
     )
     if equivalent_source_schema:
-        source_rows = tuple((f'port-{index}', index) for index in range(100))
+        source_rows = tuple((f"port-{index}", index) for index in range(100))
     provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, rows={table.table_name: source_rows for table in catalog.tables},
+        catalog=catalog,
+        rows={table.table_name: source_rows for table in catalog.tables},
         current_commit="other-commit" if fault == "commit" else "parent-commit-1",
     )
 
@@ -449,8 +537,9 @@ def _keyed_parent_submit(
         def register(self, key: object, ref: ArtifactRef) -> None:
             self.refs[key] = ref
 
-        def bind_commit(self, *, repository_id: str, commit_id: str,
-                        refs: tuple[ArtifactRef, ...]) -> None:
+        def bind_commit(
+            self, *, repository_id: str, commit_id: str, refs: tuple[ArtifactRef, ...]
+        ) -> None:
             del repository_id, commit_id, refs
 
     index = Index()
@@ -460,25 +549,40 @@ def _keyed_parent_submit(
         yield SimpleNamespace(canonical_tables=index)
 
     after_store = InMemoryArtifactStore()
-    after_input = _frozen_build_input(after_store, raw_input(after_rows, source_variant=True), ruleset=ruleset)
+    after_input = _frozen_build_input(
+        after_store, raw_input(after_rows, source_variant=True), ruleset=ruleset
+    )
     if equivalent_source_schema:
         current_binding = after_input.snapshot_tables[0]
-        current = open_snapshot_table_artifact(after_store, ArtifactRef(current_binding.artifact_id,
-            current_binding.media_type, current_binding.size_bytes, DigestRef(current_binding.raw_sha256)),
-            repository_id='test-repository', canonical_required=True)
+        current = open_snapshot_table_artifact(
+            after_store,
+            ArtifactRef(
+                current_binding.artifact_id,
+                current_binding.media_type,
+                current_binding.size_bytes,
+                DigestRef(current_binding.raw_sha256),
+            ),
+            repository_id="test-repository",
+            canonical_required=True,
+        )
         assert current.artifact is not None and parent_table.artifact is not None
-        assert current.artifact.manifest.row_file_refs == parent_table.artifact.manifest.row_file_refs
+        assert (
+            current.artifact.manifest.row_file_refs == parent_table.artifact.manifest.row_file_refs
+        )
         if current.reader is not None:
             current.reader.close()
         if current.batch_reader is not None:
             current.batch_reader.close()
     committed = build_committed_table_access(
-        store=after_store if equivalent_source_schema else InMemoryArtifactStore(), unit_of_work_factory=uow,
+        store=after_store if equivalent_source_schema else InMemoryArtifactStore(),
+        unit_of_work_factory=uow,
         repository_provider_factory=lambda _repo, _commit: provider,
         repository_id="test-repository",
     )
     build_input = replace(
-        after_input, parent_is_initial=False, parent_manifest=parent_manifest,
+        after_input,
+        parent_is_initial=False,
+        parent_manifest=parent_manifest,
         parent_manifest_digest=parent_manifest.manifest_digest.value,
     )
     adapter = SubmitImportPublicationAdapter(
@@ -495,7 +599,11 @@ def test_submit_patch_uses_frozen_parent_after_ruleset_activation() -> None:
     assert type(rules) is list
     fallback_rule = rules[-1]
     assert type(fallback_rule) is dict
-    assert fallback_rule["selector"] == {"kind": "FALLBACK", "value": "*", "table_comment_contains": None}
+    assert fallback_rule["selector"] == {
+        "kind": "FALLBACK",
+        "value": "*",
+        "table_comment_contains": None,
+    }
     fallback_rule["compare_excluded_columns"] = ["value"]
     frozen_ruleset = table_ruleset_from_document(frozen_document)
     adapter, build_input, store = _keyed_parent_submit(ruleset=frozen_ruleset)
@@ -504,13 +612,17 @@ def test_submit_patch_uses_frozen_parent_after_ruleset_activation() -> None:
     assert frozen_ruleset.ruleset_digest != active_ruleset.ruleset_digest
     assert build_input.parent_manifest.tables[0].canonical_key_columns == ("id",)
     published = adapter.build_and_publish(build_input=build_input, store=store)
-    sql = _replay_sql_from_package(adapter.read_back_package(checkpoint=published.checkpoint, store=store))
+    sql = _replay_sql_from_package(
+        adapter.read_back_package(checkpoint=published.checkpoint, store=store)
+    )
     assert "UPDATE `a_widget` SET" in sql
     assert "new-value" in sql
     assert "DROP TABLE" not in sql
 
 
-def test_submit_reuses_verified_parent_catalog_for_changed_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_reuses_verified_parent_catalog_for_changed_tables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from gateway_backend.capabilities.snapshot_materialization import describe_repository_ref
 
     adapter, build_input, store = _keyed_parent_submit(two_tables=True)
@@ -523,10 +635,13 @@ def test_submit_reuses_verified_parent_catalog_for_changed_tables(monkeypatch: p
         return original(request)  # type: ignore[arg-type]
 
     monkeypatch.setattr(
-        "gateway_backend.infrastructure.repository_write.import_publication.describe_repository_ref", describe,
+        "gateway_backend.infrastructure.repository_write.import_publication.describe_repository_ref",
+        describe,
     )
     published = adapter.build_and_publish(build_input=build_input, store=store)
-    sql = _replay_sql_from_package(adapter.read_back_package(checkpoint=published.checkpoint, store=store))
+    sql = _replay_sql_from_package(
+        adapter.read_back_package(checkpoint=published.checkpoint, store=store)
+    )
     assert descriptions == 1
     assert "UPDATE `a_widget` SET" in sql
     assert "UPDATE `b_widget` SET" in sql
@@ -557,7 +672,11 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
     assert projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(projection.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "28ffd239763dcd355a80a1eae92268016ef01b1b9be33f8e4d1ea36fe2706019"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "28ffd239763dcd355a80a1eae92268016ef01b1b9be33f8e4d1ea36fe2706019",
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -569,7 +688,11 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "a25004759e79d8418d83f2734416344a4e115fb7b76646b81ccda8d026034d69"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "a25004759e79d8418d83f2734416344a4e115fb7b76646b81ccda8d026034d69",
+        ),
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),
@@ -588,10 +711,13 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
 
     assert bindings == ()
     assert refs == tuple(sorted((closure_ref, manifest_ref), key=lambda ref: ref.artifact_id))
-    assert _build_input(
-        snapshot_tables=bindings,
-        projection_inputs=_projection_inputs(),
-    ).snapshot_tables == ()
+    assert (
+        _build_input(
+            snapshot_tables=bindings,
+            projection_inputs=_projection_inputs(),
+        ).snapshot_tables
+        == ()
+    )
 
 
 def test_empty_canonical_state_publishes_parent_table_removal() -> None:
@@ -614,7 +740,11 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     assert parent_projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(canonical.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "ebfe0f90740708f9fb734bd2512f34a2020f14caf61cf0020a00ab9d7652662d"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "ebfe0f90740708f9fb734bd2512f34a2020f14caf61cf0020a00ab9d7652662d",
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_bytes),
         raw_sha256=raw_blob_digest(manifest_bytes),
@@ -626,7 +756,11 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "219a388e38f3ce667e2072df3aaa6e81a1aa85322c5f1d57bc6b368d0df6ca0b"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "219a388e38f3ce667e2072df3aaa6e81a1aa85322c5f1d57bc6b368d0df6ca0b",
+        ),
         media_type="application/jcs",
         size_bytes=len(closure_bytes),
         raw_sha256=raw_blob_digest(closure_bytes),
@@ -693,17 +827,22 @@ def test_removed_tables_follow_the_complete_canonical_state(
     snapshot_tables = tuple(
         SnapshotTableBinding(
             table_name=name,
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"snapshot-{name}"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE, "test-fixture", f"snapshot-{name}"
+            ),
             media_type="application/octet-stream",
             size_bytes=1,
             raw_sha256=_SNAPSHOT_DIGEST,
         )
         for name in snapshot_names
     )
-    assert derive_removed_tables(
-        parent_table_names=parent_names,
-        snapshot_tables=snapshot_tables,
-    ) == expected_removed
+    assert (
+        derive_removed_tables(
+            parent_table_names=parent_names,
+            snapshot_tables=snapshot_tables,
+        )
+        == expected_removed
+    )
 
 
 def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() -> None:
@@ -732,7 +871,8 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         source.snapshot,
         frozen.tables,
         artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()), repository_id="test-repository",
+        context=ParserInvocationContext(NeverCancel()),
+        repository_id="test-repository",
     )
     assert canonical_snapshot.status is SnapshotMaterializationStatus.COMPLETE
     assert canonical_snapshot.table_set is not None
@@ -748,10 +888,16 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         if table.artifact is not None
     )
     assert len(bindings) == 1
-    canonical_inputs = _open_projection_inputs(bindings, store=store, repository_id="test-repository")
+    canonical_inputs = _open_projection_inputs(
+        bindings, store=store, repository_id="test-repository"
+    )
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "44ff21fae0c6ac8f80a9ad8dea1f4274921a256c8af3156e60a2a2550b0975a5"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "44ff21fae0c6ac8f80a9ad8dea1f4274921a256c8af3156e60a2a2550b0975a5",
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -761,7 +907,11 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         submit_attempt_id="sa-frozen-dropped-column",
         builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=ArtifactRef(
-            artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "86956a3150b883c83390c1f2976ac74b40b8e6b8b16c78fafc745203806a3fa9"),
+            artifact_id=build_artifact_id(
+                ArtifactLocation.DURABLE,
+                "test-fixture",
+                "86956a3150b883c83390c1f2976ac74b40b8e6b8b16c78fafc745203806a3fa9",
+            ),
             media_type="application/jcs",
             size_bytes=1,
             raw_sha256=DigestRef("sha256:" + "a" * 64),
@@ -786,16 +936,25 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     package_input = validate_repository_import_package(package)
     assert package_input.canonicalization_manifest_digest == frozen.manifest.manifest_digest
-    assert published.checkpoint.canonicalization_manifest_digest == frozen.manifest.manifest_digest.value
+    assert (
+        published.checkpoint.canonicalization_manifest_digest
+        == frozen.manifest.manifest_digest.value
+    )
     replay_sql = _replay_sql_from_package(package)
     assert "CREATE TABLE `com_cfg`" in replay_sql
     assert "`no`" not in replay_sql
     assert "COMMENT" not in replay_sql
     ref = published.checkpoint.canonicalization_manifest_ref
-    reopened = open_canonicalization_manifest(store, ArtifactRef(ref.artifact_id, ref.media_type, ref.size_bytes, DigestRef(ref.raw_sha256)))
+    reopened = open_canonicalization_manifest(
+        store,
+        ArtifactRef(ref.artifact_id, ref.media_type, ref.size_bytes, DigestRef(ref.raw_sha256)),
+    )
     assert reopened.presentation == frozen.manifest.presentation
     assert reopened.presentation.tables[0].comment == "配置"
-    assert {c.name: c.comment for c in reopened.presentation.tables[0].columns} == {"index": None, "value": "值"}
+    assert {c.name: c.comment for c in reopened.presentation.tables[0].columns} == {
+        "index": None,
+        "value": "值",
+    }
 
 
 def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
@@ -825,7 +984,8 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         source.snapshot,
         frozen.tables,
         artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()), repository_id="test-repository",
+        context=ParserInvocationContext(NeverCancel()),
+        repository_id="test-repository",
     )
     assert canonical_snapshot.status is SnapshotMaterializationStatus.COMPLETE
     assert canonical_snapshot.table_set is not None
@@ -841,7 +1001,9 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         if table.artifact is not None
     )
     assert len(bindings) == 1
-    projection_inputs = _open_projection_inputs(bindings, store=store, repository_id="test-repository")
+    projection_inputs = _open_projection_inputs(
+        bindings, store=store, repository_id="test-repository"
+    )
     assert projection_inputs[0].canonicalized_input is True
 
     canonical_table = canonical_snapshot.table_set.tables[0]
@@ -858,7 +1020,11 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         }
     )
     closure_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "1617cc60678b81d6dbe6413abd44482978b5003c461cacc5bb5a3ffa3678fd40"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "1617cc60678b81d6dbe6413abd44482978b5003c461cacc5bb5a3ffa3678fd40",
+        ),
         media_type="application/jcs",
         size_bytes=len(closure_payload),
         raw_sha256=raw_blob_digest(closure_payload),
@@ -866,7 +1032,11 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
     store.put(closure_payload, closure_ref)
     manifest_payload = durable_manifest_bytes(frozen.manifest)
     manifest_ref = ArtifactRef(
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "8a53399f4fd0a2716c89dc84c5c0cdba197689a20809f03cfb1a23b131ce4d60"),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE,
+            "test-fixture",
+            "8a53399f4fd0a2716c89dc84c5c0cdba197689a20809f03cfb1a23b131ce4d60",
+        ),
         media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
         size_bytes=len(manifest_payload),
         raw_sha256=raw_blob_digest(manifest_payload),
@@ -951,20 +1121,24 @@ def test_rebuild_replay_includes_ddl_and_inserts() -> None:
 def test_submit_places_every_rebuilt_schema_before_table_rows() -> None:
     store = InMemoryArtifactStore()
     second_reader, second_binding = table_input(
-        "a_widget", columns=(int_column("id"), varchar_column("value")),
+        "a_widget",
+        columns=(int_column("id"), varchar_column("value")),
         primary_key_columns=("id",),
         rows=(as_row(int_cell(1), varchar_cell("first")),),
     )
     raw_inputs = _projection_inputs() + (
         ProjectionTableInput(
-            canonical_table="a_widget", reader=second_reader,
+            canonical_table="a_widget",
+            reader=second_reader,
             source_binding=second_binding,
         ),
     )
     build_input = _frozen_build_input(store, raw_inputs)
     adapter = SubmitImportPublicationAdapter()
     published = adapter.build_and_publish(build_input=build_input, store=store)
-    sql = _replay_sql_from_package(adapter.read_back_package(checkpoint=published.checkpoint, store=store))
+    sql = _replay_sql_from_package(
+        adapter.read_back_package(checkpoint=published.checkpoint, store=store)
+    )
     assert sql.index("DROP TABLE IF EXISTS `a_widget`") < sql.index("CREATE TABLE `a_widget`")
     assert sql.index("CREATE TABLE `a_widget`") < sql.index("DROP TABLE IF EXISTS `net_cfg`")
     assert sql.index("CREATE TABLE `net_cfg`") < sql.index("INSERT INTO `a_widget`")
@@ -995,11 +1169,19 @@ def test_ordered_blank_gid_replay_matches_projection() -> None:
         ),
     )
     published = adapter.build_and_publish(
-        build_input=_build_input(store=store, projection_inputs=projection_inputs,
-            presentation=PresentationMetadata((TablePresentation(
-                "b1_n1_iec104_syx_list", "引用表",
-                tuple(ColumnPresentation(name, None) for name in ("gid", "no", "value")),
-            ),))),
+        build_input=_build_input(
+            store=store,
+            projection_inputs=projection_inputs,
+            presentation=PresentationMetadata(
+                (
+                    TablePresentation(
+                        "b1_n1_iec104_syx_list",
+                        "引用表",
+                        tuple(ColumnPresentation(name, None) for name in ("gid", "no", "value")),
+                    ),
+                )
+            ),
+        ),
         store=store,
     )
     payload = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
@@ -1116,7 +1298,10 @@ def test_checkpoint_reuse_rejects_missing_frozen_package_without_rebuilding(
     monkeypatch.setattr(adapter, "build_and_publish", forbid_rebuild)
     with pytest.raises(SubmitImportPublicationError):
         reuse_prepare_import_checkpoint(
-            build_input=build_input, checkpoint=checkpoint, publication=adapter, store=store,
+            build_input=build_input,
+            checkpoint=checkpoint,
+            publication=adapter,
+            store=store,
         )
     assert store._artifacts == remaining_artifacts
 
@@ -1157,8 +1342,10 @@ def test_publish_writes_only_manifest_and_package_artifacts() -> None:
     build_input = _build_input(store=store)
     input_artifact_ids = set(store._artifacts)
     published = adapter.build_and_publish(build_input=build_input, store=store)
-    output_ids = {published.checkpoint.canonicalization_manifest_ref.artifact_id,
-        published.checkpoint.backend_import_artifact_ref.artifact_id}
+    output_ids = {
+        published.checkpoint.canonicalization_manifest_ref.artifact_id,
+        published.checkpoint.backend_import_artifact_ref.artifact_id,
+    }
     assert set(store._artifacts) - input_artifact_ids == output_ids
     assert all(artifact_id.startswith("a1:durable:") for artifact_id in output_ids)
 
@@ -1175,9 +1362,16 @@ def test_build_and_publish_from_pinned_canonical_ipc_artifact_succeeds() -> None
         artifact_store=store,
     )
     assert source.snapshot is not None and source.table_set is not None
-    projected = project_canonical_arrow_table_set(source.table_set, migrated_table_ruleset_snapshot(), presentation=source.presentation)
-    result = materialize_canonical_snapshot(source.snapshot, projected.tables, artifact_store=store,
-        context=ParserInvocationContext(NeverCancel()), repository_id="test-repository")
+    projected = project_canonical_arrow_table_set(
+        source.table_set, migrated_table_ruleset_snapshot(), presentation=source.presentation
+    )
+    result = materialize_canonical_snapshot(
+        source.snapshot,
+        projected.tables,
+        artifact_store=store,
+        context=ParserInvocationContext(NeverCancel()),
+        repository_id="test-repository",
+    )
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.table_set is not None
     table = result.table_set.tables[0]
@@ -1189,7 +1383,9 @@ def test_build_and_publish_from_pinned_canonical_ipc_artifact_succeeds() -> None
         size_bytes=table.artifact.manifest_ref.size_bytes,
         raw_sha256=table.artifact.manifest_ref.raw_sha256.value,
     )
-    projection_inputs = _open_projection_inputs((binding,), store=store, repository_id="test-repository")
+    projection_inputs = _open_projection_inputs(
+        (binding,), store=store, repository_id="test-repository"
+    )
     build_input = _build_input(
         store=store,
         projection_inputs=projection_inputs,
@@ -1208,7 +1404,8 @@ def test_prepare_rejects_parent_manifest_with_corrupt_content() -> None:
     parent = open_canonicalization_manifest(store, initial.canonicalization_manifest_ref)
     assert parent.manifest_digest is not None
     build_input = replace(
-        initial, parent_is_initial=False,
+        initial,
+        parent_is_initial=False,
         parent_manifest=replace(parent, source_artifact_digest=digest_ref("bb")),
         parent_manifest_digest=parent.manifest_digest.value,
     )
@@ -1261,7 +1458,11 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
             build_input,
             canonical_table_set_closure_ref=replace(
                 build_input.canonical_table_set_closure_ref,
-                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "85bc3927c6737e78ff9f98d2a931487a1e7c785dfe8fa5e077fa3db8c06b5ea1"),
+                artifact_id=build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "test-fixture",
+                    "85bc3927c6737e78ff9f98d2a931487a1e7c785dfe8fa5e077fa3db8c06b5ea1",
+                ),
             ),
         )
     elif binding_change == "closure_digest":
@@ -1279,7 +1480,11 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
             build_input,
             canonicalization_manifest_ref=replace(
                 build_input.canonicalization_manifest_ref,
-                artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "db8a35c62a2bd940c922177cd12323140be0581703efc43f77bd77d16976925e"),
+                artifact_id=build_artifact_id(
+                    ArtifactLocation.DURABLE,
+                    "test-fixture",
+                    "db8a35c62a2bd940c922177cd12323140be0581703efc43f77bd77d16976925e",
+                ),
             ),
         )
     elif binding_change == "manifest_digest":
@@ -1297,19 +1502,23 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
         )
 
 
-@pytest.mark.parametrize('fault', ('missing', 'corrupt'))
+@pytest.mark.parametrize("fault", ("missing", "corrupt"))
 def test_parent_alias_cannot_rebuild_unavailable_frozen_current(fault: str) -> None:
     adapter, build_input, store = _keyed_parent_submit(equivalent_source_schema=True)
     assert build_input.parent_manifest is not None
     current = open_canonicalization_manifest(store, build_input.canonicalization_manifest_ref)
     parent_table, current_table = build_input.parent_manifest.tables[0], current.tables[0]
-    assert parent_table.name == current_table.name == 'net_cfg'
+    assert parent_table.name == current_table.name == "net_cfg"
     assert parent_table.source_schema_digest != current_table.source_schema_digest
     assert parent_table.canonical_schema_digest == current_table.canonical_schema_digest
     assert parent_table.content_digest == current_table.content_digest
     binding = build_input.snapshot_tables[0]
-    wrapper = ArtifactRef(binding.artifact_id, binding.media_type, binding.size_bytes, DigestRef(binding.raw_sha256))
-    frozen = open_snapshot_table_artifact(store, wrapper, repository_id=build_input.repository_id, canonical_required=True)
+    wrapper = ArtifactRef(
+        binding.artifact_id, binding.media_type, binding.size_bytes, DigestRef(binding.raw_sha256)
+    )
+    frozen = open_snapshot_table_artifact(
+        store, wrapper, repository_id=build_input.repository_id, canonical_required=True
+    )
     assert frozen.artifact is not None
     row_ref = frozen.artifact.manifest.row_file_refs[0]
     if frozen.reader is not None:
@@ -1318,11 +1527,11 @@ def test_parent_alias_cannot_rebuild_unavailable_frozen_current(fault: str) -> N
         frozen.batch_reader.close()
     # The parent source has the exact same canonical row identity; its source
     # schema differs only by presence of the dropped no column. Restoring it would mask loss.
-    if fault == 'missing':
+    if fault == "missing":
         del store._artifacts[row_ref.artifact_id]
     else:
-        store._artifacts[row_ref.artifact_id] = (row_ref, b'corrupt')
+        store._artifacts[row_ref.artifact_id] = (row_ref, b"corrupt")
     before = dict(store._artifacts)
-    with pytest.raises(SubmitImportPublicationError, match='frozen canonical table'):
+    with pytest.raises(SubmitImportPublicationError, match="frozen canonical table"):
         adapter.build_and_publish(build_input=build_input, store=store)
     assert store._artifacts == before

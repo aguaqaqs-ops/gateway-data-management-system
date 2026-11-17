@@ -12,7 +12,10 @@ from pathlib import Path
 import pytest
 
 from gateway_backend.application.submission.errors import SubmitAttemptVersionConflict
-from gateway_backend.domain.submission.errors import SubmitOccupancyConflict, SubmitAttemptInvariantViolation
+from gateway_backend.domain.submission.errors import (
+    SubmitOccupancyConflict,
+    SubmitAttemptInvariantViolation,
+)
 from gateway_backend.domain.submission.models import (
     BuilderMutationPolicy,
     RepositorySubmitOccupancy,
@@ -24,7 +27,10 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
     Submission,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -53,7 +59,9 @@ def _sample_attempt(*, operation_id: str = "op-submit-1") -> SubmitAttempt:
         canonical_business_digest="sha256:" + "5" * 64,
         source_digest="d-source",
         snapshot_digest="d-snapshot",
-        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",),
+        source_artifact_refs=(
+            "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+        ),
         canonical_table_set_closure_ref="a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
         canonical_table_set_closure_digest="sha256:canonical-table-closure",
         preview_ready_closure_ref="a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
@@ -203,12 +211,26 @@ def test_submit_attempt_roundtrip_and_cas_conflict(db_path: Path) -> None:
 
     time = attempt.configuration_facts.modified.generated_time
     assert time is not None
-    changed = replace(attempt, configuration_facts=replace(attempt.configuration_facts,
-        modified=replace(attempt.configuration_facts.modified, generated_time=replace(time, status="COLUMN_ABSENT"))))
+    changed = replace(
+        attempt,
+        configuration_facts=replace(
+            attempt.configuration_facts,
+            modified=replace(
+                attempt.configuration_facts.modified,
+                generated_time=replace(time, status="COLUMN_ABSENT"),
+            ),
+        ),
+    )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         with pytest.raises(SubmitAttemptInvariantViolation, match="facts are immutable"):
             unit_of_work.submission.cas_update_attempt(changed, expected_version=0)
-    updated = replace(attempt, optimistic_version=1, state=SubmitAttemptState.ABORTED, abort_code="IMPORT_REJECTED", aborted_at=TS0)
+    updated = replace(
+        attempt,
+        optimistic_version=1,
+        state=SubmitAttemptState.ABORTED,
+        abort_code="IMPORT_REJECTED",
+        aborted_at=TS0,
+    )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.submission.cas_update_attempt(updated, expected_version=0)
 
@@ -233,7 +255,9 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",),
+        source_artifact_refs=(
+            "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+        ),
         canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
@@ -287,7 +311,13 @@ def test_submission_and_occupancy_roundtrip(db_path: Path) -> None:
     assert workspace_occupancy.active_submit_attempt_id is None
     assert repository_occupancy is None
     with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute("UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?", (b'["a1:durable:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]', "sub-1"))
+        unit_of_work.connection.execute(
+            "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
+            (
+                b'["a1:durable:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]',
+                "sub-1",
+            ),
+        )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         with pytest.raises(ValueError, match="source artifacts"):
             unit_of_work.submission.get_submission("sub-1")
@@ -306,7 +336,9 @@ def _sample_submission() -> Submission:
         business_baseline_commit_id="commit-base",
         repository_commit_id="commit-new",
         canonical_business_digest="sha256:" + "5" * 64,
-        source_artifact_refs=("a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",),
+        source_artifact_refs=(
+            "a1:durable:22822f127d0974f80593e94b220507ff6c54df1c3b6fc3bdf591ee44808e26cf",
+        ),
         canonicalization_manifest_ref="a1:durable:d846d6d8fd245b77bbaa1583f8445f3d1e6654a6205c675f1239c6121e351ee6",
         canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_raw_sha256="sha256:package",
@@ -444,7 +476,7 @@ MALFORMED_JSON_SHAPES = (
         lambda: _decode_backend_artifact_ref(
             json.dumps(
                 {
-                    "artifact_id": 'a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661',
+                    "artifact_id": "a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661",
                     "media_type": "application/octet-stream",
                     "size_bytes": 1,
                     "raw_sha256": "sha256:x",
@@ -459,7 +491,7 @@ MALFORMED_JSON_SHAPES = (
         lambda: _decode_backend_artifact_ref(
             json.dumps(
                 {
-                    "artifact_id": 'a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661',
+                    "artifact_id": "a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661",
                     "media_type": "application/octet-stream",
                     "size_bytes": 1,
                 }
@@ -477,7 +509,7 @@ MALFORMED_JSON_SHAPES = (
 
 def _artifact_ref_bytes(**overrides: object) -> bytes:
     document: dict[str, object] = {
-        "artifact_id": 'a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661',
+        "artifact_id": "a1:durable:f07f15183def2c2b9f8d9a6b07eda4ac0d0bb74bf55446bc3f6c7ec5ac8a6661",
         "media_type": "application/octet-stream",
         "size_bytes": 1,
         "raw_sha256": "sha256:x",
@@ -493,7 +525,9 @@ def _decode_string_list(payload: bytes) -> object:
 
 
 def _decode_backend_artifact_ref(value: bytes) -> object:
-    from gateway_backend.infrastructure.control_db.sqlite_submission import _decode_backend_artifact_ref
+    from gateway_backend.infrastructure.control_db.sqlite_submission import (
+        _decode_backend_artifact_ref,
+    )
 
     return _decode_backend_artifact_ref(value)
 

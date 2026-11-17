@@ -83,7 +83,9 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                 "GATEWAY_REPOSITORY_SERVICE_IMAGE",
                 "gateway-repository-service:local",
             ),
-            "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix="gateway-backend-gate"),
+            "COMPOSE_PROJECT_NAME": compose_project_name(
+                tmp_path, default_prefix="gateway-backend-gate"
+            ),
         }
     )
     return env
@@ -96,7 +98,7 @@ def _wait_http_ok(url: str, *, timeout_seconds: float = 120.0) -> None:
             with urllib.request.urlopen(url, timeout=5.0) as response:
                 if response.status == 200:
                     return
-        except (urllib.error.URLError, ConnectionResetError):
+        except urllib.error.URLError, ConnectionResetError:
             time.sleep(2.0)
     raise RuntimeError(f"endpoint did not become ready: {url}")
 

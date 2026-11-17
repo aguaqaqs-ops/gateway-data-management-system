@@ -60,7 +60,9 @@ def _accept_submit(env: WorkspaceHttpTestEnvironment, workspace: dict[str, Any])
 
 
 @pytest.fixture
-def recovery_env(tmp_path: Path) -> tuple[WorkspaceHttpTestEnvironment, dict[str, Any], dict[str, Any]]:
+def recovery_env(
+    tmp_path: Path,
+) -> tuple[WorkspaceHttpTestEnvironment, dict[str, Any], dict[str, Any]]:
     environment = create_workspace_http_environment(tmp_path)
     seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
     workspace = _seeded_workspace_dict(seed)
@@ -367,7 +369,9 @@ def test_operator_recovery_rejects_reason_utf8_budget_overflow(tmp_path: Path) -
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
 
 
-def test_operator_recovery_returns_service_not_ready_without_submit_registry(tmp_path: Path) -> None:
+def test_operator_recovery_returns_service_not_ready_without_submit_registry(
+    tmp_path: Path,
+) -> None:
     environment = create_workspace_http_environment(tmp_path, include_submit_registry=False)
     response = environment.client.post(
         "/internal/v1/operations/op-missing/steps/step-missing/recovery",

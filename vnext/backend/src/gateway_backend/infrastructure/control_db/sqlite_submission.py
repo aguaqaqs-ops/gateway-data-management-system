@@ -114,8 +114,13 @@ class SQLiteSubmissionRepository:
             submit_attempt_id=row[3],
         )
 
-    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> SubmitAttempt | None:
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None:
         row = self._connection.execute(
             f"SELECT {_SUBMIT_ATTEMPT_COLUMNS} FROM submit_attempt_records WHERE submit_attempt_id = ? "
             "AND (? IS NULL OR workspace_id = ?) AND (? IS NULL OR repository_id = ?)",
@@ -133,11 +138,19 @@ class SQLiteSubmissionRepository:
         if row is None:
             return None
         mapping = row_mapping(row)
-        return SubmissionAccessBinding(workspace_id=_required_text(mapping, "workspace_id"),
-            repository_id=_required_text(mapping, "repository_id"), created_by=_required_text(mapping, "created_by"))
+        return SubmissionAccessBinding(
+            workspace_id=_required_text(mapping, "workspace_id"),
+            repository_id=_required_text(mapping, "repository_id"),
+            created_by=_required_text(mapping, "created_by"),
+        )
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                       repository_id: str | None = None) -> Submission | None:
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None:
         row = self._connection.execute(
             f"SELECT {SUBMISSION_COLUMNS} FROM submission_records WHERE submission_id = ? "
             "AND (? IS NULL OR workspace_id = ?) AND (? IS NULL OR repository_id = ?)",
@@ -288,14 +301,10 @@ class SQLiteSubmissionRepository:
             review_status_raw = mapping.get("review_status")
             review_sequence_raw = mapping.get("review_sequence")
             review_status = (
-                None
-                if review_status_raw is None
-                else ReviewStatus(str(review_status_raw))
+                None if review_status_raw is None else ReviewStatus(str(review_status_raw))
             )
             review_sequence = (
-                None
-                if review_sequence_raw is None
-                else int(cast(int | str, review_sequence_raw))
+                None if review_sequence_raw is None else int(cast(int | str, review_sequence_raw))
             )
             facts.append(
                 ArchiveCandidateFacts(
@@ -306,7 +315,9 @@ class SQLiteSubmissionRepository:
             )
         return tuple(facts)
 
-    def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]:
+    def list_active_submit_attempts(
+        self, repository_id: str
+    ) -> tuple[ArchiveActiveAttemptFacts, ...]:
         rows = self._connection.execute(
             """
             SELECT submit_attempt_id, state
@@ -381,7 +392,9 @@ class SQLiteSubmissionRepository:
         self._require_writable()
         current = self.get_submit_attempt(attempt.submit_attempt_id)
         if current is not None and current.identity_confirmations != attempt.identity_confirmations:
-            raise SubmitAttemptInvariantViolation("SubmitAttempt identity confirmations are immutable")
+            raise SubmitAttemptInvariantViolation(
+                "SubmitAttempt identity confirmations are immutable"
+            )
         if current is not None and current.configuration_facts != attempt.configuration_facts:
             raise SubmitAttemptInvariantViolation("SubmitAttempt configuration facts are immutable")
         row = submit_attempt_to_row(attempt)
@@ -599,7 +612,10 @@ def submit_attempt_to_row(attempt: SubmitAttempt) -> tuple[object, ...]:
 def submit_attempt_from_row(row: Mapping[str, object]) -> SubmitAttempt:
     mapping = row_mapping(row)
     return SubmitAttempt(
-        configuration_facts=ConfigurationFacts.from_document(json.loads(_blob_value(mapping, "configuration_facts"))),        submit_attempt_id=_required_text(mapping, "submit_attempt_id"),
+        configuration_facts=ConfigurationFacts.from_document(
+            json.loads(_blob_value(mapping, "configuration_facts"))
+        ),
+        submit_attempt_id=_required_text(mapping, "submit_attempt_id"),
         workspace_id=_required_text(mapping, "workspace_id"),
         workspace_generation=_required_int(mapping, "workspace_generation"),
         upload_revision_id=_required_text(mapping, "upload_revision_id"),
@@ -620,7 +636,9 @@ def submit_attempt_from_row(row: Mapping[str, object]) -> SubmitAttempt:
         preview_ready_closure_ref=_required_text(mapping, "preview_ready_closure_ref"),
         preview_ready_closure_digest=_required_text(mapping, "preview_ready_closure_digest"),
         canonicalization_manifest_ref=_required_text(mapping, "canonicalization_manifest_ref"),
-        canonicalization_manifest_digest=_required_text(mapping, "canonicalization_manifest_digest"),
+        canonicalization_manifest_digest=_required_text(
+            mapping, "canonicalization_manifest_digest"
+        ),
         prepared_canonicalization_manifest_ref=_optional_text(
             mapping, "prepared_canonicalization_manifest_ref"
         ),
@@ -700,7 +718,10 @@ def submission_to_row(submission: Submission) -> tuple[object, ...]:
 
 def submission_from_row(row: Mapping[str, object]) -> Submission:
     return Submission(
-        configuration_facts=ConfigurationFacts.from_document(json.loads(_blob_value(row, "configuration_facts"))),        submission_id=_required_text(row, "submission_id"),
+        configuration_facts=ConfigurationFacts.from_document(
+            json.loads(_blob_value(row, "configuration_facts"))
+        ),
+        submission_id=_required_text(row, "submission_id"),
         submit_attempt_id=_required_text(row, "submit_attempt_id"),
         workspace_id=_required_text(row, "workspace_id"),
         workspace_generation=_required_int(row, "workspace_generation"),
@@ -959,5 +980,9 @@ def _epoch_us_to_datetime(value: int) -> datetime:
 
 
 def _validate_utc_datetime(value: object, label: str) -> None:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != UTC.utcoffset(value)
+    ):
         raise ValueError(f"{label} must be an aware UTC datetime")

@@ -24,7 +24,11 @@ from gateway_backend.application.job_definitions import (
 )
 from gateway_backend.application.payloads import PayloadDecodeError
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.operations import OPERATION_RUNTIME_CONTRACT_VERSION, OperationStatus, StepStatus
+from gateway_backend.operations import (
+    OPERATION_RUNTIME_CONTRACT_VERSION,
+    OperationStatus,
+    StepStatus,
+)
 from gateway_backend.operations.contracts import JobStepKey, OperationRecord, StepRecord
 from gateway_backend.operations.worker import (
     ExecutionControl,
@@ -39,9 +43,7 @@ BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
 LEASE_EXPIRES_AT = BASE_TIME + timedelta(seconds=30)
 
 BACKEND_SRC = Path(__file__).parents[1] / "src"
-JOB_DEFINITIONS_SOURCE = (
-    BACKEND_SRC / "gateway_backend" / "application" / "job_definitions.py"
-)
+JOB_DEFINITIONS_SOURCE = BACKEND_SRC / "gateway_backend" / "application" / "job_definitions.py"
 
 VERSION_V1 = "backend-vnext/synthetic/pure-compute/v1"
 VERSION_V2 = "backend-vnext/synthetic/pure-compute/v2"

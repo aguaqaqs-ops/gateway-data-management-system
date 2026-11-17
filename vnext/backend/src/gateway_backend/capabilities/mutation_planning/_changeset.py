@@ -112,14 +112,10 @@ def _patch_mutations(
     after: MutationTableSnapshot | None,
 ) -> tuple[ChangeSetMutation, ...]:
     before_rows = (
-        {}
-        if before is None
-        else {key_bytes_for_ordering(row.key): row for row in before.rows}
+        {} if before is None else {key_bytes_for_ordering(row.key): row for row in before.rows}
     )
     after_rows = (
-        {}
-        if after is None
-        else {key_bytes_for_ordering(row.key): row for row in after.rows}
+        {} if after is None else {key_bytes_for_ordering(row.key): row for row in after.rows}
     )
     deletes: list[ChangeSetMutation] = []
     updates: list[ChangeSetMutation] = []

@@ -84,7 +84,10 @@ def accept_history_compare(
     result_retention_seconds: int = 86_400,
     history_scope_active_limit: int = 2,
     operation_queue_limit: int = 32,
-    preflight: Callable[[OperationRecord, HistoryCompareAcceptanceRecord], AbstractContextManager[frozenset[str]]] | None = None,
+    preflight: Callable[
+        [OperationRecord, HistoryCompareAcceptanceRecord], AbstractContextManager[frozenset[str]]
+    ]
+    | None = None,
     resolve_current_identity: Callable[[], IdentityContext] | None = None,
 ) -> HistoryCompareAcceptanceResult:
     try:
@@ -98,13 +101,17 @@ def accept_history_compare(
     with ExitStack() as borrowed:
         for _ in range(8):
             outcome = _accept_history_compare_once(
-                command=command, unit_of_work_factory=unit_of_work_factory,
-                comparison_ruleset_digest=comparison_ruleset_digest, now=now,
+                command=command,
+                unit_of_work_factory=unit_of_work_factory,
+                comparison_ruleset_digest=comparison_ruleset_digest,
+                now=now,
                 result_retention_seconds=result_retention_seconds,
                 history_scope_active_limit=history_scope_active_limit,
                 operation_queue_limit=operation_queue_limit,
                 resolve_current_identity=resolve_current_identity,
-                rejected=rejected, verified_id=verified_id, verified_refs=verified_refs,
+                rejected=rejected,
+                verified_id=verified_id,
+                verified_refs=verified_refs,
             )
             if isinstance(outcome, HistoryCompareAcceptanceResult):
                 return outcome
@@ -118,7 +125,8 @@ def accept_history_compare(
                 if same_key:
                     raise
                 logging.getLogger(__name__).warning(
-                    "history result preflight rejected candidate operation_id=%s", operation.operation_id
+                    "history result preflight rejected candidate operation_id=%s",
+                    operation.operation_id,
                 )
                 rejected.add(operation.operation_id)
                 verified_id = None
@@ -127,22 +135,33 @@ def accept_history_compare(
 
 
 def _accept_history_compare_once(
-    *, command: HistoryCompareAcceptCommand, unit_of_work_factory: HistoryControlUnitOfWorkFactory,
-    comparison_ruleset_digest: str, now: datetime, result_retention_seconds: int,
-    history_scope_active_limit: int, operation_queue_limit: int,
+    *,
+    command: HistoryCompareAcceptCommand,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
+    comparison_ruleset_digest: str,
+    now: datetime,
+    result_retention_seconds: int,
+    history_scope_active_limit: int,
+    operation_queue_limit: int,
     resolve_current_identity: Callable[[], IdentityContext] | None,
-    rejected: set[str], verified_id: str | None, verified_refs: frozenset[str],
+    rejected: set[str],
+    verified_id: str | None,
+    verified_refs: frozenset[str],
 ) -> HistoryCompareAcceptanceResult | tuple[HistoryCompareAcceptanceRecord, OperationRecord, bool]:
     with unit_of_work_factory() as unit_of_work:
         if resolve_current_identity is not None:
             current = resolve_current_identity()
-            if (current.actor_id != command.context.actor_id
-                    or current.gateway_device_external_key != command.context.gateway_device_external_key
-                    or current.business_project_id != command.context.business_project_id):
+            if (
+                current.actor_id != command.context.actor_id
+                or current.gateway_device_external_key
+                != command.context.gateway_device_external_key
+                or current.business_project_id != command.context.business_project_id
+            ):
                 raise PermissionDenied(PERMISSION_READ_PROJECT_HISTORY)
             command = replace(command, context=current)
         validation = validate_history_compare_binding(
-            command=command, unit_of_work=unit_of_work,
+            command=command,
+            unit_of_work=unit_of_work,
             comparison_ruleset_digest=comparison_ruleset_digest,
         )
         same_key = validation.replay and validation.prior_acceptance is not None
@@ -160,8 +179,10 @@ def _accept_history_compare_once(
             if candidate.operation_id in rejected:
                 continue
             operation = unit_of_work.operations.get_operation(candidate.operation_id)
-            if (operation.job_kind != HISTORY_COMPARE_JOB_KIND
-                    or operation.job_contract_version != HISTORY_COMPARE_JOB_CONTRACT_VERSION):
+            if (
+                operation.job_kind != HISTORY_COMPARE_JOB_KIND
+                or operation.job_contract_version != HISTORY_COMPARE_JOB_CONTRACT_VERSION
+            ):
                 if same_key:
                     raise HistoryIntegrityFailure("history operation version binding disagrees")
                 rejected.add(operation.operation_id)
@@ -169,10 +190,14 @@ def _accept_history_compare_once(
             if operation.status is OperationStatus.SUCCEEDED:
                 if operation.completed_at is None:
                     raise HistoryCompareAcceptanceUnavailable
-                expiry = operation.completed_at + timedelta(seconds=candidate.result_retention_seconds)
+                expiry = operation.completed_at + timedelta(
+                    seconds=candidate.result_retention_seconds
+                )
                 if unit_of_work.transaction_now >= expiry:
                     if same_key:
-                        raise HistoryCompareRequestExpired("history compare request expired; use a new key")
+                        raise HistoryCompareRequestExpired(
+                            "history compare request expired; use a new key"
+                        )
                     continue
                 if verified_id != operation.operation_id:
                     return candidate, operation, bool(same_key)
@@ -180,15 +205,22 @@ def _accept_history_compare_once(
                     operation.operation_id, verified_refs, expiry
                 ):
                     if same_key:
-                        raise HistoryIntegrityFailure("history result protection disagrees with its expiry")
+                        raise HistoryIntegrityFailure(
+                            "history result protection disagrees with its expiry"
+                        )
                     rejected.add(operation.operation_id)
                     continue
-            elif not same_key and operation.status not in (OperationStatus.QUEUED, OperationStatus.RUNNING):
+            elif not same_key and operation.status not in (
+                OperationStatus.QUEUED,
+                OperationStatus.RUNNING,
+            ):
                 continue
             if not same_key:
                 if unit_of_work.history_compare.count_aliases(operation.operation_id) >= 64:
                     raise HistoryCompareAliasLimit(operation.operation_id)
-                unit_of_work.history_compare.save_alias(record=candidate, idempotency_key=command.idempotency_key)
+                unit_of_work.history_compare.save_alias(
+                    record=candidate, idempotency_key=command.idempotency_key
+                )
             return HistoryCompareAcceptanceResult(operation.operation_id, operation.status, True)
 
         active_ids = unit_of_work.history_compare.active_operation_ids(
@@ -268,7 +300,9 @@ def _accept_history_compare_once(
         unit_of_work.operations.insert_operation_with_initial_step(operation, step)
 
     return HistoryCompareAcceptanceResult(
-        operation_id=operation_id, status=OperationStatus.QUEUED, replay=False,
+        operation_id=operation_id,
+        status=OperationStatus.QUEUED,
+        replay=False,
     )
 
 
@@ -363,7 +397,9 @@ def validate_history_compare_binding(
         if prior.business_project_id != command.context.business_project_id:
             raise HistoryCompareBindingConflict("scope project does not match durable acceptance")
         if prior.repository_id != fresh_scope.repository_id:
-            raise HistoryCompareBindingConflict("repository mapping does not match durable acceptance")
+            raise HistoryCompareBindingConflict(
+                "repository mapping does not match durable acceptance"
+            )
 
     resolved_nodes = resolve_compare_nodes(
         unit_of_work,

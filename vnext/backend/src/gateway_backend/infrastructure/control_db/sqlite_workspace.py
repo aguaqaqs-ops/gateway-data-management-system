@@ -105,8 +105,13 @@ class SQLiteWorkspaceRepository:
             return None
         return upload_revision_from_row(_row_mapping(row))
 
-    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> PreviewResult | None:
+    def get_preview_result(
+        self,
+        preview_result_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> PreviewResult | None:
         row = self._connection.execute(
             """
             SELECT preview_result_id, workspace_id, upload_revision_id, generation, repository_id,
@@ -582,5 +587,9 @@ def _epoch_us_to_datetime(value: int) -> datetime:
 
 
 def _validate_utc_datetime(value: object, label: str) -> None:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != UTC.utcoffset(value)
+    ):
         raise ValueError(f"{label} must be an aware UTC datetime")

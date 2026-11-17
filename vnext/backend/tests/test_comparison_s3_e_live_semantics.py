@@ -11,42 +11,111 @@ from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput, ComparisonFacts, ComparisonPlan, ComparisonRecordKind, ComparisonRequest,
-    ComparisonStorageFacts, ComparisonTableStatus, DetailedFactsResult,
-    OrderedTableProcessingMode, SchemaChangeSource, SchemaEvolution, plan_comparison,
+    BoundSnapshotInput,
+    ComparisonFacts,
+    ComparisonPlan,
+    ComparisonRecordKind,
+    ComparisonRequest,
+    ComparisonStorageFacts,
+    ComparisonTableStatus,
+    DetailedFactsResult,
+    OrderedTableProcessingMode,
+    SchemaChangeSource,
+    SchemaEvolution,
+    plan_comparison,
 )
 from gateway_backend.capabilities.comparison.production import compare_plan_native
-from gateway_backend.capabilities.comparison.production import ComparisonTaskSession, comparison_row_demands
+from gateway_backend.capabilities.comparison.production import (
+    ComparisonTaskSession,
+    comparison_row_demands,
+)
 from gateway_backend.capabilities.risk_evaluation import (
-    RiskEvaluationInput, RiskEvaluationStatus, RiskOptions, RiskReasonCode,
-    RiskRulesetSnapshot, V1_RISK_RULE_SPECS, evaluate_risk,
+    RiskEvaluationInput,
+    RiskEvaluationStatus,
+    RiskOptions,
+    RiskReasonCode,
+    RiskRulesetSnapshot,
+    V1_RISK_RULE_SPECS,
+    evaluate_risk,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
-    ArrowSnapshotTableReader, snapshot_table_from_arrow,
+    ArrowSnapshotTableReader,
+    snapshot_table_from_arrow,
 )
-from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_comparison_profile
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+    canonical_comparison_profile,
+)
 from gateway_backend.capabilities.table_rules.contracts import (
-    CanonicalKeyPolicy, OrderedPolicy, STORAGE_PROJECTION_VERSION, StorageRuleView,
+    CanonicalKeyPolicy,
+    OrderedPolicy,
+    STORAGE_PROJECTION_VERSION,
+    StorageRuleView,
 )
-from tests.support.comparison_s3_e_live import canonical_bound, native_product, ordered_canonical_bound
+from tests.support.comparison_s3_e_live import (
+    canonical_bound,
+    native_product,
+    ordered_canonical_bound,
+)
 from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
 from tests.support.table_rules import comparison_ruleset_for, fallback_record
 
 pytestmark = pytest.mark.unit
 
 _ENUM_SET_CASES = (
-    pytest.param("ENUM", "'a','b'", "'A','b'", "'b'", True,
-                 SchemaEvolution.INCOMPATIBLE, id="enum-case-with-added-column"),
-    pytest.param("SET", "'x','y'", "'x','z'", "'x'", True,
-                 SchemaEvolution.INCOMPATIBLE, id="set-rename-with-added-column"),
-    pytest.param("ENUM", "'a','b'", "'A','b'", "'b'", False,
-                 SchemaEvolution.INCOMPATIBLE, id="enum-case-without-added-column"),
-    pytest.param("SET", "'x','y'", "'x','z'", "'x'", False,
-                 SchemaEvolution.INCOMPATIBLE, id="set-rename-without-added-column"),
-    pytest.param("ENUM", "'a','c'", "'a','b','c'", "'c'", True,
-                 SchemaEvolution.COLUMNS_ADDED, id="enum-add-in-middle"),
-    pytest.param("SET", "'x','z'", "'x','y','z'", "'x'", True,
-                 SchemaEvolution.COLUMNS_ADDED, id="set-add-in-middle"),
+    pytest.param(
+        "ENUM",
+        "'a','b'",
+        "'A','b'",
+        "'b'",
+        True,
+        SchemaEvolution.INCOMPATIBLE,
+        id="enum-case-with-added-column",
+    ),
+    pytest.param(
+        "SET",
+        "'x','y'",
+        "'x','z'",
+        "'x'",
+        True,
+        SchemaEvolution.INCOMPATIBLE,
+        id="set-rename-with-added-column",
+    ),
+    pytest.param(
+        "ENUM",
+        "'a','b'",
+        "'A','b'",
+        "'b'",
+        False,
+        SchemaEvolution.INCOMPATIBLE,
+        id="enum-case-without-added-column",
+    ),
+    pytest.param(
+        "SET",
+        "'x','y'",
+        "'x','z'",
+        "'x'",
+        False,
+        SchemaEvolution.INCOMPATIBLE,
+        id="set-rename-without-added-column",
+    ),
+    pytest.param(
+        "ENUM",
+        "'a','c'",
+        "'a','b','c'",
+        "'c'",
+        True,
+        SchemaEvolution.COLUMNS_ADDED,
+        id="enum-add-in-middle",
+    ),
+    pytest.param(
+        "SET",
+        "'x','z'",
+        "'x','y','z'",
+        "'x'",
+        True,
+        SchemaEvolution.COLUMNS_ADDED,
+        id="set-add-in-middle",
+    ),
 )
 
 
@@ -81,8 +150,12 @@ def _fallback_source(sql: str) -> BoundSnapshotInput:
     _ENUM_SET_CASES,
 )
 def test_enum_set_label_spelling_changes_schema_and_risk(
-    type_name: str, old_labels: str, new_labels: str, value: str,
-    add_note: bool, evolution: SchemaEvolution,
+    type_name: str,
+    old_labels: str,
+    new_labels: str,
+    value: str,
+    add_note: bool,
+    evolution: SchemaEvolution,
 ) -> None:
     before = (
         f"CREATE TABLE t (id INT PRIMARY KEY, state {type_name}({old_labels}) NULL);"
@@ -95,7 +168,7 @@ def test_enum_set_label_spelling_changes_schema_and_risk(
         f" INSERT INTO t VALUES (1,{value}{note_value});"
     )
     facts = _facts(before, current)
-    table, = facts.tables
+    (table,) = facts.tables
     assert table.schema_changes.schema_evolution is evolution
     assert table.schema_changes.current_only_columns == (("note",) if add_note else ())
     if evolution is SchemaEvolution.INCOMPATIBLE:
@@ -130,7 +203,8 @@ def test_enum_set_label_spelling_changes_schema_and_risk(
     ids=("added-column-physical-reorder", "excluded-values-swap-association"),
 )
 def test_standard_added_column_preserves_shared_row_association(
-    rows: str, changed: bool,
+    rows: str,
+    changed: bool,
 ) -> None:
     before = (
         "CREATE TABLE t (id INT PRIMARY KEY, name VARCHAR(8), secret VARCHAR(8));"
@@ -146,7 +220,7 @@ def test_standard_added_column_preserves_shared_row_association(
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
         assert table.status is ComparisonTableStatus.UNCHANGED
         assert table.content_changed is changed
@@ -165,7 +239,8 @@ def test_standard_added_column_preserves_shared_row_association(
     ids=("keyless-physical-reorder", "keyless-excluded-association"),
 )
 def test_keyless_added_column_uses_shared_row_multiset(
-    current_rows: str, changed: bool,
+    current_rows: str,
+    changed: bool,
 ) -> None:
     before = _fallback_source(
         "CREATE TABLE t (name VARCHAR(8), secret VARCHAR(8));"
@@ -175,22 +250,33 @@ def test_keyless_added_column_uses_shared_row_multiset(
         "CREATE TABLE t (name VARCHAR(8), secret VARCHAR(8), added VARCHAR(8));"
         f" INSERT INTO t VALUES {current_rows};",
     )
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="s3-e-keyless-added-association", before=before, current=current,
-        rule_set=comparison_ruleset_for(replace(
-            fallback_record(), compare_excluded_columns=("secret",),
-        )),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-e-keyless-added-association",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(
+                replace(
+                    fallback_record(),
+                    compare_excluded_columns=("secret",),
+                )
+            ),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     product = compare_plan_native(planned)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
         assert table.status is ComparisonTableStatus.UNCHANGED
         assert table.content_changed is changed
-        assert (table.row_added_count, table.row_deleted_count, table.row_modified_count) == (0, 0, 0)
+        assert (table.row_added_count, table.row_deleted_count, table.row_modified_count) == (
+            0,
+            0,
+            0,
+        )
         assert product.handles["t"].family_summary("STANDARD")[0] == 0
     finally:
         product.close()
@@ -204,7 +290,7 @@ def test_excluded_value_change_is_visible_without_row_record() -> None:
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.UNCHANGED
         assert table.content_changed
         assert table.row_modified_count == 0
@@ -219,10 +305,9 @@ def test_removed_column_is_distinct_from_incompatible_schema() -> None:
         " INSERT INTO t VALUES (1,'same','old');"
     )
     current = (
-        "CREATE TABLE t (id INT PRIMARY KEY, name VARCHAR(8));"
-        " INSERT INTO t VALUES (1,'same');"
+        "CREATE TABLE t (id INT PRIMARY KEY, name VARCHAR(8)); INSERT INTO t VALUES (1,'same');"
     )
-    table, = _facts(before, current).tables
+    (table,) = _facts(before, current).tables
     assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
     assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_REMOVED
     assert table.schema_changes.before_only_columns == ("note",)
@@ -235,7 +320,7 @@ def test_incompatible_non_key_type_has_no_value_change_record() -> None:
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
         assert table.schema_changes.incompatible_columns == ("value",)
         assert table.row_modified_count == 0
@@ -255,7 +340,7 @@ def test_changed_effective_key_degrades_without_positional_match() -> None:
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.DEGRADED
         assert table.row_modified_count == 0
         assert tuple(record.record_kind for record in table.records) == (
@@ -271,21 +356,23 @@ def test_raw_primary_key_appearance_is_a_source_schema_change() -> None:
         "CREATE TABLE t (value VARCHAR(8)); INSERT INTO t VALUES ('same');",
     )
     keyed = _fallback_source(
-        "CREATE TABLE t (id INT PRIMARY KEY, value VARCHAR(8));"
-        " INSERT INTO t VALUES (1,'same');",
+        "CREATE TABLE t (id INT PRIMARY KEY, value VARCHAR(8)); INSERT INTO t VALUES (1,'same');",
     )
 
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="s3-e-primary-key-appearance",
-        before=keyless, current=keyed,
-        rule_set=comparison_ruleset_for(fallback_record()),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-e-primary-key-appearance",
+            before=keyless,
+            current=keyed,
+            rule_set=comparison_ruleset_for(fallback_record()),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     product = compare_plan_native(planned)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
         assert table.schema_changes.change_source is SchemaChangeSource.SOURCE_SCHEMA
         assert not table.schema_changes.effective_compare_key_changed
@@ -322,16 +409,20 @@ def test_equal_canonical_storage_short_circuits_table_read_across_snapshots() ->
         summary=replace(before.summary, snapshot_digest=other_digest),
         table_set=replace(before.table_set, snapshot_digest=other_digest),
     )
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="s3-e-table-short-circuit", before=before, current=current,
-        rule_set=comparison_ruleset_for(),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-e-table-short-circuit",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     product = compare_plan_native(planned)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.UNCHANGED
         assert product.metrics is not None
         assert product.metrics.native_calls == 0
@@ -351,29 +442,42 @@ def test_malformed_canonical_row_shape_degrades_instead_of_appearing_empty() -> 
         with closing(isolated.arrow_stream()) as stream:
             backing = stream.read_all()
     profile, indices = canonical_comparison_profile(
-        original.descriptor, backing.schema, metadata_budget_bytes=1024 * 1024,
+        original.descriptor,
+        backing.schema,
+        metadata_budget_bytes=1024 * 1024,
     )
     profiled = pa.Table.from_arrays([backing.column(index) for index in indices], schema=profile)
     malformed = profiled.drop_columns("value")
     replacement = snapshot_table_from_arrow(
-        original.descriptor, malformed, original.reader.source_descriptor(),
+        original.descriptor,
+        malformed,
+        original.reader.source_descriptor(),
         ordered=original.ordered_metadata,
     )
     current = replace(
-        current, table_set=replace(current.table_set, tables=(replacement,)),
+        current,
+        table_set=replace(current.table_set, tables=(replacement,)),
     )
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="s3-e-malformed-canonical-row", before=before, current=current,
-        rule_set=comparison_ruleset_for(),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-e-malformed-canonical-row",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     product = compare_plan_native(planned)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.DEGRADED
-        assert (table.row_added_count, table.row_deleted_count, table.row_modified_count) == (0, 0, 0)
+        assert (table.row_added_count, table.row_deleted_count, table.row_modified_count) == (
+            0,
+            0,
+            0,
+        )
         assert table.diagnostics == ("ROW_SHAPE_MISMATCH",)
         assert product.handles == {}
     finally:
@@ -402,14 +506,17 @@ def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.ordered_extension is not None
         assert table.ordered_extension.ordered_summary.row_moved_count == 1
-        result = evaluate_risk(RiskEvaluationInput(
-            comparison_facts=product.result.facts,
-            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
-            ordered_record_views=product.handles,
-        ), artifact_store=InMemoryArtifactStore())
+        result = evaluate_risk(
+            RiskEvaluationInput(
+                comparison_facts=product.result.facts,
+                risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
+                ordered_record_views=product.handles,
+            ),
+            artifact_store=InMemoryArtifactStore(),
+        )
         assert result.status is RiskEvaluationStatus.READY
         assert result.risk_report is not None
         assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.ORDERED_MOVE,)
@@ -419,23 +526,33 @@ def test_ordered_swap_produces_row_risk_from_native_comparison() -> None:
         product.close()
 
 
-def test_cached_ordered_change_still_demands_snapshots_for_risk(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cached_ordered_change_still_demands_snapshots_for_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
     before_sql = schema + " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
     current_sql = schema + " INSERT INTO t VALUES (1,1,'a'),(NULL,2,'x'),(2,3,'b');"
     before, current = ordered_canonical_bound(before_sql), ordered_canonical_bound(current_sql)
     from tests.support.table_rules import ordered_record
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="cached-blank", before=before, current=current,
-        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
-    ))
+
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="cached-blank",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     product = native_product(before_sql, current_sql, ordered=True)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        fact, = product.result.facts.tables
-        assert fact.blank_extension is not None and fact.blank_extension.blank_summary.blank_changed_count
+        (fact,) = product.result.facts.tables
+        assert (
+            fact.blank_extension is not None
+            and fact.blank_extension.blank_summary.blank_changed_count
+        )
         session = ComparisonTaskSession((planned,))
         try:
             monkeypatch.setattr(session, "prepare_persistent", lambda _plan: None)
@@ -463,7 +580,7 @@ def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> 
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.blank_extension is not None
         assert table.ordered_extension is not None
         assert table.blank_extension.blank_summary.interval_deleted_count == 1
@@ -471,7 +588,9 @@ def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> 
         assert table.ordered_extension.ordered_summary.row_moved_count == 0
         assert product.handles["t"].family_summary("STANDARD")[0] == 0
         with closing(product.handles["t"].record_batches("BLANK")) as reader:
-            kinds = tuple(sorted(row["record_kind"] for batch in reader for row in batch.to_pylist()))
+            kinds = tuple(
+                sorted(row["record_kind"] for batch in reader for row in batch.to_pylist())
+            )
         assert kinds == ("BLANK_DELETE_INTERVAL", "BLANK_INSERT_INTERVAL")
     finally:
         product.close()
@@ -480,16 +599,26 @@ def test_blank_interval_shift_emits_delete_and_insert_without_move_pairing() -> 
 @pytest.mark.parametrize(
     ("before_rows", "current_rows", "mode", "kinds"),
     (
-        ("(1,1,'a'),(2,2,'b')", "(1,1,'z'),(2,2,'b')",
-         OrderedTableProcessingMode.LOCAL_PATCH, {"ORDERED_ROW_MODIFIED"}),
-        ("(1,1,'a'),(NULL,2,'x')", "(1,1,'a'),(NULL,2,'x'),(2,3,'b')",
-         OrderedTableProcessingMode.TAIL_SEGMENT, {"ORDERED_ROW_ADDED"}),
+        (
+            "(1,1,'a'),(2,2,'b')",
+            "(1,1,'z'),(2,2,'b')",
+            OrderedTableProcessingMode.LOCAL_PATCH,
+            {"ORDERED_ROW_MODIFIED"},
+        ),
+        (
+            "(1,1,'a'),(NULL,2,'x')",
+            "(1,1,'a'),(NULL,2,'x'),(2,3,'b')",
+            OrderedTableProcessingMode.TAIL_SEGMENT,
+            {"ORDERED_ROW_ADDED"},
+        ),
     ),
     ids=("local-content-patch", "tail-append-after-blank"),
 )
 def test_ordered_public_processing_modes_have_live_batch_records(
-    before_rows: str, current_rows: str,
-    mode: OrderedTableProcessingMode, kinds: set[str],
+    before_rows: str,
+    current_rows: str,
+    mode: OrderedTableProcessingMode,
+    kinds: set[str],
 ) -> None:
     schema = "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8));"
     product = native_product(
@@ -500,7 +629,7 @@ def test_ordered_public_processing_modes_have_live_batch_records(
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.ordered_extension is not None
         assert table.ordered_extension.table_processing_mode is mode
         with closing(product.handles["t"].record_batches("ORDERED")) as reader:
@@ -518,7 +647,7 @@ def test_ordered_identity_change_emits_add_delete_without_positional_fallback() 
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.row_modified_count == 0
         with closing(product.handles["t"].record_batches("ORDERED")) as reader:
             kinds = {row["record_kind"] for batch in reader for row in batch.to_pylist()}
@@ -543,7 +672,7 @@ def test_ordered_excluded_value_change_is_visible_without_row_record() -> None:
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        table, = product.result.facts.tables
+        (table,) = product.result.facts.tables
         assert table.status is ComparisonTableStatus.UNCHANGED
         assert table.content_changed
         assert table.row_modified_count == 0

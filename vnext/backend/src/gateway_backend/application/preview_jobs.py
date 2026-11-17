@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
-from gateway_backend.application.comparison_audit import structure_audit_binding, verify_structure_audit_bindings
+from gateway_backend.application.comparison_audit import (
+    structure_audit_binding,
+    verify_structure_audit_bindings,
+)
 
 from gateway_backend.statistics.metrics import bind_scope
 
@@ -29,8 +32,11 @@ from typing import ContextManager, cast
 
 from gateway_shared_kernel import DigestRef, canonicalize_jcs, raw_blob_digest
 from gateway_backend.domain.configuration_facts import (
-    CONFIGURATION_FACTS_SCHEMA, CanonicalContentIdentity, ConfigurationGeneratedTime,
-    ConfigurationFacts, ConfigurationSideFacts,
+    CONFIGURATION_FACTS_SCHEMA,
+    CanonicalContentIdentity,
+    ConfigurationGeneratedTime,
+    ConfigurationFacts,
+    ConfigurationSideFacts,
 )
 from gateway_backend.domain.baseline.models import BaselineNodeKind
 from gateway_backend.capabilities.storage_projection.contracts import STORAGE_PROJECTION_VERSION
@@ -39,8 +45,15 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.store import ArtifactBufferStorePort
-from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source, assemble_operation_bundle as assemble_bundle
-from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit, presentation_for_commit
+from gateway_backend.application.kernel_execution import (
+    reserved_artifact_bytes,
+    stage_operation_source,
+    assemble_operation_bundle as assemble_bundle,
+)
+from gateway_backend.application.canonical_metadata.binding import (
+    canonical_binding_for_commit,
+    presentation_for_commit,
+)
 from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
@@ -63,7 +76,9 @@ from gateway_backend.application.preview_job_identity import (
     PREVIEW_JOB_KIND,
     PREVIEW_STEP_MATERIALIZE,
 )
-from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
+from gateway_backend.application.workspace.ports import (
+    WorkspaceControlTransaction as PreviewControlTransaction,
+)
 from gateway_backend.application.pair_pipeline import (
     ComparisonTaskSession,
     PairPipelineCancelled,
@@ -134,7 +149,8 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     materialize_business_snapshot,
-    materialize_canonical_snapshot, export_snapshot_table_parquet,
+    materialize_canonical_snapshot,
+    export_snapshot_table_parquet,
     open_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -146,7 +162,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
-    RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
+    RepositoryRefMaterializationRequest,
+    CommittedCanonicalTablesPort,
     RepositoryProviderError,
     RepositoryTableAccessProvider,
     SourceKind,
@@ -186,7 +203,12 @@ from gateway_backend.capabilities.table_access.contracts import (
     XmlParseRequest,
     XmlSourceInput,
 )
-from gateway_backend.capabilities.table_access import parse_arrow_sql, parse_xml, current_kernel_context, KernelMemoryLimit
+from gateway_backend.capabilities.table_access import (
+    parse_arrow_sql,
+    parse_xml,
+    current_kernel_context,
+    KernelMemoryLimit,
+)
 from gateway_backend.capabilities.storage_projection import (
     CanonicalProjectionResult,
     CanonicalizationManifest,
@@ -311,7 +333,9 @@ class PreviewJobError(ValueError):
             self.diagnostic_details = None
             self.diagnostic_omitted_count = 0
             return
-        ordered_details = tuple(sorted(diagnostic_details, key=_operation_diagnostic_detail_sort_key))
+        ordered_details = tuple(
+            sorted(diagnostic_details, key=_operation_diagnostic_detail_sort_key)
+        )
         self.diagnostic_details = ordered_details[:100]
         self.diagnostic_omitted_count = diagnostic_omitted_count + max(
             0,
@@ -405,22 +429,30 @@ class _CanonicalPreviewMetadata:
             self.initial_canonicalization_manifest_digest is None
         ):
             raise ValueError("INITIAL manifest ref and digest must be supplied together")
-        if self.initial_canonicalization_manifest_ref is not None and type(
-            self.initial_canonicalization_manifest_ref
-        ) is not ArtifactRef:
+        if (
+            self.initial_canonicalization_manifest_ref is not None
+            and type(self.initial_canonicalization_manifest_ref) is not ArtifactRef
+        ):
             raise ValueError("initial_canonicalization_manifest_ref must be ArtifactRef or None")
-        if self.initial_canonicalization_manifest_digest is not None and type(
-            self.initial_canonicalization_manifest_digest
-        ) is not DigestRef:
+        if (
+            self.initial_canonicalization_manifest_digest is not None
+            and type(self.initial_canonicalization_manifest_digest) is not DigestRef
+        ):
             raise ValueError("initial_canonicalization_manifest_digest must be DigestRef or None")
         if type(self.configuration_facts) is not ConfigurationFacts:
             raise ValueError("canonical Preview configuration facts are required")
         facts = self.configuration_facts
-        if (facts.initial.content_identity.canonical_state_digest != self.initial_canonical_state_digest.value
-            or facts.modified.content_identity.canonical_state_digest != self.modified_canonical_state_digest.value
-            or facts.baseline_content_identity.canonical_state_digest != self.baseline_canonical_state_digest.value
-            or facts.modified.content_identity.storage_projection_ruleset_digest != self.storage_projection_ruleset_digest.value
-            or facts.baseline_is_initial != self.baseline_is_initial):
+        if (
+            facts.initial.content_identity.canonical_state_digest
+            != self.initial_canonical_state_digest.value
+            or facts.modified.content_identity.canonical_state_digest
+            != self.modified_canonical_state_digest.value
+            or facts.baseline_content_identity.canonical_state_digest
+            != self.baseline_canonical_state_digest.value
+            or facts.modified.content_identity.storage_projection_ruleset_digest
+            != self.storage_projection_ruleset_digest.value
+            or facts.baseline_is_initial != self.baseline_is_initial
+        ):
             raise ValueError("canonical Preview configuration facts do not match metadata")
         if type(self.baseline_is_initial) is not bool:
             raise ValueError("baseline_is_initial must be bool")
@@ -497,11 +529,15 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
     generation = _require_non_negative_int(payload_object, "generation")
     repository_id = _require_non_empty_str(payload_object, "repository_id")
     business_baseline_node_id = _require_non_empty_str(payload_object, "business_baseline_node_id")
-    business_baseline_commit_id = _require_non_empty_str(payload_object, "business_baseline_commit_id")
+    business_baseline_commit_id = _require_non_empty_str(
+        payload_object, "business_baseline_commit_id"
+    )
     baseline_head_version = _require_non_negative_int(payload_object, "baseline_head_version")
     input_completeness = _decode_input_completeness(payload_object.get("input_completeness"))
     source_artifacts = _decode_source_artifacts(payload_object.get("source_artifacts"))
-    source_digests = _decode_string_map(payload_object.get("source_digests"), label="source_digests")
+    source_digests = _decode_string_map(
+        payload_object.get("source_digests"), label="source_digests"
+    )
     input_digest = _require_non_empty_str(payload_object, "input_digest")
     ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
     comparison_ruleset_digest = _require_non_empty_str(payload_object, "comparison_ruleset_digest")
@@ -512,8 +548,13 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
     from gateway_backend.application.preview_semantics import current_preview_capabilities
 
     if capability_contract_versions != current_preview_capabilities():
-        raise PayloadDecodeError("preview capability versions do not match current semantics", code="PAYLOAD_SHAPE_INVALID")
-    provider_versions = _decode_string_map(payload_object.get("provider_versions"), label="provider_versions")
+        raise PayloadDecodeError(
+            "preview capability versions do not match current semantics",
+            code="PAYLOAD_SHAPE_INVALID",
+        )
+    provider_versions = _decode_string_map(
+        payload_object.get("provider_versions"), label="provider_versions"
+    )
     ready_closure_contract_version = _require_non_empty_str(
         payload_object,
         "ready_closure_contract_version",
@@ -591,7 +632,8 @@ def preview_composition_bundle(
         control_transaction_factory=bind_control_transaction_factory(
             deps.control_transaction_factory
         ),
-        snapshot_export_cache=deps.snapshot_export_cache, computation_cache=deps.computation_cache,
+        snapshot_export_cache=deps.snapshot_export_cache,
+        computation_cache=deps.computation_cache,
     )
     return (
         preview_job_definitions(),
@@ -682,15 +724,22 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
             inputs = _restore_preview_inputs_or_publish_failure(
-                envelope.job_state, repository_id=payload.repository_id, deps=deps,
-                operation=operation, step=step, lease_session=lease_session, control=control,
+                envelope.job_state,
+                repository_id=payload.repository_id,
+                deps=deps,
+                operation=operation,
+                step=step,
+                lease_session=lease_session,
+                control=control,
             )
             if inputs is None:
                 return ExecutorAcknowledgment.PUBLISHED
             materialized_sides_ref = artifact_ref_from_dict(
                 cast(dict[str, object], envelope.job_state[_JOB_STATE_MATERIALIZED_SIDES_REF])
             )
-            _assert_configuration_payload(inputs.canonical.configuration_facts, payload, operation.operation_id)
+            _assert_configuration_payload(
+                inputs.canonical.configuration_facts, payload, operation.operation_id
+            )
             _pin_preview_refs(
                 deps,
                 (
@@ -706,7 +755,9 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             try:
                 inputs = _materialize_all_sides(payload, deps, operation_id=operation.operation_id)
             except RepositoryProviderError as exc:
-                assert exc.retryable, "repository_ref must return deterministic provider errors as diagnostics"
+                assert exc.retryable, (
+                    "repository_ref must return deterministic provider errors as diagnostics"
+                )
                 raise HandlerExecutionFailure(
                     retryable=True,
                     diagnostic_code=f"repository.{exc.code.value.lower()}",
@@ -741,9 +792,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(
-                        materialized_sides_ref
-                    ),
+                    _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(materialized_sides_ref),
                     _JOB_STATE_CANONICAL: _canonical_preview_metadata_to_document(inputs.canonical),
                 },
             )
@@ -799,7 +848,10 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
         payload = _load_preview_payload(operation, deps.artifact_store)
         bind_scope(payload.repository_id, rules_digest=payload.comparison_ruleset_digest)
         active_rules = _active_preview_ruleset()
-        if active_rules.ruleset_digest is None or active_rules.ruleset_digest.value != payload.comparison_ruleset_digest:
+        if (
+            active_rules.ruleset_digest is None
+            or active_rules.ruleset_digest.value != payload.comparison_ruleset_digest
+        ):
             _publish_preview_ruleset_mismatch_failure(
                 payload=payload,
                 operation=operation,
@@ -825,13 +877,20 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
         inputs = _restore_preview_inputs_or_publish_failure(
-            materialize_envelope.job_state, repository_id=payload.repository_id, deps=deps,
-            operation=operation, step=step, lease_session=lease_session, control=control,
+            materialize_envelope.job_state,
+            repository_id=payload.repository_id,
+            deps=deps,
+            operation=operation,
+            step=step,
+            lease_session=lease_session,
+            control=control,
         )
         if inputs is None:
             return ExecutorAcknowledgment.PUBLISHED
 
-        _assert_configuration_payload(inputs.canonical.configuration_facts, payload, operation.operation_id)
+        _assert_configuration_payload(
+            inputs.canonical.configuration_facts, payload, operation.operation_id
+        )
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
             if not definition_matches_checkpoint(assemble_definition, envelope):
@@ -858,7 +917,12 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             ready_closure_ref = _preview_ready_ref(envelope.job_state)
             closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _assert_preview_bundle_binding(envelope.job_state, closure.artifact_refs())
-            verify_structure_audit_bindings(deps.artifact_store, _assemble_state.get("structure_audit_bindings"), closure.artifact_refs(), _assemble_state.get("pair_ids"))
+            verify_structure_audit_bindings(
+                deps.artifact_store,
+                _assemble_state.get("structure_audit_bindings"),
+                closure.artifact_refs(),
+                _assemble_state.get("pair_ids"),
+            )
             _pin_preview_refs(
                 deps,
                 (
@@ -872,6 +936,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 intent="assemble-checkpoint",
             )
         else:
+
             def publish_cancelled() -> None:
                 lease_session.publish_operation(_make_cancelled_terminal_builder())
 
@@ -885,14 +950,20 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     control,
                     active_rules,
                     operation_id=operation.operation_id,
-                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
+                    on_cancel=publish_cancelled,
+                    export_cache=deps.snapshot_export_cache,
                     computation_cache=deps.computation_cache,
                     presentations=inputs.presentations,
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
-            verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_refs, assemble_state.get("pair_ids"))
+            verify_structure_audit_bindings(
+                deps.artifact_store,
+                assemble_state.get("structure_audit_bindings"),
+                ready_refs,
+                assemble_state.get("pair_ids"),
+            )
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
@@ -1021,7 +1092,12 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
         ready_closure_ref = _preview_ready_ref(assemble_envelope.job_state)
         ready_closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
         _assert_preview_bundle_binding(assemble_envelope.job_state, ready_closure.artifact_refs())
-        verify_structure_audit_bindings(deps.artifact_store, assemble_state.get("structure_audit_bindings"), ready_closure.artifact_refs(), assemble_state.get("pair_ids"))
+        verify_structure_audit_bindings(
+            deps.artifact_store,
+            assemble_state.get("structure_audit_bindings"),
+            ready_closure.artifact_refs(),
+            assemble_state.get("pair_ids"),
+        )
 
         preview_result = _build_preview_result(
             payload=payload,
@@ -1130,7 +1206,9 @@ def _persist_preview_business_state(
         optimistic_version=workspace.optimistic_version + 1,
         updated_at=transaction_now,
     )
-    unit_of_work.workspace.save_workspace(updated_workspace, expected_version=workspace.optimistic_version)
+    unit_of_work.workspace.save_workspace(
+        updated_workspace, expected_version=workspace.optimistic_version
+    )
     unit_of_work.set_artifact_protection(
         _unique_refs((ready_closure_ref, *closure_output_refs, *_payload_source_refs(payload))),
         owner_kind="current-preview",
@@ -1169,7 +1247,8 @@ def _publication_drift(
 def _materialize_all_sides(
     payload: PreviewJobPayload,
     deps: PreviewRuntimeDependencies,
-    *, operation_id: str,
+    *,
+    operation_id: str,
 ) -> _MaterializedPreviewInputs:
     runtime_ruleset = migrated_table_ruleset_snapshot()
     if runtime_ruleset.ruleset_digest is None:
@@ -1192,14 +1271,17 @@ def _materialize_all_sides(
         tuple[BoundSnapshotInput, ArtifactRef, DigestRef, ConfigurationGeneratedTime, str],
     ] = {}
     upload_errors: list[PreviewJobError] = []
+
     def lookup_canonical(key: CanonicalTableKey) -> ArtifactRef | None:
         with deps.control_transaction_factory() as unit_of_work:
             return unit_of_work.canonical_tables.lookup(key)
+
     def register_canonical(key: CanonicalTableKey, ref: ArtifactRef) -> None:
         # This is derived content/TTL registration. Checkpoint/READY/Attempt
         # references are still published only by the existing LeaseSession.
         with deps.control_transaction_factory() as unit_of_work:
             unit_of_work.canonical_tables.register(key, ref)
+
     for side, binding in uploaded_side_specs:
         try:
             uploaded_sides[side] = _materialize_uploaded_side(
@@ -1208,8 +1290,10 @@ def _materialize_all_sides(
                 runtime_ruleset,
                 repository_id=payload.repository_id,
                 export_cache=deps.snapshot_export_cache,
-                side=side, operation_id=operation_id,
-                canonical_lookup=lookup_canonical, canonical_before_write=register_canonical,
+                side=side,
+                operation_id=operation_id,
+                canonical_lookup=lookup_canonical,
+                canonical_before_write=register_canonical,
             )
         except PreviewJobError as exc:
             upload_errors.append(exc)
@@ -1218,9 +1302,7 @@ def _materialize_all_sides(
         if not projection_errors:
             raise upload_errors[0]
         details = tuple(
-            detail
-            for error in projection_errors
-            for detail in (error.diagnostic_details or ())
+            detail for error in projection_errors for detail in (error.diagnostic_details or ())
         )
         source_omitted_count = sum(error.diagnostic_omitted_count for error in projection_errors)
         diagnostic_count = len(details) + source_omitted_count
@@ -1252,9 +1334,9 @@ def _materialize_all_sides(
         sides[_SIDE_INITIAL] = initial
     else:
         initial = None
-    sides[_SIDE_MODIFIED], manifest_ref, manifest_digest, modified_time, modified_sql_digest = uploaded_sides[
-        OperationDiagnosticSide.MODIFIED
-    ]
+    sides[_SIDE_MODIFIED], manifest_ref, manifest_digest, modified_time, modified_sql_digest = (
+        uploaded_sides[OperationDiagnosticSide.MODIFIED]
+    )
     baseline_compare_current = initial if initial is not None else sides[_SIDE_MODIFIED]
     requested_baseline_tables = _changed_canonical_tables(
         canonical_binding,
@@ -1271,7 +1353,9 @@ def _materialize_all_sides(
         committed_tables=build_committed_table_access(
             store=cast(ArtifactBufferStorePort, deps.artifact_store),
             unit_of_work_factory=deps.control_transaction_factory,
-            repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id),
+            repository_provider_factory=deps.repository_provider_factory,
+            repository_id=payload.repository_id,
+        ),
     )
     sides[_SIDE_BASELINE] = baseline
     if payload.input_completeness is InputCompleteness.MODIFIED_ONLY:
@@ -1286,70 +1370,127 @@ def _materialize_all_sides(
     if initial_state_digest is None:
         raise PreviewJobError("initial canonical state digest is missing")
     rules_digest = runtime_ruleset.ruleset_digest
+
     def content(digest: DigestRef) -> CanonicalContentIdentity:
         assert rules_digest is not None
-        return CanonicalContentIdentity(digest.value, rules_digest.value,
-            STORAGE_PROJECTION_VERSION, SCALAR_ENCODING_VERSION)
+        return CanonicalContentIdentity(
+            digest.value, rules_digest.value, STORAGE_PROJECTION_VERSION, SCALAR_ENCODING_VERSION
+        )
+
     baseline_identity = content(baseline_state_digest)
     baseline_presentation = PresentationMetadata()
     with deps.control_transaction_factory() as unit_of_work:
         node = unit_of_work.baseline.get_node(payload.business_baseline_node_id)
-        if node is None or node.repository_id != payload.repository_id or node.commit_id != payload.business_baseline_commit_id:
-            raise PreviewJobError("configuration baseline source binding is missing or inconsistent")
+        if (
+            node is None
+            or node.repository_id != payload.repository_id
+            or node.commit_id != payload.business_baseline_commit_id
+        ):
+            raise PreviewJobError(
+                "configuration baseline source binding is missing or inconsistent"
+            )
         if (node.kind is BaselineNodeKind.INITIAL) != canonical_binding.is_initial:
             raise PreviewJobError("configuration baseline applicability is inconsistent")
         baseline_source_id = node.source_submission_id
         if node.kind is BaselineNodeKind.INITIAL:
             baseline_side = ConfigurationSideFacts(baseline_identity, None, None, None)
         else:
-            source = None if baseline_source_id is None else unit_of_work.submission.get_submission(baseline_source_id)
-            if source is None or source.repository_id != payload.repository_id or source.repository_commit_id != node.commit_id:
-                raise PreviewJobError("configuration baseline source Submission is missing or inconsistent")
+            source = (
+                None
+                if baseline_source_id is None
+                else unit_of_work.submission.get_submission(baseline_source_id)
+            )
+            if (
+                source is None
+                or source.repository_id != payload.repository_id
+                or source.repository_commit_id != node.commit_id
+            ):
+                raise PreviewJobError(
+                    "configuration baseline source Submission is missing or inconsistent"
+                )
             baseline_side = source.configuration_facts.modified
             if baseline_side.content_identity.canonical_state_digest != baseline_state_digest.value:
                 raise PreviewJobError("configuration baseline content identity mismatch")
             workspace = unit_of_work.workspace.get_workspace(payload.workspace_id)
             if workspace is None:
                 raise PreviewJobError("configuration baseline workspace scope is missing")
-            metadata = unit_of_work.commit_canonical_metadata.resolve(repository_id=payload.repository_id,
+            metadata = unit_of_work.commit_canonical_metadata.resolve(
+                repository_id=payload.repository_id,
                 commit_id=payload.business_baseline_commit_id,
-                scope=CommitCanonicalScope(gateway_device_external_key=workspace.gateway_device_external_key,
-                    business_project_id=workspace.business_project_id))
-            if metadata.manifest is None or metadata.manifest.manifest_digest is None or metadata.manifest.manifest_digest.value != source.canonicalization_manifest_digest:
+                scope=CommitCanonicalScope(
+                    gateway_device_external_key=workspace.gateway_device_external_key,
+                    business_project_id=workspace.business_project_id,
+                ),
+            )
+            if (
+                metadata.manifest is None
+                or metadata.manifest.manifest_digest is None
+                or metadata.manifest.manifest_digest.value
+                != source.canonicalization_manifest_digest
+            ):
                 raise PreviewJobError("configuration baseline source manifest binding mismatch")
-            if (baseline_side.content_identity.storage_projection_ruleset_digest != metadata.manifest.ruleset_digest.value
-                or baseline_side.content_identity.storage_projection_version != metadata.manifest.storage_projection_version):
-                raise PreviewJobError("configuration baseline facts identity does not match source manifest")
+            if (
+                baseline_side.content_identity.storage_projection_ruleset_digest
+                != metadata.manifest.ruleset_digest.value
+                or baseline_side.content_identity.storage_projection_version
+                != metadata.manifest.storage_projection_version
+            ):
+                raise PreviewJobError(
+                    "configuration baseline facts identity does not match source manifest"
+                )
             baseline_identity = baseline_side.content_identity
             baseline_presentation = presentation_for_commit(metadata)
     if payload.input_completeness is InputCompleteness.FULL:
         initial_values = uploaded_sides[OperationDiagnosticSide.INITIAL]
-        initial_side = ConfigurationSideFacts(content(initial_state_digest), initial_values[3],
-            payload.source_artifacts[SourceArtifactRole.INITIAL].artifact_id, initial_values[4])
+        initial_side = ConfigurationSideFacts(
+            content(initial_state_digest),
+            initial_values[3],
+            payload.source_artifacts[SourceArtifactRole.INITIAL].artifact_id,
+            initial_values[4],
+        )
         initial_origin = "UPLOADED"
     else:
         initial_side = baseline_side
         initial_origin = "INITIAL_EMPTY" if canonical_binding.is_initial else "BASELINE_REUSED"
     configuration_facts = ConfigurationFacts(
-        schema=CONFIGURATION_FACTS_SCHEMA, operation_id=operation_id,
-        workspace_id=payload.workspace_id, upload_revision_id=payload.upload_revision_id,
-        generation=payload.generation, repository_id=payload.repository_id,
+        schema=CONFIGURATION_FACTS_SCHEMA,
+        operation_id=operation_id,
+        workspace_id=payload.workspace_id,
+        upload_revision_id=payload.upload_revision_id,
+        generation=payload.generation,
+        repository_id=payload.repository_id,
         business_baseline_node_id=payload.business_baseline_node_id,
         business_baseline_commit_id=payload.business_baseline_commit_id,
-        baseline_head_version=payload.baseline_head_version, baseline_is_initial=canonical_binding.is_initial,
-        baseline_source_submission_id=baseline_source_id, initial_origin=initial_origin,
-        baseline_content_identity=baseline_identity, initial=initial_side,
-        modified=ConfigurationSideFacts(content(modified_state_digest), modified_time,
-            payload.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id, modified_sql_digest),
+        baseline_head_version=payload.baseline_head_version,
+        baseline_is_initial=canonical_binding.is_initial,
+        baseline_source_submission_id=baseline_source_id,
+        initial_origin=initial_origin,
+        baseline_content_identity=baseline_identity,
+        initial=initial_side,
+        modified=ConfigurationSideFacts(
+            content(modified_state_digest),
+            modified_time,
+            payload.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id,
+            modified_sql_digest,
+        ),
     )
     closure_ref = _publish_canonical_table_set_closure(
         sides[_SIDE_MODIFIED],
         deps.artifact_store,
     )
-    presentations = {_SIDE_BASELINE: baseline_presentation,
-        _SIDE_INITIAL: (baseline_presentation if initial_manifest_ref is None else
-        open_canonicalization_manifest(deps.artifact_store, initial_manifest_ref).presentation),
-        _SIDE_MODIFIED: open_canonicalization_manifest(deps.artifact_store, manifest_ref).presentation}
+    presentations = {
+        _SIDE_BASELINE: baseline_presentation,
+        _SIDE_INITIAL: (
+            baseline_presentation
+            if initial_manifest_ref is None
+            else open_canonicalization_manifest(
+                deps.artifact_store, initial_manifest_ref
+            ).presentation
+        ),
+        _SIDE_MODIFIED: open_canonicalization_manifest(
+            deps.artifact_store, manifest_ref
+        ).presentation,
+    }
     return _MaterializedPreviewInputs(
         sides=sides,
         presentations=presentations,
@@ -1365,29 +1506,49 @@ def _materialize_all_sides(
             modified_canonical_state_digest=modified_state_digest,
             storage_projection_ruleset_digest=runtime_ruleset.ruleset_digest,
             baseline_is_initial=canonical_binding.is_initial,
-            rules_semantically_equal=_same_resolved_rules(sides[_SIDE_BASELINE], sides[_SIDE_MODIFIED],
-                presentations[_SIDE_BASELINE], presentations[_SIDE_MODIFIED], runtime_ruleset),
+            rules_semantically_equal=_same_resolved_rules(
+                sides[_SIDE_BASELINE],
+                sides[_SIDE_MODIFIED],
+                presentations[_SIDE_BASELINE],
+                presentations[_SIDE_MODIFIED],
+                runtime_ruleset,
+            ),
         ),
     )
 
 
-def _same_resolved_rules(before: BoundSnapshotInput, current: BoundSnapshotInput,
-    before_presentation: PresentationMetadata, current_presentation: PresentationMetadata,
-    ruleset: TableRulesetSnapshot) -> bool:
-    def projection(bound: BoundSnapshotInput, presentation: PresentationMetadata) -> dict[str, object]:
+def _same_resolved_rules(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    before_presentation: PresentationMetadata,
+    current_presentation: PresentationMetadata,
+    ruleset: TableRulesetSnapshot,
+) -> bool:
+    def projection(
+        bound: BoundSnapshotInput, presentation: PresentationMetadata
+    ) -> dict[str, object]:
         comments = {table.table_name: table.comment for table in presentation.tables}
-        facts = {item.storage_rule_view.canonical_table: item.storage_rule_view for item in bound.storage_facts}
+        facts = {
+            item.storage_rule_view.canonical_table: item.storage_rule_view
+            for item in bound.storage_facts
+        }
         if set(facts) != {descriptor.table_name for descriptor in bound.summary.tables}:
             raise PreviewJobError("resolved rule comparison requires complete storage facts")
         rules = comparison_rule_set(ruleset)
         result: dict[str, object] = {}
         for descriptor in bound.summary.tables:
-            view = resolve_comparison_rule_view(rules, descriptor.table_name,
+            view = resolve_comparison_rule_view(
+                rules,
+                descriptor.table_name,
                 table_comment=comments.get(descriptor.table_name),
-                primary_key_columns=descriptor.primary_key_columns)
-            result[descriptor.table_name] = (facts.get(descriptor.table_name),
-                None if view is None else view.comparison_rule_digest)
+                primary_key_columns=descriptor.primary_key_columns,
+            )
+            result[descriptor.table_name] = (
+                facts.get(descriptor.table_name),
+                None if view is None else view.comparison_rule_digest,
+            )
         return result
+
     return projection(before, before_presentation) == projection(current, current_presentation)
 
 
@@ -1415,8 +1576,10 @@ def _materialize_baseline_commit(
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(
-            operation_context.cancel_probe, operation_context.deadline_monotonic),
-        requested_tables=requested_tables, committed_tables=committed_tables,
+            operation_context.cancel_probe, operation_context.deadline_monotonic
+        ),
+        requested_tables=requested_tables,
+        committed_tables=committed_tables,
         artifact_store=store,
         export_cache=export_cache,
     )
@@ -1447,7 +1610,8 @@ def _materialize_baseline(
         canonical_binding=canonical_binding,
         ruleset=ruleset,
         export_cache=export_cache,
-        requested_tables=requested_tables, committed_tables=committed_tables,
+        requested_tables=requested_tables,
+        committed_tables=committed_tables,
     )
 
 
@@ -1477,7 +1641,11 @@ def _preview_baseline_binding(
     return canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
 
 
-def _preview_baseline_presentation(*, workspace_id: str, repository_id: str, commit_id: str,
+def _preview_baseline_presentation(
+    *,
+    workspace_id: str,
+    repository_id: str,
+    commit_id: str,
     deps: PreviewRuntimeDependencies,
 ) -> PresentationMetadata:
     with deps.control_transaction_factory() as unit_of_work:
@@ -1486,9 +1654,13 @@ def _preview_baseline_presentation(*, workspace_id: str, repository_id: str, com
             raise PreviewJobError("preview workspace scope is unavailable")
         try:
             metadata = unit_of_work.commit_canonical_metadata.resolve(
-                repository_id=repository_id, commit_id=commit_id,
-                scope=CommitCanonicalScope(gateway_device_external_key=workspace.gateway_device_external_key,
-                    business_project_id=workspace.business_project_id))
+                repository_id=repository_id,
+                commit_id=commit_id,
+                scope=CommitCanonicalScope(
+                    gateway_device_external_key=workspace.gateway_device_external_key,
+                    business_project_id=workspace.business_project_id,
+                ),
+            )
         except CommitCanonicalMetadataError as exc:
             raise PreviewJobError(exc.diagnostic, diagnostic_code=exc.code.value) from exc
     return presentation_for_commit(metadata)
@@ -1624,15 +1796,22 @@ def _materialize_uploaded_side(
         if staged.status is not StagingStatus.COMPLETE or staged.required_sql_document_ref is None:
             raise PreviewJobError("uploaded source package staging failed")
         dump = resolve_sql_dump_source(staged.required_sql_document_ref)
-        sql_bytes = resources.enter_context(reserved_artifact_bytes(store, staged.required_sql_document_ref.artifact_ref))
+        sql_bytes = resources.enter_context(
+            reserved_artifact_bytes(store, staged.required_sql_document_ref.artifact_ref)
+        )
         parsed = parse_arrow_sql(_sql_request_from_bytes(sql_bytes))
-        sql_request = dataclasses.replace(_sql_materialization_request(parsed, dump.sql_source_digest, ruleset), context=invocation)
+        sql_request = dataclasses.replace(
+            _sql_materialization_request(parsed, dump.sql_source_digest, ruleset),
+            context=invocation,
+        )
         xml_ref = staged.optional_xml_document_ref
         if xml_ref is None:
             logic = empty_composite_logic_source()
             xml_result = None
         else:
-            xml_bytes = resources.enter_context(reserved_artifact_bytes(store, xml_ref.artifact_ref))
+            xml_bytes = resources.enter_context(
+                reserved_artifact_bytes(store, xml_ref.artifact_ref)
+            )
             logic = present_composite_logic_source(xml_bytes)
             xml_digest = logic.document_content_digest
             if xml_digest is None:
@@ -1658,6 +1837,7 @@ def _materialize_uploaded_side(
             # bounded by both source bytes and the existing node quota. Keep the
             # conservative parser/composite envelope until those locals die.
             from gateway_backend.capabilities.table_access.contracts import RESOURCE_BUDGETS
+
             nodes = min(RESOURCE_BUDGETS.max_xml_nodes, len(xml_bytes) // 3 + 1)
             xml_peak = nodes * 1024 + len(xml_bytes) * 16 + 512 * 1024
             if xml_peak > context.memory.available_bytes:
@@ -1685,17 +1865,27 @@ def _materialize_uploaded_side(
             raise PreviewJobError("uploaded business materialization is incomplete")
         if parsed.configuration_generated_time is None:
             raise PreviewJobError("uploaded source time facts are missing")
-        generated_time = ConfigurationGeneratedTime.from_document(dict(parsed.configuration_generated_time))
+        generated_time = ConfigurationGeneratedTime.from_document(
+            dict(parsed.configuration_generated_time)
+        )
         projection_started = perf_counter()
         projected: CanonicalProjectionResult = project_canonical_arrow_table_set(
             business_result.table_set,
             ruleset,
             presentation=business_result.presentation,
         )
-        _LOG.info("s3_preview_stage_metrics %s", json.dumps({
-            "operation_id": operation_id, "stage": "uploaded_projection", "side": side.value,
-            "upstream_projection_seconds": perf_counter() - projection_started,
-        }, sort_keys=True))
+        _LOG.info(
+            "s3_preview_stage_metrics %s",
+            json.dumps(
+                {
+                    "operation_id": operation_id,
+                    "stage": "uploaded_projection",
+                    "side": side.value,
+                    "upstream_projection_seconds": perf_counter() - projection_started,
+                },
+                sort_keys=True,
+            ),
+        )
         if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
             ordered_diagnostics = tuple(
                 sorted(
@@ -1708,7 +1898,9 @@ def _materialize_uploaded_side(
                 )
             )
             projection_diagnostic = ordered_diagnostics[0] if ordered_diagnostics else None
-            complete_diagnostic_count = len(ordered_diagnostics) + projected.omitted_diagnostic_count
+            complete_diagnostic_count = (
+                len(ordered_diagnostics) + projected.omitted_diagnostic_count
+            )
             diagnostic_details = (
                 tuple(
                     OperationDiagnosticDetail(
@@ -1747,7 +1939,9 @@ def _materialize_uploaded_side(
                 projected.tables,
                 artifact_store=store,
                 context=invocation,
-                repository_id=repository_id, lookup=canonical_lookup, before_write=canonical_before_write,
+                repository_id=repository_id,
+                lookup=canonical_lookup,
+                before_write=canonical_before_write,
             )
         finally:
             for table in (*projected.tables, *business_result.table_set.tables):
@@ -1762,10 +1956,13 @@ def _materialize_uploaded_side(
         )
         if side is OperationDiagnosticSide.MODIFIED:
             descriptors = bound.summary.tables
-            input_shape(bound.snapshot.snapshot_digest.value, table_count=len(descriptors),
+            input_shape(
+                bound.snapshot.snapshot_digest.value,
+                table_count=len(descriptors),
                 total_rows=sum(item.row_count for item in descriptors),
                 max_table_rows=max((item.row_count for item in descriptors), default=0),
-                sql_bytes=staged.required_sql_document_ref.size_bytes)
+                sql_bytes=staged.required_sql_document_ref.size_bytes,
+            )
         try:
             manifest_ref = publish_canonicalization_manifest(projected.manifest, store)
         except PublicationError as exc:
@@ -1784,7 +1981,8 @@ def surface_artifact_closure(
     before: BoundSnapshotInput | None = None,
     current: BoundSnapshotInput | None = None,
     include_all_tables: bool = False,
-    store: ArtifactStorePort | None = None, repository_id: str | None = None,
+    store: ArtifactStorePort | None = None,
+    repository_id: str | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
     table_exports: Mapping[str, Mapping[str, ArtifactRef]] | None = None,
 ) -> BundleArtifactClosure:
@@ -1850,7 +2048,11 @@ def surface_artifact_closure(
         f"{prefix}/identity/assessment.json",
         BundleArtifactKind.OTHER,
     )
-    add(surface.refs.diagnostics_ref, f"{prefix}/diagnostics/surface.json", BundleArtifactKind.DIAGNOSTICS)
+    add(
+        surface.refs.diagnostics_ref,
+        f"{prefix}/diagnostics/surface.json",
+        BundleArtifactKind.DIAGNOSTICS,
+    )
     for table in surface.tables:
         table_name = table.table_name
         add(
@@ -1979,8 +2181,16 @@ def surface_artifact_closure(
                         f"replacement table {snapshot_table.descriptor.table_name} is missing its artifact"
                     )
                 table_name = snapshot_table.descriptor.table_name
-                for index, ref in enumerate((export_snapshot_table_parquet(snapshot_table, store=store,
-                        repository_id=repository_id, export_cache=export_cache),)):
+                for index, ref in enumerate(
+                    (
+                        export_snapshot_table_parquet(
+                            snapshot_table,
+                            store=store,
+                            repository_id=repository_id,
+                            export_cache=export_cache,
+                        ),
+                    )
+                ):
                     add(
                         ref,
                         f"{prefix}/tables/{role}/{table_name}/rows/{index:06d}.parquet",
@@ -1998,11 +2208,18 @@ def surface_artifact_closure(
                 raise PreviewJobError("complete table bundle is missing a canonical table set")
             for snapshot_table in bound.table_set.tables:
                 table_name = snapshot_table.descriptor.table_name
-                export_ref = (None if table_exports is None else
-                    table_exports.get(bound.snapshot.snapshot_id, {}).get(table_name))
+                export_ref = (
+                    None
+                    if table_exports is None
+                    else table_exports.get(bound.snapshot.snapshot_id, {}).get(table_name)
+                )
                 if export_ref is None:
-                    export_ref = export_snapshot_table_parquet(snapshot_table, store=store,
-                        repository_id=repository_id, export_cache=export_cache)
+                    export_ref = export_snapshot_table_parquet(
+                        snapshot_table,
+                        store=store,
+                        repository_id=repository_id,
+                        export_cache=export_cache,
+                    )
                 for export_index, required_export_ref in enumerate((export_ref,)):
                     add(
                         required_export_ref,
@@ -2032,20 +2249,23 @@ def _assemble_preview(
     presentations: Mapping[str, PresentationMetadata] | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     current_summary = sides[_SIDE_MODIFIED].summary.tables
-    input_shape(sides[_SIDE_MODIFIED].snapshot.snapshot_digest.value,
-        table_count=len(current_summary), total_rows=sum(item.row_count for item in current_summary),
-        max_table_rows=max((item.row_count for item in current_summary), default=0))
+    input_shape(
+        sides[_SIDE_MODIFIED].snapshot.snapshot_digest.value,
+        table_count=len(current_summary),
+        total_rows=sum(item.row_count for item in current_summary),
+        max_table_rows=max((item.row_count for item in current_summary), default=0),
+    )
     display_inputs = dict(presentations or {})
     if set(display_inputs) != set(sides):
         raise PreviewJobError("comparison requires frozen presentation for every side")
-    sides = {name: dataclasses.replace(bound, presentation=display_inputs[name])
-             for name, bound in sides.items()}
+    sides = {
+        name: dataclasses.replace(bound, presentation=display_inputs[name])
+        for name, bound in sides.items()
+    }
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
-        pair_specs: tuple[
-            tuple[str, BoundSnapshotInput, BoundSnapshotInput, bool, bool], ...
-        ] = (
+        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput, bool, bool], ...] = (
             (
                 _PAIR_BASELINE_TO_INITIAL,
                 sides[_SIDE_BASELINE],
@@ -2084,27 +2304,47 @@ def _assemble_preview(
 
     dedup_requests: list[ComparisonRequest] = []
     for pair_id, before, current, assess_identity, reuse_identity in pair_specs:
-        assessment = (preview_identity_assessment(
-            before, current,
-            before_table_set=(
-                _unchanged_baseline_identity_table_set(before, current)
-                if reuse_identity else None
-            ),
-        ) if assess_identity else None)
-        dedup_requests.append(ComparisonRequest(
-            pair_id=pair_id, before=before, current=current, rule_set=rule_set,
-            mode=(
-                ComparisonMode.DATASET_REPLACEMENT
-                if assessment is not None
-                and assessment.status is AssessmentProjectIdentityStatus.DIFFERENT_PROJECT
-                else ComparisonMode.DETAILED
-            ),
-        ))
-    dedup_session = declare_pair_comparison_session(tuple(dedup_requests),
-        computation_cache=computation_cache, cache_owner=CacheOperationOwner("preview-operation", operation_id),
-        repository_id=payload.repository_id)
+        assessment = (
+            preview_identity_assessment(
+                before,
+                current,
+                before_table_set=(
+                    _unchanged_baseline_identity_table_set(before, current)
+                    if reuse_identity
+                    else None
+                ),
+            )
+            if assess_identity
+            else None
+        )
+        dedup_requests.append(
+            ComparisonRequest(
+                pair_id=pair_id,
+                before=before,
+                current=current,
+                rule_set=rule_set,
+                mode=(
+                    ComparisonMode.DATASET_REPLACEMENT
+                    if assessment is not None
+                    and assessment.status is AssessmentProjectIdentityStatus.DIFFERENT_PROJECT
+                    else ComparisonMode.DETAILED
+                ),
+            )
+        )
+    dedup_session = declare_pair_comparison_session(
+        tuple(dedup_requests),
+        computation_cache=computation_cache,
+        cache_owner=CacheOperationOwner("preview-operation", operation_id),
+        repository_id=payload.repository_id,
+    )
     try:
-        for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:
+        for (
+            pair_id,
+            before,
+            current,
+            assess_identity,
+            reuse_unchanged_baseline_identity,
+        ) in pair_specs:
             lease_session.refresh_control()
             if control.cancel_requested:
                 on_cancel()
@@ -2114,15 +2354,24 @@ def _assemble_preview(
                 before=before,
                 current=current,
                 initial_baseline=_initial_baseline_pair(
-                    canonical.baseline_is_initial, payload.input_completeness, pair_id),
-                before_presentation=display_inputs[_SIDE_BASELINE if pair_id == _PAIR_BASELINE_TO_INITIAL or payload.input_completeness is InputCompleteness.MODIFIED_ONLY else _SIDE_INITIAL],
-                current_presentation=display_inputs[_SIDE_INITIAL if pair_id == _PAIR_BASELINE_TO_INITIAL else _SIDE_MODIFIED],
+                    canonical.baseline_is_initial, payload.input_completeness, pair_id
+                ),
+                before_presentation=display_inputs[
+                    _SIDE_BASELINE
+                    if pair_id == _PAIR_BASELINE_TO_INITIAL
+                    or payload.input_completeness is InputCompleteness.MODIFIED_ONLY
+                    else _SIDE_INITIAL
+                ],
+                current_presentation=display_inputs[
+                    _SIDE_INITIAL if pair_id == _PAIR_BASELINE_TO_INITIAL else _SIDE_MODIFIED
+                ],
                 store=store,
                 control=control,
                 rule_set=rule_set,
                 on_cancel=on_cancel,
                 assess_identity=assess_identity,
-                repository_id=payload.repository_id, export_cache=export_cache,
+                repository_id=payload.repository_id,
+                export_cache=export_cache,
                 dedup_session=dedup_session,
                 identity_before_table_set=(
                     _unchanged_baseline_identity_table_set(before, current)
@@ -2143,7 +2392,10 @@ def _assemble_preview(
                         pair_id,
                         pair_state.records_closure,
                         before=before,
-                        current=current, store=store, repository_id=payload.repository_id, export_cache=export_cache,
+                        current=current,
+                        store=store,
+                        repository_id=payload.repository_id,
+                        export_cache=export_cache,
                     ),
                 )
             )
@@ -2163,12 +2415,19 @@ def _assemble_preview(
                 cancel_requested=lambda: control.cancel_requested,
             ),
         )
-        _LOG.info("s3_preview_stage_metrics %s", json.dumps({
-            "operation_id": operation_id,
-            "stage": "bundle_assembly", "input_completeness": payload.input_completeness.value,
-            "pair_count": len(bundle_pairs),
-            "bundle_assembly_seconds": perf_counter() - bundle_started,
-        }, sort_keys=True))
+        _LOG.info(
+            "s3_preview_stage_metrics %s",
+            json.dumps(
+                {
+                    "operation_id": operation_id,
+                    "stage": "bundle_assembly",
+                    "input_completeness": payload.input_completeness.value,
+                    "pair_count": len(bundle_pairs),
+                    "bundle_assembly_seconds": perf_counter() - bundle_started,
+                },
+                sort_keys=True,
+            ),
+        )
         if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
             diagnostic = bundle_result.diagnostics[0] if bundle_result.diagnostics else "unknown"
             raise PreviewJobError(f"bundle assembly failed: {diagnostic}")
@@ -2183,19 +2442,29 @@ def _assemble_preview(
         final_bundle_pairs = {pair.pair_id: pair for pair in bundle_result.bundle.pairs}
         assemble_state: dict[str, object] = {
             "pair_ids": [item.pair_id for item in pair_results],
-            "structure_audit_bindings": [structure_audit_binding(
-                item.pair_id, item.comparison_digest, item.structure_audit_ref) for item in pair_results],
-            "comparison_pairs": [PreviewComparisonPair(
-                pair_id=item.pair_id,
-                before_snapshot_digest=spec[1].snapshot.snapshot_digest.value,
-                current_snapshot_digest=spec[2].snapshot.snapshot_digest.value,
-                comparison_digest=item.comparison_digest,
-                risk_digest=item.risk_digest,
-                surface_digest=final_bundle_pairs[item.pair_id].surface_digest.value,
-                ruleset_digest=payload.comparison_ruleset_digest,
-                structure_audit_artifact_id=(None if item.structure_audit_ref is None
-                    else item.structure_audit_ref.artifact_id),
-            ).model_dump(mode="json") for spec, item in zip(pair_specs, pair_results, strict=True)],
+            "structure_audit_bindings": [
+                structure_audit_binding(
+                    item.pair_id, item.comparison_digest, item.structure_audit_ref
+                )
+                for item in pair_results
+            ],
+            "comparison_pairs": [
+                PreviewComparisonPair(
+                    pair_id=item.pair_id,
+                    before_snapshot_digest=spec[1].snapshot.snapshot_digest.value,
+                    current_snapshot_digest=spec[2].snapshot.snapshot_digest.value,
+                    comparison_digest=item.comparison_digest,
+                    risk_digest=item.risk_digest,
+                    surface_digest=final_bundle_pairs[item.pair_id].surface_digest.value,
+                    ruleset_digest=payload.comparison_ruleset_digest,
+                    structure_audit_artifact_id=(
+                        None
+                        if item.structure_audit_ref is None
+                        else item.structure_audit_ref.artifact_id
+                    ),
+                ).model_dump(mode="json")
+                for spec, item in zip(pair_specs, pair_results, strict=True)
+            ],
             "default_view": _PAIR_INITIAL_TO_MODIFIED,
             "input_completeness": payload.input_completeness.value,
             "digests": {
@@ -2212,19 +2481,29 @@ def _assemble_preview(
             "identity_pairs": [_identity_pair_to_document(item) for item in pair_results],
             "required_refs": [artifact_ref_to_dict(item) for item in required_refs],
         }
-        return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
+        return (
+            assemble_state,
+            bundle_result.bundle.manifest_ref,
+            bundle_result.bundle.bundle_digest.value,
+        )
 
     finally:
         if dedup_session is not None:
             dedup_session.close()
         if computation_cache is not None:
-            computation_cache.release_operation_pins(CacheOperationOwner("preview-operation", operation_id))
+            computation_cache.release_operation_pins(
+                CacheOperationOwner("preview-operation", operation_id)
+            )
 
 
-def _initial_baseline_pair(baseline_is_initial: bool, completeness: InputCompleteness, pair_id: str) -> bool:
+def _initial_baseline_pair(
+    baseline_is_initial: bool, completeness: InputCompleteness, pair_id: str
+) -> bool:
     return baseline_is_initial and (
         (completeness is InputCompleteness.FULL and pair_id == _PAIR_BASELINE_TO_INITIAL)
-        or (completeness is InputCompleteness.MODIFIED_ONLY and pair_id == _PAIR_INITIAL_TO_MODIFIED)
+        or (
+            completeness is InputCompleteness.MODIFIED_ONLY and pair_id == _PAIR_INITIAL_TO_MODIFIED
+        )
     )
 
 
@@ -2239,7 +2518,8 @@ def _run_pair_pipeline(
     on_cancel: Callable[[], None],
     assess_identity: bool,
     identity_before_table_set: SnapshotTableSet | None = None,
-    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
     dedup_session: ComparisonTaskSession | None = None,
     before_presentation: PresentationMetadata,
     current_presentation: PresentationMetadata,
@@ -2247,7 +2527,8 @@ def _run_pair_pipeline(
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
-            before_presentation=before_presentation, current_presentation=current_presentation,
+            before_presentation=before_presentation,
+            current_presentation=current_presentation,
             initial_baseline=initial_baseline,
             pair_id=pair_id,
             before=before,
@@ -2258,7 +2539,9 @@ def _run_pair_pipeline(
             view_id=pair_id,
             rule_set=rule_set,
             assess_identity=assess_identity,
-            identity_before_table_set=identity_before_table_set, repository_id=repository_id, export_cache=export_cache,
+            identity_before_table_set=identity_before_table_set,
+            repository_id=repository_id,
+            export_cache=export_cache,
             dedup_session=dedup_session,
         )
     except PairPipelineCancelled:
@@ -2332,7 +2615,8 @@ def _build_preview_result(
         identity_assessment_set_digest=identity_set_digest,
         identity_pairs=identity_pairs,
         comparison_pairs=TypeAdapter(tuple[PreviewComparisonPair, ...]).validate_json(
-            canonicalize_json_value(assemble_state["comparison_pairs"])),
+            canonicalize_json_value(assemble_state["comparison_pairs"])
+        ),
         bundle_artifact_id=bundle_artifact_id,
         ready_closure_artifact_id=ready_closure_artifact_id,
         operation_id=operation.operation_id,
@@ -2581,7 +2865,10 @@ def _publish_preview_ruleset_mismatch_if_needed(
     control: ExecutionControl,
 ) -> bool:
     active_rules = _active_preview_ruleset()
-    if active_rules.ruleset_digest is not None and active_rules.ruleset_digest.value == payload.comparison_ruleset_digest:
+    if (
+        active_rules.ruleset_digest is not None
+        and active_rules.ruleset_digest.value == payload.comparison_ruleset_digest
+    ):
         return False
     _publish_preview_ruleset_mismatch_failure(
         payload=payload,
@@ -2671,9 +2958,7 @@ def _publish_preview_materialization_failure(
             code=diagnostic_code,
             message=message[:255],
             details=diagnostic_details,
-            omitted_count=(
-                diagnostic_omitted_count if diagnostic_details is not None else None
-            ),
+            omitted_count=(diagnostic_omitted_count if diagnostic_details is not None else None),
         )
         terminal_step = _terminal_step(
             current_step,
@@ -2755,7 +3040,9 @@ def _serialize_sides(
     document: dict[str, object] = {}
     for role, bound in sides.items():
         document[role] = _side_binding_document(bound, role=role, payload=payload)
-    document["initial_reuses_baseline"] = payload.input_completeness is InputCompleteness.MODIFIED_ONLY
+    document["initial_reuses_baseline"] = (
+        payload.input_completeness is InputCompleteness.MODIFIED_ONLY
+    )
     return document
 
 
@@ -2771,7 +3058,9 @@ def _side_binding_document(
     materialized_names: set[str] = set()
     for table in bound.table_set.tables:
         if table.artifact is None:
-            raise PreviewJobError(f"{role} table {table.descriptor.table_name} is missing artifact refs")
+            raise PreviewJobError(
+                f"{role} table {table.descriptor.table_name} is missing artifact refs"
+            )
         tables.append(
             {
                 "table_name": table.descriptor.table_name,
@@ -2819,26 +3108,41 @@ def _side_binding_document(
 
 
 def _restore_preview_inputs_or_publish_failure(
-    job_state: Mapping[str, object], *, repository_id: str, deps: PreviewRuntimeDependencies,
-    operation: OperationRecord, step: StepRecord, lease_session: LeaseSession, control: ExecutionControl,
+    job_state: Mapping[str, object],
+    *,
+    repository_id: str,
+    deps: PreviewRuntimeDependencies,
+    operation: OperationRecord,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    control: ExecutionControl,
 ) -> _MaterializedPreviewInputs | None:
     try:
-        return _materialized_preview_inputs_from_checkpoint(job_state, deps.artifact_store,
-            repository_id=repository_id, dependencies=deps)
+        return _materialized_preview_inputs_from_checkpoint(
+            job_state, deps.artifact_store, repository_id=repository_id, dependencies=deps
+        )
     except PreviewJobError as exc:
         if exc.diagnostic_code is None:
             raise
-        _publish_preview_materialization_failure(operation=operation, step=step,
-            lease_session=lease_session, diagnostic_code=exc.diagnostic_code, message=str(exc),
-            diagnostic_details=exc.diagnostic_details, diagnostic_omitted_count=exc.diagnostic_omitted_count,
-            control=control)
+        _publish_preview_materialization_failure(
+            operation=operation,
+            step=step,
+            lease_session=lease_session,
+            diagnostic_code=exc.diagnostic_code,
+            message=str(exc),
+            diagnostic_details=exc.diagnostic_details,
+            diagnostic_omitted_count=exc.diagnostic_omitted_count,
+            control=control,
+        )
         return None
 
 
 def _materialized_preview_inputs_from_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
-    *, repository_id: str, dependencies: PreviewRuntimeDependencies | None = None,
+    *,
+    repository_id: str,
+    dependencies: PreviewRuntimeDependencies | None = None,
 ) -> _MaterializedPreviewInputs:
     if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF, _JOB_STATE_CANONICAL}:
         raise CheckpointDecodeError(
@@ -2967,7 +3271,8 @@ def _materialized_preview_inputs_from_checkpoint(
     modified_digest = canonical_state_digest_of(sides[_SIDE_MODIFIED].summary.tables)
     if (
         baseline_digest != canonical.baseline_canonical_state_digest
-        or canonical_state_digest_of(sides[_SIDE_INITIAL].summary.tables) != canonical.initial_canonical_state_digest
+        or canonical_state_digest_of(sides[_SIDE_INITIAL].summary.tables)
+        != canonical.initial_canonical_state_digest
         or modified_digest != canonical.modified_canonical_state_digest
     ):
         raise CheckpointDecodeError(
@@ -2975,22 +3280,44 @@ def _materialized_preview_inputs_from_checkpoint(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     if dependencies is None:
-        raise CheckpointDecodeError("materialize checkpoint presentation resolver is unavailable",
-            code="CHECKPOINT_JOB_STATE_MISMATCH")
+        raise CheckpointDecodeError(
+            "materialize checkpoint presentation resolver is unavailable",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     facts = canonical.configuration_facts
-    baseline_presentation = _preview_baseline_presentation(workspace_id=facts.workspace_id,
-        repository_id=repository_id, commit_id=facts.business_baseline_commit_id, deps=dependencies)
+    baseline_presentation = _preview_baseline_presentation(
+        workspace_id=facts.workspace_id,
+        repository_id=repository_id,
+        commit_id=facts.business_baseline_commit_id,
+        deps=dependencies,
+    )
     runtime_ruleset = migrated_table_ruleset_snapshot()
-    if (runtime_ruleset.ruleset_digest != canonical.storage_projection_ruleset_digest
-            or _same_resolved_rules(sides[_SIDE_BASELINE], sides[_SIDE_MODIFIED],
-                baseline_presentation, manifest.presentation, runtime_ruleset) != canonical.rules_semantically_equal):
-        raise CheckpointDecodeError("materialize checkpoint resolved rules do not match",
-            code="CHECKPOINT_JOB_STATE_MISMATCH")
-    return _MaterializedPreviewInputs(sides=sides, canonical=canonical, presentations={
-        _SIDE_BASELINE: baseline_presentation,
-        _SIDE_MODIFIED: manifest.presentation,
-        _SIDE_INITIAL: baseline_presentation if initial_manifest is None else initial_manifest.presentation,
-    })
+    if (
+        runtime_ruleset.ruleset_digest != canonical.storage_projection_ruleset_digest
+        or _same_resolved_rules(
+            sides[_SIDE_BASELINE],
+            sides[_SIDE_MODIFIED],
+            baseline_presentation,
+            manifest.presentation,
+            runtime_ruleset,
+        )
+        != canonical.rules_semantically_equal
+    ):
+        raise CheckpointDecodeError(
+            "materialize checkpoint resolved rules do not match",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return _MaterializedPreviewInputs(
+        sides=sides,
+        canonical=canonical,
+        presentations={
+            _SIDE_BASELINE: baseline_presentation,
+            _SIDE_MODIFIED: manifest.presentation,
+            _SIDE_INITIAL: baseline_presentation
+            if initial_manifest is None
+            else initial_manifest.presentation,
+        },
+    )
 
 
 def _assemble_state_from_checkpoint(
@@ -3042,7 +3369,9 @@ def _assemble_state_from_checkpoint(
     return assemble_state_ref, cast(dict[str, object], assemble_state)
 
 
-def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str) -> BoundSnapshotInput:
+def _bound_from_side_document(
+    entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str
+) -> BoundSnapshotInput:
     if entry.get("contract_version") != PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION:
         raise CheckpointDecodeError(
             "materialize checkpoint side contract version is invalid",
@@ -3069,8 +3398,18 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             )
         try:
             manifest_ref = artifact_ref_from_dict(manifest_raw)
-            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id, canonical_required=True))
-        except (TypeError, ValueError, KeyError, ManifestVerificationError, ArtifactPublishError) as exc:
+            opened.append(
+                open_snapshot_table_artifact(
+                    store, manifest_ref, repository_id=repository_id, canonical_required=True
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+            ManifestVerificationError,
+            ArtifactPublishError,
+        ) as exc:
             raise PreviewJobError("materialize checkpoint table artifact is unreadable") from exc
     try:
         snapshot = snapshot_from_document(entry.get("snapshot"))
@@ -3103,7 +3442,9 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             for item in raw_summary_tables
             if type(item) is dict
         )
-        if len(ordered_names) != len(raw_summary_tables) or set(ordered_names) != set(descriptors_by_name):
+        if len(ordered_names) != len(raw_summary_tables) or set(ordered_names) != set(
+            descriptors_by_name
+        ):
             raise ValueError("summary and materialized descriptors do not match")
         summary = snapshot_summary_from_document(
             summary_raw,
@@ -3222,7 +3563,9 @@ def _publish_canonical_table_set_closure(
     return put_with_built_ref(
         store,
         raw_bytes,
-        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "canonical-table-set-closure", uuid.uuid4().hex),
+        artifact_id=build_artifact_id(
+            ArtifactLocation.DURABLE, "canonical-table-set-closure", uuid.uuid4().hex
+        ),
         media_type=_JCS_MEDIA_TYPE,
     )
 
@@ -3252,16 +3595,30 @@ def _canonical_table_set_closure_bytes(bound: BoundSnapshotInput) -> bytes:
     return canonicalize_jcs(canonicalize_json_value(payload))
 
 
-def _assert_configuration_payload(facts: ConfigurationFacts, payload: PreviewJobPayload, operation_id: str) -> None:
-    facts.assert_binding(workspace_id=payload.workspace_id, upload_revision_id=payload.upload_revision_id,
-        generation=payload.generation, repository_id=payload.repository_id,
+def _assert_configuration_payload(
+    facts: ConfigurationFacts, payload: PreviewJobPayload, operation_id: str
+) -> None:
+    facts.assert_binding(
+        workspace_id=payload.workspace_id,
+        upload_revision_id=payload.upload_revision_id,
+        generation=payload.generation,
+        repository_id=payload.repository_id,
         business_baseline_node_id=payload.business_baseline_node_id,
         business_baseline_commit_id=payload.business_baseline_commit_id,
-        baseline_head_version=payload.baseline_head_version, operation_id=operation_id)
-    if facts.modified.source_artifact_id != payload.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id:
+        baseline_head_version=payload.baseline_head_version,
+        operation_id=operation_id,
+    )
+    if (
+        facts.modified.source_artifact_id
+        != payload.source_artifacts[SourceArtifactRole.MODIFIED].artifact_id
+    ):
         raise PreviewJobError("configuration modified source artifact binding mismatch")
     if payload.input_completeness is InputCompleteness.FULL:
-        if facts.initial_origin != "UPLOADED" or facts.initial.source_artifact_id != payload.source_artifacts[SourceArtifactRole.INITIAL].artifact_id:
+        if (
+            facts.initial_origin != "UPLOADED"
+            or facts.initial.source_artifact_id
+            != payload.source_artifacts[SourceArtifactRole.INITIAL].artifact_id
+        ):
             raise PreviewJobError("configuration initial source artifact binding mismatch")
     elif facts.initial_origin == "UPLOADED":
         raise PreviewJobError("configuration initial origin does not match input completeness")
@@ -3326,7 +3683,9 @@ def _canonical_preview_metadata_from_document(
         )
     try:
         return _CanonicalPreviewMetadata(
-            initial_canonical_state_digest=DigestRef(_checkpoint_string(raw, "initial_canonical_state_digest")),
+            initial_canonical_state_digest=DigestRef(
+                _checkpoint_string(raw, "initial_canonical_state_digest")
+            ),
             configuration_facts=ConfigurationFacts.from_document(raw["configuration_facts"]),
             canonical_table_set_closure_ref=artifact_ref_from_dict(closure_ref),
             canonicalization_manifest_ref=artifact_ref_from_dict(manifest_ref),
@@ -3339,9 +3698,7 @@ def _canonical_preview_metadata_from_document(
                 else artifact_ref_from_dict(initial_manifest_ref)
             ),
             initial_canonicalization_manifest_digest=(
-                None
-                if initial_manifest_digest is None
-                else DigestRef(initial_manifest_digest)
+                None if initial_manifest_digest is None else DigestRef(initial_manifest_digest)
             ),
             baseline_canonical_state_digest=DigestRef(
                 _checkpoint_string(raw, "baseline_canonical_state_digest")
@@ -3383,8 +3740,12 @@ def _snapshot_descriptor_to_document(descriptor: SnapshotTableDescriptor) -> dic
         "table_ruleset_version": descriptor.table_ruleset_version,
         "row_materialization_profile": descriptor.row_materialization_profile,
         "scalar_encoding_version": descriptor.scalar_encoding_version,
-        "raw_content_digest": None if descriptor.raw_content_digest is None else descriptor.raw_content_digest.value,
-        "degraded_reason": None if descriptor.degraded_reason is None else descriptor.degraded_reason.value,
+        "raw_content_digest": None
+        if descriptor.raw_content_digest is None
+        else descriptor.raw_content_digest.value,
+        "degraded_reason": None
+        if descriptor.degraded_reason is None
+        else descriptor.degraded_reason.value,
         "diagnostics": [
             {
                 "code": diagnostic.code.value,
@@ -3425,7 +3786,12 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
         raise ValueError("snapshot descriptor columns and diagnostics must be lists")
     columns: list[SnapshotColumnDescriptor] = []
     for item in columns_raw:
-        if type(item) is not dict or set(item) != {"name", "display_name", "nullable", "scalar_type"}:
+        if type(item) is not dict or set(item) != {
+            "name",
+            "display_name",
+            "nullable",
+            "scalar_type",
+        }:
             raise ValueError("snapshot column fields are invalid")
         scalar_type = item["scalar_type"]
         if scalar_type is not None and type(scalar_type) is not str:
@@ -3442,7 +3808,13 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
         )
     diagnostics: list[MaterializationDiagnostic] = []
     for item in diagnostics_raw:
-        if type(item) is not dict or set(item) != {"code", "severity", "message", "table", "column"}:
+        if type(item) is not dict or set(item) != {
+            "code",
+            "severity",
+            "message",
+            "table",
+            "column",
+        }:
             raise ValueError("snapshot diagnostic fields are invalid")
         table = item["table"]
         column = item["column"]
@@ -3505,8 +3877,7 @@ def _storage_facts_to_documents(
                 "canonical_key_policy": view.canonical_key_policy.value,
                 "ordered_policy": view.ordered_policy.value,
                 "dropped_columns": [
-                    {"name": item.name, "reason": item.reason}
-                    for item in view.dropped_columns
+                    {"name": item.name, "reason": item.reason} for item in view.dropped_columns
                 ],
                 "structural_columns": list(view.structural_columns),
                 "retained_columns": list(view.retained_columns),
@@ -3568,9 +3939,7 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
             retained_columns=_document_string_tuple(item, "retained_columns"),
             canonical_key_columns=_document_string_tuple(item, "canonical_key_columns"),
             storage_rule_digest=(
-                None
-                if storage_rule_digest_raw is None
-                else DigestRef(storage_rule_digest_raw)
+                None if storage_rule_digest_raw is None else DigestRef(storage_rule_digest_raw)
             ),
         )
         canonical_schema_raw = item["canonical_schema_digest"]
@@ -3585,9 +3954,7 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
         facts.append(
             ComparisonStorageFacts(
                 storage_rule_view=view,
-                source_schema_digest=DigestRef(
-                    _document_string(item, "source_schema_digest")
-                ),
+                source_schema_digest=DigestRef(_document_string(item, "source_schema_digest")),
                 canonical_schema_digest=(
                     None if canonical_schema_raw is None else DigestRef(canonical_schema_raw)
                 ),
@@ -3637,7 +4004,9 @@ def _workspace_artifact_ref(ref: ArtifactRef) -> PreviewArtifactRef:
     )
 
 
-def _load_preview_payload(operation: OperationRecord, store: ArtifactStorePort) -> PreviewJobPayload:
+def _load_preview_payload(
+    operation: OperationRecord, store: ArtifactStorePort
+) -> PreviewJobPayload:
     payload_bytes = load_job_payload_bytes(operation, store)
     try:
         payload_object = json.loads(payload_bytes)
@@ -3751,18 +4120,30 @@ def _terminal_step(
 
 
 def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
-    def execute(operation: OperationRecord, step: StepRecord, control: ExecutionControl,
-                lease_session: LeaseSession) -> ExecutorAcknowledgment:
+    def execute(
+        operation: OperationRecord,
+        step: StepRecord,
+        control: ExecutionControl,
+        lease_session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
         try:
             return handler(operation, step, control, lease_session)
         except MemoryError as error:
             context = current_kernel_context()
             if context is not None:
                 context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
-            _publish_preview_materialization_failure(operation=operation, step=step, lease_session=lease_session,
-                diagnostic_code="RESOURCE_LIMIT_EXCEEDED", message=str(error) or "operation memory budget exceeded",
-                diagnostic_details=None, diagnostic_omitted_count=0, control=control)
+            _publish_preview_materialization_failure(
+                operation=operation,
+                step=step,
+                lease_session=lease_session,
+                diagnostic_code="RESOURCE_LIMIT_EXCEEDED",
+                message=str(error) or "operation memory budget exceeded",
+                diagnostic_details=None,
+                diagnostic_omitted_count=0,
+                control=control,
+            )
             return ExecutorAcknowledgment.PUBLISHED
+
     return cast(ClaimedExecutor, execute)
 
 
@@ -3883,11 +4264,15 @@ def _require_non_negative_int(payload_object: dict[str, object], key: str) -> in
 
 def _decode_input_completeness(value: object) -> InputCompleteness:
     if type(value) is not str:
-        raise PayloadDecodeError("input_completeness must be a string", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "input_completeness must be a string", code="PAYLOAD_SHAPE_INVALID"
+        )
     try:
         return InputCompleteness(value)
     except ValueError as exc:
-        raise PayloadDecodeError("input_completeness is invalid", code="PAYLOAD_SHAPE_INVALID") from exc
+        raise PayloadDecodeError(
+            "input_completeness is invalid", code="PAYLOAD_SHAPE_INVALID"
+        ) from exc
 
 
 def _decode_source_artifacts(value: object) -> dict[SourceArtifactRole, SourceArtifactBinding]:
@@ -3896,9 +4281,13 @@ def _decode_source_artifacts(value: object) -> dict[SourceArtifactRole, SourceAr
     decoded: dict[SourceArtifactRole, SourceArtifactBinding] = {}
     for role_name, binding_payload in value.items():
         if type(role_name) is not str:
-            raise PayloadDecodeError("source_artifacts role must be a string", code="PAYLOAD_SHAPE_INVALID")
+            raise PayloadDecodeError(
+                "source_artifacts role must be a string", code="PAYLOAD_SHAPE_INVALID"
+            )
         if type(binding_payload) is not dict:
-            raise PayloadDecodeError("source artifact binding must be an object", code="PAYLOAD_SHAPE_INVALID")
+            raise PayloadDecodeError(
+                "source artifact binding must be an object", code="PAYLOAD_SHAPE_INVALID"
+            )
         decoded[SourceArtifactRole(role_name)] = SourceArtifactBinding(
             artifact_id=str(binding_payload["artifact_id"]),
             media_type=str(binding_payload["media_type"]),
@@ -3927,7 +4316,9 @@ def _decode_object_map(value: object, *, label: str) -> dict[str, object]:
 
 def _decode_idempotency_identity(value: object) -> PreviewIdempotencyIdentity:
     if type(value) is not dict:
-        raise PayloadDecodeError("idempotency_identity must be an object", code="PAYLOAD_SHAPE_INVALID")
+        raise PayloadDecodeError(
+            "idempotency_identity must be an object", code="PAYLOAD_SHAPE_INVALID"
+        )
     return PreviewIdempotencyIdentity(
         workspace_id=_require_non_empty_str(value, "workspace_id"),
         idempotency_key=_require_non_empty_str(value, "idempotency_key"),
@@ -3939,7 +4330,10 @@ def _validate_role_closure(
     source_artifacts: Mapping[SourceArtifactRole, SourceArtifactBinding],
 ) -> None:
     if input_completeness is InputCompleteness.FULL:
-        if SourceArtifactRole.INITIAL not in source_artifacts or SourceArtifactRole.MODIFIED not in source_artifacts:
+        if (
+            SourceArtifactRole.INITIAL not in source_artifacts
+            or SourceArtifactRole.MODIFIED not in source_artifacts
+        ):
             raise PayloadDecodeError(
                 "FULL preview requires INITIAL and MODIFIED source artifacts",
                 code="PAYLOAD_SHAPE_INVALID",
@@ -4000,11 +4394,15 @@ def _preview_ready_ref(job_state: Mapping[str, object]) -> ArtifactRef:
             raise ValueError("preview ready ID/ref mismatch")
         return ref
     except (ValueError, TypeError, KeyError) as exc:
-        raise CheckpointDecodeError("preview checkpoint has invalid artifact bindings",
-            code="CHECKPOINT_JOB_STATE_MISMATCH") from exc
+        raise CheckpointDecodeError(
+            "preview checkpoint has invalid artifact bindings", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        ) from exc
 
 
-def _assert_preview_bundle_binding(job_state: Mapping[str, object], refs: tuple[ArtifactRef, ...]) -> None:
+def _assert_preview_bundle_binding(
+    job_state: Mapping[str, object], refs: tuple[ArtifactRef, ...]
+) -> None:
     if not any(ref.artifact_id == job_state[_JOB_STATE_BUNDLE_ARTIFACT] for ref in refs):
-        raise CheckpointDecodeError("preview bundle ID is outside its ready closure",
-            code="CHECKPOINT_JOB_STATE_MISMATCH")
+        raise CheckpointDecodeError(
+            "preview bundle ID is outside its ready closure", code="CHECKPOINT_JOB_STATE_MISMATCH"
+        )

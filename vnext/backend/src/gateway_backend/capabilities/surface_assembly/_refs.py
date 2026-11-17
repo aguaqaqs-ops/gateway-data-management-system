@@ -77,7 +77,8 @@ def rewrite_surface_refs(
             ordered = {
                 key: value
                 for key, value in ordered.items()
-                if value is not None or key not in {"ordered_records_ref", "ordered_records_manifest_ref"}
+                if value is not None
+                or key not in {"ordered_records_ref", "ordered_records_manifest_ref"}
             }
         return replace(
             table,

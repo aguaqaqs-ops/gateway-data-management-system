@@ -186,14 +186,18 @@ def _run_preview_and_submit(
         upload_payload = upload_files_factory(workspace_body["optimistic_version"])
         upload = client.post(
             f"/v1/workspaces/{workspace_id}/upload-revisions",
-            headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-upload"),
+            headers=compose_auth_headers(
+                token=token, idempotency_key=f"{journey_key_prefix}-upload"
+            ),
             files=upload_payload,
         )
         assert upload.status_code == 201, upload.text
         upload_body = upload.json()
         preview = client.post(
             f"/v1/workspaces/{workspace_id}/preview-operations",
-            headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-preview"),
+            headers=compose_auth_headers(
+                token=token, idempotency_key=f"{journey_key_prefix}-preview"
+            ),
             json={
                 "expected_workspace_version": upload_body["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],
@@ -281,7 +285,9 @@ def _run_preview_and_submit(
         )
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
-            headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-submit"),
+            headers=compose_auth_headers(
+                token=token, idempotency_key=f"{journey_key_prefix}-submit"
+            ),
             json={
                 "expected_workspace_version": workspace_row["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],
@@ -315,7 +321,9 @@ def _run_preview_and_submit(
             "preview_status": preview_terminal["status"],
             "preview_operation_id": preview_operation_id,
             "submit_operation_id": submit_operation_id,
-            "submit_status": submit_terminal["status"] if submit_terminal is not None else "TIMEOUT",
+            "submit_status": submit_terminal["status"]
+            if submit_terminal is not None
+            else "TIMEOUT",
             "submit_diagnostic_code": (
                 str(diagnostic["code"]) if isinstance(diagnostic, dict) else None
             ),
@@ -324,9 +332,7 @@ def _run_preview_and_submit(
             ),
             "identity_pairs": identity_pairs,
             "identity_confirmations": identity_confirmations,
-            "identity_assessment_set_digest": preview_result_body[
-                "identity_assessment_set_digest"
-            ],
+            "identity_assessment_set_digest": preview_result_body["identity_assessment_set_digest"],
             "worker_tail": worker_tail,
         }
         if preview_failure is not None:
@@ -507,10 +513,7 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         if provenance:
             normalized = normalize_running_images(provenance, baseline_env["COMPOSE_PROJECT_NAME"])
             provenance_path = persist_compose_gate_provenance(baseline_env, provenance)
-            print(
-                "ordered_bisect_gate_running_images="
-                f"{json.dumps(normalized, indent=2)}"
-            )
+            print(f"ordered_bisect_gate_running_images={json.dumps(normalized, indent=2)}")
             print(f"compose gate provenance written to {provenance_path}")
         cleanup_compose_project_artifacts(baseline_env)
 
@@ -549,15 +552,10 @@ def test_preview_worker_restart_takes_over_expired_running_operation(tmp_path: P
     env = _compose_env(tmp_path, prefix="preview-worker-restart")
     start_three_container_stack(env, tmp_path)
 
-    initial_sql = (
-        b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
-        b"INSERT INTO t VALUES (1);\n"
-    )
+    initial_sql = b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\nINSERT INTO t VALUES (1);\n"
     modified_sql = (
         "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
-        "INSERT INTO t VALUES "
-        + ",".join(f"({index})" for index in range(50_000))
-        + ";\n"
+        "INSERT INTO t VALUES " + ",".join(f"({index})" for index in range(50_000)) + ";\n"
     ).encode("utf-8")
 
     try:
@@ -618,7 +616,9 @@ def test_preview_worker_restart_takes_over_expired_running_operation(tmp_path: P
                     break
                 assert status not in {"SUCCEEDED", "FAILED", "CANCELLED"}, operation.text
                 time.sleep(0.05)
-            assert observed_running, "Preview never entered RUNNING before its worker was terminated"
+            assert observed_running, (
+                "Preview never entered RUNNING before its worker was terminated"
+            )
 
             killed = run_compose(env, "kill", "--signal", "SIGKILL", "worker")
             assert killed.returncode == 0, f"worker kill failed: {killed.stderr}\n{killed.stdout}"

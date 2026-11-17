@@ -129,9 +129,12 @@ def test_file_backed_profile_and_schema_survive_reopen(tmp_path: Path) -> None:
         assert reopened.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert reopened.execute("PRAGMA synchronous").fetchone()[0] == 2
         assert reopened.execute("PRAGMA busy_timeout").fetchone()[0] == 5_000
-        assert reopened.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
-        ).fetchone()[0] == "step_records"
+        assert (
+            reopened.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
+            ).fetchone()[0]
+            == "step_records"
+        )
     finally:
         reopened.close()
 
@@ -160,9 +163,7 @@ def test_file_backed_transaction_visibility_is_atomic_across_connections(
         assert reader.operations.get_step(step.step_id) == step
 
     rollback_operation = operation_record_from_document(_operation_document("op-wal-0002"))
-    rollback_step = step_record_from_document(
-        _step_document("op-wal-0002", "step-wal-0002")
-    )
+    rollback_step = step_record_from_document(_step_document("op-wal-0002", "step-wal-0002"))
     with pytest.raises(RuntimeError, match="synthetic rollback"):
         with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
             writer.operations.insert_operation_with_initial_step(
@@ -290,7 +291,9 @@ def test_unit_of_work_commits_and_rolls_back_on_same_connection(tmp_path: Path) 
             raise RuntimeError("synthetic rollback")
 
     with connect_control_db(db_path) as connection:
-        values = [row[0] for row in connection.execute("SELECT value FROM uow_probe ORDER BY value")]
+        values = [
+            row[0] for row in connection.execute("SELECT value FROM uow_probe ORDER BY value")
+        ]
     assert values == [1]
 
 
@@ -322,10 +325,13 @@ def test_two_connections_can_bootstrap_the_same_file_once(tmp_path: Path) -> Non
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
-        assert connection.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type = 'index' AND name = 'step_records_one_active_per_operation'"
-        ).fetchone()[0] == "step_records_one_active_per_operation"
+        assert (
+            connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'index' AND name = 'step_records_one_active_per_operation'"
+            ).fetchone()[0]
+            == "step_records_one_active_per_operation"
+        )
     finally:
         connection.close()
 
@@ -337,9 +343,7 @@ def test_file_backed_process_termination_rolls_back_uncommitted_probe(
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path)
     with ControlDbUnitOfWork(db_path, now=lambda: FIXED_TRANSACTION_TIME) as unit_of_work:
-        unit_of_work.connection.execute(
-            "CREATE TABLE crash_probe(value TEXT NOT NULL UNIQUE)"
-        )
+        unit_of_work.connection.execute("CREATE TABLE crash_probe(value TEXT NOT NULL UNIQUE)")
 
     child_code = """
 from pathlib import Path
@@ -370,9 +374,10 @@ sys.stdin.buffer.read(1)
         assert child.stdout.readline().strip() == "READY"
 
         with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
-            assert reader.connection.execute(
-                "SELECT value FROM crash_probe ORDER BY value"
-            ).fetchall() == []
+            assert (
+                reader.connection.execute("SELECT value FROM crash_probe ORDER BY value").fetchall()
+                == []
+            )
 
         os.kill(child.pid, signal.SIGKILL)
         assert child.wait(timeout=5) == -signal.SIGKILL
@@ -389,23 +394,20 @@ sys.stdin.buffer.read(1)
             child.stderr.close()
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
-        assert reader.connection.execute(
-            "SELECT value FROM crash_probe ORDER BY value"
-        ).fetchall() == []
+        assert (
+            reader.connection.execute("SELECT value FROM crash_probe ORDER BY value").fetchall()
+            == []
+        )
 
     with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as writer:
-        writer.connection.execute(
-            "INSERT INTO crash_probe(value) VALUES (?)", ("parent",)
-        )
+        writer.connection.execute("INSERT INTO crash_probe(value) VALUES (?)", ("parent",))
 
     reopened = connect_control_db(db_path)
     try:
         assert reopened.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert [
             row[0]
-            for row in reopened.execute(
-                "SELECT value FROM crash_probe ORDER BY value"
-            ).fetchall()
+            for row in reopened.execute("SELECT value FROM crash_probe ORDER BY value").fetchall()
         ] == ["parent"]
     finally:
         reopened.close()
@@ -639,9 +641,7 @@ def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) 
         unit_of_work.connection.execute("INSERT INTO synthetic_owner VALUES (?)", ("committed",))
 
     rollback_operation = operation_record_from_document(_operation_document("op-action-0002"))
-    rollback_step = step_record_from_document(
-        _step_document("op-action-0002", "step-action-0002")
-    )
+    rollback_step = step_record_from_document(_step_document("op-action-0002", "step-action-0002"))
     with pytest.raises(RuntimeError, match="synthetic rollback"):
         with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
             unit_of_work.operations.insert_operation_with_initial_step(
@@ -659,7 +659,10 @@ def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) 
             raise RuntimeError("synthetic rollback")
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
-        assert unit_of_work.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+        assert (
+            unit_of_work.operations.get_operation(operation.operation_id).status
+            is OperationStatus.RUNNING
+        )
         with pytest.raises(RecordNotFound):
             unit_of_work.operations.get_operation(rollback_operation.operation_id)
         assert [
@@ -674,7 +677,9 @@ def test_caught_cancel_second_leg_failure_rolls_back_the_whole_uow(tmp_path: Pat
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-caught-cancel-0001"))
-    step = step_record_from_document(_step_document("op-caught-cancel-0001", "step-caught-cancel-0001"))
+    step = step_record_from_document(
+        _step_document("op-caught-cancel-0001", "step-caught-cancel-0001")
+    )
 
     with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
         unit_of_work.operations.insert_operation_with_initial_step(operation, step)
@@ -771,7 +776,9 @@ def test_caught_successor_second_leg_failure_rolls_back_the_whole_uow(
             )
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
-        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert (
+            reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        )
         assert reader.operations.get_step(step.step_id).status is StepStatus.PENDING
         assert reader.operations.get_step(step.step_id).step_name == "validate"
 
@@ -780,10 +787,10 @@ def test_rollback_only_rejects_a_later_valid_create(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-poison-create-0001"))
-    step = step_record_from_document(_step_document("op-poison-create-0001", "step-poison-create-0001"))
-    later_operation = operation_record_from_document(
-        _operation_document("op-poison-create-0002")
+    step = step_record_from_document(
+        _step_document("op-poison-create-0001", "step-poison-create-0001")
     )
+    later_operation = operation_record_from_document(_operation_document("op-poison-create-0002"))
     later_step = step_record_from_document(
         _step_document("op-poison-create-0002", "step-poison-create-0002")
     )
@@ -831,7 +838,9 @@ def test_rollback_only_rejects_a_later_valid_create(tmp_path: Path) -> None:
             )
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
-        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert (
+            reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        )
         assert reader.operations.get_step(step.step_id).status is StepStatus.PENDING
         with pytest.raises(RecordNotFound):
             reader.operations.get_operation(later_operation.operation_id)
@@ -896,7 +905,9 @@ def test_rollback_only_rejects_a_later_valid_cas(tmp_path: Path) -> None:
             )
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
-        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert (
+            reader.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        )
         assert reader.operations.get_step(step.step_id).status is StepStatus.PENDING
 
 
@@ -906,9 +917,13 @@ def test_terminal_successor_branches_cannot_create_active_step_under_terminal_op
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-terminal-branch-0001"))
-    step = step_record_from_document(_step_document("op-terminal-branch-0001", "step-terminal-branch-0001"))
+    step = step_record_from_document(
+        _step_document("op-terminal-branch-0001", "step-terminal-branch-0001")
+    )
     successor = step_record_from_document(
-        _step_document("op-terminal-branch-0001", "step-terminal-successor-0001", step_name="successor")
+        _step_document(
+            "op-terminal-branch-0001", "step-terminal-successor-0001", step_name="successor"
+        )
     )
 
     with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:
@@ -969,7 +984,10 @@ def test_terminal_successor_branches_cannot_create_active_step_under_terminal_op
             )
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as reader:
-        assert reader.operations.get_operation(operation.operation_id).status is OperationStatus.RUNNING
+        assert (
+            reader.operations.get_operation(operation.operation_id).status
+            is OperationStatus.RUNNING
+        )
         assert reader.operations.get_step(step.step_id).status is StepStatus.SUCCEEDED
         assert reader.operations.get_step(successor.step_id) == successor
         assert reader.operations.scan_active_integrity().steps_scanned == 1
@@ -1022,7 +1040,10 @@ def test_successor_conflict_rolls_back_prior_step_completion(tmp_path: Path) -> 
             )
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
-        assert unit_of_work.operations.get_operation(operation.operation_id).status is OperationStatus.QUEUED
+        assert (
+            unit_of_work.operations.get_operation(operation.operation_id).status
+            is OperationStatus.QUEUED
+        )
         assert unit_of_work.operations.get_step(step.step_id).status is StepStatus.PENDING
 
 
@@ -1048,9 +1069,7 @@ def test_owner_and_operation_share_commit_and_rollback_boundary(tmp_path: Path) 
     step = step_record_from_document(_step_document("op-owner-0001", "step-owner-0001"))
 
     with ControlDbUnitOfWork(db_path, now=lambda: FIXED_TRANSACTION_TIME) as unit_of_work:
-        unit_of_work.connection.execute(
-            "CREATE TABLE synthetic_owner(value TEXT NOT NULL)"
-        )
+        unit_of_work.connection.execute("CREATE TABLE synthetic_owner(value TEXT NOT NULL)")
         assert (
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
             is TransitionDisposition.APPLY

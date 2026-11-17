@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from gateway_backend.statistics.metrics import timed
 
-from gateway_backend.capabilities.table_presentation.contracts import TablePresentation, ColumnPresentation, PresentationMetadata
+from gateway_backend.capabilities.table_presentation.contracts import (
+    TablePresentation,
+    ColumnPresentation,
+    PresentationMetadata,
+)
 
 import dataclasses
 import secrets
@@ -29,7 +33,9 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     CompositeSignalResult,
     CompositeSignalStatus,
 )
-from gateway_backend.capabilities.snapshot_materialization.arrow import extract_arrow_special_device_catalog
+from gateway_backend.capabilities.snapshot_materialization.arrow import (
+    extract_arrow_special_device_catalog,
+)
 from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
@@ -71,7 +77,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance,
     SqlSnapshotMaterializationRequest,
 )
-from gateway_backend.capabilities.snapshot_materialization.materialize import materialize_sql_snapshot
+from gateway_backend.capabilities.snapshot_materialization.materialize import (
+    materialize_sql_snapshot,
+)
 from gateway_backend.capabilities.table_access.contracts import (
     PARSER_VERSION,
     MaterializedTableReader,
@@ -293,9 +301,21 @@ def _compose(
             diagnostics=sql_result.diagnostics,
         )
     return SnapshotMaterializationResult(
-        presentation=PresentationMetadata(tuple(sorted((*sql_result.presentation.tables,
-            TablePresentation(COMPOSITE_SIGNAL_POINT_TABLE, None, tuple(ColumnPresentation(name, None) for name, *_ in _DERIVED_COLUMNS))),
-            key=lambda t: t.table_name.encode("utf-8")))),
+        presentation=PresentationMetadata(
+            tuple(
+                sorted(
+                    (
+                        *sql_result.presentation.tables,
+                        TablePresentation(
+                            COMPOSITE_SIGNAL_POINT_TABLE,
+                            None,
+                            tuple(ColumnPresentation(name, None) for name, *_ in _DERIVED_COLUMNS),
+                        ),
+                    ),
+                    key=lambda t: t.table_name.encode("utf-8"),
+                )
+            )
+        ),
         status=sql_result.status,
         materialization_stage=stage,
         cache_trust_level=trust,
@@ -320,10 +340,18 @@ def _derived_table(
         # table consumer. The per-row allowance includes the source objects,
         # scalar wrappers, row hashes and string allocator overhead.
         row_upper = 4096 + sum(
-            8192 + 8 * sum(len(value) for value in (
-                row.source_table, row.point_name, row.point_payload_json,
-                row.formula_digest or "", row.formula_ast_json or "",
-            ))
+            8192
+            + 8
+            * sum(
+                len(value)
+                for value in (
+                    row.source_table,
+                    row.point_name,
+                    row.point_payload_json,
+                    row.formula_digest or "",
+                    row.formula_ast_json or "",
+                )
+            )
             for row in rows
         )
         context.resources.enter_context(context.memory.reserve(row_upper))

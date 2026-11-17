@@ -36,7 +36,10 @@ from tests.support.runtime_settings import (
 
 pytestmark = pytest.mark.unit
 
-AUTH = {"Authorization": f"Bearer {TEST_BEARER}", "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)}
+AUTH = {
+    "Authorization": f"Bearer {TEST_BEARER}",
+    "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY),
+}
 
 
 def test_closable_admission_gate_stops_new_work() -> None:
@@ -48,7 +51,9 @@ def test_closable_admission_gate_stops_new_work() -> None:
     assert gate.allows_new_work() is False
 
 
-def test_internal_drain_is_authorized_idempotent_and_counts_existing_admission(tmp_path: Path) -> None:
+def test_internal_drain_is_authorized_idempotent_and_counts_existing_admission(
+    tmp_path: Path,
+) -> None:
     gate = ClosableAdmissionGate()
     env = create_workspace_http_environment(tmp_path, admission_gate=gate)
     internal = {"Authorization": "Bearer " + TEST_INTERNAL_BEARER}
@@ -58,21 +63,34 @@ def test_internal_drain_is_authorized_idempotent_and_counts_existing_admission(t
         assert method(path, headers=AUTH).status_code == 401
     assert gate.snapshot() == {"accepting_new_work": True, "in_flight": 0}
     assert gate.try_acquire()
-    assert env.client.get(path, headers=internal).json() == {"accepting_new_work": True, "in_flight": 1}
+    assert env.client.get(path, headers=internal).json() == {
+        "accepting_new_work": True,
+        "in_flight": 1,
+    }
     for _ in range(2):
-        assert env.client.post(path, headers=internal).json() == {"accepting_new_work": False, "in_flight": 1}
+        assert env.client.post(path, headers=internal).json() == {
+            "accepting_new_work": False,
+            "in_flight": 1,
+        }
     assert not gate.try_acquire()
     assert env.client.get("/readyz").status_code == 503
     assert env.client.get("/healthz").status_code == 200
     assert env.client.get("/v1/operations/missing", headers=AUTH).status_code == 404
     # Recovery still reaches its own target validation after the gate closes.
-    recovery = env.client.post("/internal/v1/operations/missing/steps/missing/recovery", headers=internal, json={})
+    recovery = env.client.post(
+        "/internal/v1/operations/missing/steps/missing/recovery", headers=internal, json={}
+    )
     assert recovery.status_code == 422
     gate.release()
-    assert env.client.get(path, headers=internal).json() == {"accepting_new_work": False, "in_flight": 0}
+    assert env.client.get(path, headers=internal).json() == {
+        "accepting_new_work": False,
+        "in_flight": 0,
+    }
 
 
-def test_maintenance_startup_keeps_storage_and_reads_available_without_admission(tmp_path: Path) -> None:
+def test_maintenance_startup_keeps_storage_and_reads_available_without_admission(
+    tmp_path: Path,
+) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(tmp_path, maintenance_mode=True)
     with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
@@ -81,7 +99,9 @@ def test_maintenance_startup_keeps_storage_and_reads_available_without_admission
             assert client.get("/readyz").status_code == 503
             assert client.get("/healthz").status_code == 200
             assert client.get("/internal/v1/maintenance/drain", headers=internal).json() == {
-                "accepting_new_work": False, "in_flight": 0}
+                "accepting_new_work": False,
+                "in_flight": 0,
+            }
 
 
 @pytest.mark.parametrize("value", [0, 1, "1", "yes", "TRUE", None])
@@ -182,7 +202,9 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("entrypoint", ["signal", "shutdown"])
-def test_admission_first_server_pre_drains_before_super_handler(tmp_path: Path, entrypoint: str) -> None:
+def test_admission_first_server_pre_drains_before_super_handler(
+    tmp_path: Path, entrypoint: str
+) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(
         tmp_path,

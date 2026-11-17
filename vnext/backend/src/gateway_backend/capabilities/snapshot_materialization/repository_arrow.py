@@ -20,7 +20,10 @@ from gateway_backend.capabilities.table_access import current_kernel_context
 
 @contextmanager
 def canonical_repository_stream(
-    source: pa.RecordBatchReader, descriptor: SnapshotTableDescriptor, *, budgets: dict[str, int],
+    source: pa.RecordBatchReader,
+    descriptor: SnapshotTableDescriptor,
+    *,
+    budgets: dict[str, int],
 ) -> Iterator[pa.RecordBatchReader]:
     context = current_kernel_context()
     if context is None:
@@ -28,7 +31,9 @@ def canonical_repository_stream(
     context.checkpoint()
     columns = canonical_columns(descriptor)
     source_names = source.schema.names
-    if len(set(source_names)) != len(source_names) or set(source_names) != {column["canonical_name"] for column in columns}:
+    if len(set(source_names)) != len(source_names) or set(source_names) != {
+        column["canonical_name"] for column in columns
+    }:
         raise ValueError("repository Arrow names differ from bound schema")
     conversions: list[tuple[int, str, pa.DataType]] = []
     fields = []
@@ -45,7 +50,9 @@ def canonical_repository_stream(
         elif kind in ("signed-integer", "unsigned-integer"):
             bits = column["declared_type"]["bits"]
             width = 32 if bits == 24 else bits
-            wire_type = getattr(pa, ("uint" if kind == "unsigned-integer" else "int") + str(width))()
+            wire_type = getattr(
+                pa, ("uint" if kind == "unsigned-integer" else "int") + str(width)
+            )()
             if field.type != wire_type:
                 raise ValueError("integer wire type differs from declaration")
             conversion = "cast"
@@ -77,7 +84,9 @@ def canonical_repository_stream(
             context.checkpoint()
             # Widening, SET join, DATETIME formatting and two trim arrays overlap
             # with this batch. The source wire mapping has its own reservation.
-            conversion_peak = batch.get_total_buffer_size() * 8 + batch.num_rows * (len(columns) * 512 + 1024)
+            conversion_peak = batch.get_total_buffer_size() * 8 + batch.num_rows * (
+                len(columns) * 512 + 1024
+            )
             if output_live + conversion_peak > budgets["max_live_bytes"]:
                 raise MemoryError("repository Arrow conversion exceeds live budget")
             with context.memory.reserve(conversion_peak):
@@ -93,13 +102,22 @@ def canonical_repository_stream(
                         array = pc.binary_join(array, ",")
                     elif conversion == "datetime":
                         array = pc.strftime(array, format="%Y-%m-%dT%H:%M:%S", locale="C")
-                        array = pc.replace_substring_regex(array, pattern=r"(\.[0-9]*[1-9])0+$", replacement=r"\1")
+                        array = pc.replace_substring_regex(
+                            array, pattern=r"(\.[0-9]*[1-9])0+$", replacement=r"\1"
+                        )
                         array = pc.replace_substring_regex(array, pattern=r"\.0+$", replacement="")
                     arrays.append(array)
-                output = pa.RecordBatch.from_arrays(arrays, schema=schema) if arrays else batch.select([])
+                output = (
+                    pa.RecordBatch.from_arrays(arrays, schema=schema)
+                    if arrays
+                    else batch.select([])
+                )
                 del arrays
             output_live += output.get_total_buffer_size()
-            if output_live > budgets["max_input_bytes"] or output_live > budgets["max_output_bytes"]:
+            if (
+                output_live > budgets["max_input_bytes"]
+                or output_live > budgets["max_output_bytes"]
+            ):
                 raise MemoryError("repository Arrow converted buffers exceed byte budget")
             resources.enter_context(context.memory.retain_arrow(output))
             batches.append(output)

@@ -71,7 +71,9 @@ def make_operation_worker_settings(
     **overrides: object,
 ) -> OperationWorkerSettings:
     db_path = control_db_path if control_db_path is not None else tmp_path / "control.sqlite3"
-    storage_base = overrides.pop("storage_base", (db_path.parent if db_path.is_absolute() else tmp_path) / "artifacts")
+    storage_base = overrides.pop(
+        "storage_base", (db_path.parent if db_path.is_absolute() else tmp_path) / "artifacts"
+    )
     assert isinstance(storage_base, Path)
     prepare = bool(overrides.pop("prepare_storage", True))
     storage_file, resources_file = write_deployment_files(storage_base, prepare=prepare)
@@ -162,17 +164,23 @@ def prepare_backend_runtime_paths(tmp_path: Path) -> None:
     )
 
 
-def _configure_test_profile(storage: Path, resources: Path, database: Path, overrides: dict[str, object], *, prepare: bool) -> None:
+def _configure_test_profile(
+    storage: Path, resources: Path, database: Path, overrides: dict[str, object], *, prepare: bool
+) -> None:
     from gateway_backend.runtime_preflight import marker_document
     from gateway_backend.deployment_config import StorageLayoutConfig
+
     if not database.is_absolute():
         raise ValueError("control database fixture path must be absolute")
     layout = json.loads(storage.read_bytes())
     # The metadata root is the requested fixture DB directory. Other roots stay
     # outside it, maintaining the production non-nesting invariant.
     for slot, root in layout["roots"].items():
-        path = (database.parent if slot == "be-metadata" else
-                database.parent.with_name(database.parent.name + "-objects") / slot)
+        path = (
+            database.parent
+            if slot == "be-metadata"
+            else database.parent.with_name(database.parent.name + "-objects") / slot
+        )
         root["source"] = root["path"] = str(path)
         if prepare:
             path.mkdir(parents=True, exist_ok=True)
@@ -183,12 +191,16 @@ def _configure_test_profile(storage: Path, resources: Path, database: Path, over
     for slot, root in parsed.roots.items():
         if not prepare:
             continue
-        (Path(root.path) / ".gateway-storage.json").write_text(json.dumps(marker_document(parsed, slot)))
+        (Path(root.path) / ".gateway-storage.json").write_text(
+            json.dumps(marker_document(parsed, slot))
+        )
     profile = json.loads(resources.read_bytes())
-    for name, target in (("kernel_threads", "kernel_threads"),
-                         ("kernel_memory_budget_bytes", "kernel_memory_bytes"),
-                         ("memory_envelope_bytes", "memory_envelope_bytes"),
-                         ("memory_reserve_bytes", "memory_reserve_bytes")):
+    for name, target in (
+        ("kernel_threads", "kernel_threads"),
+        ("kernel_memory_budget_bytes", "kernel_memory_bytes"),
+        ("memory_envelope_bytes", "memory_envelope_bytes"),
+        ("memory_reserve_bytes", "memory_reserve_bytes"),
+    ):
         if name in overrides:
             profile["worker"][target] = overrides.pop(name)
     profile["host_budget"]["memory_bytes"] = 64 * 1024**3
@@ -197,6 +209,7 @@ def _configure_test_profile(storage: Path, resources: Path, database: Path, over
     if prepare:
         from gateway_backend.deployment_config import DeploymentConfig
         from gateway_backend.bootstrap.deployment_identity import publish_configuration
+
         try:
             deployment = DeploymentConfig.load(storage, resources)
         except ValueError:
@@ -205,7 +218,9 @@ def _configure_test_profile(storage: Path, resources: Path, database: Path, over
             publish_configuration(deployment)
 
 
-def _prepare_registration_files(directory: Path, storage: Path, overrides: dict[str, object]) -> None:
+def _prepare_registration_files(
+    directory: Path, storage: Path, overrides: dict[str, object]
+) -> None:
     """A real group reservation accompanies the production seed in runtime fixtures."""
     source = Path(__file__).resolve().parents[3] / "fixtures/processing-groups/v1/groups.json"
     groups = json.loads(source.read_bytes())
@@ -218,7 +233,20 @@ def _prepare_registration_files(directory: Path, storage: Path, overrides: dict[
     if not groups_path.exists():
         groups_path.write_text(json.dumps(groups))
     if not device_path.exists():
-        device_path.write_text(json.dumps({"schema_version": 1, "environment_id": layout["environment_id"],
-            "devices": [{"gateway_device_external_key": TEST_DEVICE_KEY, "group_id": layout["group_id"], "enabled": True}]}))
+        device_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "environment_id": layout["environment_id"],
+                    "devices": [
+                        {
+                            "gateway_device_external_key": TEST_DEVICE_KEY,
+                            "group_id": layout["group_id"],
+                            "enabled": True,
+                        }
+                    ],
+                }
+            )
+        )
     overrides.setdefault("processing_groups_file", groups_path)
     overrides.setdefault("device_directory_file", device_path)

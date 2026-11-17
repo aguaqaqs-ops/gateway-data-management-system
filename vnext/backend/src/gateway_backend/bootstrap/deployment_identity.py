@@ -1,4 +1,5 @@
 """Rebuildable BE/worker configuration comparison; never business authority."""
+
 from __future__ import annotations
 
 import json
@@ -15,16 +16,24 @@ CONFIGURATION_RECORD = ".gateway-runtime-configuration.json"
 
 
 def configuration_document(config: DeploymentConfig) -> dict[str, object]:
-    return {"schema_version": 1, "environment_id": config.storage.environment_id,
-        "group_id": config.storage.group_id, "storage_digest": config.storage.digest,
-        "resource_digest": config.resources.digest}
+    return {
+        "schema_version": 1,
+        "environment_id": config.storage.environment_id,
+        "group_id": config.storage.group_id,
+        "storage_digest": config.storage.digest,
+        "resource_digest": config.resources.digest,
+    }
 
 
 def _read(directory: int) -> dict[str, object]:
-    descriptor = os.open(CONFIGURATION_RECORD, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    descriptor = os.open(
+        CONFIGURATION_RECORD, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+    )
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode) or descriptor_mount_id(descriptor) != descriptor_mount_id(directory):
+        if not stat.S_ISREG(info.st_mode) or descriptor_mount_id(descriptor) != descriptor_mount_id(
+            directory
+        ):
             raise ValueError("configuration record must be an ordinary file on metadata")
         raw = os.read(descriptor, 4097)
         if len(raw) > 4096:
@@ -47,8 +56,10 @@ def compare_configuration(config: DeploymentConfig) -> None:
                 raise ValueError("configuration record mismatch")
         finally:
             os.close(directory)
-    except (OSError, ValueError, StopIteration):
-        raise DeploymentIdentityChanged("backend/worker configuration record unavailable or inconsistent") from None
+    except OSError, ValueError, StopIteration:
+        raise DeploymentIdentityChanged(
+            "backend/worker configuration record unavailable or inconsistent"
+        ) from None
 
 
 def publish_configuration(config: DeploymentConfig) -> None:
@@ -58,22 +69,29 @@ def publish_configuration(config: DeploymentConfig) -> None:
     Symlinks, non-files and submounts never grant replacement authority.
     """
     check_configured_root(config.storage, "be-metadata")
-    directory = os.open(config.storage.roots["be-metadata"].path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    directory = os.open(
+        config.storage.roots["be-metadata"].path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    )
     temporary = ".gateway-configuration-" + uuid4().hex
     created = False
     try:
         try:
-            descriptor = os.open(CONFIGURATION_RECORD, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            descriptor = os.open(
+                CONFIGURATION_RECORD, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+            )
         except FileNotFoundError:
             pass
         else:
             try:
-                if (not stat.S_ISREG(os.fstat(descriptor).st_mode)
-                        or descriptor_mount_id(descriptor) != descriptor_mount_id(directory)):
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode) or descriptor_mount_id(
+                    descriptor
+                ) != descriptor_mount_id(directory):
                     raise ValueError("configuration record is redirected or not ordinary")
             finally:
                 os.close(descriptor)
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=directory)
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640, dir_fd=directory
+        )
         created = True
         try:
             payload = json.dumps(configuration_document(config), sort_keys=True).encode()

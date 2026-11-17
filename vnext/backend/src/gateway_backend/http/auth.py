@@ -12,7 +12,11 @@ from typing import Annotated, Protocol, runtime_checkable
 
 from fastapi import Depends, Header, Request
 
-from gateway_backend.device_identity import DEVICE_KEY_HEADER, device_route_key, validate_device_route_key
+from gateway_backend.device_identity import (
+    DEVICE_KEY_HEADER,
+    device_route_key,
+    validate_device_route_key,
+)
 from gateway_backend.domain.workspace.errors import ScopeNotFound
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
@@ -76,7 +80,7 @@ class LiveFileSessionPort:
         token = _bearer_token(request)
         try:
             entries = load_session_entries(self._session_file)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             raise ApiError(
                 code="AUTHENTICATION_REQUIRED",
                 message="authentication required",
@@ -101,10 +105,7 @@ class LiveFileSessionPort:
 def load_session_file(session_file: Path) -> dict[str, IdentityContext]:
     """Load bearer token → IdentityContext mappings from a server-owned JSON file."""
 
-    return {
-        token: entry.identity
-        for token, entry in load_session_entries(session_file).items()
-    }
+    return {token: entry.identity for token, entry in load_session_entries(session_file).items()}
 
 
 def load_session_entries(session_file: Path) -> dict[str, LoadedSession]:
@@ -216,9 +217,11 @@ def require_session_identity(request: Request) -> IdentityContext:
     return get_workspace_http(request).session_port.resolve(request)
 
 
-def require_identity(request: Request,
-        context: Annotated[IdentityContext, Depends(require_session_identity)],
-        device_key: Annotated[str, Header(alias=DEVICE_KEY_HEADER, pattern=r"^[0-9a-f]{64}$")]) -> IdentityContext:
+def require_identity(
+    request: Request,
+    context: Annotated[IdentityContext, Depends(require_session_identity)],
+    device_key: Annotated[str, Header(alias=DEVICE_KEY_HEADER, pattern=r"^[0-9a-f]{64}$")],
+) -> IdentityContext:
     """Authenticate before validating the exact route key and local scope authority."""
     from gateway_backend.http.dependencies import get_workspace_http
 
@@ -229,13 +232,17 @@ def require_identity(request: Request,
             raise ValueError("device key must be single valued")
         key = validate_device_route_key(values[0])
     except ValueError:
-        raise ApiError(code="REQUEST_VALIDATION_FAILED", message="request validation failed", status_code=422) from None
+        raise ApiError(
+            code="REQUEST_VALIDATION_FAILED", message="request validation failed", status_code=422
+        ) from None
     if key != device_route_key(context.gateway_device_external_key):
         raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404)
     try:
         get_workspace_http(request).scope_resolution.resolve(context)
     except ScopeNotFound:
-        raise ApiError(code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404) from None
+        raise ApiError(
+            code="RESOURCE_NOT_FOUND", message="resource not found", status_code=404
+        ) from None
     return context
 
 

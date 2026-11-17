@@ -22,7 +22,10 @@ from gateway_backend.domain.submission.review import (
     build_seed_projection,
     resolve_review_transition,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.infrastructure.control_db.schema import CONTROL_DB_SCHEMA_STATEMENTS
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
 from gateway_backend.operations import OPERATION_RUNTIME_CONTRACT_VERSION
@@ -34,7 +37,11 @@ TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 
 
 def _table_sql(table: str) -> str:
-    matches = [statement for statement in CONTROL_DB_SCHEMA_STATEMENTS if f"CREATE TABLE {table} (" in statement]
+    matches = [
+        statement
+        for statement in CONTROL_DB_SCHEMA_STATEMENTS
+        if f"CREATE TABLE {table} (" in statement
+    ]
     assert len(matches) == 1, table
     return " ".join(matches[0].split())
 
@@ -103,7 +110,14 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
             )
             """,
-            (configuration_facts_blob(), *(b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]', "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e", "sha256:canonical-closure")),
+            (
+                configuration_facts_blob(),
+                *(
+                    b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
+                    "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
+                    "sha256:canonical-closure",
+                ),
+            ),
         )
         unit_of_work.connection.execute(
             """
@@ -125,7 +139,12 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 'actor-1', 1
             )
             """,
-            (configuration_facts_blob(), *(b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',)),
+            (
+                configuration_facts_blob(),
+                *(
+                    b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
+                ),
+            ),
         )
         unit_of_work.review.insert_seed(event, projection)
 
@@ -404,10 +423,13 @@ def test_sqlite_review_repository_append_rejects_empty_stream(db_path: Path) -> 
         _seed_submission_row(unit_of_work.connection)
         with pytest.raises(ReviewClosureViolation, match="no seed"):
             unit_of_work.review.append_event(approve_event)
-        assert unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
-            ("sub-1",),
-        ).fetchone()[0] == 0
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
+                ("sub-1",),
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_sqlite_review_repository_append_rejects_sequence_gap(db_path: Path) -> None:
@@ -431,10 +453,13 @@ def test_sqlite_review_repository_append_rejects_sequence_gap(db_path: Path) -> 
         unit_of_work.review.insert_seed(seed_event, seed_projection)
         with pytest.raises(ReviewClosureViolation, match="not contiguous"):
             unit_of_work.review.append_event(gap_event)
-        assert unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
-            ("sub-1",),
-        ).fetchone()[0] == 1
+        assert (
+            unit_of_work.connection.execute(
+                "SELECT COUNT(*) FROM review_event_records WHERE submission_id = ?",
+                ("sub-1",),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_sqlite_review_repository_find_idempotency_rejects_seed_binding(db_path: Path) -> None:
@@ -570,7 +595,14 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
         )
         """,
-        (configuration_facts_blob(), *(b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]', "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e", "sha256:canonical-closure")),
+        (
+            configuration_facts_blob(),
+            *(
+                b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',
+                "a1:durable:1eee6aa9144b7cd76c9eee9e5a14b09ebd5da3c4dfbd942090968b836b50243e",
+                "sha256:canonical-closure",
+            ),
+        ),
     )
     connection.execute(
         """
@@ -592,23 +624,36 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             'actor-1', 1
         )
         """,
-        (configuration_facts_blob(), *(b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',)),
+        (
+            configuration_facts_blob(),
+            *(b'["a1:durable:6ad3484166d34aff54b194e437178effc365b92e344486807818aa10908cd041"]',),
+        ),
     )
 
 
-@pytest.mark.parametrize(("table", "column"), [
-    ("review_projection_records", "status"),
-    ("review_event_records", "event_kind"),
-    ("review_event_records", "from_status"),
-    ("review_event_records", "to_status"),
-])
-def test_review_baseline_rejects_removed_state_and_event(db_path: Path, table: str, column: str) -> None:
-    event, projection = build_seed_projection(submission_id="sub-1", actor_id="actor-1", occurred_at=TS0)
+@pytest.mark.parametrize(
+    ("table", "column"),
+    [
+        ("review_projection_records", "status"),
+        ("review_event_records", "event_kind"),
+        ("review_event_records", "from_status"),
+        ("review_event_records", "to_status"),
+    ],
+)
+def test_review_baseline_rejects_removed_state_and_event(
+    db_path: Path, table: str, column: str
+) -> None:
+    event, projection = build_seed_projection(
+        submission_id="sub-1", actor_id="actor-1", occurred_at=TS0
+    )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         _seed_submission_row(unit_of_work.connection)
         unit_of_work.review.insert_seed(event, projection)
     with pytest.raises(sqlite3.IntegrityError):
         with ControlDbUnitOfWork(db_path) as unit_of_work:
-            unit_of_work.connection.execute(f"UPDATE {table} SET {column} = ? WHERE submission_id = 'sub-1'", ("RETURNED_FOR_REVISION",))
+            unit_of_work.connection.execute(
+                f"UPDATE {table} SET {column} = ? WHERE submission_id = 'sub-1'",
+                ("RETURNED_FOR_REVISION",),
+            )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         assert unit_of_work.review.get_projection("sub-1") == projection

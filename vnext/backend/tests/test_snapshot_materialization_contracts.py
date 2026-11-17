@@ -65,6 +65,7 @@ SQL_TYPE_NORMALIZATION_CASES = (
     ("decimal( 10, 2 )", "DECIMAL(10,2)"),
 )
 
+
 def test_versions_and_orthogonal_labels_match_s0() -> None:
     assert SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION == 1
     assert DIGEST_CONTRACT_VERSION == 1
@@ -111,8 +112,9 @@ def test_snapshot_column_descriptor_normalizes_sql_type_spelling(
 
 
 def test_repository_set_metadata_keeps_declared_label_order() -> None:
-    column = RepositoryColumn(name="flags", ordinal=0,
-        scalar_type="SET('read','write','admin')", nullable=False)
+    column = RepositoryColumn(
+        name="flags", ordinal=0, scalar_type="SET('read','write','admin')", nullable=False
+    )
     mapped = map_repository_column(column)
     assert mapped.source.logical_type is SqlLogicalType.SET
     assert mapped.source.enum_or_set_labels == ("read", "write", "admin")

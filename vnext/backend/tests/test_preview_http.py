@@ -76,7 +76,10 @@ def test_start_preview_returns_202_with_operation_body(env: WorkspaceHttpTestEnv
     with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(body["operation_id"])
     assert operation.job_payload is not None
-    assert json.loads(operation.job_payload)["comparison_ruleset_digest"] == _runtime_comparison_ruleset_digest()
+    assert (
+        json.loads(operation.job_payload)["comparison_ruleset_digest"]
+        == _runtime_comparison_ruleset_digest()
+    )
 
 
 def test_start_preview_requires_registry(env: WorkspaceHttpTestEnvironment, tmp_path: Path) -> None:
@@ -91,7 +94,9 @@ def test_start_preview_requires_registry(env: WorkspaceHttpTestEnvironment, tmp_
     assert response.json()["code"] == "SERVICE_NOT_READY"
 
 
-def test_start_preview_binding_conflict_on_stale_generation(env: WorkspaceHttpTestEnvironment) -> None:
+def test_start_preview_binding_conflict_on_stale_generation(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
     workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
     body = _preview_body(workspace, upload)
     body["generation"] = 99
@@ -107,7 +112,9 @@ def test_start_preview_binding_conflict_on_stale_generation(env: WorkspaceHttpTe
 def test_start_preview_requires_preview_permission(tmp_path: Path) -> None:
     env = create_workspace_http_environment(
         tmp_path,
-        identity=make_identity(permissions=frozenset({"workspace_read", "upload_submit_workspace"})),
+        identity=make_identity(
+            permissions=frozenset({"workspace_read", "upload_submit_workspace"})
+        ),
     )
     workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
     response = env.client.post(
@@ -130,13 +137,16 @@ def test_start_preview_replays_queued_operation_with_live_clock(tmp_path: Path) 
     assert first.status_code == 202
     assert second.status_code == 202
     assert first.json()["operation_id"] == second.json()["operation_id"]
-    acceptance = env.repository.find_preview_idempotency(workspace["workspace_id"], "preview-replay")
+    acceptance = env.repository.find_preview_idempotency(
+        workspace["workspace_id"], "preview-replay"
+    )
     assert acceptance is not None
     assert acceptance.operation_id == first.json()["operation_id"]
 
 
 def test_preview_http_replays_same_key_and_creates_new_key_after_semantic_change(
-    env: WorkspaceHttpTestEnvironment, monkeypatch: pytest.MonkeyPatch,
+    env: WorkspaceHttpTestEnvironment,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
     url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
@@ -165,7 +175,9 @@ def test_preview_http_replays_same_key_and_creates_new_key_after_semantic_change
         new_operation = uow.operations.get_operation(fresh.json()["operation_id"])
     assert original.job_payload == old_payload
     assert new_operation.job_payload is not None
-    assert json.loads(new_operation.job_payload)["capability_contract_versions"] == future_capabilities
+    assert (
+        json.loads(new_operation.job_payload)["capability_contract_versions"] == future_capabilities
+    )
 
 
 def test_start_preview_rejects_unknown_options_keys(env: WorkspaceHttpTestEnvironment) -> None:
@@ -275,24 +287,38 @@ def test_workspace_recommends_latest_active_preview_for_current_input(
     url = f"/v1/workspaces/{workspace['workspace_id']}/preview-operations"
     ids = []
     for key in ("preview-first", "preview-second"):
-        response = env.client.post(url, headers=env.auth_headers(idempotency_key=key),
-                                   json=_preview_body(workspace, upload))
+        response = env.client.post(
+            url,
+            headers=env.auth_headers(idempotency_key=key),
+            json=_preview_body(workspace, upload),
+        )
         assert response.status_code == 202, response.text
         ids.append(response.json()["operation_id"])
     # Equal acceptance times are ordered by operation ID, not insertion order.
     with ControlDbUnitOfWork(env.db_path) as uow:
-        uow.connection.execute("UPDATE operation_records SET created_at_us = 42 WHERE operation_id IN (?, ?)", ids)
+        uow.connection.execute(
+            "UPDATE operation_records SET created_at_us = 42 WHERE operation_id IN (?, ?)", ids
+        )
     newest, older = sorted(ids, reverse=True)
     assert recommendation() == newest
     with ControlDbUnitOfWork(env.db_path) as uow:
-        uow.connection.execute("UPDATE operation_records SET cancel_requested = 1 WHERE operation_id = ?", (newest,))
-        uow.connection.execute("UPDATE operation_records SET status = 'RUNNING' WHERE operation_id = ?", (older,))
+        uow.connection.execute(
+            "UPDATE operation_records SET cancel_requested = 1 WHERE operation_id = ?", (newest,)
+        )
+        uow.connection.execute(
+            "UPDATE operation_records SET status = 'RUNNING' WHERE operation_id = ?", (older,)
+        )
     assert recommendation() == older
     with ControlDbUnitOfWork(env.db_path) as uow:
-        uow.connection.execute("UPDATE operation_records SET status = 'CANCELLED', completed_at_us = updated_at_us WHERE operation_id = ?", (older,))
+        uow.connection.execute(
+            "UPDATE operation_records SET status = 'CANCELLED', completed_at_us = updated_at_us WHERE operation_id = ?",
+            (older,),
+        )
     assert recommendation() is None
     with ControlDbUnitOfWork(env.db_path) as uow:
-        uow.connection.execute("UPDATE operation_records SET cancel_requested = 0 WHERE operation_id = ?", (newest,))
+        uow.connection.execute(
+            "UPDATE operation_records SET cancel_requested = 0 WHERE operation_id = ?", (newest,)
+        )
     assert recommendation() == newest
     replacement = env.client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/upload-revisions",
@@ -309,9 +335,19 @@ def test_history_and_preview_share_durable_queue_limit(tmp_path: Path, first_kin
     from typing import cast
     from fastapi import FastAPI
 
-    env = create_workspace_http_environment(tmp_path, identity=make_identity(permissions=frozenset({
-        "workspace_read", "upload_submit_workspace", "preview_workspace", "read_project_history",
-    })))
+    env = create_workspace_http_environment(
+        tmp_path,
+        identity=make_identity(
+            permissions=frozenset(
+                {
+                    "workspace_read",
+                    "upload_submit_workspace",
+                    "preview_workspace",
+                    "read_project_history",
+                }
+            )
+        ),
+    )
     workspace, upload = _seed_workspace_with_upload(env.client, env.auth_headers())
     app = cast(FastAPI, env.client.app)
     app.state.workspace_http = replace(app.state.workspace_http, operation_queue_limit=1)
@@ -322,10 +358,18 @@ def test_history_and_preview_share_durable_queue_limit(tmp_path: Path, first_kin
     history_body = {"nodes": [node, node]}
 
     def preview() -> Any:
-        return env.client.post(preview_url, headers=env.auth_headers(idempotency_key="queue-preview"), json=preview_body)
+        return env.client.post(
+            preview_url,
+            headers=env.auth_headers(idempotency_key="queue-preview"),
+            json=preview_body,
+        )
 
     def history() -> Any:
-        return env.client.post("/v1/history-compares", headers=env.auth_headers(idempotency_key="queue-history"), json=history_body)
+        return env.client.post(
+            "/v1/history-compares",
+            headers=env.auth_headers(idempotency_key="queue-history"),
+            json=history_body,
+        )
 
     first, second = (preview, history) if first_kind == "preview" else (history, preview)
     accepted = first()

@@ -53,9 +53,7 @@ def test_identifier_collision_fails_closed() -> None:
     first = catalog_table("items", (int_id_column(),))
     second = catalog_table("ITEMS", (int_id_column(),))
     catalog = make_catalog((first, second))
-    provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, rows={"items": ((1,),)}
-    )
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows={"items": ((1,),)})
     result = materialize_ref(
         provider,
         canonical_binding=canonical_binding_for_catalog(make_catalog((first,))),
@@ -71,9 +69,7 @@ def test_provider_pads_omitted_nulls() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     streamed = {"items": ((1,),)}
     catalog = make_catalog((table,))
-    provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, rows=streamed, pad_nulls=True
-    )
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=streamed, pad_nulls=True)
     result = materialize_ref(provider, policy=MaterializationPolicy.READERS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.COMPLETE
 
@@ -82,9 +78,7 @@ def test_short_row_fails_read() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1,),)}
     catalog = make_catalog((table,))
-    provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, rows=rows, pad_nulls=False
-    )
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows, pad_nulls=False)
     result = materialize_ref(provider, policy=MaterializationPolicy.READERS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.snapshot is None
@@ -104,12 +98,8 @@ def test_same_ref_repeats_same_snapshot_digest() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1, "a"), (2, "b"))}
     catalog = make_catalog((table,))
-    first = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
-    )
-    second = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
-    )
+    first = materialize_ref(FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows))
+    second = materialize_ref(FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows))
     assert first.snapshot is not None and second.snapshot is not None
     assert first.snapshot.snapshot_digest == second.snapshot.snapshot_digest
     assert first.snapshot.snapshot_id == second.snapshot.snapshot_id
@@ -141,12 +131,8 @@ def test_duplicate_rows_are_preserved_in_digest() -> None:
     unique = {"items": ((1,),)}
     duplicated = {"items": ((1,), (1,))}
     catalog = make_catalog((table,))
-    left = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, rows=unique)
-    )
-    right = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, rows=duplicated)
-    )
+    left = materialize_ref(FakeRepositoryTableAccessProvider(catalog=catalog, rows=unique))
+    right = materialize_ref(FakeRepositoryTableAccessProvider(catalog=catalog, rows=duplicated))
     assert left.summary is not None and right.summary is not None
     assert left.summary.tables[0].raw_content_digest != right.summary.tables[0].raw_content_digest
     assert right.summary.tables[0].row_count == 2
@@ -240,9 +226,9 @@ def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary(
     assert selected.table_set is not None
     assert tuple(item.descriptor.table_name for item in selected.table_set.tables) == ("items",)
     assert provider.last_session is not None
-    assert tuple(item.catalog_table().table_name for item in provider.last_session.table_readers) == (
-        "items",
-    )
+    assert tuple(
+        item.catalog_table().table_name for item in provider.last_session.table_readers
+    ) == ("items",)
 
     no_read_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     no_read = materialize_ref(

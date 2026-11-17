@@ -1,4 +1,5 @@
 """Explicit bounded maintenance of configured backend storage."""
+
 from __future__ import annotations
 
 import argparse
@@ -17,11 +18,19 @@ from gateway_backend.runtime_preflight import check_host, initialize_host, check
 from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
 from gateway_backend.bootstrap.storage_layout import maintenance_layout_from_config
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.infrastructure.artifact_store.layout import directory_identity, descriptor_mount_id
+from gateway_backend.infrastructure.artifact_store.layout import (
+    directory_identity,
+    descriptor_mount_id,
+)
 from gateway_backend.infrastructure.control_db.schema import verify_control_db_file
 from gateway_backend.infrastructure.artifact_store.maintenance import ArtifactMaintenance
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.operations.store import RecordNotFound, StoreBusy, UnsupportedSchemaVersion, CorruptPersistedRecord
+from gateway_backend.operations.store import (
+    RecordNotFound,
+    StoreBusy,
+    UnsupportedSchemaVersion,
+    CorruptPersistedRecord,
+)
 
 
 def _database_file_identity(database: Path, metadata: Path) -> tuple[int, int]:
@@ -31,10 +40,14 @@ def _database_file_identity(database: Path, metadata: Path) -> tuple[int, int]:
     descriptor = os.open(database, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         info = os.fstat(descriptor)
-        if (not stat.S_ISREG(info.st_mode) or info.st_size == 0
-                or info.st_dev != root_device or descriptor_mount_id(descriptor) != root_mount
-                or not os.access(f"/proc/self/fd/{descriptor}", os.R_OK, effective_ids=True)):
-            raise ValueError('existing initialized ordinary control database is required')
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_size == 0
+            or info.st_dev != root_device
+            or descriptor_mount_id(descriptor) != root_mount
+            or not os.access(f"/proc/self/fd/{descriptor}", os.R_OK, effective_ids=True)
+        ):
+            raise ValueError("existing initialized ordinary control database is required")
         return info.st_dev, info.st_ino
     finally:
         os.close(descriptor)
@@ -54,7 +67,8 @@ def release_expired_history_results(uow: ControlDbUnitOfWork, *, limit: int = 32
            WHERE p.owner_kind = 'history-compare-operation'
              AND o.completed_at_us IS NOT NULL AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
              AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
-           LIMIT ?""", (now_us, limit),
+           LIMIT ?""",
+        (now_us, limit),
     ).fetchall()
     alias_rows = uow.connection.execute(
         """SELECT DISTINCT h.operation_id FROM history_compare_aliases h INDEXED BY history_compare_aliases_operation
@@ -62,7 +76,8 @@ def release_expired_history_results(uow: ControlDbUnitOfWork, *, limit: int = 32
            CROSS JOIN operation_records o ON o.operation_id = a.operation_id
            WHERE o.completed_at_us IS NOT NULL AND o.status IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
              AND o.completed_at_us + a.result_retention_seconds * 1000000 <= ?
-           LIMIT ?""", (now_us, limit),
+           LIMIT ?""",
+        (now_us, limit),
     ).fetchall()
     # Alternate the two sources so an owner backlog cannot starve alias-only jobs.
     candidates: dict[str, None] = {}
@@ -76,26 +91,37 @@ def release_expired_history_results(uow: ControlDbUnitOfWork, *, limit: int = 32
             break
     for operation_id in candidates:
         uow.clear_artifact_protection(owner_kind="history-compare-operation", owner_id=operation_id)
-        uow.connection.execute("DELETE FROM history_compare_aliases WHERE operation_id = ?", (operation_id,))
+        uow.connection.execute(
+            "DELETE FROM history_compare_aliases WHERE operation_id = ?", (operation_id,)
+        )
     return len(candidates)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--storage-layout', type=Path, required=True)
-    parser.add_argument('--resource-profile', type=Path, required=True)
-    commands = parser.add_subparsers(dest='command', required=True)
-    commands.add_parser("init-layout", help="explicit host preflight and marker initialization; roots must already exist")
+    parser.add_argument("--storage-layout", type=Path, required=True)
+    parser.add_argument("--resource-profile", type=Path, required=True)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser(
+        "init-layout",
+        help="explicit host preflight and marker initialization; roots must already exist",
+    )
     commands.add_parser("check-layout", help="host mount, marker, capacity and resource check")
-    cleanup = commands.add_parser('cleanup', help='one bounded pass; retain cursor for continuation')
-    cleanup.add_argument('--max-candidates', type=int, default=32)
-    cleanup.add_argument('--cursor')
-    cleanup.add_argument('--orphan-grace-seconds', type=int, default=86400,
-                         help='use zero only after explicitly draining inactive temporary owners')
+    cleanup = commands.add_parser(
+        "cleanup", help="one bounded pass; retain cursor for continuation"
+    )
+    cleanup.add_argument("--max-candidates", type=int, default=32)
+    cleanup.add_argument("--cursor")
+    cleanup.add_argument(
+        "--orphan-grace-seconds",
+        type=int,
+        default=86400,
+        help="use zero only after explicitly draining inactive temporary owners",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "cleanup" and not 0 <= args.orphan_grace_seconds <= 86400:
-            raise ValueError('orphan grace must be between zero and 86400 seconds')
+            raise ValueError("orphan grace must be between zero and 86400 seconds")
         deployment = DeploymentConfig.load(args.storage_layout, args.resource_profile)
         if args.command == "init-layout":
             initialize_host(deployment)
@@ -103,12 +129,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "check-layout":
             check_host(deployment)
             return 0
-        local = LocalArtifactStore(maintenance_layout_from_config(deployment.storage),
-            staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object)
-        metadata = Path(deployment.storage.roots['be-metadata'].path)
+        local = LocalArtifactStore(
+            maintenance_layout_from_config(deployment.storage),
+            staging_max_bytes=deployment.resources.temporary.staging_max_bytes_per_object,
+        )
+        metadata = Path(deployment.storage.roots["be-metadata"].path)
         check_configured_root(deployment.storage, "be-metadata")
         metadata_identity = directory_identity(metadata)
-        database = metadata / 'control.sqlite3'
+        database = metadata / "control.sqlite3"
         database_identity = _database_file_identity(database, metadata)
         # Read-only verification precedes any connection profile/WAL writes.
         verify_control_db_file(database, require_initialized=True)
@@ -116,13 +144,17 @@ def main(argv: list[str] | None = None) -> int:
         def check_database_identity() -> None:
             try:
                 check_configured_root(deployment.storage, "be-metadata")
-                if (directory_identity(metadata) != metadata_identity
-                        or _database_file_identity(database, metadata) != database_identity):
-                    raise ValueError('changed')
-            except (OSError, ValueError, StopIteration):
+                if (
+                    directory_identity(metadata) != metadata_identity
+                    or _database_file_identity(database, metadata) != database_identity
+                ):
+                    raise ValueError("changed")
+            except OSError, ValueError, StopIteration:
                 # Loss of deletion authority stops the entire pass, unlike an
                 # unavailable artifact slot that can be skipped independently.
-                raise RuntimeError('maintenance protection database unavailable or changed') from None
+                raise RuntimeError(
+                    "maintenance protection database unavailable or changed"
+                ) from None
 
         @contextmanager
         def transaction(*, read_only: bool = False) -> Iterator[ControlDbUnitOfWork]:
@@ -133,13 +165,13 @@ def main(argv: list[str] | None = None) -> int:
 
         def active(owner: str) -> bool:
             check_database_identity()
-            if owner.startswith(('upload:', 'request:')):
+            if owner.startswith(("upload:", "request:")):
                 # Upload contexts exist before an operation; their held flock
                 # owns liveness. A crashed receiver leaves no durable authority.
                 return False
             with transaction(read_only=True) as uow:
                 try:
-                    operation = uow.operations.get_operation(owner.removeprefix('operation:'))
+                    operation = uow.operations.get_operation(owner.removeprefix("operation:"))
                 except RecordNotFound:
                     return False
                 return not operation.status.is_final_terminal()
@@ -148,16 +180,28 @@ def main(argv: list[str] | None = None) -> int:
             history_released = release_expired_history_results(uow)
 
         bounded = BoundedArtifactStore(local, protection_uow=transaction)
-        maintenance = ArtifactMaintenance(local, bounded,
-            scratch_root=Path(deployment.storage.roots['be-scratch'].path), owner_active=active,
+        maintenance = ArtifactMaintenance(
+            local,
+            bounded,
+            scratch_root=Path(deployment.storage.roots["be-scratch"].path),
+            owner_active=active,
             grace=timedelta(seconds=args.orphan_grace_seconds),
-            scratch_validator=lambda: check_configured_root(deployment.storage, "be-scratch"))
+            scratch_validator=lambda: check_configured_root(deployment.storage, "be-scratch"),
+        )
         result = maintenance.run(max_candidates=args.max_candidates, cursor=args.cursor)
         print(json.dumps({**asdict(result), "history_released": history_released}, sort_keys=True))
         return 0
-    except (OSError, ValueError, RuntimeError, sqlite3.DatabaseError, StoreBusy, UnsupportedSchemaVersion, CorruptPersistedRecord) as exc:
-        parser.exit(2, f'backend storage maintenance refused: {exc}\n')
+    except (
+        OSError,
+        ValueError,
+        RuntimeError,
+        sqlite3.DatabaseError,
+        StoreBusy,
+        UnsupportedSchemaVersion,
+        CorruptPersistedRecord,
+    ) as exc:
+        parser.exit(2, f"backend storage maintenance refused: {exc}\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())

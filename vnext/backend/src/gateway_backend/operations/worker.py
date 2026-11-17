@@ -198,9 +198,7 @@ class LeaseSession(Protocol):
 
     def publish_successor(
         self,
-        builder: Callable[
-            [OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]
-        ],
+        builder: Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]],
     ) -> tuple[TransitionDisposition, TransitionDisposition]:
         """Publish a terminal Step and one pending successor atomically."""
 

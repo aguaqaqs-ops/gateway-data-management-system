@@ -22,7 +22,10 @@ from gateway_backend.http.dependencies import (
 )
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.operation_scope import submit_attempt_id_from_operation
-from gateway_backend.http.schemas.operator_recovery import OperatorRecoveryRequestBody, OperatorRecoveryResponse
+from gateway_backend.http.schemas.operator_recovery import (
+    OperatorRecoveryRequestBody,
+    OperatorRecoveryResponse,
+)
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.recovery import (
     OperatorRecoveryCommand,

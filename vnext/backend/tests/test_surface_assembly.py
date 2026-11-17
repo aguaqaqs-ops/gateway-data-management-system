@@ -193,13 +193,26 @@ def _facts(
 
 
 def _content_binding(seed: str) -> TableContentBinding:
-    return TableContentBinding(_digest(seed + "business"), _digest(seed + "content"), 3,
-        _digest(seed + "source"), _digest(seed + "canonical"), _digest(seed + "rules"), "3")
+    return TableContentBinding(
+        _digest(seed + "business"),
+        _digest(seed + "content"),
+        3,
+        _digest(seed + "source"),
+        _digest(seed + "canonical"),
+        _digest(seed + "rules"),
+        "3",
+    )
 
 
 def _bindings(refs: SurfaceTableRefs) -> SurfaceTableContentBindings:
-    return SurfaceTableContentBindings(**{side: None if (ref := getattr(refs, side + "_table_ref")) is None
-        else _content_binding(ref.artifact_id) for side in ("before", "current", "browse")})
+    return SurfaceTableContentBindings(
+        **{
+            side: None
+            if (ref := getattr(refs, side + "_table_ref")) is None
+            else _content_binding(ref.artifact_id)
+            for side in ("before", "current", "browse")
+        }
+    )
 
 
 def _request(
@@ -219,7 +232,11 @@ def _request(
         before_role="before",
         current_role="current",
         records_closure=records_closure,
-        table_artifacts=(SurfaceArtifactIndexEntry("orders", table_refs, table_content_bindings=_bindings(table_refs)),),
+        table_artifacts=(
+            SurfaceArtifactIndexEntry(
+                "orders", table_refs, table_content_bindings=_bindings(table_refs)
+            ),
+        ),
         keyless_fallback_tables=keyless_fallback_tables,
         ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
         identity_annotation=identity_annotation,
@@ -284,17 +301,28 @@ def test_table_content_fact_is_visible_and_counts_as_changed() -> None:
 
 def test_additive_schema_alone_stays_summary_only_and_keeps_added_names_private() -> None:
     before = _descriptor("orders", row_count=1, side="before")
-    current = replace(_descriptor("orders", row_count=1, side="current"),
-        columns=(*before.columns, SnapshotColumnDescriptor("new_value", "New", True, "TEXT")))
-    facts = _facts(ComparisonTableFact(
-        table_name="orders", status=ComparisonTableStatus.UNCHANGED,
-        before_descriptor=before, current_descriptor=current,
-        row_count_before=1, row_count_current=1,
-        schema_changes=ComparisonSchemaChanges(
-            current_only_columns=("new_value",), selected_columns=("id", "name"),
-            effective_compare_key_before=("id",), effective_compare_key_current=("id",),
-            schema_evolution=SchemaEvolution.COLUMNS_ADDED),
-        shared_value_equality="NATIVE_SHARED_VALUES"))
+    current = replace(
+        _descriptor("orders", row_count=1, side="current"),
+        columns=(*before.columns, SnapshotColumnDescriptor("new_value", "New", True, "TEXT")),
+    )
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.UNCHANGED,
+            before_descriptor=before,
+            current_descriptor=current,
+            row_count_before=1,
+            row_count_current=1,
+            schema_changes=ComparisonSchemaChanges(
+                current_only_columns=("new_value",),
+                selected_columns=("id", "name"),
+                effective_compare_key_before=("id",),
+                effective_compare_key_current=("id",),
+                schema_evolution=SchemaEvolution.COLUMNS_ADDED,
+            ),
+            shared_value_equality="NATIVE_SHARED_VALUES",
+        )
+    )
 
     result = assemble_surface(_request(facts))
 
@@ -380,12 +408,16 @@ def test_table_status_projection_is_deterministic(
     (
         (
             ComparisonTableStatus.ADDED_TABLE,
-            SurfaceTableRefs(current_table_ref=_ref("current-orders", "application/vnd.apache.parquet")),
+            SurfaceTableRefs(
+                current_table_ref=_ref("current-orders", "application/vnd.apache.parquet")
+            ),
             SurfaceDisplayStrategy.TABLE_BROWSE,
         ),
         (
             ComparisonTableStatus.DELETED_TABLE,
-            SurfaceTableRefs(before_table_ref=_ref("before-orders", "application/vnd.apache.parquet")),
+            SurfaceTableRefs(
+                before_table_ref=_ref("before-orders", "application/vnd.apache.parquet")
+            ),
             SurfaceDisplayStrategy.TABLE_BROWSE,
         ),
     ),
@@ -560,7 +592,9 @@ def test_replacement_uses_independent_side_browse_and_no_records() -> None:
     table_result = result.surface.tables[0]
     assert table_result.change_kind is SurfaceChangeKind.REPLACED
     assert table_result.display.strategy is SurfaceDisplayStrategy.REPLACEMENT_SIDE_BY_SIDE
-    assert table_result.display.table_processing_mode is SurfaceTableProcessingMode.DATASET_REPLACEMENT
+    assert (
+        table_result.display.table_processing_mode is SurfaceTableProcessingMode.DATASET_REPLACEMENT
+    )
     assert table_result.records_refs.records_ref is None
     assert table_result.replacement_summary is not None
     assert table_result.replacement_summary.before is not None
@@ -576,10 +610,17 @@ def test_replacement_uses_independent_side_browse_and_no_records() -> None:
         tables=(replace(table_result, table_refs=swapped_refs),),
     )
     assert compute_surface_digest(swapped_surface) == result.surface.surface_digest
-    swapped_bindings = replace(table_result.table_content_bindings,
-        before=table_result.table_content_bindings.current, current=table_result.table_content_bindings.before)
-    rebound = replace(result.surface, tables=(replace(table_result, table_refs=swapped_refs,
-        table_content_bindings=swapped_bindings),))
+    swapped_bindings = replace(
+        table_result.table_content_bindings,
+        before=table_result.table_content_bindings.current,
+        current=table_result.table_content_bindings.before,
+    )
+    rebound = replace(
+        result.surface,
+        tables=(
+            replace(table_result, table_refs=swapped_refs, table_content_bindings=swapped_bindings),
+        ),
+    )
     assert compute_surface_digest(rebound) != result.surface.surface_digest
 
 
@@ -593,7 +634,10 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert compute_surface_digest(first.surface) == first.surface.surface_digest
 
     old_ref = _ref("current-orders", "application/vnd.apache.parquet")
-    new_ref = replace(old_ref, artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "rewritten-orders"))
+    new_ref = replace(
+        old_ref,
+        artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "rewritten-orders"),
+    )
     with_ref = assemble_surface(
         _request(
             facts,
@@ -615,9 +659,7 @@ def test_keyless_fallback_hint_is_read_only_surface_diagnostic() -> None:
         )
     )
 
-    result = assemble_surface(
-        _request(facts, keyless_fallback_tables=("orders",))
-    )
+    result = assemble_surface(_request(facts, keyless_fallback_tables=("orders",)))
 
     assert result.surface is not None
     table = result.surface.tables[0]
@@ -665,21 +707,36 @@ def test_surface_physical_rows_and_locator_are_outside_semantic_digest() -> None
     table = original.tables[0]
     reordered = _ref("rows-reordered", "application/vnd.apache.parquet")
     locator = _ref("row-locator", "application/vnd.apache.parquet")
-    changed = replace(table, table_refs=replace(table.table_refs, current_table_ref=reordered),
-                      row_locator_ref=locator)
+    changed = replace(
+        table,
+        table_refs=replace(table.table_refs, current_table_ref=reordered),
+        row_locator_ref=locator,
+    )
     rebound = replace(original, tables=(changed,))
     assert compute_surface_digest(rebound) == original.surface_digest
-    rewritten_locator = replace(locator, artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "test-fixture", "locator-bundle"))
+    rewritten_locator = replace(
+        locator,
+        artifact_id=build_artifact_id(ArtifactLocation.EXPORT, "test-fixture", "locator-bundle"),
+    )
     rewritten = rewrite_surface_refs(rebound, {locator: rewritten_locator})
     assert rewritten.tables[0].row_locator_ref == rewritten_locator
     assert compute_surface_digest(rewritten) == original.surface_digest
     from gateway_backend.capabilities.bundle_assembly._refs import collect_surface_refs
+
     assert rewritten_locator in collect_surface_refs(rewritten)
     binding = changed.table_content_bindings.current
     assert binding is not None
-    different_content = replace(changed, table_content_bindings=replace(changed.table_content_bindings,
-        current=replace(binding, raw_content_digest=_digest("different-content"))))
-    assert compute_surface_digest(replace(original, tables=(different_content,))) != original.surface_digest
+    different_content = replace(
+        changed,
+        table_content_bindings=replace(
+            changed.table_content_bindings,
+            current=replace(binding, raw_content_digest=_digest("different-content")),
+        ),
+    )
+    assert (
+        compute_surface_digest(replace(original, tables=(different_content,)))
+        != original.surface_digest
+    )
 
 
 def test_table_bindings_reject_missing_or_incompatible_ref_content() -> None:
@@ -687,31 +744,60 @@ def test_table_bindings_reject_missing_or_incompatible_ref_content() -> None:
     with pytest.raises(ValueError, match="nullability"):
         SurfaceArtifactIndexEntry("orders", SurfaceTableRefs(current_table_ref=rows))
     with pytest.raises(ValueError, match="incompatible"):
-        SurfaceArtifactIndexEntry("orders", SurfaceTableRefs(before_table_ref=rows, current_table_ref=rows),
-            table_content_bindings=SurfaceTableContentBindings(_content_binding("old"), _content_binding("new")))
+        SurfaceArtifactIndexEntry(
+            "orders",
+            SurfaceTableRefs(before_table_ref=rows, current_table_ref=rows),
+            table_content_bindings=SurfaceTableContentBindings(
+                _content_binding("old"), _content_binding("new")
+            ),
+        )
 
 
 def test_surface_uses_frozen_comments_and_preserves_before_only_columns() -> None:
     from gateway_backend.capabilities.table_presentation.contracts import (
-        ColumnPresentation, PresentationMetadata, TablePresentation,
+        ColumnPresentation,
+        PresentationMetadata,
+        TablePresentation,
     )
+
     old = _descriptor("orders", row_count=1, side="before")
     current = replace(_descriptor("orders", row_count=1, side="current"), columns=(old.columns[0],))
-    table = ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
-        before_descriptor=old, current_descriptor=current)
-    request = replace(_request(_facts(table)),
-        before_presentation=PresentationMetadata((TablePresentation("orders", "旧表", (
-            ColumnPresentation("id", "旧编号"), ColumnPresentation("name", "旧名称"))),)),
-        current_presentation=PresentationMetadata((TablePresentation("orders", "新表", (
-            ColumnPresentation("id", "新编号"),)),)))
+    table = ComparisonTableFact(
+        table_name="orders",
+        status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+        before_descriptor=old,
+        current_descriptor=current,
+    )
+    request = replace(
+        _request(_facts(table)),
+        before_presentation=PresentationMetadata(
+            (
+                TablePresentation(
+                    "orders",
+                    "旧表",
+                    (ColumnPresentation("id", "旧编号"), ColumnPresentation("name", "旧名称")),
+                ),
+            )
+        ),
+        current_presentation=PresentationMetadata(
+            (TablePresentation("orders", "新表", (ColumnPresentation("id", "新编号"),)),)
+        ),
+    )
     result = assemble_surface(request)
     assert result.surface is not None
     projected = result.surface.tables[0]
     assert projected.display_name == "新表"
-    assert [(c.name, c.display_name, c.present_in, c.pinned, c.display_order) for c in projected.columns] == [
-        ("id", "新编号", "BOTH", False, 0), ("name", "旧名称", "BEFORE", True, 1)]
-    replacement = assemble_surface(replace(request, comparison_facts=replace(request.comparison_facts,
-        comparison_mode=ComparisonMode.DATASET_REPLACEMENT)))
+    assert [
+        (c.name, c.display_name, c.present_in, c.pinned, c.display_order) for c in projected.columns
+    ] == [("id", "新编号", "BOTH", False, 0), ("name", "旧名称", "BEFORE", True, 1)]
+    replacement = assemble_surface(
+        replace(
+            request,
+            comparison_facts=replace(
+                request.comparison_facts, comparison_mode=ComparisonMode.DATASET_REPLACEMENT
+            ),
+        )
+    )
     assert replacement.surface is not None
     sides = replacement.surface.tables[0].replacement_summary
     assert sides is not None and sides.before is not None and sides.current is not None
@@ -720,29 +806,40 @@ def test_surface_uses_frozen_comments_and_preserves_before_only_columns() -> Non
     assert {c.present_in for c in sides.current.columns} == {"CURRENT"}
 
 
-@pytest.mark.parametrize(("message", "code"), (
-    ("DUPLICATE_EFFECTIVE_KEY:orders", "DUPLICATE_EFFECTIVE_KEY"),
-    ("TableAccessError", "COMPARISON_INTERNAL_ERROR"),
-    ("ArrowInvalid", "COMPARISON_INTERNAL_ERROR"),
-    ("arbitrary error text", "COMPARISON_INTERNAL_ERROR"),
-    ("KEYLESS_FALLBACK", "KEYLESS_FALLBACK"),
-))
+@pytest.mark.parametrize(
+    ("message", "code"),
+    (
+        ("DUPLICATE_EFFECTIVE_KEY:orders", "DUPLICATE_EFFECTIVE_KEY"),
+        ("TableAccessError", "COMPARISON_INTERNAL_ERROR"),
+        ("ArrowInvalid", "COMPARISON_INTERNAL_ERROR"),
+        ("arbitrary error text", "COMPARISON_INTERNAL_ERROR"),
+        ("KEYLESS_FALLBACK", "KEYLESS_FALLBACK"),
+    ),
+)
 def test_surface_diagnostics_publish_only_stable_codes(message: str, code: str) -> None:
-    facts = _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED,
-        diagnostics=(message,)))
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders", status=ComparisonTableStatus.UNCHANGED, diagnostics=(message,)
+        )
+    )
     result = assemble_surface(_request(facts))
     assert result.surface is not None
     assert result.surface.tables[0].diagnostics.diagnostics_summary == (code,)
 
 
-@pytest.mark.parametrize("fault", ("missing", "wrong-id", "wrong-kind", "duplicate-kind", "risk-summary"))
+@pytest.mark.parametrize(
+    "fault", ("missing", "wrong-id", "wrong-kind", "duplicate-kind", "risk-summary")
+)
 def test_ready_surface_requires_exactly_one_current_navigation_projection(fault: str) -> None:
     request = _request(_facts(ComparisonTableFact("orders", ComparisonTableStatus.UNCHANGED)))
     projections = {
         "missing": (),
         "wrong-id": (replace(NAVIGATION_PROJECTION, projection_id="wrong"),),
         "wrong-kind": (replace(NAVIGATION_PROJECTION, projection_kind="wrong"),),
-        "duplicate-kind": (NAVIGATION_PROJECTION, replace(NAVIGATION_PROJECTION, projection_id="second")),
+        "duplicate-kind": (
+            NAVIGATION_PROJECTION,
+            replace(NAVIGATION_PROJECTION, projection_id="second"),
+        ),
         "risk-summary": (replace(NAVIGATION_PROJECTION, risk_summary_ref=_ref("risk-summary")),),
     }[fault]
     result = assemble_surface(replace(request, projections=projections))

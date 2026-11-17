@@ -39,7 +39,10 @@ from gateway_backend.application.archive.snapshot import (
     assert_repository_submit_gate,
     load_archive_candidate_snapshot,
 )
-from gateway_backend.application.submission.errors import BaselineVersionConflict, IdempotencyConflict
+from gateway_backend.application.submission.errors import (
+    BaselineVersionConflict,
+    IdempotencyConflict,
+)
 from gateway_backend.domain.archive.models import (
     ArchiveAuditReference,
     ArchiveConfirmationAction,
@@ -159,7 +162,8 @@ def start_archive(
             raise CandidateSetConflict()
         if not any(
             candidate.submission_id == command.selected_ref.submission_id
-            and candidate.expected_candidate_digest == command.selected_ref.expected_candidate_digest
+            and candidate.expected_candidate_digest
+            == command.selected_ref.expected_candidate_digest
             for candidate in snapshot.candidates
         ):
             raise CandidateBindingConflict("selected candidate reference is unknown or stale")
@@ -193,7 +197,9 @@ def start_archive(
             anomaly_resolution_refs=command.anomaly_resolution_refs,
         )
 
-        selected_submission = unit_of_work.submission.get_submission(command.selected_ref.submission_id)
+        selected_submission = unit_of_work.submission.get_submission(
+            command.selected_ref.submission_id
+        )
         if selected_submission is None:
             raise CandidateBindingConflict("selected submission is missing")
 
@@ -218,7 +224,9 @@ def start_archive(
             archived_node,
             expected_head=head_record,
             new_head_node_id=baseline_node_id,
-            new_head_version=validate_non_negative_int(head_record.optimistic_version + 1, field_name="next_baseline_head_version"),
+            new_head_version=validate_non_negative_int(
+                head_record.optimistic_version + 1, field_name="next_baseline_head_version"
+            ),
         )
         dispositions = _build_dispositions(snapshot, command.selected_ref, result_id=result_id)
         confirmation_audit_refs = tuple(
@@ -236,10 +244,17 @@ def start_archive(
         frozen_input = {
             "schema": "backend-vnext/archive-frozen-input/v2",
             "business_validation": snapshot.business_validation.to_document(),
-            "configuration_facts": [{"submission_id": item.submission_id, "configuration_facts_digest": item.configuration_facts.facts_digest}
-                for item in snapshot.business_candidates],
-            "anomaly_subjects": [{"subject_digest": item.subject_digest, "subject": item.subject_payload}
-                for item in anomalies],
+            "configuration_facts": [
+                {
+                    "submission_id": item.submission_id,
+                    "configuration_facts_digest": item.configuration_facts.facts_digest,
+                }
+                for item in snapshot.business_candidates
+            ],
+            "anomaly_subjects": [
+                {"subject_digest": item.subject_digest, "subject": item.subject_payload}
+                for item in anomalies
+            ],
             "candidate_refs": [
                 {
                     "expected_candidate_digest": candidate.expected_candidate_digest,
@@ -323,7 +338,8 @@ def start_archive(
 def _build_dispositions(
     snapshot: ArchiveCandidateSnapshot,
     selected: ArchiveSelectedRef,
-    *, result_id: str,
+    *,
+    result_id: str,
 ) -> tuple[SubmissionDisposition, ...]:
     dispositions: list[SubmissionDisposition] = []
     for candidate in snapshot.candidates:
@@ -331,8 +347,10 @@ def _build_dispositions(
             dispositions.append(
                 SubmissionDisposition(
                     submission_id=candidate.submission_id,
-                    source_kind=SubmissionDispositionSourceKind.ARCHIVE, result_id=result_id,
-                    repository_id=snapshot.repository_id, gateway_device_external_key=snapshot.gateway_device_external_key,
+                    source_kind=SubmissionDispositionSourceKind.ARCHIVE,
+                    result_id=result_id,
+                    repository_id=snapshot.repository_id,
+                    gateway_device_external_key=snapshot.gateway_device_external_key,
                     business_project_id=snapshot.business_project_id,
                     disposition=SubmissionDispositionKind.ARCHIVED_BASELINE,
                 )
@@ -341,8 +359,10 @@ def _build_dispositions(
             dispositions.append(
                 SubmissionDisposition(
                     submission_id=candidate.submission_id,
-                    source_kind=SubmissionDispositionSourceKind.ARCHIVE, result_id=result_id,
-                    repository_id=snapshot.repository_id, gateway_device_external_key=snapshot.gateway_device_external_key,
+                    source_kind=SubmissionDispositionSourceKind.ARCHIVE,
+                    result_id=result_id,
+                    repository_id=snapshot.repository_id,
+                    gateway_device_external_key=snapshot.gateway_device_external_key,
                     business_project_id=snapshot.business_project_id,
                     disposition=SubmissionDispositionKind.CLOSED_NOT_ARCHIVED,
                 )
@@ -377,7 +397,10 @@ def _validate_audit_refs(
     )
     if confirmation_event is not None:
         assert_confirmation_event_integrity(confirmation_event)
-    if confirmation_event is None or confirmation_event.action is not ArchiveConfirmationAction.CONFIRM:
+    if (
+        confirmation_event is None
+        or confirmation_event.action is not ArchiveConfirmationAction.CONFIRM
+    ):
         raise CandidateBindingConflict("confirmation audit reference is not affirmative")
     if len(anomaly_resolution_refs) != len(anomalies):
         raise CandidateBindingConflict("anomaly resolution audit references are incomplete")
@@ -451,7 +474,9 @@ def _release_workspaces_for_archive(
             workspace,
             current_upload_revision_id=None,
             current_preview_result_id=None,
-            optimistic_version=validate_non_negative_int(workspace.optimistic_version + 1, field_name="next_workspace_version"),
+            optimistic_version=validate_non_negative_int(
+                workspace.optimistic_version + 1, field_name="next_workspace_version"
+            ),
             updated_at=now,
         )
         unit_of_work.workspace.save_workspace(

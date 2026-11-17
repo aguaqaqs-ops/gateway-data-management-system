@@ -18,7 +18,7 @@ __all__ = ["CONTROL_DB_SCHEMA_STATEMENTS", "bootstrap_control_db_schema", "verif
 
 CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     # Durable operation runtime (Operations).
-"""
+    """
     CREATE TABLE operation_records (
         operation_id TEXT NOT NULL PRIMARY KEY
             CHECK (typeof(operation_id) = 'text' AND length(operation_id) BETWEEN 1 AND 255),
@@ -60,12 +60,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (completed_at_us IS NULL OR typeof(completed_at_us) = 'integer')
     )
     """,
-
     """
     CREATE INDEX operation_records_status_readback ON
         operation_records(status, updated_at_us, operation_id)
     """,
-
     """
     CREATE TABLE step_records (
         step_id TEXT NOT NULL PRIMARY KEY
@@ -114,18 +112,15 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE INDEX step_records_claim_order ON
         step_records(status, eligible_at_us, created_at_us, step_id) WHERE status IN
         ('PENDING', 'RETRY_WAIT')
     """,
-
     """
     CREATE UNIQUE INDEX step_records_one_active_per_operation ON step_records(operation_id) WHERE
         status IN ('PENDING', 'RUNNING', 'RETRY_WAIT', 'MANUAL_RECOVERY_REQUIRED')
     """,
-
     # Workspace, upload, preview and submit flow.
     """
     CREATE TABLE workspace_records (
@@ -160,13 +155,11 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (closed_at_us IS NULL OR typeof(closed_at_us) = 'integer')
     )
     """,
-
     """
     CREATE UNIQUE INDEX workspace_records_open_exact_scope ON
         workspace_records(owner_actor_id, gateway_device_external_key, business_project_id) WHERE
         state = 'OPEN'
     """,
-
     """
     CREATE TABLE upload_idempotency_records (
         workspace_id TEXT NOT NULL
@@ -183,7 +176,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE upload_revision_records (
         upload_revision_id TEXT NOT NULL PRIMARY KEY
@@ -208,7 +200,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE "preview_idempotency_records" (
         workspace_id TEXT NOT NULL
@@ -235,7 +226,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE preview_result_records (
         preview_result_id TEXT NOT NULL PRIMARY KEY
@@ -260,7 +250,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE submit_idempotency_records (
         workspace_id TEXT NOT NULL
@@ -277,7 +266,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE submit_attempt_records (
         submit_attempt_id TEXT NOT NULL PRIMARY KEY
@@ -390,11 +378,9 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE INDEX submit_attempt_records_repository_state ON submit_attempt_records(repository_id, state)
     """,
-
     """
     CREATE TABLE submission_records (
         submission_id TEXT NOT NULL PRIMARY KEY
@@ -459,17 +445,14 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             DELETE RESTRICT
     )
     """,
-
     """
     CREATE INDEX submission_records_archive_candidate_lookup ON
         submission_records(repository_id, based_on_baseline_node_id, submission_id)
     """,
-
     """
     CREATE INDEX submission_records_repository_commit ON
         submission_records(repository_id, repository_commit_id)
     """,
-
     """
     CREATE TABLE workspace_submit_occupancy_records (
         workspace_id TEXT NOT NULL PRIMARY KEY
@@ -488,7 +471,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (active_submission_id) REFERENCES submission_records(submission_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE repository_submit_occupancy_records (
         repository_id TEXT NOT NULL PRIMARY KEY
@@ -509,7 +491,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             DELETE RESTRICT
     )
     """,
-
     # Review.
     """
     CREATE TABLE review_idempotency_records (
@@ -529,7 +510,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             review_event_records(submission_id, sequence) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE review_event_records (
         submission_id TEXT NOT NULL
@@ -556,7 +536,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (submission_id) REFERENCES submission_records(submission_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE review_projection_records (
         submission_id TEXT NOT NULL PRIMARY KEY
@@ -575,7 +554,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (submission_id) REFERENCES submission_records(submission_id) ON DELETE RESTRICT
     )
     """,
-
     # Provisioned scope mappings and repository baseline heads.
     """
     CREATE TABLE provisioned_scope_mappings (
@@ -591,17 +569,14 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         PRIMARY KEY (gateway_device_external_key, business_project_id)
     )
     """,
-
     """
     CREATE UNIQUE INDEX provisioned_scope_mappings_one_active_device ON
         provisioned_scope_mappings(gateway_device_external_key) WHERE enabled = 1
     """,
-
     """
     CREATE UNIQUE INDEX provisioned_scope_mappings_one_repository ON
         provisioned_scope_mappings(repository_id)
     """,
-
     """
     CREATE TABLE baseline_node_records (
         node_id TEXT NOT NULL PRIMARY KEY
@@ -631,17 +606,14 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE UNIQUE INDEX baseline_node_records_one_initial_per_repository ON
         baseline_node_records(repository_id) WHERE kind = 'INITIAL'
     """,
-
     """
     CREATE UNIQUE INDEX baseline_node_records_repository_node ON
         baseline_node_records(repository_id, node_id)
     """,
-
     """
     CREATE TABLE baseline_head_records (
         repository_id TEXT NOT NULL PRIMARY KEY
@@ -654,7 +626,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
     )
     """,
-
     # Archive and the single submission disposition authority.
     """
     CREATE TABLE archive_plan_records (
@@ -705,12 +676,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(frozen_input_json) = 'text')
     )
     """,
-
     """
     CREATE UNIQUE INDEX archive_plan_records_start_key ON
         archive_plan_records( repository_id, gateway_device_external_key, business_project_id, idempotency_key )
     """,
-
     """
     CREATE TABLE archive_result_records (
         result_id TEXT NOT NULL PRIMARY KEY
@@ -726,7 +695,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (baseline_node_id) REFERENCES baseline_node_records(node_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE TABLE submission_disposition_records (
         submission_id TEXT NOT NULL PRIMARY KEY
@@ -757,23 +725,18 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         FOREIGN KEY (result_id) REFERENCES archive_result_records(result_id) ON DELETE RESTRICT
     )
     """,
-
     """
     CREATE UNIQUE INDEX submission_disposition_records_one_selected_per_result ON
         submission_disposition_records(result_id) WHERE disposition = 'ARCHIVED_BASELINE'
     """,
-
     """
     CREATE INDEX submission_disposition_records_result_id ON submission_disposition_records(result_id)
     """,
-
-
     """
     CREATE UNIQUE INDEX submission_disposition_records_manual_key ON
         submission_disposition_records(repository_id, gateway_device_external_key, business_project_id, idempotency_key)
         WHERE source_kind = 'MANUAL_CLOSE'
     """,
-
     """
     CREATE TABLE archive_confirmation_events (
         event_id TEXT NOT NULL PRIMARY KEY
@@ -812,12 +775,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         UNIQUE (repository_id, idempotency_key)
     )
     """,
-
     """
     CREATE INDEX archive_confirmation_events_subject ON
         archive_confirmation_events(repository_id, subject_digest, sequence)
     """,
-
     """
     CREATE TABLE archive_anomaly_resolution_events (
         event_id TEXT NOT NULL PRIMARY KEY
@@ -867,12 +828,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         UNIQUE (repository_id, idempotency_key)
     )
     """,
-
     """
     CREATE INDEX archive_anomaly_resolution_events_subject ON
         archive_anomaly_resolution_events(repository_id, subject_digest, sequence)
     """,
-
     # History compare.
     """
     CREATE TABLE history_compare_acceptance_records (
@@ -904,12 +863,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(result_retention_seconds) = 'integer' AND result_retention_seconds > 0)
     )
     """,
-
     """
     CREATE UNIQUE INDEX history_compare_acceptance_scope_idempotency ON
         history_compare_acceptance_records( gateway_device_external_key, business_project_id, idempotency_key )
     """,
-
     """
     CREATE INDEX history_compare_acceptance_scope_order ON history_compare_acceptance_records
         (gateway_device_external_key, business_project_id, created_at_us DESC, operation_id DESC)
@@ -938,7 +895,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE INDEX history_compare_aliases_operation ON history_compare_aliases(operation_id)
     """,
-
     # Artifact protection.
     """
     CREATE TABLE canonical_table_cache (
@@ -981,11 +937,9 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         PRIMARY KEY (artifact_id, owner_kind, owner_id)
     )
     """,
-
     """
     CREATE INDEX artifact_protection_owner ON artifact_protection_intents(owner_kind, owner_id)
     """,
-
     """
     CREATE TABLE snapshot_table_export_cache (
         repository_id TEXT NOT NULL

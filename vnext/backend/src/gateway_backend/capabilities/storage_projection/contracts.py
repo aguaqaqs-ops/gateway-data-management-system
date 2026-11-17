@@ -99,7 +99,9 @@ class ProjectionInvocationContext:
 
     def __post_init__(self) -> None:
         if self.deadline_monotonic is not None:
-            if type(self.deadline_monotonic) is not float or not math.isfinite(self.deadline_monotonic):
+            if type(self.deadline_monotonic) is not float or not math.isfinite(
+                self.deadline_monotonic
+            ):
                 raise ValueError("deadline_monotonic must be a finite float or None")
 
 
@@ -135,7 +137,9 @@ class ProjectionTableInput:
     canonicalized_input: bool = False
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        object.__setattr__(
+            self, "canonical_table", canonicalize_rule_identifier(self.canonical_table)
+        )
         if self.reader is None:
             raise ValueError("reader is required")
         if type(self.source_binding) is not ArtifactSourceBinding:
@@ -213,14 +217,20 @@ class ProjectionTable:
     content_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        object.__setattr__(
+            self, "canonical_table", canonicalize_rule_identifier(self.canonical_table)
+        )
         if type(self.storage_view) is not StorageRuleView:
             raise ValueError("storage_view must be StorageRuleView")
         if self.storage_view.canonical_table != self.canonical_table:
             raise ValueError("storage_view canonical_table must match")
         _require_diagnostics(self.diagnostics)
         if self.row_count is not None:
-            if type(self.row_count) is not int or isinstance(self.row_count, bool) or self.row_count < 0:
+            if (
+                type(self.row_count) is not int
+                or isinstance(self.row_count, bool)
+                or self.row_count < 0
+            ):
                 raise ValueError("row_count must be a non-negative int or None")
         if self.schema_digest is not None and type(self.schema_digest) is not DigestRef:
             raise ValueError("schema_digest must be DigestRef or None")
@@ -255,7 +265,9 @@ class CanonicalizationManifestTable:
             raise ValueError("ordered_policy must be OrderedPolicy")
         _require_optional_non_negative_int(self.gid_real_count, "gid_real_count")
         _require_optional_non_negative_int(self.gid_pseudo_count, "gid_pseudo_count")
-        object.__setattr__(self, "retained_columns", _name_tuple(self.retained_columns, "retained_columns"))
+        object.__setattr__(
+            self, "retained_columns", _name_tuple(self.retained_columns, "retained_columns")
+        )
         object.__setattr__(
             self,
             "structural_columns",
@@ -465,7 +477,11 @@ class WrittenImportPackage:
     def __post_init__(self) -> None:
         if type(self.payload) is not bytes:
             raise ValueError("payload must be bytes")
-        if type(self.size_bytes) is not int or isinstance(self.size_bytes, bool) or self.size_bytes < 0:
+        if (
+            type(self.size_bytes) is not int
+            or isinstance(self.size_bytes, bool)
+            or self.size_bytes < 0
+        ):
             raise ValueError("size_bytes must be a non-negative int")
         if self.size_bytes != len(self.payload):
             raise ValueError("size_bytes must match payload")

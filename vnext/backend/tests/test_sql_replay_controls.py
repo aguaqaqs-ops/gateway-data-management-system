@@ -10,7 +10,9 @@ import pytest
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.capabilities.mutation_planning import native as mutation_native
-from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import render_change_set_replay
+from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import (
+    render_change_set_replay,
+)
 from gateway_backend.capabilities.storage_projection import (
     PACKAGE_VERSION,
     RepositoryImportArtifactInput,
@@ -40,7 +42,9 @@ def test_returned_sql_bytes_stay_charged_until_operation_scope_ends(facade: str)
     def render() -> bytes:
         if facade == "schema":
             return render_repository_import_schema_replay_sql(
-                schema, removed_tables=("t",), context=context,
+                schema,
+                removed_tables=("t",),
+                context=context,
             )
         result = render_change_set_replay(closure, context=context)
         assert result.status == "READY" and result.sql_bytes is not None

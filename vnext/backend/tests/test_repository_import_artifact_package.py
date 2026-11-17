@@ -35,7 +35,14 @@ from gateway_backend.capabilities.storage_projection.package import (
 )
 from gateway_backend.capabilities.storage_projection import package as package_mod
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from tests.support.storage_projection import as_row, int_cell, int_column, table_input, varchar_cell, varchar_column
+from tests.support.storage_projection import (
+    as_row,
+    int_cell,
+    int_column,
+    table_input,
+    varchar_cell,
+    varchar_column,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -260,7 +267,9 @@ PACKAGE_SHAPE_FAULTS: tuple[tuple[str, Callable[[], bytes]], ...] = (
 )
 
 
-@pytest.mark.parametrize("label,factory", PACKAGE_SHAPE_FAULTS, ids=[item[0] for item in PACKAGE_SHAPE_FAULTS])
+@pytest.mark.parametrize(
+    "label,factory", PACKAGE_SHAPE_FAULTS, ids=[item[0] for item in PACKAGE_SHAPE_FAULTS]
+)
 def test_malformed_package_shape_is_rejected(label: str, factory: Callable[[], bytes]) -> None:
     del label
     with pytest.raises(PackageError) as exc:
@@ -269,15 +278,37 @@ def test_malformed_package_shape_is_rejected(label: str, factory: Callable[[], b
 
 
 PACKAGE_JSON_FAULTS: tuple[tuple[str, bytes], ...] = (
-    ("unknown-field", b'{"package_version":1,"canonicalization_manifest_digest":"sha256:' + b"aa" * 32 + b'","tables":[],"extra":true}'),
-    ("package-version", b'{"package_version":2,"canonicalization_manifest_digest":"sha256:' + b"aa" * 32 + b'","tables":[]}'),
+    (
+        "unknown-field",
+        b'{"package_version":1,"canonicalization_manifest_digest":"sha256:'
+        + b"aa" * 32
+        + b'","tables":[],"extra":true}',
+    ),
+    (
+        "package-version",
+        b'{"package_version":2,"canonicalization_manifest_digest":"sha256:'
+        + b"aa" * 32
+        + b'","tables":[]}',
+    ),
     ("not-utf8", b'{"package_version":1,\xff}'),
-    ("utf8-bom", b'\xef\xbb\xbf{"package_version":1,"canonicalization_manifest_digest":"sha256:' + b"aa" * 32 + b'","tables":[]}'),
-    ("duplicate-member", b'{"package_version":1,"package_version":1,"canonicalization_manifest_digest":"sha256:' + b"aa" * 32 + b'","tables":[]}'),
+    (
+        "utf8-bom",
+        b'\xef\xbb\xbf{"package_version":1,"canonicalization_manifest_digest":"sha256:'
+        + b"aa" * 32
+        + b'","tables":[]}',
+    ),
+    (
+        "duplicate-member",
+        b'{"package_version":1,"package_version":1,"canonicalization_manifest_digest":"sha256:'
+        + b"aa" * 32
+        + b'","tables":[]}',
+    ),
 )
 
 
-@pytest.mark.parametrize("label,payload", PACKAGE_JSON_FAULTS, ids=[item[0] for item in PACKAGE_JSON_FAULTS])
+@pytest.mark.parametrize(
+    "label,payload", PACKAGE_JSON_FAULTS, ids=[item[0] for item in PACKAGE_JSON_FAULTS]
+)
 def test_malformed_package_manifest_json_is_rejected(label: str, payload: bytes) -> None:
     del label
     packed_payload = _pack_raw(((MANIFEST_ENTRY_NAME, payload), (REPLAY_SQL_ENTRY_NAME, b"")))

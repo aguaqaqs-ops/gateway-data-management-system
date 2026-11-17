@@ -12,9 +12,14 @@ from gateway_backend.infrastructure.control_db.database import (
     connect_control_db,
     initialize_and_verify_control_db,
 )
-from gateway_backend.infrastructure.control_db.sqlite_baseline import get_current_head_from_connection
+from gateway_backend.infrastructure.control_db.sqlite_baseline import (
+    get_current_head_from_connection,
+)
 from gateway_backend.infrastructure.control_db.sqlite_mapping import seed_provisioned_mappings
-from tests.support.baseline_fixtures import apply_baseline_head_state, seed_provisioned_mapping_with_head
+from tests.support.baseline_fixtures import (
+    apply_baseline_head_state,
+    seed_provisioned_mapping_with_head,
+)
 from tests.support.workspace_fixtures import make_baseline_head
 
 pytestmark = pytest.mark.unit
@@ -248,11 +253,23 @@ def test_rejected_seed_batch_is_refused_as_a_whole(
 
 
 @pytest.mark.parametrize("field,value", [("repository_id", "other-repo"), ("enabled", False)])
-def test_restart_seed_cannot_change_existing_mapping(tmp_path: Path, field: str, value: object) -> None:
+def test_restart_seed_cannot_change_existing_mapping(
+    tmp_path: Path, field: str, value: object
+) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_and_verify_control_db(db_path)
-    seed_provisioned_mapping_with_head(db_path, repository_id="repo-1", baseline_head=make_baseline_head(version=0, commit_id="commit-1"))
-    record = _mapping_record(device_key="device-1", project_id="project-1", repository_id="repo-1", node_id="node-1", commit_id="commit-1")
+    seed_provisioned_mapping_with_head(
+        db_path,
+        repository_id="repo-1",
+        baseline_head=make_baseline_head(version=0, commit_id="commit-1"),
+    )
+    record = _mapping_record(
+        device_key="device-1",
+        project_id="project-1",
+        repository_id="repo-1",
+        node_id="node-1",
+        commit_id="commit-1",
+    )
     record[field] = value
     seed = tmp_path / "seed.json"
     seed.write_text(json.dumps({"mappings": [record]}))
@@ -263,15 +280,34 @@ def test_restart_seed_cannot_change_existing_mapping(tmp_path: Path, field: str,
 
 
 @pytest.mark.parametrize("old_enabled", [False, True])
-def test_restart_seed_cannot_rebind_existing_device_to_another_project(tmp_path: Path, old_enabled: bool) -> None:
+def test_restart_seed_cannot_rebind_existing_device_to_another_project(
+    tmp_path: Path, old_enabled: bool
+) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_and_verify_control_db(db_path)
-    seed_provisioned_mapping_with_head(db_path, enabled=old_enabled, repository_id="repo-1",
-        baseline_head=make_baseline_head(version=0, commit_id="commit-1"))
+    seed_provisioned_mapping_with_head(
+        db_path,
+        enabled=old_enabled,
+        repository_id="repo-1",
+        baseline_head=make_baseline_head(version=0, commit_id="commit-1"),
+    )
     before = _seed_state(db_path)
     seed = tmp_path / "new-project.json"
-    seed.write_text(json.dumps({"mappings": [_mapping_record(device_key="device-1", project_id="other-project",
-        repository_id="repo-2", node_id="node-2", commit_id="commit-2")]}))
+    seed.write_text(
+        json.dumps(
+            {
+                "mappings": [
+                    _mapping_record(
+                        device_key="device-1",
+                        project_id="other-project",
+                        repository_id="repo-2",
+                        node_id="node-2",
+                        commit_id="commit-2",
+                    )
+                ]
+            }
+        )
+    )
     with pytest.raises(ValueError, match="device is already fixed"):
         seed_provisioned_mappings(db_path, seed)
     assert _seed_state(db_path) == before

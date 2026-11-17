@@ -59,7 +59,9 @@ class HttpRepositoryAbortEvidencePort:
                 f"repository failure code {operation.error.code!r} is not an allowed stable abort"
             )
         if proof.stable_failure_code != operation.error.code:
-            raise AbortProofNotSatisfied("abort proof stable failure code does not match repository")
+            raise AbortProofNotSatisfied(
+                "abort proof stable failure code does not match repository"
+            )
 
 
 __all__ = ["HttpRepositoryAbortEvidencePort"]

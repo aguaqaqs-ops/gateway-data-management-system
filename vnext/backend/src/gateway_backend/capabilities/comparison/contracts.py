@@ -60,7 +60,9 @@ class KeylessPolicy(StrEnum):
 
 
 def standard_identity_is_keyless(
-    before_key: tuple[str, ...], current_key: tuple[str, ...], allow_keyless_key_transition: bool,
+    before_key: tuple[str, ...],
+    current_key: tuple[str, ...],
+    allow_keyless_key_transition: bool,
 ) -> bool:
     """The STANDARD native policy's single mode decision, including source key transitions."""
     return not before_key or (allow_keyless_key_transition and not current_key)
@@ -126,7 +128,10 @@ class ComparisonStorageFacts:
             raise ValueError("storage_rule_view must be StorageRuleView")
         if type(self.source_schema_digest) is not DigestRef:
             raise ValueError("source_schema_digest must be DigestRef")
-        if self.canonical_schema_digest is not None and type(self.canonical_schema_digest) is not DigestRef:
+        if (
+            self.canonical_schema_digest is not None
+            and type(self.canonical_schema_digest) is not DigestRef
+        ):
             raise ValueError("canonical_schema_digest must be DigestRef or None")
         if self.raw_content_digest is not None and type(self.raw_content_digest) is not DigestRef:
             raise ValueError("raw_content_digest must be DigestRef or None")
@@ -465,7 +470,9 @@ class OrderedRecord:
                 raise ValueError(f"{label} must be a positive int or None")
         _validate_ordered_values(self.before_values, "before_values")
         _validate_ordered_values(self.current_values, "current_values")
-        canonical_columns = tuple(_require_canonical_column_name(item) for item in self.changed_columns)
+        canonical_columns = tuple(
+            _require_canonical_column_name(item) for item in self.changed_columns
+        )
         if len(set(canonical_columns)) != len(canonical_columns):
             raise ValueError("changed_columns must not repeat names")
         object.__setattr__(self, "changed_columns", canonical_columns)
@@ -514,14 +521,17 @@ class OrderedSummary:
     degraded_count: int = 0
 
     def __post_init__(self) -> None:
-        _require_non_negative_int_fields(self, (
-            "row_added_count",
-            "row_deleted_count",
-            "row_modified_count",
-            "row_moved_count",
-            "position_changed_count",
-            "degraded_count",
-        ))
+        _require_non_negative_int_fields(
+            self,
+            (
+                "row_added_count",
+                "row_deleted_count",
+                "row_modified_count",
+                "row_moved_count",
+                "position_changed_count",
+                "degraded_count",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -532,12 +542,15 @@ class BlankSummary:
     degraded_count: int = 0
 
     def __post_init__(self) -> None:
-        _require_non_negative_int_fields(self, (
-            "interval_inserted_count",
-            "interval_deleted_count",
-            "blank_changed_count",
-            "degraded_count",
-        ))
+        _require_non_negative_int_fields(
+            self,
+            (
+                "interval_inserted_count",
+                "interval_deleted_count",
+                "blank_changed_count",
+                "degraded_count",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,7 +571,9 @@ class OrderedExtension:
             raise ValueError("status must be OrderedStatus")
         if type(self.ordered_summary) is not OrderedSummary:
             raise ValueError("ordered_summary must be OrderedSummary")
-        if type(self.records) is not tuple or any(type(item) is not OrderedRecord for item in self.records):
+        if type(self.records) is not tuple or any(
+            type(item) is not OrderedRecord for item in self.records
+        ):
             raise ValueError("records must contain OrderedRecord")
         for label in ("before_ordered_digest", "current_ordered_digest", "policy_digest"):
             value = getattr(self, label)
@@ -566,7 +581,10 @@ class OrderedExtension:
                 raise ValueError(f"{label} must be DigestRef or None")
         if type(self.replay_guarantee) is not ReplayGuarantee:
             raise ValueError("replay_guarantee must be ReplayGuarantee")
-        if self.table_processing_mode is not None and type(self.table_processing_mode) is not OrderedTableProcessingMode:
+        if (
+            self.table_processing_mode is not None
+            and type(self.table_processing_mode) is not OrderedTableProcessingMode
+        ):
             raise ValueError("table_processing_mode must be OrderedTableProcessingMode or None")
         _require_diagnostic_strings(self.diagnostics)
         if type(self.contract_version) is not str or self.contract_version == "":
@@ -589,7 +607,9 @@ class BlankExtension:
             raise ValueError("status must be OrderedStatus")
         if type(self.blank_summary) is not BlankSummary:
             raise ValueError("blank_summary must be BlankSummary")
-        if type(self.records) is not tuple or any(type(item) is not BlankRecord for item in self.records):
+        if type(self.records) is not tuple or any(
+            type(item) is not BlankRecord for item in self.records
+        ):
             raise ValueError("records must contain BlankRecord")
         for label in ("before_occupancy_digest", "current_occupancy_digest"):
             value = getattr(self, label)
@@ -648,7 +668,10 @@ class _ComparisonTablePolicy:
                 raise ValueError(f"{label} must not repeat names")
             object.__setattr__(self, label, canonical)
         if type(self.comparison_role) is not str or self.comparison_role not in {
-            "STANDARD", "ORDERED", "BROWSE_ONLY", "SNAPSHOT_ONLY"
+            "STANDARD",
+            "ORDERED",
+            "BROWSE_ONLY",
+            "SNAPSHOT_ONLY",
         }:
             raise ValueError("comparison_role must be a supported role")
         for label in ("storage_facts_before", "storage_facts_current"):
@@ -750,11 +773,15 @@ class ComparisonRecord:
             raise ValueError("field_changes must contain FieldChange")
         if any(item.table_name != self.table_name for item in self.field_changes):
             raise ValueError("field_changes table name must match record")
-        if self.record_kind in {
-            ComparisonRecordKind.ROW_ADDED,
-            ComparisonRecordKind.ROW_DELETED,
-            ComparisonRecordKind.ROW_MODIFIED,
-        } and self.row_identity is None:
+        if (
+            self.record_kind
+            in {
+                ComparisonRecordKind.ROW_ADDED,
+                ComparisonRecordKind.ROW_DELETED,
+                ComparisonRecordKind.ROW_MODIFIED,
+            }
+            and self.row_identity is None
+        ):
             raise ValueError("row records require row_identity")
         if self.record_kind is not ComparisonRecordKind.ROW_MODIFIED and self.field_changes:
             raise ValueError("only ROW_MODIFIED records may contain field_changes")
@@ -815,7 +842,10 @@ class ComparisonTableFact:
         _require_diagnostic_strings(self.diagnostics)
         if self.table_fact_digest is not None and type(self.table_fact_digest) is not DigestRef:
             raise ValueError("table_fact_digest must be DigestRef or None")
-        if self.ordered_extension is not None and type(self.ordered_extension) is not OrderedExtension:
+        if (
+            self.ordered_extension is not None
+            and type(self.ordered_extension) is not OrderedExtension
+        ):
             raise ValueError("ordered_extension must be OrderedExtension or None")
         if self.blank_extension is not None and type(self.blank_extension) is not BlankExtension:
             raise ValueError("blank_extension must be BlankExtension or None")
@@ -955,7 +985,9 @@ class BoundSnapshotInput:
         ):
             raise ValueError("storage_facts must contain ComparisonStorageFacts")
         storage_names = tuple(item.storage_rule_view.canonical_table for item in self.storage_facts)
-        if storage_names != tuple(sorted(storage_names)) or len(set(storage_names)) != len(storage_names):
+        if storage_names != tuple(sorted(storage_names)) or len(set(storage_names)) != len(
+            storage_names
+        ):
             raise ValueError("storage_facts must use canonical unique order")
         summary_names = set(_canonical_table_map(self.summary.tables))
         if any(name not in summary_names for name in storage_names):
@@ -976,7 +1008,10 @@ class ComparisonRequest:
 
     def __post_init__(self) -> None:
         _require_opaque_id(self.pair_id, "pair_id")
-        if type(self.before) is not BoundSnapshotInput or type(self.current) is not BoundSnapshotInput:
+        if (
+            type(self.before) is not BoundSnapshotInput
+            or type(self.current) is not BoundSnapshotInput
+        ):
             raise ValueError("before and current must be BoundSnapshotInput")
         if type(self.rule_set) is not ComparisonRuleSet:
             raise ValueError("rule_set must be ComparisonRuleSet")
@@ -1056,7 +1091,10 @@ class ComparisonPlan:
 
     def __post_init__(self) -> None:
         _require_opaque_id(self.pair_id, "pair_id")
-        if type(self.before) is not BoundSnapshotInput or type(self.current) is not BoundSnapshotInput:
+        if (
+            type(self.before) is not BoundSnapshotInput
+            or type(self.current) is not BoundSnapshotInput
+        ):
             raise ValueError("comparison plan requires bound before and current")
         if type(self.rule_set) is not ComparisonRuleSet:
             raise ValueError("rule_set must be ComparisonRuleSet")
@@ -1156,10 +1194,7 @@ class FailedResult(PairExecutionResultBase):
 
 
 PairExecutionResult: TypeAlias = (
-    DetailedFactsResult
-    | DatasetReplacementResult
-    | CancelledResult
-    | FailedResult
+    DetailedFactsResult | DatasetReplacementResult | CancelledResult | FailedResult
 )
 
 

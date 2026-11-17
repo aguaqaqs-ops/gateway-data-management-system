@@ -18,10 +18,17 @@ from gateway_shared_kernel import DigestRef
 from gateway_backend.domain.baseline.ports import BaselineRepository
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.configuration_facts import CanonicalContentIdentity
-from gateway_backend.domain.submission.models import Submission, SubmitVerificationPolicy, SubmitUnknownTypePolicy, SubmitTargetRef
+from gateway_backend.domain.submission.models import (
+    Submission,
+    SubmitVerificationPolicy,
+    SubmitUnknownTypePolicy,
+    SubmitTargetRef,
+)
 from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
 from tests.support.configuration_facts import submission_with_facts
-from gateway_backend.capabilities.snapshot_materialization.contracts import canonical_state_digest_of
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    canonical_state_digest_of,
+)
 
 from gateway_backend.application.job_definitions import build_job_worker_composition
 from gateway_backend.application.preview_jobs import (
@@ -46,7 +53,10 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceState,
 )
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
+from gateway_backend.infrastructure.control_db.database import (
+    ControlDbUnitOfWork,
+    initialize_control_db,
+)
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationRecord,
@@ -59,7 +69,12 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
-from gateway_backend.operations.worker import ClaimedExecutor, ExecutionControl, ExecutorAcknowledgment, WriteUnitOfWorkFactory
+from gateway_backend.operations.worker import (
+    ClaimedExecutor,
+    ExecutionControl,
+    ExecutorAcknowledgment,
+    WriteUnitOfWorkFactory,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     RepositoryCatalogTable,
@@ -93,15 +108,9 @@ WORKSPACE_ID = "ws-preview-1"
 UPLOAD_REVISION_ID = "ur-preview-1"
 IDEMPOTENCY_KEY = "preview-idem-1"
 
-BASELINE_SQL = (
-    "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
-    "INSERT INTO t VALUES (1);\n"
-)
+BASELINE_SQL = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\nINSERT INTO t VALUES (1);\n"
 INITIAL_SQL = BASELINE_SQL
-MODIFIED_SQL = (
-    "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
-    "INSERT INTO t VALUES (1), (2);\n"
-)
+MODIFIED_SQL = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\nINSERT INTO t VALUES (1), (2);\n"
 EMPTY_SQL = "SET FOREIGN_KEY_CHECKS=0;\n"
 
 
@@ -169,10 +178,11 @@ def _canonical_baseline_data(
     projected = project_canonical_fixture(materialized.table_set, ruleset)
     if projected.status is not ProjectionStatus.COMPLETE:
         diagnostics = tuple(
-            (item.code.value, item.table_name, item.message)
-            for item in projected.diagnostics
+            (item.code.value, item.table_name, item.message) for item in projected.diagnostics
         )
-        raise AssertionError(f"baseline business snapshot did not project canonically: {diagnostics!r}")
+        raise AssertionError(
+            f"baseline business snapshot did not project canonically: {diagnostics!r}"
+        )
     if projected.manifest is None:
         raise AssertionError("baseline business projection did not publish a manifest")
 
@@ -305,7 +315,9 @@ class PreviewJobHarness:
     publication_uow_factory: Callable[[], AbstractContextManager[PreviewControlTransaction]]
 
     @property
-    def control_transaction_factory(self) -> Callable[[], AbstractContextManager[PreviewControlTransaction]]:
+    def control_transaction_factory(
+        self,
+    ) -> Callable[[], AbstractContextManager[PreviewControlTransaction]]:
         return self.publication_uow_factory
 
     def executor(self, handler_identity: str) -> ClaimedExecutor:
@@ -316,7 +328,9 @@ class PreviewJobHarness:
         with ControlDbUnitOfWork(self.db_path) as unit_of_work:
             if unit_of_work.workspace.get_workspace(workspace.workspace_id) is not None:
                 return
-            unit_of_work.workspace.save_workspace(workspace, expected_version=workspace.optimistic_version)
+            unit_of_work.workspace.save_workspace(
+                workspace, expected_version=workspace.optimistic_version
+            )
             unit_of_work.workspace.save_upload_revision(self.upload_revision)
 
 
@@ -387,50 +401,104 @@ def build_preview_harness(
             )
         }
     )
-    frozen_source = None if empty_baseline else submission_with_facts(
-        submission_id="submission-baseline", submit_attempt_id="baseline-attempt", workspace_id="baseline-workspace",
-        workspace_generation=1, upload_revision_id="baseline-upload", preview_result_id="baseline-preview",
-        repository_id=REPOSITORY_ID, based_on_baseline_node_id="initial-node", business_baseline_commit_id="initial-commit",
-        repository_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-        canonical_business_digest=_canonical_baseline_data(baseline_sql)[3].value,
-        source_artifact_refs=("a1:durable:c472a8b7c8f61a8800f9c27b2bbc00cc027bf96a1cc4a9f307c77dafd0effb30",), canonicalization_manifest_ref="a1:durable:65169d914a96c20d3262669844d5a6682577ab6796dfb5ee8f8af9e5589f8579",
-        canonicalization_manifest_digest=baseline_manifest.manifest_digest.value if baseline_manifest and baseline_manifest.manifest_digest else "sha256:" + "0" * 64,
-        repository_import_artifact_raw_sha256="sha256:" + "0" * 64, repository_artifact_id="419aabcb-a728-52cb-93c3-8f9d3a66bc7a",
-        requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
-        completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
-        requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT, target_ref=SubmitTargetRef.MAIN,
-        created_by="baseline-actor", created_at=BASE_TIME)
+    frozen_source = (
+        None
+        if empty_baseline
+        else submission_with_facts(
+            submission_id="submission-baseline",
+            submit_attempt_id="baseline-attempt",
+            workspace_id="baseline-workspace",
+            workspace_generation=1,
+            upload_revision_id="baseline-upload",
+            preview_result_id="baseline-preview",
+            repository_id=REPOSITORY_ID,
+            based_on_baseline_node_id="initial-node",
+            business_baseline_commit_id="initial-commit",
+            repository_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            canonical_business_digest=_canonical_baseline_data(baseline_sql)[3].value,
+            source_artifact_refs=(
+                "a1:durable:c472a8b7c8f61a8800f9c27b2bbc00cc027bf96a1cc4a9f307c77dafd0effb30",
+            ),
+            canonicalization_manifest_ref="a1:durable:65169d914a96c20d3262669844d5a6682577ab6796dfb5ee8f8af9e5589f8579",
+            canonicalization_manifest_digest=baseline_manifest.manifest_digest.value
+            if baseline_manifest and baseline_manifest.manifest_digest
+            else "sha256:" + "0" * 64,
+            repository_import_artifact_raw_sha256="sha256:" + "0" * 64,
+            repository_artifact_id="419aabcb-a728-52cb-93c3-8f9d3a66bc7a",
+            requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+            completed_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+            requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
+            target_ref=SubmitTargetRef.MAIN,
+            created_by="baseline-actor",
+            created_at=BASE_TIME,
+        )
+    )
     if frozen_source is not None:
         rules_digest = migrated_table_ruleset_snapshot().ruleset_digest
         assert rules_digest is not None
         old = frozen_source.configuration_facts
+
         def fixed_identity(identity: CanonicalContentIdentity) -> CanonicalContentIdentity:
             return replace(identity, storage_projection_ruleset_digest=rules_digest.value)
-        frozen_source = replace(frozen_source, configuration_facts=replace(old,
-            baseline_content_identity=fixed_identity(old.baseline_content_identity),
-            initial=replace(old.initial, content_identity=fixed_identity(old.initial.content_identity)),
-            modified=replace(old.modified, content_identity=fixed_identity(old.modified.content_identity))))
-    node = BaselineNode(BASELINE_HEAD.business_baseline_node_id, REPOSITORY_ID, "device-1", "project-1",
-        BASELINE_HEAD.business_baseline_commit_id, BaselineNodeKind.INITIAL if empty_baseline else BaselineNodeKind.ARCHIVED_SUBMISSION,
-        None if empty_baseline else "initial-node", None if empty_baseline else "submission-baseline", BASE_TIME)
+
+        frozen_source = replace(
+            frozen_source,
+            configuration_facts=replace(
+                old,
+                baseline_content_identity=fixed_identity(old.baseline_content_identity),
+                initial=replace(
+                    old.initial, content_identity=fixed_identity(old.initial.content_identity)
+                ),
+                modified=replace(
+                    old.modified, content_identity=fixed_identity(old.modified.content_identity)
+                ),
+            ),
+        )
+    node = BaselineNode(
+        BASELINE_HEAD.business_baseline_node_id,
+        REPOSITORY_ID,
+        "device-1",
+        "project-1",
+        BASELINE_HEAD.business_baseline_commit_id,
+        BaselineNodeKind.INITIAL if empty_baseline else BaselineNodeKind.ARCHIVED_SUBMISSION,
+        None if empty_baseline else "initial-node",
+        None if empty_baseline else "submission-baseline",
+        BASE_TIME,
+    )
+
     class SourceRepository(SQLiteSubmissionRepository):
-        def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> Submission | None:
+        def get_submission(
+            self,
+            submission_id: str,
+            *,
+            workspace_id: str | None = None,
+            repository_id: str | None = None,
+        ) -> Submission | None:
             if frozen_source is not None and submission_id == frozen_source.submission_id:
-                if ((workspace_id is not None and frozen_source.workspace_id != workspace_id)
-                    or (repository_id is not None and frozen_source.repository_id != repository_id)):
+                if (workspace_id is not None and frozen_source.workspace_id != workspace_id) or (
+                    repository_id is not None and frozen_source.repository_id != repository_id
+                ):
                     return None
                 return frozen_source
-            return super().get_submission(submission_id, workspace_id=workspace_id, repository_id=repository_id)
+            return super().get_submission(
+                submission_id, workspace_id=workspace_id, repository_id=repository_id
+            )
+
     class SourceUnitOfWork(MetadataControlDbUnitOfWork):
         @property
         def baseline(self) -> BaselineRepository:
-            return cast(BaselineRepository, SimpleNamespace(get_node=lambda node_id: node if node_id == node.node_id else None))
+            return cast(
+                BaselineRepository,
+                SimpleNamespace(get_node=lambda node_id: node if node_id == node.node_id else None),
+            )
+
         @property
         def submission(self) -> SQLiteSubmissionRepository:
             return SourceRepository(self.connection, transaction_now=self.transaction_now)
+
     def control_uow_factory() -> MetadataControlDbUnitOfWork:
         return SourceUnitOfWork(db_path, metadata_port)
+
     deps = PreviewRuntimeDependencies(
         artifact_store=artifact_store,
         repository_provider_factory=repository_provider_factory(baseline_provider),
@@ -529,7 +597,9 @@ def preview_step_document(
     }
 
 
-def insert_preview_operation(harness: PreviewJobHarness, operation_id: str = "op-preview-1") -> None:
+def insert_preview_operation(
+    harness: PreviewJobHarness, operation_id: str = "op-preview-1"
+) -> None:
     harness.seed_workspace()
     operation = operation_record_from_document(
         preview_operation_document(operation_id, payload_object=decode_payload_object(harness))

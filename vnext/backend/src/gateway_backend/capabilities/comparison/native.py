@@ -26,12 +26,23 @@ from gateway_backend.capabilities.snapshot_materialization import current_kernel
 
 from gateway_backend.capabilities.comparison.contracts import (
     standard_identity_is_keyless,
-    BlankExtension, BlankSummary, ComparisonTableFact, ComparisonTableStatus,
-    OrderedExtension, OrderedStatus, OrderedSummary, OrderedTableProcessingMode,
-    ReplayGuarantee, SchemaEvolution, TableComparisonTask,
+    BlankExtension,
+    BlankSummary,
+    ComparisonTableFact,
+    ComparisonTableStatus,
+    OrderedExtension,
+    OrderedStatus,
+    OrderedSummary,
+    OrderedTableProcessingMode,
+    ReplayGuarantee,
+    SchemaEvolution,
+    TableComparisonTask,
 )
 from gateway_backend.capabilities.comparison.row_encoding import (
-    _schema_changes_from_view, _schema_diagnostics, _ignored_values_changed, _pure_column_change,
+    _schema_changes_from_view,
+    _schema_diagnostics,
+    _ignored_values_changed,
+    _pure_column_change,
 )
 
 
@@ -71,11 +82,15 @@ class ComparisonRecordsHandle(Protocol):
 class RowIdentityScanner(Protocol):
     """One table-side occurrence stream; consume outputs before its next scan."""
 
-    def scan(self, stream: pa.RecordBatchReader, max_input_bytes: int) -> tuple[list[str], list[bytes]]: ...
+    def scan(
+        self, stream: pa.RecordBatchReader, max_input_bytes: int
+    ) -> tuple[list[str], list[bytes]]: ...
     def close(self) -> None: ...
 
 
-def standard_identity_scanner(operation: ComparisonOperation, policy_json: str) -> RowIdentityScanner:
+def standard_identity_scanner(
+    operation: ComparisonOperation, policy_json: str
+) -> RowIdentityScanner:
     context = current_kernel_context()
     if context is None:
         raise RuntimeError("row identity scan requires an operation scope")
@@ -104,10 +119,16 @@ def begin_records_operation(
         raise RuntimeError("comparison records require an operation scope")
     reservation = operation.memory.reserve(native_budget_bytes)
     try:
-        return cast(ComparisonOperation, _begin_comparison_operation_native(
-            native_budget_bytes, reservation, cancel_probe, deadline_monotonic,
-            id(operation.memory),
-        ))
+        return cast(
+            ComparisonOperation,
+            _begin_comparison_operation_native(
+                native_budget_bytes,
+                reservation,
+                cancel_probe,
+                deadline_monotonic,
+                id(operation.memory),
+            ),
+        )
     except BaseException:
         reservation.close()
         raise
@@ -130,11 +151,23 @@ def compare_records_batches(
 ) -> ComparisonRecordsHandle:
     """One coarse Arrow comparison with an explicit unique input owner."""
     try:
-        return cast(ComparisonRecordsHandle, _compare_records_native(
-            operation, kind, table_name, before, current, policy_json,
-            detail_policy, max_records, max_sort_bytes, max_output_bytes, max_input_bytes,
-            input_owner_charge,
-        ))
+        return cast(
+            ComparisonRecordsHandle,
+            _compare_records_native(
+                operation,
+                kind,
+                table_name,
+                before,
+                current,
+                policy_json,
+                detail_policy,
+                max_records,
+                max_sort_bytes,
+                max_output_bytes,
+                max_input_bytes,
+                input_owner_charge,
+            ),
+        )
     except BaseException:
         close = getattr(input_owner_charge, "close", None)
         if callable(close):
@@ -151,9 +184,12 @@ def facts_core_digest(
     summary_json: str,
     max_jcs_row_bytes: int,
 ) -> str:
-    return cast(str, _facts_core_digest_native(
-        operation, handles, metadata_jsons, algorithm_version, summary_json, max_jcs_row_bytes
-    ))
+    return cast(
+        str,
+        _facts_core_digest_native(
+            operation, handles, metadata_jsons, algorithm_version, summary_json, max_jcs_row_bytes
+        ),
+    )
 
 
 def summarize_unchanged_ordered(
@@ -165,9 +201,12 @@ def summarize_unchanged_ordered(
     max_input_bytes: int,
 ) -> tuple[str, str, str, str, int]:
     try:
-        return cast(tuple[str, str, str, str, int], _summarize_unchanged_ordered_native(
-            operation, current, policy_json, max_input_bytes, input_owner_charge
-        ))
+        return cast(
+            tuple[str, str, str, str, int],
+            _summarize_unchanged_ordered_native(
+                operation, current, policy_json, max_input_bytes, input_owner_charge
+            ),
+        )
     except BaseException:
         close = getattr(input_owner_charge, "close", None)
         if callable(close):
@@ -183,21 +222,35 @@ def validate_records_batches(
     cancel_probe: CancelProbe | None = None,
     deadline_monotonic: float | None = None,
 ) -> tuple[str, str, str, int, str]:
-    return cast(tuple[str, str, str, int, str], _validate_records_batches_native(
-        reader,
-        max_records,
-        max_batch_bytes,
-        cancel_probe or _NeverCancel(),
-        deadline_monotonic,
-    ))
+    return cast(
+        tuple[str, str, str, int, str],
+        _validate_records_batches_native(
+            reader,
+            max_records,
+            max_batch_bytes,
+            cancel_probe or _NeverCancel(),
+            deadline_monotonic,
+        ),
+    )
 
 
 def restore_table_cache(
-    operation: ComparisonOperation, *, table_name: str, kind: str, metadata_json: str,
-    detail_policy: str, family_names: list[str], facts: list[pa.RecordBatchReader],
-    artifacts: list[pa.RecordBatchReader], risk: pa.RecordBatchReader,
-    ordered_risk: pa.RecordBatchReader, blank_risk: pa.RecordBatchReader,
-    input_owner_charge: object, max_records: int, max_row_bytes: int, max_input_bytes: int,
+    operation: ComparisonOperation,
+    *,
+    table_name: str,
+    kind: str,
+    metadata_json: str,
+    detail_policy: str,
+    family_names: list[str],
+    facts: list[pa.RecordBatchReader],
+    artifacts: list[pa.RecordBatchReader],
+    risk: pa.RecordBatchReader,
+    ordered_risk: pa.RecordBatchReader,
+    blank_risk: pa.RecordBatchReader,
+    input_owner_charge: object,
+    max_records: int,
+    max_row_bytes: int,
+    max_input_bytes: int,
 ) -> ComparisonRecordsHandle:
     """Restore complete neutral Arrow views under the caller's active M phase."""
     context = current_kernel_context()
@@ -207,10 +260,27 @@ def restore_table_cache(
             raise RuntimeError("comparison restore requires an operation scope")
         context.require_active()
         operation.require_operation(id(context.memory))
-        handle = cast(ComparisonRecordsHandle, _restore_comparison_table_native(
-            operation, id(context.memory), table_name, kind, metadata_json, detail_policy, family_names, facts,
-            artifacts, risk, ordered_risk, blank_risk, max_records, max_row_bytes, max_input_bytes, input_owner_charge,
-        ))
+        handle = cast(
+            ComparisonRecordsHandle,
+            _restore_comparison_table_native(
+                operation,
+                id(context.memory),
+                table_name,
+                kind,
+                metadata_json,
+                detail_policy,
+                family_names,
+                facts,
+                artifacts,
+                risk,
+                ordered_risk,
+                blank_risk,
+                max_records,
+                max_row_bytes,
+                max_input_bytes,
+                input_owner_charge,
+            ),
+        )
         context.checkpoint()
         return handle
     except BaseException:
@@ -246,8 +316,11 @@ def _ordered_extension(data: dict[str, Any]) -> OrderedExtension:
         before_ordered_digest=_optional_digest(data["before_ordered_digest"]),
         current_ordered_digest=_optional_digest(data["current_ordered_digest"]),
         replay_guarantee=ReplayGuarantee(data["replay_guarantee"]),
-        table_processing_mode=(None if data["table_processing_mode"] is None else
-            OrderedTableProcessingMode(data["table_processing_mode"])),
+        table_processing_mode=(
+            None
+            if data["table_processing_mode"] is None
+            else OrderedTableProcessingMode(data["table_processing_mode"])
+        ),
         diagnostics=tuple(data["diagnostics"]),
         contract_version=data["contract_version"],
         policy_digest=_optional_digest(data["policy_digest"]),
@@ -279,21 +352,33 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     assert before is not None and current is not None and policy is not None
     data: dict[str, Any] = json.loads(handle.metadata_json())
     changes = _schema_changes_from_view(schema, policy)
-    equality: Literal["NATIVE_SHARED_VALUES"] | None = ("NATIVE_SHARED_VALUES" if _pure_column_change(schema)
-        and schema.before_key and not schema.key_invalid
-        and not any(data[name] for name in ("row_added_count", "row_deleted_count", "row_modified_count"))
-        and not data.get("ignored_shared_content_changed", data.get("content_changed", False)) else None)
+    equality: Literal["NATIVE_SHARED_VALUES"] | None = (
+        "NATIVE_SHARED_VALUES"
+        if _pure_column_change(schema)
+        and schema.before_key
+        and not schema.key_invalid
+        and not any(
+            data[name] for name in ("row_added_count", "row_deleted_count", "row_modified_count")
+        )
+        and not data.get("ignored_shared_content_changed", data.get("content_changed", False))
+        else None
+    )
     if policy.ordered_policy is not None:
         return ComparisonTableFact(
-            table_name=task.table_name, status=ComparisonTableStatus(data["status"]),
-            before_descriptor=before, current_descriptor=current,
-            schema_changes=changes, row_count_before=before.row_count,
+            table_name=task.table_name,
+            status=ComparisonTableStatus(data["status"]),
+            before_descriptor=before,
+            current_descriptor=current,
+            schema_changes=changes,
+            row_count_before=before.row_count,
             row_count_current=current.row_count,
-            row_added_count=data["row_added_count"], row_deleted_count=data["row_deleted_count"],
+            row_added_count=data["row_added_count"],
+            row_deleted_count=data["row_deleted_count"],
             row_modified_count=data["row_modified_count"],
             suppressed_added_count=data["suppressed_added_count"],
             suppressed_deleted_count=data["suppressed_deleted_count"],
-            diagnostics=tuple(data["diagnostics"]), content_changed=data["content_changed"],
+            diagnostics=tuple(data["diagnostics"]),
+            content_changed=data["content_changed"],
             shared_value_equality=equality,
             ordered_extension=_ordered_extension(data["ordered_extension"]),
             blank_extension=_blank_extension(data["blank_extension"]),
@@ -301,28 +386,44 @@ def table_fact(task: TableComparisonTask, handle: Any, schema: Any) -> Compariso
     diagnostics = tuple(_schema_diagnostics(schema, policy))
     count = data["record_count"]
     changed_rows = bool(data["row_added_count"] or data["row_deleted_count"])
-    is_keyless = standard_identity_is_keyless(schema.before_key, schema.current_key,
-        policy.allow_keyless_key_transition)
-    status = (ComparisonTableStatus.SCHEMA_CHANGED if diagnostics else
-        ComparisonTableStatus.MODIFIED if (count or (is_keyless and changed_rows))
-        else ComparisonTableStatus.UNCHANGED)
+    is_keyless = standard_identity_is_keyless(
+        schema.before_key, schema.current_key, policy.allow_keyless_key_transition
+    )
+    status = (
+        ComparisonTableStatus.SCHEMA_CHANGED
+        if diagnostics
+        else ComparisonTableStatus.MODIFIED
+        if (count or (is_keyless and changed_rows))
+        else ComparisonTableStatus.UNCHANGED
+    )
     content_changed = False
-    if (count == 0 and not diagnostics and
-            (not is_keyless or not changed_rows)):
-        content_changed = (data["ignored_shared_content_changed"] if
-            (changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED or _pure_column_change(schema)) else
-            _ignored_values_changed(before, current, policy))
+    if count == 0 and not diagnostics and (not is_keyless or not changed_rows):
+        content_changed = (
+            data["ignored_shared_content_changed"]
+            if (
+                changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+                or _pure_column_change(schema)
+            )
+            else _ignored_values_changed(before, current, policy)
+        )
         from gateway_backend.capabilities.table_rules.contracts import BUSINESS_SEQUENCE_COLUMNS
+
         if policy.compare_excluded_columns == (BUSINESS_SEQUENCE_COLUMNS.get(task.table_name),):
             content_changed = False
     return ComparisonTableFact(
-        table_name=task.table_name, status=status,
-        before_descriptor=before, current_descriptor=current,
-        schema_changes=changes, row_count_before=before.row_count,
+        table_name=task.table_name,
+        status=status,
+        before_descriptor=before,
+        current_descriptor=current,
+        schema_changes=changes,
+        row_count_before=before.row_count,
         row_count_current=current.row_count,
-        row_added_count=data["row_added_count"], row_deleted_count=data["row_deleted_count"],
+        row_added_count=data["row_added_count"],
+        row_deleted_count=data["row_deleted_count"],
         row_modified_count=data["row_modified_count"],
         suppressed_added_count=data["suppressed_added_count"],
         suppressed_deleted_count=data["suppressed_deleted_count"],
-        diagnostics=diagnostics, content_changed=content_changed, shared_value_equality=equality,
+        diagnostics=diagnostics,
+        content_changed=content_changed,
+        shared_value_equality=equality,
     )

@@ -1,4 +1,5 @@
 """Explicit artifact roots and ordered cooperative borrows; paths stay in infrastructure."""
+
 from __future__ import annotations
 
 import fcntl
@@ -18,7 +19,7 @@ ROOT_ORDER = tuple(ArtifactLocation)
 
 def directory_identity(path: Path) -> tuple[int, int, str]:
     """Validate an existing writable non-symlink root and return its local identity."""
-    if not path.is_absolute() or path == Path('/') or '..' in path.parts:
+    if not path.is_absolute() or path == Path("/") or ".." in path.parts:
         raise ValueError("artifact root must be an absolute non-root directory")
     for part in (*reversed(path.parents), path):
         if part.is_symlink():
@@ -26,7 +27,11 @@ def directory_identity(path: Path) -> tuple[int, int, str]:
     descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISDIR(info.st_mode) or not info.st_mode & 0o222 or not os.access(path, os.W_OK | os.X_OK):
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or not info.st_mode & 0o222
+            or not os.access(path, os.W_OK | os.X_OK)
+        ):
             raise ValueError("artifact root must be writable")
         mount_id = descriptor_mount_id(descriptor)
         return info.st_dev, info.st_ino, mount_id
@@ -35,8 +40,11 @@ def directory_identity(path: Path) -> tuple[int, int, str]:
 
 
 def descriptor_mount_id(descriptor: int) -> str:
-    return next(line for line in Path(f'/proc/self/fdinfo/{descriptor}').read_text().splitlines()
-        if line.startswith('mnt_id:'))
+    return next(
+        line
+        for line in Path(f"/proc/self/fdinfo/{descriptor}").read_text().splitlines()
+        if line.startswith("mnt_id:")
+    )
 
 
 @dataclass(frozen=True)
@@ -45,8 +53,12 @@ class ArtifactStoreLayout:
     canonical: Path
     comparison: Path
     export: Path
-    root_validator: Callable[[ArtifactLocation], None] | None = field(default=None, init=False, repr=False, compare=False)
-    _identities: dict[ArtifactLocation, tuple[int, int, str] | None] = field(init=False, repr=False, compare=False)
+    root_validator: Callable[[ArtifactLocation], None] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _identities: dict[ArtifactLocation, tuple[int, int, str] | None] = field(
+        init=False, repr=False, compare=False
+    )
     _borrows: dict[ArtifactLocation, tuple[int, int]] = field(init=False, repr=False, compare=False)
     _mutex: RLock = field(init=False, repr=False, compare=False)
 
@@ -58,7 +70,7 @@ class ArtifactStoreLayout:
         for index, path in enumerate(paths):
             if not isinstance(path, Path):
                 raise ValueError("artifact roots must be Paths")
-            for other in paths[index + 1:]:
+            for other in paths[index + 1 :]:
                 if path == other or path in other.parents or other in path.parents:
                     raise ValueError("artifact roots must be distinct and non-nested")
         identities: dict[ArtifactLocation, tuple[int, int, str] | None] = {}
@@ -67,21 +79,32 @@ class ArtifactStoreLayout:
                 identities[location] = directory_identity(self.root(location))
                 if self.root_validator is not None:
                     self.root_validator(location)
-            except (OSError, ValueError, StopIteration):
+            except OSError, ValueError, StopIteration:
                 if not allow_unavailable:
-                    raise ValueError('artifact root must be an existing writable directory without symlinks') from None
+                    raise ValueError(
+                        "artifact root must be an existing writable directory without symlinks"
+                    ) from None
                 # Only explicit maintenance may retain an unavailable slot. It
                 # has no usable identity and check() refuses it permanently.
                 identities[location] = None
-        object.__setattr__(self, '_identities', identities)
-        object.__setattr__(self, '_borrows', {})
-        object.__setattr__(self, '_mutex', RLock())
+        object.__setattr__(self, "_identities", identities)
+        object.__setattr__(self, "_borrows", {})
+        object.__setattr__(self, "_mutex", RLock())
 
     @classmethod
-    def for_maintenance(cls, *, durable: Path, canonical: Path, comparison: Path, export: Path,
-                        root_validator: Callable[[ArtifactLocation], None] | None = None) -> ArtifactStoreLayout:
+    def for_maintenance(
+        cls,
+        *,
+        durable: Path,
+        canonical: Path,
+        comparison: Path,
+        export: Path,
+        root_validator: Callable[[ArtifactLocation], None] | None = None,
+    ) -> ArtifactStoreLayout:
         layout = object.__new__(cls)
-        for location, path in zip(ROOT_ORDER, (durable, canonical, comparison, export), strict=True):
+        for location, path in zip(
+            ROOT_ORDER, (durable, canonical, comparison, export), strict=True
+        ):
             object.__setattr__(layout, location.value, path)
         object.__setattr__(layout, "root_validator", root_validator)
         layout._initialize(allow_unavailable=True)
@@ -90,8 +113,12 @@ class ArtifactStoreLayout:
     def root(self, location: ArtifactLocation) -> Path:
         if type(location) is not ArtifactLocation:
             raise ValueError("location must be ArtifactLocation")
-        return {ArtifactLocation.DURABLE: self.durable, ArtifactLocation.CANONICAL: self.canonical,
-            ArtifactLocation.COMPARISON: self.comparison, ArtifactLocation.EXPORT: self.export}[location]
+        return {
+            ArtifactLocation.DURABLE: self.durable,
+            ArtifactLocation.CANONICAL: self.canonical,
+            ArtifactLocation.COMPARISON: self.comparison,
+            ArtifactLocation.EXPORT: self.export,
+        }[location]
 
     def check(self, location: ArtifactLocation) -> None:
         try:
@@ -101,8 +128,10 @@ class ArtifactStoreLayout:
                 raise ValueError("artifact root identity changed")
             if self.root_validator is not None:
                 self.root_validator(location)
-        except (OSError, ValueError, StopIteration):
-            raise ManifestVerificationError("artifact root unavailable; preflight/restart required") from None
+        except OSError, ValueError, StopIteration:
+            raise ManifestVerificationError(
+                "artifact root unavailable; preflight/restart required"
+            ) from None
 
     @contextmanager
     def read_session(self, locations: tuple[ArtifactLocation, ...] = ROOT_ORDER) -> Iterator[None]:
@@ -117,7 +146,9 @@ class ArtifactStoreLayout:
                     self.check(location)
                     current = self._borrows.get(location)
                     if current is None:
-                        descriptor = os.open(self.root(location), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                        descriptor = os.open(
+                            self.root(location), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                        )
                         try:
                             fcntl.flock(descriptor, fcntl.LOCK_SH)
                             self.check(location)
@@ -146,7 +177,9 @@ class ArtifactStoreLayout:
             if location in self._borrows:
                 descriptor = None
             else:
-                descriptor = os.open(self.root(location), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                descriptor = os.open(
+                    self.root(location), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+                )
                 try:
                     fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     self.check(location)

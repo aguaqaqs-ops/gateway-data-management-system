@@ -74,7 +74,9 @@ def _submit_operation_document(operation_id: str) -> dict[str, object]:
             "baseline_head_version": 3,
             "repository_expected_commit_id": "commit-base",
             "canonical_business_digest": "sha256:" + "5" * 64,
-            "source_artifact_refs": ["a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"],
+            "source_artifact_refs": [
+                "a1:durable:94b50e66223e93b2ef8958c31e66ddcf549b1132e84c178636d73d0c317df686"
+            ],
             "preview_ready_closure_ref": "a1:durable:7e34d1f79041617f32c6f4668fac511f9a9af669d20cdc3998a5795d688ba9c1",
             "canonical_table_set_closure_ref": "a1:durable:c0caf263e39739420c24522afb1e616f26d98b9d34d237c6b38a72b97a863884",
             "canonical_table_set_closure_digest": "sha256:canonical-table-closure",
@@ -238,6 +240,7 @@ def test_submit_worker_executes_submit_import_publishes_checkpoint(tmp_path: Pat
     assert work.step.step_name == SUBMIT_STEP_SUBMIT
     assert work.step.worker_id is not None
     assert work.step.lease_token is not None
+
     def control_transaction_factory() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(harness.db_path)
 
@@ -307,9 +310,7 @@ def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) ->
     with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
         operation_record = unit_of_work.operations.get_operation(operation_id)
         submit_attempt_id = next(
-            ref.value
-            for ref in operation_record.business_refs
-            if ref.kind == "submit_attempt"
+            ref.value for ref in operation_record.business_refs if ref.kind == "submit_attempt"
         )
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
         assert attempt is not None
@@ -324,7 +325,9 @@ def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) ->
             repository_operation_id=None,
             optimistic_version=attempt.optimistic_version + 1,
         )
-        unit_of_work.submission.cas_update_attempt(updated, expected_version=attempt.optimistic_version)
+        unit_of_work.submission.cas_update_attempt(
+            updated, expected_version=attempt.optimistic_version
+        )
         submit_step = unit_of_work.operations.get_step(submit_id)
         now = unit_of_work.operations.transaction_now
         running_submit = replace(
@@ -476,9 +479,7 @@ def test_submit_import_prepared_without_prepare_checkpoint_stays_manual_recovery
         lease_token=lease_token,
         operation_id=operation.operation_id,
         step_id=step.step_id,
-        write_uow_factory=build_worker_write_uow_factory(
-            lambda: ControlDbUnitOfWork(db_path)
-        ),
+        write_uow_factory=build_worker_write_uow_factory(lambda: ControlDbUnitOfWork(db_path)),
         control=control,
         observer=lambda _event: None,
     )

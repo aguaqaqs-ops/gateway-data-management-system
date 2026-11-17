@@ -105,7 +105,11 @@ def _ordered_input(
 ) -> TableInput:
     return table_input(
         table_name,
-        columns=(int_column("gid", nullable=True), int_column("no", nullable=True), varchar_column("value")),
+        columns=(
+            int_column("gid", nullable=True),
+            int_column("no", nullable=True),
+            varchar_column("value"),
+        ),
         primary_key_columns=("gid",),
         rows=rows,
     )
@@ -155,14 +159,18 @@ def test_keyless_preserves_duplicates_and_is_order_independent() -> None:
 def test_keyless_does_not_invent_a_surrogate_key() -> None:
     ruleset = snapshot_from_records(keyless_record())
     result = project_storage(
-        _request(_keyless_input((as_row(varchar_cell("x")), as_row(varchar_cell("x")))), ruleset=ruleset)
+        _request(
+            _keyless_input((as_row(varchar_cell("x")), as_row(varchar_cell("x")))), ruleset=ruleset
+        )
     )
     assert result.status is ProjectionStatus.COMPLETE
     assert result.tables[0].row_count == 2
     assert result.tables[0].storage_view.canonical_key_columns == ()
 
 
-_SCALAR_TYPE_VOCABULARY_CASES: tuple[tuple[str, Callable[[], TableInput], ProjectionStatus, str | None], ...] = (
+_SCALAR_TYPE_VOCABULARY_CASES: tuple[
+    tuple[str, Callable[[], TableInput], ProjectionStatus, str | None], ...
+] = (
     (
         "ordered_vocab",
         lambda: _ordered_input(
@@ -463,9 +471,7 @@ GID_NO_FAULTS: tuple[tuple[str, ProjectionDiagnosticCode, tuple[SourceRow, ...]]
     (
         "reserved_gid",
         ProjectionDiagnosticCode.ROW_INTEGRITY,
-        (
-            as_row(int_cell(4_000_000_000), int_cell(1), varchar_cell("a")),
-        ),
+        (as_row(int_cell(4_000_000_000), int_cell(1), varchar_cell("a")),),
     ),
     (
         "duplicate_gid",
@@ -486,9 +492,7 @@ GID_NO_FAULTS: tuple[tuple[str, ProjectionDiagnosticCode, tuple[SourceRow, ...]]
     (
         "missing_no",
         ProjectionDiagnosticCode.ROW_INTEGRITY,
-        (
-            as_row(int_cell(1), null_cell(), varchar_cell("a")),
-        ),
+        (as_row(int_cell(1), null_cell(), varchar_cell("a")),),
     ),
     (
         "non_continuous_no",
@@ -501,9 +505,7 @@ GID_NO_FAULTS: tuple[tuple[str, ProjectionDiagnosticCode, tuple[SourceRow, ...]]
     (
         "negative_gid",
         ProjectionDiagnosticCode.ROW_INTEGRITY,
-        (
-            as_row(int_cell(-1), int_cell(1), varchar_cell("a")),
-        ),
+        (as_row(int_cell(-1), int_cell(1), varchar_cell("a")),),
     ),
 )
 
@@ -586,17 +588,26 @@ def test_drop_restore_changes_schema_identity() -> None:
             ordered_policy=OrderedPolicy.NONE,
             ignored_columns=("aux",),
             artifact_scope=TableArtifactScope.ALL_CHANGES,
-            dropped_columns=(DroppedColumn(name="aux", reason=legacy_ignored_column_reason(selector)),),
+            dropped_columns=(
+                DroppedColumn(name="aux", reason=legacy_ignored_column_reason(selector)),
+            ),
         )
     )
     retained = snapshot_from_records(keyless_record())
     columns = (varchar_column("note"), varchar_column("aux"))
     rows = (as_row(varchar_cell("n"), varchar_cell("old")),)
-    dropped_result = project_storage(_request(_keyless_input(rows, extra_columns=(varchar_column("aux"),)), ruleset=dropped))
-    retained_result = project_storage(_request(_keyless_input(rows, extra_columns=(varchar_column("aux"),)), ruleset=retained))
+    dropped_result = project_storage(
+        _request(_keyless_input(rows, extra_columns=(varchar_column("aux"),)), ruleset=dropped)
+    )
+    retained_result = project_storage(
+        _request(_keyless_input(rows, extra_columns=(varchar_column("aux"),)), ruleset=retained)
+    )
     changed_dropped = project_storage(
         _request(
-            _keyless_input((as_row(varchar_cell("n"), varchar_cell("new")),), extra_columns=(varchar_column("aux"),)),
+            _keyless_input(
+                (as_row(varchar_cell("n"), varchar_cell("new")),),
+                extra_columns=(varchar_column("aux"),),
+            ),
             ruleset=dropped,
         )
     )
@@ -654,7 +665,11 @@ def test_raw_provenance_digest_is_not_r4_content() -> None:
         _request(
             table_input(
                 "b1_n1_iec104_syx_list",
-                columns=(int_column("gid", nullable=True), int_column("no"), varchar_column("value")),
+                columns=(
+                    int_column("gid", nullable=True),
+                    int_column("no"),
+                    varchar_column("value"),
+                ),
                 primary_key_columns=("gid",),
                 rows=rows,
                 raw_content_digest=digest_ref("aa"),
@@ -665,7 +680,11 @@ def test_raw_provenance_digest_is_not_r4_content() -> None:
         _request(
             table_input(
                 "b1_n1_iec104_syx_list",
-                columns=(int_column("gid", nullable=True), int_column("no"), varchar_column("value")),
+                columns=(
+                    int_column("gid", nullable=True),
+                    int_column("no"),
+                    varchar_column("value"),
+                ),
                 primary_key_columns=("gid",),
                 rows=rows,
                 raw_content_digest=digest_ref("bb"),
@@ -677,10 +696,6 @@ def test_raw_provenance_digest_is_not_r4_content() -> None:
     assert first.tables[0].content_digest == second.tables[0].content_digest
     assert first.tables[0].schema_digest == second.tables[0].schema_digest
     assert dummy_digest() != digest_ref("aa")
-
-
-
-
 
 
 MALFORMED_SCALAR: tuple[tuple[str, Callable[[], TableInput]], ...] = (
@@ -705,7 +720,9 @@ MALFORMED_SCALAR: tuple[tuple[str, Callable[[], TableInput]], ...] = (
 )
 
 
-@pytest.mark.parametrize(("label", "factory"), MALFORMED_SCALAR, ids=[item[0] for item in MALFORMED_SCALAR])
+@pytest.mark.parametrize(
+    ("label", "factory"), MALFORMED_SCALAR, ids=[item[0] for item in MALFORMED_SCALAR]
+)
 def test_malformed_enum_set_values_fail_closed(
     label: str, factory: Callable[[], TableInput]
 ) -> None:
@@ -720,14 +737,33 @@ def test_presentation_is_raw_bound_and_excluded_from_semantic_digest() -> None:
     import json
     from gateway_backend.artifacts import InMemoryArtifactStore
     from gateway_backend.capabilities.storage_projection import (
-        compute_manifest_digest, durable_manifest_bytes, canonicalization_manifest_from_bytes,
-        publish_canonicalization_manifest, open_canonicalization_manifest, PackageError, PublicationError,
+        compute_manifest_digest,
+        durable_manifest_bytes,
+        canonicalization_manifest_from_bytes,
+        publish_canonicalization_manifest,
+        open_canonicalization_manifest,
+        PackageError,
+        PublicationError,
     )
-    from gateway_backend.capabilities.table_presentation.contracts import PresentationMetadata, TablePresentation, ColumnPresentation
-    result = project_storage(_request(_ordered_input((as_row(int_cell(1), int_cell(1), varchar_cell("a")),))))
+    from gateway_backend.capabilities.table_presentation.contracts import (
+        PresentationMetadata,
+        TablePresentation,
+        ColumnPresentation,
+    )
+
+    result = project_storage(
+        _request(_ordered_input((as_row(int_cell(1), int_cell(1), varchar_cell("a")),)))
+    )
     assert result.manifest is not None
     manifest = result.manifest
-    presentation = PresentationMetadata(tuple(TablePresentation(t.name, "表", tuple(ColumnPresentation(c, "列") for c in t.retained_columns)) for t in manifest.tables))
+    presentation = PresentationMetadata(
+        tuple(
+            TablePresentation(
+                t.name, "表", tuple(ColumnPresentation(c, "列") for c in t.retained_columns)
+            )
+            for t in manifest.tables
+        )
+    )
     changed = replace(manifest, presentation=presentation)
     assert compute_manifest_digest(changed) == manifest.manifest_digest
     assert durable_manifest_bytes(changed) != durable_manifest_bytes(manifest)
@@ -739,7 +775,11 @@ def test_presentation_is_raw_bound_and_excluded_from_semantic_digest() -> None:
     assert open_canonicalization_manifest(store, old_ref).presentation == manifest.presentation
     assert open_canonicalization_manifest(store, new_ref).presentation == presentation
     document = json.loads(durable_manifest_bytes(changed))
-    malformed_payloads: tuple[dict[str, object], ...] = ({}, {"tables": []}, {"tables": [{"table_name": manifest.tables[0].name, "comment": None, "columns": []}]})
+    malformed_payloads: tuple[dict[str, object], ...] = (
+        {},
+        {"tables": []},
+        {"tables": [{"table_name": manifest.tables[0].name, "comment": None, "columns": []}]},
+    )
     for malformed in malformed_payloads:
         document["presentation"] = malformed
         with pytest.raises(PackageError):

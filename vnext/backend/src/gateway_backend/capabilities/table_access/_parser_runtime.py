@@ -97,9 +97,7 @@ class ParserRuntime:
             )
         )
 
-    def fail_document(
-        self, code: ParserDiagnosticCode, message: str, byte_offset: int
-    ) -> NoReturn:
+    def fail_document(self, code: ParserDiagnosticCode, message: str, byte_offset: int) -> NoReturn:
         self.add_diagnostic(code, message, byte_offset)
         self.document_failed = True
         raise ParserHalt(code, message, byte_offset)
@@ -142,7 +140,9 @@ class ParserRuntime:
                 severity=DiagnosticSeverity.WARNING,
                 source=self.source,
                 byte_offset=offset,
-                message=_clip_message(_TRUNCATED_MESSAGE, self.budgets.max_diagnostic_message_bytes),
+                message=_clip_message(
+                    _TRUNCATED_MESSAGE, self.budgets.max_diagnostic_message_bytes
+                ),
             )
             marker_size = len(marker.message.encode("utf-8"))
             while kept and (

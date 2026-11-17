@@ -158,7 +158,9 @@ class ParserInvocationContext:
 
     def __post_init__(self) -> None:
         if self.deadline_monotonic is not None:
-            if type(self.deadline_monotonic) is not float or not math.isfinite(self.deadline_monotonic):
+            if type(self.deadline_monotonic) is not float or not math.isfinite(
+                self.deadline_monotonic
+            ):
                 raise ValueError("deadline_monotonic must be a finite float or None")
 
 

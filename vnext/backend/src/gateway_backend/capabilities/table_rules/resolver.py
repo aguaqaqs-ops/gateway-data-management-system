@@ -112,7 +112,9 @@ def resolve_comparison_rule_view(
         "artifact_scope": scope.value,
         "canonical_table": resolved.canonical_table,
         "compare_excluded_columns": list(resolved.decision.compare_excluded_columns),
-        "compare_key_mode": None if record.compare_key_mode is None else record.compare_key_mode.value,
+        "compare_key_mode": None
+        if record.compare_key_mode is None
+        else record.compare_key_mode.value,
         "effective_key_columns": list(effective_key_columns),
         "ordered": None
         if ordered is None
@@ -138,8 +140,12 @@ def resolve_comparison_rule_view(
     )
 
 
-def _winning_record(snapshot: TableRulesetSnapshot, table_name: str, table_comment: str | None) -> TableRuleRecord:
-    matches = [rule for rule in snapshot.rules if _selector_matches(rule, table_name, table_comment)]
+def _winning_record(
+    snapshot: TableRulesetSnapshot, table_name: str, table_comment: str | None
+) -> TableRuleRecord:
+    matches = [
+        rule for rule in snapshot.rules if _selector_matches(rule, table_name, table_comment)
+    ]
     if matches:
         return _unique_winner(matches)
     fallbacks = [

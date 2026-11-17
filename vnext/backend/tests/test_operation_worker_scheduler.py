@@ -705,9 +705,7 @@ def test_executor_failure_joins_and_restores_gc_without_collecting_or_masking_er
             gc_states.append(gc.isenabled())
             raise RuntimeError("executor failure")
 
-        startup = FakeStartup(
-            [ClaimedWork(operation, step, cast(ClaimedExecutor, fail_executor))]
-        )
+        startup = FakeStartup([ClaimedWork(operation, step, cast(ClaimedExecutor, fail_executor))])
         events: list[WorkerEvent] = []
 
         with pytest.raises(RuntimeError, match="executor failure"):
@@ -748,9 +746,7 @@ def test_unconfirmed_executor_join_preserves_failure_and_leaves_gc_disabled() ->
         def fail_executor(*_args: object) -> ExecutorAcknowledgment:
             raise RuntimeError("executor failure")
 
-        startup = FakeStartup(
-            [ClaimedWork(operation, step, cast(ClaimedExecutor, fail_executor))]
-        )
+        startup = FakeStartup([ClaimedWork(operation, step, cast(ClaimedExecutor, fail_executor))])
 
         with pytest.raises(RuntimeError, match="executor failure") as raised:
             _runtime(
@@ -766,9 +762,7 @@ def test_unconfirmed_executor_join_preserves_failure_and_leaves_gc_disabled() ->
         assert not gc.isenabled()
         notes = getattr(raised.value, "__notes__", [])
         assert any("executor join raised OSError" in note for note in notes)
-        assert any(
-            "executor join was not confirmed" in note for note in notes
-        )
+        assert any("executor join was not confirmed" in note for note in notes)
     finally:
         if original_gc_enabled:
             gc.enable()
@@ -906,9 +900,7 @@ def test_stop_signal_during_executor_wakes_supervisor_and_enters_drain() -> None
         wake_event = InjectedWakeEvent(wake_wait)
         return wake_event
 
-    startup = FakeStartup(
-        [ClaimedWork(operation, step, cast(ClaimedExecutor, executor))]
-    )
+    startup = FakeStartup([ClaimedWork(operation, step, cast(ClaimedExecutor, executor))])
     runtime = _runtime(
         startup,
         factory,
@@ -934,9 +926,7 @@ def test_long_executor_continues_heartbeating_at_the_configured_interval() -> No
     store = RuntimeStore(operation, step)
     factory = RuntimeUowFactory(store)
     stop = [False]
-    startup = FakeStartup(
-        [ClaimedWork(operation, step, _checkpoint_then_handoff(stop))]
-    )
+    startup = FakeStartup([ClaimedWork(operation, step, _checkpoint_then_handoff(stop))])
     events: list[WorkerEvent] = []
     threads = ThreadFactory()
     clock = FakeClock()
@@ -1092,7 +1082,7 @@ def test_committed_terminal_operation_is_not_heartbeat_lease_loss(
         wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
     ).run(
         drain_requested=lambda: draining[0],
-        wait=lambda timeout: (draining.__setitem__(0, True) or timeout == 1.0),
+        wait=lambda timeout: draining.__setitem__(0, True) or timeout == 1.0,
     )
 
     assert heartbeat_attempted.is_set()
@@ -1243,6 +1233,7 @@ def test_executor_exception_and_unproven_return_are_worker_fatal() -> None:
         operation, step = _active_records()
         store = RuntimeStore(operation, step)
         factory = RuntimeUowFactory(store)
+
         def executor(
             _operation: OperationRecord,
             _step: StepRecord,
@@ -1252,6 +1243,7 @@ def test_executor_exception_and_unproven_return_are_worker_fatal() -> None:
             if isinstance(result, BaseException):
                 raise result
             return result
+
         startup = FakeStartup([ClaimedWork(operation, step, cast(ClaimedExecutor, executor))])
         events: list[WorkerEvent] = []
         threads = ThreadFactory()
@@ -1265,8 +1257,7 @@ def test_executor_exception_and_unproven_return_are_worker_fatal() -> None:
         with pytest.raises(expected):
             runtime.run(drain_requested=lambda: False, wait=wait)
         assert any(
-            event.code is WorkerEventCode.EXECUTOR_FAILED
-            and event.error_category == category
+            event.code is WorkerEventCode.EXECUTOR_FAILED and event.error_category == category
             for event in events
         )
 
@@ -1303,7 +1294,9 @@ def test_daemon_executor_is_rejected() -> None:
     operation, step = _active_records()
     store = RuntimeStore(operation, step)
     factory = RuntimeUowFactory(store)
-    startup = FakeStartup([ClaimedWork(operation, step, lambda *_args: ExecutorAcknowledgment.PUBLISHED)])
+    startup = FakeStartup(
+        [ClaimedWork(operation, step, lambda *_args: ExecutorAcknowledgment.PUBLISHED)]
+    )
     events: list[WorkerEvent] = []
 
     with pytest.raises(ValueError, match="non-daemon"):
@@ -1333,8 +1326,9 @@ def test_telemetry_failures_do_not_change_executor_or_completion(business_error:
             calls.append("end")
             raise ValueError("statistics buffer full")
 
-    def execute(op: OperationRecord, claimed: StepRecord, control: ExecutionControl,
-                session: LeaseSession) -> ExecutorAcknowledgment:
+    def execute(
+        op: OperationRecord, claimed: StepRecord, control: ExecutionControl, session: LeaseSession
+    ) -> ExecutorAcknowledgment:
         calls.append("execute")
         if business_error:
             raise failure

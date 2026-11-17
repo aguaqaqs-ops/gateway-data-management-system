@@ -67,7 +67,9 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
     preview = seed["preview_result"]
     baseline_head = seed["baseline_head"]
     port_file = tmp_path / "http-port.json"
-    with repository_ready_stub_context(tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json") as repository_stub:
+    with repository_ready_stub_context(
+        tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json"
+    ) as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,
@@ -133,14 +135,18 @@ def test_uvicorn_sigterm_rejects_new_submit_before_exit(tmp_path: Path) -> None:
                 process.wait(timeout=5)
 
 
-def test_maintenance_drain_rejects_compare_and_sigterm_completes_inflight_reads(tmp_path: Path) -> None:
+def test_maintenance_drain_rejects_compare_and_sigterm_completes_inflight_reads(
+    tmp_path: Path,
+) -> None:
     seed = seed_production_history_compare_ready(tmp_path)
     operation_id = seed["operation_id"]
     node_a = seed["node_a"]
     node_b = seed["node_b"]
     port_file = tmp_path / "http-port-history.json"
     inflight_barrier = HttpInflightReadBarrier(tmp_path)
-    with repository_ready_stub_context(tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json") as repository_stub:
+    with repository_ready_stub_context(
+        tmp_path, storage_layout_file=tmp_path / "artifacts-storage-layout.json"
+    ) as repository_stub:
         environment = http_server_subprocess_environment(
             tmp_path,
             port_file=port_file,
@@ -158,8 +164,10 @@ def test_maintenance_drain_rejects_compare_and_sigterm_completes_inflight_reads(
         )
         try:
             base_url = wait_for_http_server_ready(port_file)
-            auth_headers = {"Authorization": f"Bearer {TEST_BEARER}",
-                "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY)}
+            auth_headers = {
+                "Authorization": f"Bearer {TEST_BEARER}",
+                "X-Gateway-Device-Key": device_route_key(TEST_DEVICE_KEY),
+            }
             history_result: dict[str, object] = {}
             operation_result: dict[str, object] = {}
             bundle_result: dict[str, object] = {}

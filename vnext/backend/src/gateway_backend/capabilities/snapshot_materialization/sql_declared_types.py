@@ -23,9 +23,7 @@ _INTEGER_BITS = {
 _TEXT_TYPES = frozenset(
     {"CHAR", "VARCHAR", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT", "JSON", "ENUM", "SET"}
 )
-_BINARY_TYPES = frozenset(
-    {"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"}
-)
+_BINARY_TYPES = frozenset({"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"})
 
 
 def _decimal_args(args: str | None) -> tuple[int, int]:
@@ -96,9 +94,7 @@ def declared_type_for_sql_spelling(spelling: str) -> DeclaredType:
         if base in _BINARY_TYPES:
             return DeclaredType(kind=DeclaredTypeKind.BINARY)
     except (ValueError, IndexError) as exc:
-        raise SqlDeclaredTypeMappingError(
-            f"unsupported SQL type spelling: {spelling}"
-        ) from exc
+        raise SqlDeclaredTypeMappingError(f"unsupported SQL type spelling: {spelling}") from exc
     raise SqlDeclaredTypeMappingError(f"unsupported SQL type spelling: {spelling}")
 
 

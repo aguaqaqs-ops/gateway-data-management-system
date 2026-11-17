@@ -96,9 +96,7 @@ EXPECTED_STEP_DOCUMENT_KEYS = frozenset(
 )
 EXPECTED_BUSINESS_REFERENCE_KEYS = frozenset({"kind", "value"})
 EXPECTED_DIAGNOSTIC_KEYS = frozenset({"code", "message"})
-EXPECTED_DIAGNOSTIC_ALLOWED_KEYS = frozenset(
-    {"code", "message", "details", "omitted_count"}
-)
+EXPECTED_DIAGNOSTIC_ALLOWED_KEYS = frozenset({"code", "message", "details", "omitted_count"})
 
 _PROP = settings(max_examples=40, deadline=None, derandomize=True)
 
@@ -236,9 +234,17 @@ def _minimal_step_document(**changes: object) -> dict[str, object]:
 def _full_operation_document() -> dict[str, object]:
     return _minimal_operation_document(
         business_refs=[{"kind": "workspace", "value": "ws-1"}],
-        artifact_refs=[_example_artifact_ref_dict(artifact_id="a1:durable:0bb747e6b75300b3decc65a215f1951c3f5c7ece8ac578c674ae15f27a6060ad")],
-        checkpoint_ref=_example_artifact_ref_dict(artifact_id="a1:durable:4d91f351f45cddea80d32f5b01f099b509096dbce48ea7b625d6add0a336a924"),
-        ready_closure_ref=_example_artifact_ref_dict(artifact_id="a1:durable:6fbdbe17f9da43c5bb5b2ba31d8363d3206382816df32c90715d745918d2638d"),
+        artifact_refs=[
+            _example_artifact_ref_dict(
+                artifact_id="a1:durable:0bb747e6b75300b3decc65a215f1951c3f5c7ece8ac578c674ae15f27a6060ad"
+            )
+        ],
+        checkpoint_ref=_example_artifact_ref_dict(
+            artifact_id="a1:durable:4d91f351f45cddea80d32f5b01f099b509096dbce48ea7b625d6add0a336a924"
+        ),
+        ready_closure_ref=_example_artifact_ref_dict(
+            artifact_id="a1:durable:6fbdbe17f9da43c5bb5b2ba31d8363d3206382816df32c90715d745918d2638d"
+        ),
         repository_operation_id="repo-op-1",
         status=OperationStatus.FAILED.value,
         diagnostic=DIAGNOSTIC,
@@ -251,8 +257,14 @@ def _full_step_document() -> dict[str, object]:
         status=StepStatus.FAILED.value,
         attempt_count=1,
         diagnostic=DIAGNOSTIC,
-        prior_output_refs=[_example_artifact_ref_dict(artifact_id="a1:durable:c49b68d3f8df9e6012c20c04c807f652fdf950b2b7f8e056e9943ba304f3ae00")],
-        checkpoint_ref=_example_artifact_ref_dict(artifact_id="a1:durable:949e4baa744f08072eed6447ad64c6b4831e9a4d1e895cb47662da4c2ef767ab"),
+        prior_output_refs=[
+            _example_artifact_ref_dict(
+                artifact_id="a1:durable:c49b68d3f8df9e6012c20c04c807f652fdf950b2b7f8e056e9943ba304f3ae00"
+            )
+        ],
+        checkpoint_ref=_example_artifact_ref_dict(
+            artifact_id="a1:durable:949e4baa744f08072eed6447ad64c6b4831e9a4d1e895cb47662da4c2ef767ab"
+        ),
         started_at=TIMESTAMP,
         completed_at=TIMESTAMP,
     )
@@ -546,7 +558,11 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
     ),
     (
         "missing-operation-id",
-        {key: value for key, value in _minimal_operation_document().items() if key != "operation_id"},
+        {
+            key: value
+            for key, value in _minimal_operation_document().items()
+            if key != "operation_id"
+        },
         "missing fields",
     ),
     (
@@ -749,7 +765,11 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
         "artifact-refs-size-overflow",
         _minimal_operation_document(
             artifact_refs=[
-                _example_artifact_ref_dict(artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"artifact-overflow-{index}"))
+                _example_artifact_ref_dict(
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE, "test-fixture", f"artifact-overflow-{index}"
+                    )
+                )
                 for index in range(65)
             ],
         ),
@@ -759,18 +779,24 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
         "combined-artifact-refs-overflow",
         _minimal_operation_document(
             job_payload=None,
-            job_payload_ref=_example_artifact_ref_dict(artifact_id="a1:durable:0b041db61f7344b9ee6a183faf3117ca1a2fe02b53d84765321e8c66622809b7"),
+            job_payload_ref=_example_artifact_ref_dict(
+                artifact_id="a1:durable:0b041db61f7344b9ee6a183faf3117ca1a2fe02b53d84765321e8c66622809b7"
+            ),
             artifact_refs=[
-                _example_artifact_ref_dict(artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"artifact-overflow-{index}"))
+                _example_artifact_ref_dict(
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE, "test-fixture", f"artifact-overflow-{index}"
+                    )
+                )
                 for index in range(64)
             ],
         ),
         "artifact refs exceed maximum per record",
     ),
-    * _operation_opaque_id_faults(),
-    * _operation_registry_name_faults(),
-    * _operation_timestamp_faults(),
-    * _operation_nested_artifact_ref_faults(),
+    *_operation_opaque_id_faults(),
+    *_operation_registry_name_faults(),
+    *_operation_timestamp_faults(),
+    *_operation_nested_artifact_ref_faults(),
 )
 
 MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str], ...] = (
@@ -834,8 +860,12 @@ MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str
         "duplicate-prior-output-artifact-id",
         _failed_step_document(
             prior_output_refs=[
-                _example_artifact_ref_dict(artifact_id="a1:durable:000dd195d699dfff83df729b8e107da78f6cdf483cf73075a7162f005c59a04e"),
-                _example_artifact_ref_dict(artifact_id="a1:durable:000dd195d699dfff83df729b8e107da78f6cdf483cf73075a7162f005c59a04e"),
+                _example_artifact_ref_dict(
+                    artifact_id="a1:durable:000dd195d699dfff83df729b8e107da78f6cdf483cf73075a7162f005c59a04e"
+                ),
+                _example_artifact_ref_dict(
+                    artifact_id="a1:durable:000dd195d699dfff83df729b8e107da78f6cdf483cf73075a7162f005c59a04e"
+                ),
             ],
         ),
         "duplicate artifact_id",
@@ -844,7 +874,11 @@ MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str
         "prior-output-refs-size-overflow",
         _minimal_step_document(
             prior_output_refs=[
-                _example_artifact_ref_dict(artifact_id=build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", f"artifact-overflow-{index}"))
+                _example_artifact_ref_dict(
+                    artifact_id=build_artifact_id(
+                        ArtifactLocation.DURABLE, "test-fixture", f"artifact-overflow-{index}"
+                    )
+                )
                 for index in range(65)
             ],
         ),
@@ -874,10 +908,10 @@ MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str
         ),
         "host path",
     ),
-    * _step_opaque_id_faults(),
-    * _step_registry_name_faults(),
-    * _step_timestamp_faults(),
-    * _step_nested_artifact_ref_faults(),
+    *_step_opaque_id_faults(),
+    *_step_registry_name_faults(),
+    *_step_timestamp_faults(),
+    *_step_nested_artifact_ref_faults(),
 )
 
 MINIMAL_OPERATION_STATUS_DOCUMENTS: tuple[tuple[str, dict[str, object]], ...] = (
@@ -1407,8 +1441,12 @@ def test_operation_document_emits_closed_key_set() -> None:
 
 
 def test_operation_payload_key_reorder_preserves_canonical_bytes() -> None:
-    first = operation_record_from_document(_minimal_operation_document(job_payload={"b": 1, "a": 2}))
-    second = operation_record_from_document(_minimal_operation_document(job_payload={"a": 2, "b": 1}))
+    first = operation_record_from_document(
+        _minimal_operation_document(job_payload={"b": 1, "a": 2})
+    )
+    second = operation_record_from_document(
+        _minimal_operation_document(job_payload={"a": 2, "b": 1})
+    )
     assert first.job_payload == second.job_payload
 
 
@@ -1447,7 +1485,9 @@ def test_finite_binary64_job_payloads_round_trip(
     payload: dict[str, object],
 ) -> None:
     del name
-    document_record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    document_record = operation_record_from_document(
+        _minimal_operation_document(job_payload=payload)
+    )
     direct_record = _operation_record(job_payload=canonicalize_json_value(payload))
     assert document_record == direct_record
     assert operation_record_from_document(direct_record.to_document()) == direct_record
@@ -1503,7 +1543,9 @@ def test_step_document_emits_closed_key_set() -> None:
 
 def test_operation_record_constructor_uses_shared_validators() -> None:
     with pytest.raises(ValueError, match="mutually exclusive"):
-        _operation_record(job_payload=canonicalize_json_value({}), job_payload_ref=_example_artifact_ref())
+        _operation_record(
+            job_payload=canonicalize_json_value({}), job_payload_ref=_example_artifact_ref()
+        )
 
 
 def test_business_reference_round_trips_document_shape() -> None:
@@ -1722,7 +1764,9 @@ def test_step_record_from_document_rejects_malformed_shapes(
 
 
 @pytest.mark.parametrize(("name", "document"), MINIMAL_OPERATION_STATUS_DOCUMENTS)
-def test_minimal_operation_status_documents_are_valid(name: str, document: dict[str, object]) -> None:
+def test_minimal_operation_status_documents_are_valid(
+    name: str, document: dict[str, object]
+) -> None:
     del name
     record = operation_record_from_document(document)
     round_tripped = operation_record_from_document(record.to_document())
@@ -1784,15 +1828,17 @@ def test_step_status_predicates() -> None:
     final_terminal = {StepStatus.SUCCEEDED, StepStatus.FAILED, StepStatus.CANCELLED}
     for status in StepStatus:
         assert status.is_final_terminal() is (status in final_terminal)
-        assert status.requires_manual_recovery() is (
-            status is StepStatus.MANUAL_RECOVERY_REQUIRED
-        )
+        assert status.requires_manual_recovery() is (status is StepStatus.MANUAL_RECOVERY_REQUIRED)
     assert not StepStatus.MANUAL_RECOVERY_REQUIRED.is_final_terminal()
 
 
 def test_operation_record_is_frozen_and_owns_tuple_refs() -> None:
     business_refs = [{"kind": "workspace", "value": "ws-1"}]
-    artifact_refs = [_example_artifact_ref_dict(artifact_id="a1:durable:1ec1aa1148349044b62347680ba77c84c3b04f52af3f2e874d311b44e75cc714")]
+    artifact_refs = [
+        _example_artifact_ref_dict(
+            artifact_id="a1:durable:1ec1aa1148349044b62347680ba77c84c3b04f52af3f2e874d311b44e75cc714"
+        )
+    ]
     document = _minimal_operation_document(
         business_refs=business_refs,
         artifact_refs=artifact_refs,
@@ -1804,20 +1850,32 @@ def test_operation_record_is_frozen_and_owns_tuple_refs() -> None:
     assert isinstance(record.business_refs, tuple)
     assert isinstance(record.artifact_refs, tuple)
     business_refs.append({"kind": "other", "value": "x"})
-    artifact_refs.append(_example_artifact_ref_dict(artifact_id="a1:durable:7b5ae191f0fa52611be238b046ed7d2c28d136597c50cedcff573dd88e95c67a"))
+    artifact_refs.append(
+        _example_artifact_ref_dict(
+            artifact_id="a1:durable:7b5ae191f0fa52611be238b046ed7d2c28d136597c50cedcff573dd88e95c67a"
+        )
+    )
     assert len(record.business_refs) == 1
     assert len(record.artifact_refs) == 1
 
 
 def test_step_record_is_frozen_and_owns_tuple_refs() -> None:
-    prior_output_refs = [_example_artifact_ref_dict(artifact_id="a1:durable:734e354bdb212baa2b4b0be4870e52056662c8d1feff0f1b5b469762bfe9b2e2")]
+    prior_output_refs = [
+        _example_artifact_ref_dict(
+            artifact_id="a1:durable:734e354bdb212baa2b4b0be4870e52056662c8d1feff0f1b5b469762bfe9b2e2"
+        )
+    ]
     document = _minimal_step_document(prior_output_refs=prior_output_refs)
     record = step_record_from_document(document)
     assert dataclasses.is_dataclass(record)
     with pytest.raises(dataclasses.FrozenInstanceError):
         record.status = StepStatus.RUNNING  # type: ignore[misc]
     assert isinstance(record.prior_output_refs, tuple)
-    prior_output_refs.append(_example_artifact_ref_dict(artifact_id="a1:durable:e5625d74319a69fce01f33aa58e820a4e8ed129e3dd460d13be518aaf8bee5e9"))
+    prior_output_refs.append(
+        _example_artifact_ref_dict(
+            artifact_id="a1:durable:e5625d74319a69fce01f33aa58e820a4e8ed129e3dd460d13be518aaf8bee5e9"
+        )
+    )
     assert len(record.prior_output_refs) == 1
 
 
@@ -1857,7 +1915,9 @@ def test_inline_json_aggregate_boundary_is_accepted(
     payload: dict[str, object],
 ) -> None:
     del name
-    document_record = operation_record_from_document(_minimal_operation_document(job_payload=payload))
+    document_record = operation_record_from_document(
+        _minimal_operation_document(job_payload=payload)
+    )
     direct_record = _operation_record(job_payload=canonicalize_json_value(payload))
     assert document_record == direct_record
 

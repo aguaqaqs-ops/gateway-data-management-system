@@ -15,7 +15,10 @@ from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.storage_projection import KernelExecutionContext
 from gateway_backend.capabilities.table_access import (
-    KernelMemoryLimit, NeverCancel, OperationMemoryBudget, kernel_execution_scope,
+    KernelMemoryLimit,
+    NeverCancel,
+    OperationMemoryBudget,
+    kernel_execution_scope,
 )
 from gateway_backend.capabilities.mutation_planning import (
     MutationFailureCode,
@@ -68,7 +71,9 @@ R7_RENDERER_GOLDEN_CASES: tuple[tuple[str, str], ...] = (
 
 
 @pytest.mark.parametrize(("case_id", "relative_dir"), R7_RENDERER_GOLDEN_CASES)
-def test_renderer_golden_cases(case_id: str, relative_dir: str, operation_kernel_context: KernelExecutionContext) -> None:
+def test_renderer_golden_cases(
+    case_id: str, relative_dir: str, operation_kernel_context: KernelExecutionContext
+) -> None:
     closure = load_closure(relative_dir)
     expected = load_expected_sql(relative_dir)
     outcome = render_change_set_replay(closure, context=operation_kernel_context)
@@ -77,7 +82,9 @@ def test_renderer_golden_cases(case_id: str, relative_dir: str, operation_kernel
     assert outcome.sql_digest == raw_blob_digest(expected)
 
 
-def test_renderer_is_deterministic_for_golden_closure(operation_kernel_context: KernelExecutionContext) -> None:
+def test_renderer_is_deterministic_for_golden_closure(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     closure = load_closure("valid/patch-single-update")
     first = render_change_set_replay(closure, context=operation_kernel_context)
     second = render_change_set_replay(closure, context=operation_kernel_context)
@@ -86,7 +93,9 @@ def test_renderer_is_deterministic_for_golden_closure(operation_kernel_context: 
     assert first.sql_digest == raw_blob_digest(first.sql_bytes)
 
 
-def test_planner_ready_closure_renders_successfully(operation_kernel_context: KernelExecutionContext) -> None:
+def test_planner_ready_closure_renders_successfully(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     result = plan_storage_mutation(
         planning_request(
             policy=MutationPolicy.ADAPTIVE_PATCH,
@@ -102,7 +111,9 @@ def test_planner_ready_closure_renders_successfully(operation_kernel_context: Ke
     assert outcome.sql_bytes.endswith(b"\n")
 
 
-def test_multi_table_sql_statement_order_matches_mutations(operation_kernel_context: KernelExecutionContext) -> None:
+def test_multi_table_sql_statement_order_matches_mutations(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     closure = load_closure("valid/multi-table-patch")
     outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.sql_bytes is not None
@@ -113,7 +124,9 @@ def test_multi_table_sql_statement_order_matches_mutations(operation_kernel_cont
         assert statement.endswith(";")
 
 
-def test_source_literal_anomaly_fixture_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
+def test_source_literal_anomaly_fixture_fails_closed(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     closure = load_closure("capability-failures/source-literal-anomaly")
     outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.status == "FAILED"
@@ -121,13 +134,17 @@ def test_source_literal_anomaly_fixture_fails_closed(operation_kernel_context: K
     assert outcome.sql_bytes is None
 
 
-@pytest.mark.parametrize("invalid_cell", (
-    {"kind": "signed-integer", "decimal": "1-2"},
-    {"kind": "binary", "bytes_base64url": "A"},
-    {"kind": "string", "text": 9},
-))
+@pytest.mark.parametrize(
+    "invalid_cell",
+    (
+        {"kind": "signed-integer", "decimal": "1-2"},
+        {"kind": "binary", "bytes_base64url": "A"},
+        {"kind": "string", "text": 9},
+    ),
+)
 def test_mutated_structural_cell_is_rejected_before_sql_effect(
-    invalid_cell: dict[str, object], operation_kernel_context: KernelExecutionContext,
+    invalid_cell: dict[str, object],
+    operation_kernel_context: KernelExecutionContext,
 ) -> None:
     closure = load_closure("valid/first-load-insert")
     assert closure.mutations[0].after_image is not None
@@ -140,7 +157,9 @@ def test_mutated_structural_cell_is_rejected_before_sql_effect(
     assert outcome.sql_bytes is None
 
 
-def test_wrong_renderer_capability_digest_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
+def test_wrong_renderer_capability_digest_fails_closed(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     closure = change_set_closure(mutations=(delete_mutation(),))
     wrong_capability = RendererCapabilityDeclaration(
         target_kind=MutationTargetKind.CANONICAL_REPOSITORY_REPLAY,
@@ -159,7 +178,9 @@ def test_wrong_renderer_capability_digest_fails_closed(operation_kernel_context:
     assert outcome.failure_code is MutationFailureCode.TARGET_CAPABILITY_UNSUPPORTED
 
 
-def test_external_reference_renderer_capability_fails_closed(operation_kernel_context: KernelExecutionContext) -> None:
+def test_external_reference_renderer_capability_fails_closed(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     closure = change_set_closure(mutations=(delete_mutation(),))
     external = renderer_capability(target_kind=MutationTargetKind.EXTERNAL_REFERENCE)
     patched_manifest = replace(
@@ -193,7 +214,9 @@ def test_renderer_rejects_closed_and_structural_contexts(
         render_change_set_replay(closure, context=Lookalike())  # type: ignore[arg-type]
 
 
-def test_replay_size_cap_boundary_accepts_under_limit(operation_kernel_context: KernelExecutionContext) -> None:
+def test_replay_size_cap_boundary_accepts_under_limit(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     # One INSERT line is far below MAX_REPLAY_SQL_BYTES.
     closure = change_set_closure(mutations=(insert_mutation(),))
     outcome = render_change_set_replay(closure, context=operation_kernel_context)
@@ -213,7 +236,11 @@ def test_replay_frozen_cap_accepts_equality_and_rejects_one_byte_over(case_index
         assert outcome.status == case["expected_status"]
         if case["expected_status"] == "READY":
             assert outcome.sql_bytes is not None
-            assert len(outcome.sql_bytes) == case["complete_statement_bytes"] == vector["sql_cap_bytes"]
+            assert (
+                len(outcome.sql_bytes)
+                == case["complete_statement_bytes"]
+                == vector["sql_cap_bytes"]
+            )
         else:
             assert outcome.failure_code is MutationFailureCode.RESOURCE_EXCEEDED
             assert outcome.sql_bytes is None
@@ -226,12 +253,16 @@ def test_direct_structural_closure_can_render_beyond_durable_json_limit(
     base = insert_mutation()
     assert base.after_image is not None
     text = "z" * (17 * 1024 * 1024)
-    image = PersistedRowImage(tuple(
-        (name, {"kind": "string", "text": text}) if name == "status" else (name, cell)
-        for name, cell in base.after_image.columns
-    ))
-    outcome = render_change_set_replay(change_set_closure(mutations=(replace(base, after_image=image),)),
-                                       context=operation_kernel_context)
+    image = PersistedRowImage(
+        tuple(
+            (name, {"kind": "string", "text": text}) if name == "status" else (name, cell)
+            for name, cell in base.after_image.columns
+        )
+    )
+    outcome = render_change_set_replay(
+        change_set_closure(mutations=(replace(base, after_image=image),)),
+        context=operation_kernel_context,
+    )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     assert len(outcome.sql_bytes) > 16 * 1024 * 1024
@@ -248,7 +279,9 @@ def test_manifest_summaries_remain_charged_as_structural_closure_input() -> None
         assert context.memory.used_bytes == 0
 
 
-def test_update_excludes_key_columns_from_set_clause(operation_kernel_context: KernelExecutionContext) -> None:
+def test_update_excludes_key_columns_from_set_clause(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     closure = load_closure("valid/patch-single-update")
     outcome = render_change_set_replay(closure, context=operation_kernel_context)
     assert outcome.sql_bytes is not None
@@ -275,10 +308,14 @@ def _update_mutation(
 
 
 def _sort_by_key(mutations: tuple[ChangeSetMutation, ...]) -> tuple[ChangeSetMutation, ...]:
-    return tuple(sorted(mutations, key=lambda item: key_bytes_for_ordering(item.canonical_storage_key)))
+    return tuple(
+        sorted(mutations, key=lambda item: key_bytes_for_ordering(item.canonical_storage_key))
+    )
 
 
-def test_renderer_batches_delete_update_and_insert_at_256_rows(operation_kernel_context: KernelExecutionContext) -> None:
+def test_renderer_batches_delete_update_and_insert_at_256_rows(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     deletes = _sort_by_key(
         tuple(delete_mutation(board="1", link_no=str(index)) for index in range(257))
     )
@@ -314,7 +351,9 @@ def test_renderer_batches_delete_update_and_insert_at_256_rows(operation_kernel_
     assert all(len(statement.encode("utf-8")) <= 4 * 1024 * 1024 for statement in statements)
 
 
-def test_renderer_batches_composite_keys_and_mixed_mutations(operation_kernel_context: KernelExecutionContext) -> None:
+def test_renderer_batches_composite_keys_and_mixed_mutations(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     deletes = _sort_by_key(
         (
             delete_mutation(board="1", link_no="2"),
@@ -341,7 +380,8 @@ def test_renderer_batches_composite_keys_and_mixed_mutations(operation_kernel_co
         (insert_mutation(board="3", link_no="6"), insert_mutation(board="3", link_no="7"))
     )
     outcome = render_change_set_replay(
-        change_set_closure(mutations=(*deletes, *updates, *inserts)), context=operation_kernel_context
+        change_set_closure(mutations=(*deletes, *updates, *inserts)),
+        context=operation_kernel_context,
     )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
@@ -359,7 +399,9 @@ def test_renderer_batches_composite_keys_and_mixed_mutations(operation_kernel_co
     assert statements[2].count("), (") == 1
 
 
-def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value(operation_kernel_context: KernelExecutionContext) -> None:
+def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     mutations: list[ChangeSetMutation] = []
     for index in (1, 2):
         gid = 4_000_000_000 + index
@@ -382,7 +424,8 @@ def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value(operat
             )
         )
     outcome = render_change_set_replay(
-        change_set_closure(mutations=_sort_by_key(tuple(mutations))), context=operation_kernel_context
+        change_set_closure(mutations=_sort_by_key(tuple(mutations))),
+        context=operation_kernel_context,
     )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
@@ -393,7 +436,9 @@ def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value(operat
     assert "WHERE `gid` IN (4000000001,4000000002);" in statement
 
 
-def test_renderer_splits_update_batches_at_the_statement_byte_limit(operation_kernel_context: KernelExecutionContext) -> None:
+def test_renderer_splits_update_batches_at_the_statement_byte_limit(
+    operation_kernel_context: KernelExecutionContext,
+) -> None:
     payload = "x" * 2_100_000
     mutations = tuple(
         _update_mutation(
@@ -479,7 +524,9 @@ def _mutation_with_text_value(
     return replace(base, after_image=image)
 
 
-def _rendered_statement_sizes(mutations: tuple[ChangeSetMutation, ...], context: KernelExecutionContext) -> tuple[int, ...]:
+def _rendered_statement_sizes(
+    mutations: tuple[ChangeSetMutation, ...], context: KernelExecutionContext
+) -> tuple[int, ...]:
     outcome = render_change_set_replay(change_set_closure(mutations=mutations), context=context)
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
@@ -528,8 +575,12 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
         _mutation_with_text_value(operation, index=1, value_size=32),
         _mutation_with_text_value(operation, index=2, value_size=exact_value_size),
     )
-    assert _rendered_statement_sizes((exact_mutations[0],), operation_kernel_context)[0] < byte_limit
-    assert _rendered_statement_sizes((exact_mutations[1],), operation_kernel_context)[0] < byte_limit
+    assert (
+        _rendered_statement_sizes((exact_mutations[0],), operation_kernel_context)[0] < byte_limit
+    )
+    assert (
+        _rendered_statement_sizes((exact_mutations[1],), operation_kernel_context)[0] < byte_limit
+    )
     assert _rendered_statement_sizes(exact_mutations, operation_kernel_context) == (byte_limit,)
 
     over_limit_mutations = (
@@ -554,7 +605,9 @@ def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
         index=3,
         value_size=oversized_value_size,
     )
-    assert _rendered_statement_sizes((oversized_mutation,), operation_kernel_context) == (byte_limit + 1,)
+    assert _rendered_statement_sizes((oversized_mutation,), operation_kernel_context) == (
+        byte_limit + 1,
+    )
 
 
 def test_string_escape_in_sql_literal(operation_kernel_context: KernelExecutionContext) -> None:
@@ -584,27 +637,40 @@ def test_string_escape_in_sql_literal(operation_kernel_context: KernelExecutionC
 
 
 # A's independently hand-fixed .15g vectors are the sole scalar registry.
-_FLOAT_CASES = cast(list[dict[str, str]], json.loads((
-    Path(__file__).parents[2] / "fixtures/vectors/mutation/storage-table/v1/cases.json"
-).read_text())["float_15g"])
+_FLOAT_CASES = cast(
+    list[dict[str, str]],
+    json.loads(
+        (
+            Path(__file__).parents[2] / "fixtures/vectors/mutation/storage-table/v1/cases.json"
+        ).read_text()
+    )["float_15g"],
+)
 
 
 @pytest.mark.parametrize("case", _FLOAT_CASES, ids=[case["reason"] for case in _FLOAT_CASES])
 def test_frozen_float_literal_boundaries(
-    case: dict[str, str], operation_kernel_context: KernelExecutionContext,
+    case: dict[str, str],
+    operation_kernel_context: KernelExecutionContext,
 ) -> None:
     kind = case["input_kind"]
-    bits = (case["bits_hex"] if kind == "float32" else
-            struct.pack(">d", float(case["decimal_value"])).hex())
+    bits = (
+        case["bits_hex"]
+        if kind == "float32"
+        else struct.pack(">d", float(case["decimal_value"])).hex()
+    )
     expected = case["expected_sql"].encode("ascii")
     base = insert_mutation()
     assert base.after_image is not None
-    image = PersistedRowImage(tuple(
-        (name, {"kind": kind, "bits_hex": bits}) if name == "status" else (name, cell)
-        for name, cell in base.after_image.columns
-    ))
-    outcome = render_change_set_replay(change_set_closure(mutations=(replace(base, after_image=image),)),
-                                       context=operation_kernel_context)
+    image = PersistedRowImage(
+        tuple(
+            (name, {"kind": kind, "bits_hex": bits}) if name == "status" else (name, cell)
+            for name, cell in base.after_image.columns
+        )
+    )
+    outcome = render_change_set_replay(
+        change_set_closure(mutations=(replace(base, after_image=image),)),
+        context=operation_kernel_context,
+    )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     assert outcome.sql_bytes.endswith(b", " + expected + b");\n")
@@ -622,15 +688,22 @@ class _WindowCase(TypedDict):
     statement_sha256: list[str]
 
 
-_WINDOW_FIXTURE = cast(dict[str, object], json.loads((
-    Path(__file__).parents[2] / "fixtures/vectors/mutation/sql-replay/v1/batch-boundaries.json"
-).read_text()))
+_WINDOW_FIXTURE = cast(
+    dict[str, object],
+    json.loads(
+        (
+            Path(__file__).parents[2]
+            / "fixtures/vectors/mutation/sql-replay/v1/batch-boundaries.json"
+        ).read_text()
+    ),
+)
 _WINDOW_CASES = tuple(cast(list[_WindowCase], _WINDOW_FIXTURE["cases"]))
 
 
 @pytest.mark.parametrize("case", _WINDOW_CASES, ids=[case["name"] for case in _WINDOW_CASES])
 def test_frozen_sql_window_and_byte_flush(
-    case: _WindowCase, operation_kernel_context: KernelExecutionContext,
+    case: _WindowCase,
+    operation_kernel_context: KernelExecutionContext,
 ) -> None:
     operation = RowMutationOperation(case["operation"])
     giant = case["giant_row_zero_based"] is not None
@@ -650,18 +723,30 @@ def test_frozen_sql_window_and_byte_flush(
             else:
                 value = "x" * (limit - 47)
         key = CanonicalStorageKey((("k", {"kind": "string", "text": key_text}),))
-        image = None if operation is RowMutationOperation.DELETE else PersistedRowImage((
-            ("k", {"kind": "string", "text": key_text}),
-            ("v", {"kind": "string", "text": value}),
-        ))
-        mutations.append(ChangeSetMutation(
-            canonical_table="t", operation=operation, canonical_storage_key=key,
-            before_row_digest=None if operation is RowMutationOperation.INSERT
+        image = (
+            None
+            if operation is RowMutationOperation.DELETE
+            else PersistedRowImage(
+                (
+                    ("k", {"kind": "string", "text": key_text}),
+                    ("v", {"kind": "string", "text": value}),
+                )
+            )
+        )
+        mutations.append(
+            ChangeSetMutation(
+                canonical_table="t",
+                operation=operation,
+                canonical_storage_key=key,
+                before_row_digest=None
+                if operation is RowMutationOperation.INSERT
                 else raw_blob_digest(f"before-{row}".encode()),
-            after_image=image,
-        ))
-    outcome = render_change_set_replay(change_set_closure(mutations=tuple(mutations)),
-                                       context=operation_kernel_context)
+                after_image=image,
+            )
+        )
+    outcome = render_change_set_replay(
+        change_set_closure(mutations=tuple(mutations)), context=operation_kernel_context
+    )
     assert outcome.status == "READY"
     assert outcome.sql_bytes is not None
     statements = outcome.sql_bytes.splitlines(keepends=True)

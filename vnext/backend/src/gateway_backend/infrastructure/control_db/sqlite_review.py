@@ -52,7 +52,13 @@ class SQLiteReviewRepository:
                     raise ReviewClosureViolation("review projection is missing")
                 return None
             validate_review_closure(projection, events)
-        except (ReviewClosureViolation, ValueError, OverflowError, KeyError, InvalidReviewReason) as exc:
+        except (
+            ReviewClosureViolation,
+            ValueError,
+            OverflowError,
+            KeyError,
+            InvalidReviewReason,
+        ) as exc:
             raise _map_read_error(exc) from exc
         return projection
 
@@ -65,7 +71,13 @@ class SQLiteReviewRepository:
                     raise ReviewClosureViolation("review projection is missing")
                 return events
             validate_review_closure(projection, events)
-        except (ReviewClosureViolation, ValueError, OverflowError, KeyError, InvalidReviewReason) as exc:
+        except (
+            ReviewClosureViolation,
+            ValueError,
+            OverflowError,
+            KeyError,
+            InvalidReviewReason,
+        ) as exc:
             raise _map_read_error(exc) from exc
         return events
 
@@ -109,7 +121,10 @@ class SQLiteReviewRepository:
             workspace_project_id = row[6]
             if event_kind is None:
                 raise ReviewClosureViolation("review idempotency record points to a missing event")
-            if event_kind == ReviewEventKind.SUBMISSION_FINALIZED.value or record.event_sequence < 1:
+            if (
+                event_kind == ReviewEventKind.SUBMISSION_FINALIZED.value
+                or record.event_sequence < 1
+            ):
                 raise ReviewClosureViolation("review idempotency record is bound to a seed event")
             if workspace_project_id is None:
                 raise ReviewClosureViolation("review idempotency record has no owning workspace")
@@ -117,13 +132,23 @@ class SQLiteReviewRepository:
                 raise ReviewClosureViolation(
                     "review idempotency record business_project_id does not match workspace"
                 )
-        except (ReviewClosureViolation, ValueError, OverflowError, KeyError, InvalidReviewReason) as exc:
+        except (
+            ReviewClosureViolation,
+            ValueError,
+            OverflowError,
+            KeyError,
+            InvalidReviewReason,
+        ) as exc:
             raise _map_read_error(exc) from exc
         return record
 
     def insert_seed(self, event: ReviewEvent, projection: ReviewProjection) -> None:
         self._require_writable()
-        if event.sequence != 0 or projection.optimistic_version != 0 or projection.latest_sequence != 0:
+        if (
+            event.sequence != 0
+            or projection.optimistic_version != 0
+            or projection.latest_sequence != 0
+        ):
             raise ValueError("review seed requires sequence and version 0")
         if event.event_kind is not ReviewEventKind.SUBMISSION_FINALIZED:
             raise ValueError("review seed requires SUBMISSION_FINALIZED event")
@@ -149,7 +174,9 @@ class SQLiteReviewRepository:
                 _projection_to_row(projection),
             )
         except sqlite3.IntegrityError as exc:
-            raise ReviewClosureViolation("review seed already exists or violates constraints") from exc
+            raise ReviewClosureViolation(
+                "review seed already exists or violates constraints"
+            ) from exc
 
     def append_event(self, event: ReviewEvent) -> None:
         self._require_writable()
@@ -364,5 +391,9 @@ def _epoch_us_to_datetime(value: int) -> datetime:
 
 
 def _validate_utc_datetime(value: object, label: str) -> None:
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is None
+        or value.utcoffset() != UTC.utcoffset(value)
+    ):
         raise ValueError(f"{label} must be an aware UTC datetime")

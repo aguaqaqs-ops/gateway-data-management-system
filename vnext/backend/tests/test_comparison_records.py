@@ -10,7 +10,9 @@ from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import (
-    DatasetReplacementResult, DetailedFactsResult, PairResultStatus,
+    DatasetReplacementResult,
+    DetailedFactsResult,
+    PairResultStatus,
 )
 from gateway_backend.capabilities.table_rules.contracts import TableArtifactScope
 from tests.support.comparison_s3_e_live import native_product, publish_product
@@ -30,7 +32,7 @@ def _record_rows(
     try:
         published = publish_product(product, store)
         assert published.records_closure is not None
-        entry, = published.records_closure.records
+        (entry,) = published.records_closure.records
         rows = tuple(
             cast(dict[str, object], row)
             for batch in standalone_records_batches(store, entry)
@@ -52,7 +54,9 @@ def test_records_sort_is_independent_of_source_row_order() -> None:
     assert digest == reordered_digest
     assert rows == reordered_rows
     assert tuple(row["record_kind"] for row in rows) == (
-        "ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED",
+        "ROW_ADDED",
+        "ROW_DELETED",
+        "ROW_MODIFIED",
     )
 
 
@@ -73,7 +77,7 @@ def test_records_preserve_binary_float_decimal_time_and_null() -> None:
         "'2026-08-21T00:00:00Z','present');"
     )
     rows, _ = _record_rows(before, current)
-    row, = rows
+    (row,) = rows
     assert row["record_kind"] == "ROW_MODIFIED"
     values = {
         cast(str, item["column_name"]): cast(dict[str, object], item["value"])
@@ -108,7 +112,10 @@ def test_dataset_replacement_rejects_a_records_ref() -> None:
         facts_with_ref = replace(
             product.result.facts,
             records_ref=ArtifactRef(
-                "a1:durable:660b7b46a8078f8675872c0ac6a53c6cf8f8694d7dc32082014d7555deb1573a", "application/json", 0, raw_blob_digest(b""),
+                "a1:durable:660b7b46a8078f8675872c0ac6a53c6cf8f8694d7dc32082014d7555deb1573a",
+                "application/json",
+                0,
+                raw_blob_digest(b""),
             ),
         )
         with pytest.raises(ValueError, match="records_ref"):

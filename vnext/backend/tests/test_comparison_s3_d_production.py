@@ -22,41 +22,67 @@ from gateway_backend.artifacts import ArtifactRef, artifact_ref_to_dict
 from gateway_backend.application import pair_pipeline
 from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope, BoundSnapshotInput, ComparisonMode, ComparisonPlan, ComparisonRequest,
-    ComparisonStorageFacts, ComparisonTableStatus, DetailedFactsResult, KeylessPolicy,
+    ArtifactScope,
+    BoundSnapshotInput,
+    ComparisonMode,
+    ComparisonPlan,
+    ComparisonRequest,
+    ComparisonStorageFacts,
+    ComparisonTableStatus,
+    DetailedFactsResult,
+    KeylessPolicy,
     SchemaEvolution,
     plan_comparison,
 )
 from gateway_backend.capabilities.comparison import native as comparison_native
 from gateway_backend.capabilities.comparison.contracts import (
-    BlankRecord, BlankRecordKind, BlankSemanticKind, OrderedInterval,
+    BlankRecord,
+    BlankRecordKind,
+    BlankSemanticKind,
+    OrderedInterval,
 )
 from gateway_backend.capabilities.comparison.artifacts import (
     publish_records_closure_arrow,
 )
 from gateway_backend.capabilities.comparison.production import (
-    ComparisonTaskSession, NativeComparison, comparison_input_stream,
+    ComparisonTaskSession,
+    NativeComparison,
+    comparison_input_stream,
     compare_plan_native,
 )
 from gateway_backend.capabilities.comparison.row_encoding import _table_digest_payload
 from gateway_backend.capabilities.risk_evaluation._facts import RiskRecordView
 from gateway_backend.capabilities.risk_evaluation.contracts import OrderedTailBounds
 from gateway_backend.capabilities.risk_evaluation import (
-    RiskEvaluationInput, RiskOptions, RiskRulesetSnapshot,
-    V1_RISK_RULE_SPECS, evaluate_risk, risk_ruleset_document,
+    RiskEvaluationInput,
+    RiskOptions,
+    RiskRulesetSnapshot,
+    V1_RISK_RULE_SPECS,
+    evaluate_risk,
+    risk_ruleset_document,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
-    ArrowSnapshotTableReader, open_snapshot_table_artifact, publish_canonical_tables,
-    snapshot_table_from_arrow, fresh_canonical_view_budget,
+    ArrowSnapshotTableReader,
+    open_snapshot_table_artifact,
+    publish_canonical_tables,
+    snapshot_table_from_arrow,
+    fresh_canonical_view_budget,
 )
 from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    ARTIFACT_COMPRESSION_ZSTD, ROW_FORMAT_PARQUET, ROW_MATERIALIZATION_PROFILE,
-    SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION, SnapshotTable, SnapshotTableArtifact,
+    ARTIFACT_COMPRESSION_ZSTD,
+    ROW_FORMAT_PARQUET,
+    ROW_MATERIALIZATION_PROFILE,
+    SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
+    SnapshotTable,
+    SnapshotTableArtifact,
     SnapshotTableArtifactManifest,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
-    CanonicalKeyPolicy, OrderedPolicy, StorageRuleView, TableStaticRole,
+    CanonicalKeyPolicy,
+    OrderedPolicy,
+    StorageRuleView,
+    TableStaticRole,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context, kernel_control_scope
 from gateway_backend.operations.worker import ExecutionControl
@@ -65,7 +91,11 @@ from tests.support.comparison_cache_inputs import complete_canonical_bound
 from tests.support.comparison_s3_e_frozen import frozen_case
 from tests.support.snapshot_materialization import snapshot_table_as_arrow
 from tests.support.table_rules import (
-    comparison_ruleset_for, fallback_record, ordered_record, standard_rule_record, snapshot_from_records,
+    comparison_ruleset_for,
+    fallback_record,
+    ordered_record,
+    standard_rule_record,
+    snapshot_from_records,
 )
 from tests.test_comparison_replacement import _artifact_bound
 from tests.test_comparison_rule_roles import _plan as role_plan
@@ -74,33 +104,48 @@ pytestmark = pytest.mark.unit
 
 
 def _risk_v8_golden() -> dict[str, Any]:
-    path = Path(__file__).resolve().parents[2] / "fixtures/golden/comparison/s3-e/gw08-risk-expected.json"
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures/golden/comparison/s3-e/gw08-risk-expected.json"
+    )
     return json.loads(path.read_bytes())  # type: ignore[no-any-return]
 
 
 @pytest.mark.parametrize("route", ("standard", "ordered", "probe"))
 def test_native_sort_cap_uses_the_reserved_phase_budget(
-    route: str, monkeypatch: pytest.MonkeyPatch,
+    route: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if route == "ordered":
-        before = bound("CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
-                       "INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b');")
-        current = bound("CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
-                        "INSERT INTO t VALUES (2, 1, 'b'), (1, 2, 'a');")
+        before = bound(
+            "CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
+            "INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b');"
+        )
+        current = bound(
+            "CREATE TABLE t (gid BIGINT, no BIGINT, value TEXT); "
+            "INSERT INTO t VALUES (2, 1, 'b'), (1, 2, 'a');"
+        )
         planned = plan(_ordered_bound(before), _ordered_bound(current), ordered=True)
     elif route == "probe":
-        before = bound("CREATE TABLE t (id INT PRIMARY KEY, value INT); "
-                       "INSERT INTO t VALUES (1, 10);")
-        current = bound("CREATE TABLE t (id INT PRIMARY KEY, value INT, note TEXT); "
-                        "INSERT INTO t VALUES (1, 11, 'new');")
+        before = bound(
+            "CREATE TABLE t (id INT PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);"
+        )
+        current = bound(
+            "CREATE TABLE t (id INT PRIMARY KEY, value INT, note TEXT); "
+            "INSERT INTO t VALUES (1, 11, 'new');"
+        )
         planned = role_plan(
-            _canonical_bound(before), _canonical_bound(current), TableStaticRole.BROWSE_ONLY,
+            _canonical_bound(before),
+            _canonical_bound(current),
+            TableStaticRole.BROWSE_ONLY,
         )
     else:
-        before = bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT); "
-                       "INSERT INTO t VALUES (1, 'before');")
-        current = bound("CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT); "
-                        "INSERT INTO t VALUES (1, 'after');")
+        before = bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT); INSERT INTO t VALUES (1, 'before');"
+        )
+        current = bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, note TEXT); INSERT INTO t VALUES (1, 'after');"
+        )
         planned = plan(_canonical_bound(before), _canonical_bound(current))
 
     reserved: list[int] = []
@@ -113,9 +158,18 @@ def test_native_sort_cap_uses_the_reserved_phase_budget(
         return real_begin(*args, **kwargs)
 
     def observe_compare(*args: Any, **kwargs: Any) -> Any:
-        calls.append({key: kwargs[key] for key in (
-            "max_sort_bytes", "max_records", "max_output_bytes", "max_input_bytes", "kind",
-        )})
+        calls.append(
+            {
+                key: kwargs[key]
+                for key in (
+                    "max_sort_bytes",
+                    "max_records",
+                    "max_output_bytes",
+                    "max_input_bytes",
+                    "kind",
+                )
+            }
+        )
         return real_compare(*args, **kwargs)
 
     monkeypatch.setattr(comparison_native, "begin_records_operation", observe_begin)
@@ -144,12 +198,15 @@ def _canonical_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
         assert isinstance(item.reader, BoundSnapshotTableReader)
         with closing(canonical_stream(item)) as stream:
             backing = stream.read_all()
-        tables.append(snapshot_table_from_arrow(
-            item.descriptor, backing, item.reader.source_descriptor(),
-            ordered=item.ordered_metadata,
-        ))
+        tables.append(
+            snapshot_table_from_arrow(
+                item.descriptor,
+                backing,
+                item.reader.source_descriptor(),
+                ordered=item.ordered_metadata,
+            )
+        )
     return replace(source, table_set=replace(source.table_set, tables=tuple(tables)))
-
 
 
 def _ordered_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
@@ -161,18 +218,29 @@ def _ordered_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     assert source.table_set is not None and source.presentation is not None
     ruleset = snapshot_from_records(ordered_record(r"^t$"), fallback_record())
     projected = project_canonical_arrow_table_set(
-        source.table_set, ruleset, presentation=source.presentation,
+        source.table_set,
+        ruleset,
+        presentation=source.presentation,
     )
     assert projected.manifest is not None
     result = materialize_canonical_snapshot(
-        source.snapshot, projected.tables, artifact_store=InMemoryArtifactStore(),
-        context=ParserInvocationContext(NeverCancel()), repository_id="ordered-fixture",
+        source.snapshot,
+        projected.tables,
+        artifact_store=InMemoryArtifactStore(),
+        context=ParserInvocationContext(NeverCancel()),
+        repository_id="ordered-fixture",
     )
-    assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+    assert (
+        result.snapshot is not None and result.summary is not None and result.table_set is not None
+    )
     return BoundSnapshotInput(
-        result.snapshot, result.summary, result.table_set,
-        _comparison_storage_facts(projected.manifest), presentation=projected.manifest.presentation,
+        result.snapshot,
+        result.summary,
+        result.table_set,
+        _comparison_storage_facts(projected.manifest),
+        presentation=projected.manifest.presentation,
     )
+
 
 def _session_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     return complete_canonical_bound(_canonical_bound(source))
@@ -187,30 +255,42 @@ def _session_bound(source: BoundSnapshotInput) -> BoundSnapshotInput:
     ids=("added-column-and-physical-reorder", "excluded-values-swap-association"),
 )
 def test_ordered_added_column_uses_shared_row_association(
-    current_rows: str, content_changed: bool,
+    current_rows: str,
+    content_changed: bool,
 ) -> None:
-    before = _ordered_bound(bound(
-        "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a','x'),(2,2,'b','y');"
-    ))
+    before = _ordered_bound(
+        bound(
+            "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8));"
+            " INSERT INTO t VALUES (1,1,'a','x'),(2,2,'b','y');"
+        )
+    )
     rows_with_added = current_rows.replace(")", ",'z')")
-    current = _ordered_bound(bound(
-        "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8),"
-        " added VARCHAR(8));"
-        f" INSERT INTO t VALUES {rows_with_added};"
-    ))
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="ordered-added-column-association", before=before, current=current,
-        rule_set=comparison_ruleset_for(ordered_record(
-            r"^t$", compare_excluded_columns=("secret",),
-        )),
-    ))
+    current = _ordered_bound(
+        bound(
+            "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8), secret VARCHAR(8),"
+            " added VARCHAR(8));"
+            f" INSERT INTO t VALUES {rows_with_added};"
+        )
+    )
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="ordered-added-column-association",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(
+                ordered_record(
+                    r"^t$",
+                    compare_excluded_columns=("secret",),
+                )
+            ),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     product = compare_plan_native(planned)
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
-        fact, = product.result.facts.tables
+        (fact,) = product.result.facts.tables
         assert fact.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
         assert fact.status is ComparisonTableStatus.UNCHANGED
         assert fact.content_changed is content_changed
@@ -218,9 +298,14 @@ def test_ordered_added_column_uses_shared_row_association(
         assert fact.ordered_extension is not None
         assert fact.ordered_extension.records == ()
         handle = product.handles["t"]
-        assert all(handle.family_summary(family)[0] == 0 for family in (
-            "STANDARD", "ORDERED", "BLANK",
-        ))
+        assert all(
+            handle.family_summary(family)[0] == 0
+            for family in (
+                "STANDARD",
+                "ORDERED",
+                "BLANK",
+            )
+        )
     finally:
         product.close()
 
@@ -234,8 +319,10 @@ def _bit_artifact_bound(sql: str, store: InMemoryArtifactStore) -> BoundSnapshot
     assert source.table_set.tables[0].descriptor.table_name == "t"
     table = snapshot_table_as_arrow(source.table_set.tables[0])
     published = publish_canonical_tables(
-        (table,), snapshot_digest=source.snapshot.snapshot_digest,
-        store=store, repository_id="replacement-fixture",
+        (table,),
+        snapshot_digest=source.snapshot.snapshot_digest,
+        store=store,
+        repository_id="replacement-fixture",
     )
     assert len(published) == 1 and published[0].artifact is not None
     return replace(source, table_set=replace(source.table_set, tables=published))
@@ -282,16 +369,21 @@ def test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts(
             projected = stream.read_all()
     note_index = projected.schema.get_field_index("note")
     projected = projected.set_column(
-        note_index, pa.field("note", pa.large_string(), nullable=True),
+        note_index,
+        pa.field("note", pa.large_string(), nullable=True),
         projected.column(note_index).cast(pa.large_string()),
     )
     large_input = snapshot_table_from_arrow(
-        fresh.descriptor, projected, fresh.reader.source_descriptor(),
+        fresh.descriptor,
+        projected,
+        fresh.reader.source_descriptor(),
         ordered=fresh.ordered_metadata,
     )
-    large_fresh, = publish_canonical_tables(
-        (large_input,), snapshot_digest=before.snapshot.snapshot_digest,
-        store=store, repository_id="replacement-fixture",
+    (large_fresh,) = publish_canonical_tables(
+        (large_input,),
+        snapshot_digest=before.snapshot.snapshot_digest,
+        store=store,
+        repository_id="replacement-fixture",
     )
     assert isinstance(large_fresh.reader, ArrowSnapshotTableReader)
     assert large_fresh.reader.canonical_comparison_verified
@@ -310,7 +402,9 @@ def test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts(
         artifact = item.table_set.tables[0].artifact
         assert artifact is not None
         table = open_snapshot_table_artifact(
-            store, artifact.manifest_ref, repository_id="replacement-fixture",
+            store,
+            artifact.manifest_ref,
+            repository_id="replacement-fixture",
             canonical_required=True,
         )
         assert isinstance(table.reader, ArrowSnapshotTableReader)
@@ -324,8 +418,12 @@ def test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts(
     try:
         assert isinstance(persisted_product.result, DetailedFactsResult)
         assert persisted_product.result.facts is not None
-        assert persisted_product.result.facts.facts_core_digest.value == expected["facts_core_digest"]
-        assert persisted_product.result.facts.comparison_digest.value == expected["comparison_digest"]
+        assert (
+            persisted_product.result.facts.facts_core_digest.value == expected["facts_core_digest"]
+        )
+        assert (
+            persisted_product.result.facts.comparison_digest.value == expected["comparison_digest"]
+        )
     finally:
         persisted_product.close()
 
@@ -333,8 +431,8 @@ def test_fresh_and_persisted_canonical_bit_inputs_share_frozen_facts(
 def test_fresh_profile_metadata_admission_releases_failed_reader() -> None:
     store = InMemoryArtifactStore()
     before = _artifact_bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');", store,
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'before');",
+        store,
     )
     assert before.table_set is not None
     table = before.table_set.tables[0]
@@ -361,8 +459,10 @@ def test_fresh_high_bit_column_count_keeps_cold_native_phase_and_view_in_same_m(
     current_values[1] = "b'10'"
 
     def sql(values: list[str]) -> str:
-        return (f"CREATE TABLE t (id BIGINT PRIMARY KEY, {bit_columns}); "
-                f"INSERT INTO t VALUES ({', '.join(values)});")
+        return (
+            f"CREATE TABLE t (id BIGINT PRIMARY KEY, {bit_columns}); "
+            f"INSERT INTO t VALUES ({', '.join(values)});"
+        )
 
     before = _bit_artifact_bound(sql(before_values), store)
     current = _bit_artifact_bound(sql(current_values), store)
@@ -390,12 +490,12 @@ def test_fresh_high_bit_column_count_keeps_cold_native_phase_and_view_in_same_m(
 def test_partial_canonical_metadata_is_rejected_after_fresh_publication() -> None:
     store = InMemoryArtifactStore()
     before = _artifact_bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');", store,
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'before');",
+        store,
     )
     current = _artifact_bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');", store,
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'after');",
+        store,
     )
     assert before.table_set is not None
     original = before.table_set.tables[0]
@@ -411,11 +511,16 @@ def test_partial_canonical_metadata_is_rejected_after_fresh_publication() -> Non
     )
     source = original.reader.source_descriptor()
     partial_input = snapshot_table_from_arrow(
-        original.descriptor, partial, source, ordered=original.ordered_metadata,
+        original.descriptor,
+        partial,
+        source,
+        ordered=original.ordered_metadata,
     )
-    published, = publish_canonical_tables(
-        (partial_input,), snapshot_digest=before.snapshot.snapshot_digest,
-        store=store, repository_id="replacement-fixture",
+    (published,) = publish_canonical_tables(
+        (partial_input,),
+        snapshot_digest=before.snapshot.snapshot_digest,
+        store=store,
+        repository_id="replacement-fixture",
     )
     assert isinstance(published.reader, ArrowSnapshotTableReader)
     assert published.reader.canonical_comparison_verified
@@ -450,7 +555,9 @@ def test_partial_canonical_metadata_is_rejected_after_fresh_publication() -> Non
     ),
 )
 def test_production_standard_preserves_fixed_facts_and_facts_order_risk_view(
-    before_sql: str, current_sql: str, record_kinds: tuple[str, ...],
+    before_sql: str,
+    current_sql: str,
+    record_kinds: tuple[str, ...],
     request: pytest.FixtureRequest,
 ) -> None:
     before = bound(before_sql)
@@ -466,7 +573,9 @@ def test_production_standard_preserves_fixed_facts_and_facts_order_risk_view(
         assert actual.facts_core_digest.value == expected["facts_core_digest"]
         assert actual.comparison_digest.value == expected["comparison_digest"]
         assert actual.tables[0].table_fact_digest is not None
-        assert actual.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+        assert (
+            actual.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+        )
         assert actual.tables[0].row_modified_count == 1
         handle = product.handles["t"]
         with closing(handle.risk_record_batches()) as reader:
@@ -490,9 +599,13 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
     """)
     expected = frozen_case(request.node.nodeid)
 
-    product = compare_plan_native(plan(
-        _ordered_bound(before), _ordered_bound(current), ordered=True,
-    ))
+    product = compare_plan_native(
+        plan(
+            _ordered_bound(before),
+            _ordered_bound(current),
+            ordered=True,
+        )
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         actual = product.result.facts
@@ -500,7 +613,9 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert actual.facts_core_digest.value == expected["facts_core_digest"]
         assert actual.comparison_digest.value == expected["comparison_digest"]
         assert actual.tables[0].table_fact_digest is not None
-        assert actual.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+        assert (
+            actual.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+        )
         assert actual.tables[0].ordered_extension is not None
         assert actual.tables[0].blank_extension is not None
         payload = _table_digest_payload(actual.tables[0])
@@ -511,23 +626,26 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         blank_records = []
         for item in expected["blank_records"]:
             interval = item["interval"]
-            blank_records.append(BlankRecord(
-                table_name=actual.tables[0].table_name,
-                record_kind=BlankRecordKind(item["record_kind"]),
-                semantic_kind=BlankSemanticKind(item["semantic_kind"]),
-                interval=OrderedInterval(
-                    before_start=interval["before_start"],
-                    before_end=interval["before_end"],
-                    current_start=interval["current_start"],
-                    current_end=interval["current_end"],
-                    row_count=interval["row_count"],
-                    interval_digest=DigestRef(interval["interval_digest"]),
-                ),
-                before_occupancy=item["before_occupancy"],
-                current_occupancy=item["current_occupancy"],
-            ))
+            blank_records.append(
+                BlankRecord(
+                    table_name=actual.tables[0].table_name,
+                    record_kind=BlankRecordKind(item["record_kind"]),
+                    semantic_kind=BlankSemanticKind(item["semantic_kind"]),
+                    interval=OrderedInterval(
+                        before_start=interval["before_start"],
+                        before_end=interval["before_end"],
+                        current_start=interval["current_start"],
+                        current_end=interval["current_end"],
+                        row_count=interval["row_count"],
+                        interval_digest=DigestRef(interval["interval_digest"]),
+                    ),
+                    before_occupancy=item["before_occupancy"],
+                    current_occupancy=item["current_occupancy"],
+                )
+            )
         blank_only_fact = replace(
-            actual.tables[0], records=(),
+            actual.tables[0],
+            records=(),
             ordered_extension=replace(actual.tables[0].ordered_extension, records=()),
             blank_extension=replace(actual.tables[0].blank_extension, records=tuple(blank_records)),
         )
@@ -543,18 +661,35 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         location_vector = json.loads((fixture_root / "s3-e/gw08-blank-closure.json").read_bytes())
         blank_entry = blank_published.records_closure.records[0]
         assert artifact_ref_to_dict(blank_entry.records_ref) == location_vector["records_ref"]
-        assert artifact_ref_to_dict(blank_entry.records_manifest_ref) == location_vector["manifest_ref"]
+        assert (
+            artifact_ref_to_dict(blank_entry.records_manifest_ref)
+            == location_vector["manifest_ref"]
+        )
         assert blank_entry.records_manifest_digest.value == location_vector["manifest_digest"]
-        assert blank_store.locate(blank_entry.records_manifest_ref) == location_vector["manifest_preimage"].encode()
-        for key, ref in (("records_id_preimage", blank_entry.records_ref),
-                         ("manifest_id_preimage", blank_entry.records_manifest_ref)):
-            assert ref.artifact_id == "a1:comparison:" + hashlib.sha256(location_vector[key].encode()).hexdigest()
+        assert (
+            blank_store.locate(blank_entry.records_manifest_ref)
+            == location_vector["manifest_preimage"].encode()
+        )
+        for key, ref in (
+            ("records_id_preimage", blank_entry.records_ref),
+            ("manifest_id_preimage", blank_entry.records_manifest_ref),
+        ):
+            assert (
+                ref.artifact_id
+                == "a1:comparison:" + hashlib.sha256(location_vector[key].encode()).hexdigest()
+            )
         assert blank_published.facts is not None
         assert blank_published.facts.records_ref is not None
         closure_raw = blank_store.locate(blank_published.facts.records_ref)
         assert closure_raw == location_vector["closure_preimage"].encode()
-        assert "sha256:" + hashlib.sha256(closure_raw).hexdigest() == location_vector["closure_manifest_digest"]
-        assert blank_published.records_closure.closure_manifest_digest.value == location_vector["closure_manifest_digest"]
+        assert (
+            "sha256:" + hashlib.sha256(closure_raw).hexdigest()
+            == location_vector["closure_manifest_digest"]
+        )
+        assert (
+            blank_published.records_closure.closure_manifest_digest.value
+            == location_vector["closure_manifest_digest"]
+        )
         blank_raw = blank_store.locate(blank_published.records_closure.records[0].records_ref)
         assert hashlib.sha256(blank_raw).hexdigest() == expected["blank_only"]["raw_sha256"]
         # This case has only ordered/blank movement, so row-target Risk does
@@ -565,37 +700,54 @@ def test_production_ordered_move_and_blank_match_frozen_facts_and_three_parquets
         assert rules.risk_ruleset_digest.value == _risk_v8_golden()["ruleset_digest"]
         assert risk_ruleset_document(rules) == _risk_v8_golden()["rules"]
         risk_store = InMemoryArtifactStore()
-        new_risk = evaluate_risk(RiskEvaluationInput(
-            comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
-            ordered_record_views=product.handles,
-            ordered_tail_bounds={"t": OrderedTailBounds(4, 4, 4, 3, True)},
-        ), artifact_store=risk_store)
-        annotation_document = json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))
+        new_risk = evaluate_risk(
+            RiskEvaluationInput(
+                comparison_facts=actual,
+                risk_ruleset=rules,
+                risk_options=RiskOptions(),
+                ordered_record_views=product.handles,
+                ordered_tail_bounds={"t": OrderedTailBounds(4, 4, 4, 3, True)},
+            ),
+            artifact_store=risk_store,
+        )
+        annotation_document = json.loads(
+            risk_store.locate(new_risk.annotation_artifacts[0].content_ref)
+        )
         assert annotation_document == _risk_v8_golden()["ordered_annotations"]
         assert new_risk.risk_report is not None
         assert new_risk.risk_report.to_document() == _risk_v8_golden()["ordered_report"]
         annotations = annotation_document["annotations"]
-        assert {(row["reasons"][0]["reason_code"], tuple(row["target"]["position_range"])) for row in annotations
-                if row["target"]["target_type"] == "ROW_INTERVAL"} == {
-            ("ORDERED_TAIL_BLANK_INTERVAL", (4, 4)), ("ORDERED_MIDDLE_BLANK_INTERVAL", (2, 2)),
+        assert {
+            (row["reasons"][0]["reason_code"], tuple(row["target"]["position_range"]))
+            for row in annotations
+            if row["target"]["target_type"] == "ROW_INTERVAL"
+        } == {
+            ("ORDERED_TAIL_BLANK_INTERVAL", (4, 4)),
+            ("ORDERED_MIDDLE_BLANK_INTERVAL", (2, 2)),
         }
         assert new_risk.risk_evaluation is not None
-        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v8_golden()["ordered_risk_evaluation_digest"]
+        assert (
+            new_risk.risk_evaluation.risk_evaluation_digest.value
+            == _risk_v8_golden()["ordered_risk_evaluation_digest"]
+        )
         new_store = InMemoryArtifactStore()
         new_published = publish_records_closure_arrow(
-            product.result, product.handles, new_store,
+            product.result,
+            product.handles,
+            new_store,
         )
         assert isinstance(new_published, DetailedFactsResult)
         assert new_published.records_closure is not None
         old_entries = {entry["family"]: entry for entry in expected["records"]}
-        new_entries = {
-            entry.family.value: entry for entry in new_published.records_closure.records
-        }
+        new_entries = {entry.family.value: entry for entry in new_published.records_closure.records}
         assert set(new_entries) == set(old_entries)
         for family, old_entry in old_entries.items():
             new_entry = new_entries[family]
             assert new_entry.records_content_digest.value == old_entry["content_digest"]
-            assert hashlib.sha256(new_store.locate(new_entry.records_ref)).hexdigest() == old_entry["raw_sha256"]
+            assert (
+                hashlib.sha256(new_store.locate(new_entry.records_ref)).hexdigest()
+                == old_entry["raw_sha256"]
+            )
     finally:
         product.close()
 
@@ -606,9 +758,12 @@ def test_metadata_only_added_deleted_tables_replay_full_core_without_native_read
     before = bound("CREATE TABLE t (id INT PRIMARY KEY); INSERT INTO t VALUES (1);")
     current = bound("CREATE TABLE u (id INT PRIMARY KEY); INSERT INTO u VALUES (2);")
     expected = frozen_case(request.node.nodeid)
-    product = compare_plan_native(plan(
-        _canonical_bound(before), _canonical_bound(current),
-    ))
+    product = compare_plan_native(
+        plan(
+            _canonical_bound(before),
+            _canonical_bound(current),
+        )
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         assert product.result.facts is not None
@@ -623,38 +778,48 @@ def test_metadata_only_added_deleted_tables_replay_full_core_without_native_read
 
 @pytest.mark.parametrize("degrade_keyless", (False, True))
 def test_source_key_transition_uses_the_keyless_policy(
-    degrade_keyless: bool, request: pytest.FixtureRequest,
+    degrade_keyless: bool,
+    request: pytest.FixtureRequest,
 ) -> None:
     before = _fallback_bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, name TEXT); "
-        "INSERT INTO t VALUES (1, 'old');"
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, name TEXT); INSERT INTO t VALUES (1, 'old');"
     )
     current = _fallback_bound(
-        "CREATE TABLE t (id BIGINT, name TEXT); "
-        "INSERT INTO t VALUES (1, 'new');"
+        "CREATE TABLE t (id BIGINT, name TEXT); INSERT INTO t VALUES (1, 'new');"
     )
 
     def transition_plan(left: BoundSnapshotInput, right: BoundSnapshotInput) -> ComparisonPlan:
-        planned = plan_comparison(ComparisonRequest(
-            pair_id="s3-d-source-key-transition", before=left, current=right,
-            rule_set=comparison_ruleset_for(fallback_record()),
-        ))
+        planned = plan_comparison(
+            ComparisonRequest(
+                pair_id="s3-d-source-key-transition",
+                before=left,
+                current=right,
+                rule_set=comparison_ruleset_for(fallback_record()),
+            )
+        )
         assert isinstance(planned, ComparisonPlan)
         task = planned.tasks[0]
         assert task.policy is not None and task.policy.allow_keyless_key_transition
         assert task.policy.effective_key_before == ("id",)
         assert task.policy.effective_key_current == ()
         if degrade_keyless:
-            task = replace(task, policy=replace(
-                task.policy, keyless_policy=KeylessPolicy.DEGRADE_NO_COMPARE_KEY,
-            ))
+            task = replace(
+                task,
+                policy=replace(
+                    task.policy,
+                    keyless_policy=KeylessPolicy.DEGRADE_NO_COMPARE_KEY,
+                ),
+            )
             planned = replace(planned, tasks=(task,))
         return planned
 
     expected = frozen_case(request.node.nodeid)
-    product = compare_plan_native(transition_plan(
-        _canonical_bound(before), _canonical_bound(current),
-    ))
+    product = compare_plan_native(
+        transition_plan(
+            _canonical_bound(before),
+            _canonical_bound(current),
+        )
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         actual = product.result.facts
@@ -662,7 +827,9 @@ def test_source_key_transition_uses_the_keyless_policy(
         assert actual.facts_core_digest.value == expected["facts_core_digest"]
         assert actual.comparison_digest.value == expected["comparison_digest"]
         assert actual.tables[0].table_fact_digest is not None
-        assert actual.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+        assert (
+            actual.tables[0].table_fact_digest.value == expected["tables"][0]["table_fact_digest"]
+        )
         if degrade_keyless:
             assert actual.tables[0].status is ComparisonTableStatus.DEGRADED
     finally:
@@ -680,23 +847,37 @@ def test_keyless_degrade_policy_still_checks_reader_before_schema_record(
     )
 
     def unavailable_plan(left: BoundSnapshotInput, right: BoundSnapshotInput) -> ComparisonPlan:
-        planned = plan_comparison(ComparisonRequest(
-            pair_id="s3-d-keyless-degrade-reader", before=left, current=right,
-            rule_set=comparison_ruleset_for(fallback_record()),
-        ))
+        planned = plan_comparison(
+            ComparisonRequest(
+                pair_id="s3-d-keyless-degrade-reader",
+                before=left,
+                current=right,
+                rule_set=comparison_ruleset_for(fallback_record()),
+            )
+        )
         assert isinstance(planned, ComparisonPlan)
         task = planned.tasks[0]
         assert task.policy is not None and task.current_table is not None
-        return replace(planned, tasks=(replace(
-            task,
-            policy=replace(task.policy, keyless_policy=KeylessPolicy.DEGRADE_NO_COMPARE_KEY),
-            current_table=replace(task.current_table, reader=None, batch_reader=None),
-        ),))
+        return replace(
+            planned,
+            tasks=(
+                replace(
+                    task,
+                    policy=replace(
+                        task.policy, keyless_policy=KeylessPolicy.DEGRADE_NO_COMPARE_KEY
+                    ),
+                    current_table=replace(task.current_table, reader=None, batch_reader=None),
+                ),
+            ),
+        )
 
     expected = frozen_case(request.node.nodeid)
-    product = compare_plan_native(unavailable_plan(
-        _canonical_bound(before), _canonical_bound(current),
-    ))
+    product = compare_plan_native(
+        unavailable_plan(
+            _canonical_bound(before),
+            _canonical_bound(current),
+        )
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         actual = product.result.facts
@@ -709,19 +890,22 @@ def test_keyless_degrade_policy_still_checks_reader_before_schema_record(
 
 @pytest.mark.parametrize("role", (TableStaticRole.BROWSE_ONLY, TableStaticRole.SNAPSHOT_ONLY))
 def test_nonrecord_added_column_uses_shared_multiset_without_public_row_counts(
-    role: TableStaticRole, request: pytest.FixtureRequest,
+    role: TableStaticRole,
+    request: pytest.FixtureRequest,
 ) -> None:
-    before = bound(
-        "CREATE TABLE t (id INT PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);"
-    )
+    before = bound("CREATE TABLE t (id INT PRIMARY KEY, value INT); INSERT INTO t VALUES (1, 10);")
     current = bound(
         "CREATE TABLE t (id INT PRIMARY KEY, value INT, note TEXT); "
         "INSERT INTO t VALUES (1, 11, 'new');"
     )
     expected = frozen_case(request.node.nodeid)
-    product = compare_plan_native(role_plan(
-        _canonical_bound(before), _canonical_bound(current), role,
-    ))
+    product = compare_plan_native(
+        role_plan(
+            _canonical_bound(before),
+            _canonical_bound(current),
+            role,
+        )
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         actual = product.result.facts
@@ -740,30 +924,41 @@ def test_nonrecord_added_column_uses_shared_multiset_without_public_row_counts(
 def _fallback_bound(sql: str) -> BoundSnapshotInput:
     source = bound(sql)
     descriptor = source.summary.tables[0]
-    return replace(source, storage_facts=(ComparisonStorageFacts(
-        storage_rule_view=StorageRuleView(
-            canonical_table=descriptor.table_name,
-            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
-            ordered_policy=OrderedPolicy.NONE,
-            retained_columns=tuple(column.name for column in descriptor.columns),
-            canonical_key_columns=descriptor.primary_key_columns,
+    return replace(
+        source,
+        storage_facts=(
+            ComparisonStorageFacts(
+                storage_rule_view=StorageRuleView(
+                    canonical_table=descriptor.table_name,
+                    canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+                    ordered_policy=OrderedPolicy.NONE,
+                    retained_columns=tuple(column.name for column in descriptor.columns),
+                    canonical_key_columns=descriptor.primary_key_columns,
+                ),
+                source_schema_digest=raw_blob_digest(b"s3-d-keyless-source"),
+            ),
         ),
-        source_schema_digest=raw_blob_digest(b"s3-d-keyless-source"),
-    ),))
+    )
 
 
 def _keyless_update_only_plan(
-    before: BoundSnapshotInput, current: BoundSnapshotInput,
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
 ) -> ComparisonPlan:
-    planned = plan_comparison(ComparisonRequest(
-        pair_id="s3-d-keyless-update-only", before=before, current=current,
-        rule_set=comparison_ruleset_for(fallback_record()),
-    ))
+    planned = plan_comparison(
+        ComparisonRequest(
+            pair_id="s3-d-keyless-update-only",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(fallback_record()),
+        )
+    )
     assert isinstance(planned, ComparisonPlan)
     task = planned.tasks[0]
     assert task.policy is not None
     changed = replace(
-        task, artifact_scope=ArtifactScope.UPDATE_ONLY,
+        task,
+        artifact_scope=ArtifactScope.UPDATE_ONLY,
         policy=replace(task.policy, compare_excluded_columns=("secret",)),
     )
     return replace(planned, tasks=(changed,))
@@ -776,12 +971,12 @@ def test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status(
         "CREATE TABLE t (name TEXT, secret TEXT); INSERT INTO t VALUES ('a', 'x');"
     )
     current = _fallback_bound(
-        "CREATE TABLE t (name TEXT, secret TEXT, added TEXT); "
-        "INSERT INTO t VALUES ('b', 'y', 'z');"
+        "CREATE TABLE t (name TEXT, secret TEXT, added TEXT); INSERT INTO t VALUES ('b', 'y', 'z');"
     )
     expected = frozen_case(request.node.nodeid)
     native_plan = _keyless_update_only_plan(
-        _canonical_bound(before), _canonical_bound(current),
+        _canonical_bound(before),
+        _canonical_bound(current),
     )
     product = compare_plan_native(native_plan)
     try:
@@ -801,27 +996,41 @@ def test_keyless_columns_added_update_only_keeps_suppressed_counts_and_status(
         assert rules.risk_ruleset_digest is not None
         assert rules.risk_ruleset_digest.value == _risk_v8_golden()["ruleset_digest"]
         risk_store = InMemoryArtifactStore()
-        new_risk = evaluate_risk(RiskEvaluationInput(
-            comparison_facts=actual, risk_ruleset=rules, risk_options=RiskOptions(),
-        ), artifact_store=risk_store)
+        new_risk = evaluate_risk(
+            RiskEvaluationInput(
+                comparison_facts=actual,
+                risk_ruleset=rules,
+                risk_options=RiskOptions(),
+            ),
+            artifact_store=risk_store,
+        )
         assert new_risk.risk_report is not None
         assert new_risk.risk_report.to_document() == _risk_v8_golden()["keyless_report"]
-        assert json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref)) == _risk_v8_golden()["keyless_annotations"]
+        assert (
+            json.loads(risk_store.locate(new_risk.annotation_artifacts[0].content_ref))
+            == _risk_v8_golden()["keyless_annotations"]
+        )
         assert new_risk.risk_evaluation is not None
-        assert new_risk.risk_evaluation.risk_evaluation_digest.value == _risk_v8_golden()["keyless_risk_evaluation_digest"]
+        assert (
+            new_risk.risk_evaluation.risk_evaluation_digest.value
+            == _risk_v8_golden()["keyless_risk_evaluation_digest"]
+        )
     finally:
         product.close()
 
 
 def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');"
-    ))
+    before = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+            "INSERT INTO t VALUES (1, 'before');"
+        )
+    )
+    current = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'after');"
+        )
+    )
     template = plan(before, current)
     first = replace(template, pair_id="baseline-to-initial")
     second = replace(template, pair_id="initial-to-modified")
@@ -862,17 +1071,18 @@ def test_full_pair_session_reuses_only_an_identical_declared_task() -> None:
 
 @pytest.mark.parametrize("row_change", ("modified", "added"))
 def test_second_pair_writer_releases_optional_risk_retention_before_publication(
-    monkeypatch: pytest.MonkeyPatch, row_change: str,
+    monkeypatch: pytest.MonkeyPatch,
+    row_change: str,
 ) -> None:
     store = InMemoryArtifactStore()
     before = _artifact_bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');", store,
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'before');",
+        store,
     )
-    current_sql = (
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        + ("INSERT INTO t VALUES (1, 'after');" if row_change == "modified"
-           else "INSERT INTO t VALUES (1, 'before'), (2, 'after');")
+    current_sql = "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); " + (
+        "INSERT INTO t VALUES (1, 'after');"
+        if row_change == "modified"
+        else "INSERT INTO t VALUES (1, 'before'), (2, 'after');"
     )
     current = complete_canonical_bound(_artifact_bound(current_sql, store))
     before = complete_canonical_bound(before)
@@ -880,12 +1090,22 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     assert isinstance(before.table_set.tables[0].reader, ArrowSnapshotTableReader)
     assert isinstance(current.table_set.tables[0].reader, ArrowSnapshotTableReader)
     rules = comparison_ruleset_for(standard_rule_record("t"))
-    first_plan = plan_comparison(ComparisonRequest(
-        pair_id="writer-first", before=before, current=current, rule_set=rules,
-    ))
-    second_plan = plan_comparison(ComparisonRequest(
-        pair_id="writer-second", before=before, current=current, rule_set=rules,
-    ))
+    first_plan = plan_comparison(
+        ComparisonRequest(
+            pair_id="writer-first",
+            before=before,
+            current=current,
+            rule_set=rules,
+        )
+    )
+    second_plan = plan_comparison(
+        ComparisonRequest(
+            pair_id="writer-second",
+            before=before,
+            current=current,
+            rule_set=rules,
+        )
+    )
     assert isinstance(first_plan, ComparisonPlan) and isinstance(second_plan, ComparisonPlan)
     session = ComparisonTaskSession((first_plan, second_plan))
     assert tuple(session.remaining_uses.values()) == (2,)
@@ -893,7 +1113,9 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     real_compare = pair_pipeline.compare_plan_native
 
     def observe_compare(
-        planned: ComparisonPlan, *, session: ComparisonTaskSession | None = None,
+        planned: ComparisonPlan,
+        *,
+        session: ComparisonTaskSession | None = None,
     ) -> NativeComparison:
         result = real_compare(planned, session=session)
         observed.append((planned, result))
@@ -902,10 +1124,17 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     monkeypatch.setattr(pair_pipeline, "compare_plan_native", observe_compare)
     assert before.presentation is not None and current.presentation is not None
     first = run_preview_pair_pipeline(
-        pair_id="writer-first", before=before, current=current,
-        before_presentation=before.presentation, current_presentation=current.presentation,
-        store=store, control=ExecutionControl(), on_cancel=lambda: None,
-        rule_set=rules, assess_identity=False, dedup_session=session,
+        pair_id="writer-first",
+        before=before,
+        current=current,
+        before_presentation=before.presentation,
+        current_presentation=current.presentation,
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+        rule_set=rules,
+        assess_identity=False,
+        dedup_session=session,
         repository_id="replacement-fixture",
     )
     assert first.records_closure is not None
@@ -916,9 +1145,11 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     assert first_native.result.facts is not None
     first_fact = first_native.result.facts.tables[0]
     assert first_fact.status is ComparisonTableStatus.MODIFIED, (
-        first_fact.status, first_fact.diagnostics,
+        first_fact.status,
+        first_fact.diagnostics,
         tuple(record.record_kind.value for record in first_fact.records),
-        first_fact.row_added_count, first_fact.row_modified_count,
+        first_fact.row_added_count,
+        first_fact.row_modified_count,
         None if first_native.metrics is None else first_native.metrics.native_calls,
     )
     assert (first_fact.row_added_count, first_fact.row_modified_count) == (
@@ -926,23 +1157,32 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
     )
     declared_key = session.declared_keys.get(("writer-first", "t"))
     assert declared_key is not None, (
-        session.remaining_uses, session.calls, session.reads,
-        first_fact.status, first_fact.diagnostics,
+        session.remaining_uses,
+        session.calls,
+        session.reads,
+        first_fact.status,
+        first_fact.diagnostics,
     )
     assert first_native.task_keys == {"t": declared_key}, (
-        first_native.task_keys, first_native.consumed_keys,
+        first_native.task_keys,
+        first_native.consumed_keys,
         session.key_for(actual_plan, actual_plan.tasks[0]) == declared_key,
-        session.calls, session.reads,
+        session.calls,
+        session.reads,
     )
-    first_records = tuple(store.locate(entry.records_ref) for entry in first.records_closure.records)
+    first_records = tuple(
+        store.locate(entry.records_ref) for entry in first.records_closure.records
+    )
     assert len(session.cached) == 1 and tuple(session.remaining_uses.values()) == (1,)
     assert len(session.risk_candidates) == 1
     context = current_kernel_context()
     assert context is not None
     _, optional_charges = next(iter(session.risk_candidates.values()))
-    optional_charges.enter_context(context.memory.reserve(
-        context.memory.available_bytes - 512 * 1024**2,
-    ))
+    optional_charges.enter_context(
+        context.memory.reserve(
+            context.memory.available_bytes - 512 * 1024**2,
+        )
+    )
     evictions = 0
     original_evict = session.risk_evict_for_output
 
@@ -953,29 +1193,41 @@ def test_second_pair_writer_releases_optional_risk_retention_before_publication(
 
     monkeypatch.setattr(session, "risk_evict_for_output", counted_evict)
     second = run_preview_pair_pipeline(
-        pair_id="writer-second", before=before, current=current,
-        before_presentation=before.presentation, current_presentation=current.presentation,
-        store=store, control=ExecutionControl(), on_cancel=lambda: None,
-        rule_set=rules, assess_identity=False, dedup_session=session,
+        pair_id="writer-second",
+        before=before,
+        current=current,
+        before_presentation=before.presentation,
+        current_presentation=current.presentation,
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+        rule_set=rules,
+        assess_identity=False,
+        dedup_session=session,
         repository_id="replacement-fixture",
     )
     assert evictions >= 1 and session.risk_candidates == {}
     assert second.records_closure is not None
     assert second.comparison_digest == first.comparison_digest
     assert second.risk_digest == first.risk_digest
-    assert tuple((entry.family, entry.records_content_digest) for entry in second.records_closure.records) == tuple(
+    assert tuple(
+        (entry.family, entry.records_content_digest) for entry in second.records_closure.records
+    ) == tuple(
         (entry.family, entry.records_content_digest) for entry in first.records_closure.records
     )
-    assert tuple(store.locate(entry.records_ref) for entry in second.records_closure.records) == first_records
+    assert (
+        tuple(store.locate(entry.records_ref) for entry in second.records_closure.records)
+        == first_records
+    )
 
 
 def test_single_pair_declares_no_long_lived_comparison_result() -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
-    ))
+    before = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);")
+    )
+    current = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);")
+    )
     single = plan(before, current)
     session = ComparisonTaskSession((single,))
     assert session.remaining_uses == {} and session.key_charges == {}
@@ -989,29 +1241,31 @@ def test_single_pair_declares_no_long_lived_comparison_result() -> None:
 
 
 def test_replacement_plans_declare_no_row_comparison_uses() -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
-    ))
+    before = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);")
+    )
+    current = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);")
+    )
     template = replace(plan(before, current), mode=ComparisonMode.DATASET_REPLACEMENT)
-    session = ComparisonTaskSession((
-        replace(template, pair_id="replacement-first"),
-        replace(template, pair_id="replacement-second"),
-    ))
+    session = ComparisonTaskSession(
+        (
+            replace(template, pair_id="replacement-first"),
+            replace(template, pair_id="replacement-second"),
+        )
+    )
     assert session.remaining_uses == {}
     assert session.declared_keys == {}
     assert session.key_charges == {}
 
 
 def test_large_optional_cache_key_safely_misses_without_changing_facts() -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
-    ))
+    before = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);")
+    )
+    current = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);")
+    )
     template = replace(plan(before, current), options=(("large_optional_identity", "x" * 70_000),))
     first = replace(template, pair_id="large-key-first")
     second = replace(template, pair_id="large-key-second")
@@ -1033,12 +1287,12 @@ def test_large_optional_cache_key_safely_misses_without_changing_facts() -> None
 
 
 def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt() -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);"
-    ))
+    before = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (1);")
+    )
+    current = _session_bound(
+        bound("CREATE TABLE t (id BIGINT PRIMARY KEY); INSERT INTO t VALUES (2);")
+    )
     template = plan(before, current)
     first = replace(template, pair_id="pressure-first")
     second = replace(template, pair_id="pressure-second")
@@ -1052,8 +1306,7 @@ def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt
     finally:
         reference.close()
     metadata_admissions = [
-        item for item in context.memory.stage_admissions
-        if item["stage"] == "comparison-metadata"
+        item for item in context.memory.stage_admissions if item["stage"] == "comparison-metadata"
     ]
     assert metadata_admissions
     metadata_upper = int(metadata_admissions[-1]["temporary_limit_bytes"])
@@ -1083,17 +1336,25 @@ def test_optional_cache_pressure_retries_after_releasing_failed_metadata_attempt
 
 def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotTableArtifact:
     empty_digest = raw_blob_digest(b"")
-    reference = ArtifactRef(build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "reader-failure"), "application/octet-stream", 0, empty_digest)
+    reference = ArtifactRef(
+        build_artifact_id(ArtifactLocation.DURABLE, "test-fixture", "reader-failure"),
+        "application/octet-stream",
+        0,
+        empty_digest,
+    )
     return SnapshotTableArtifact(
         manifest_ref=reference,
         manifest=SnapshotTableArtifactManifest(
             artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
             snapshot_digest=snapshot_digest,
-            table_name="t", descriptor=table.descriptor,
-            row_file_refs=(reference,), row_format=ROW_FORMAT_PARQUET,
+            table_name="t",
+            descriptor=table.descriptor,
+            row_file_refs=(reference,),
+            row_format=ROW_FORMAT_PARQUET,
             compression=ARTIFACT_COMPRESSION_ZSTD,
             row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-            artifact_content_digest=empty_digest, created_at="2026-11-08T00:00:00Z",
+            artifact_content_digest=empty_digest,
+            created_at="2026-11-08T00:00:00Z",
         ),
         row_layout_digest=empty_digest,
     )
@@ -1102,25 +1363,42 @@ def _artifact_for(table: SnapshotTable, snapshot_digest: DigestRef) -> SnapshotT
 def test_same_artifact_with_missing_reader_cannot_replay_a_cached_table(
     request: pytest.FixtureRequest,
 ) -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');"
-    ))
+    before = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+            "INSERT INTO t VALUES (1, 'before');"
+        )
+    )
+    current = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'after');"
+        )
+    )
     template = plan(before, current)
     table = template.tasks[0].current_table
     assert table is not None
     artifact = _artifact_for(table, current.snapshot.snapshot_digest)
     ready_table = replace(table, artifact=artifact)
-    first = replace(template, pair_id="ready-reader", tasks=(replace(
-        template.tasks[0], current_table=ready_table,
-    ),))
-    unavailable = replace(first, pair_id="missing-reader", tasks=(replace(
-        first.tasks[0], current_table=replace(ready_table, reader=None, batch_reader=None),
-    ),))
+    first = replace(
+        template,
+        pair_id="ready-reader",
+        tasks=(
+            replace(
+                template.tasks[0],
+                current_table=ready_table,
+            ),
+        ),
+    )
+    unavailable = replace(
+        first,
+        pair_id="missing-reader",
+        tasks=(
+            replace(
+                first.tasks[0],
+                current_table=replace(ready_table, reader=None, batch_reader=None),
+            ),
+        ),
+    )
     expected = frozen_case(request.node.nodeid)
     session = ComparisonTaskSession((first, unavailable))
     # Reader availability is a current resource fact, not a semantic key field.
@@ -1144,13 +1422,14 @@ def test_same_artifact_with_missing_reader_cannot_replay_a_cached_table(
 
 
 def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');"
-    ))
+    before = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+            "INSERT INTO t VALUES (1, 'before');"
+        )
+    )
     current_sql = (
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');"
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'after');"
     )
     failed_current = _session_bound(bound(current_sql))
     ready_current = _session_bound(bound(current_sql))
@@ -1160,12 +1439,26 @@ def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
     ready_table = ready.tasks[0].current_table
     assert failed_table is not None and ready_table is not None
     artifact = _artifact_for(failed_table, failed_current.snapshot.snapshot_digest)
-    failed = replace(failed, pair_id="closed-first", tasks=(replace(
-        failed.tasks[0], current_table=replace(failed_table, artifact=artifact),
-    ),))
-    ready = replace(ready, pair_id="ready-second", tasks=(replace(
-        ready.tasks[0], current_table=replace(ready_table, artifact=artifact),
-    ),))
+    failed = replace(
+        failed,
+        pair_id="closed-first",
+        tasks=(
+            replace(
+                failed.tasks[0],
+                current_table=replace(failed_table, artifact=artifact),
+            ),
+        ),
+    )
+    ready = replace(
+        ready,
+        pair_id="ready-second",
+        tasks=(
+            replace(
+                ready.tasks[0],
+                current_table=replace(ready_table, artifact=artifact),
+            ),
+        ),
+    )
     session = ComparisonTaskSession((failed, ready))
     assert len(session.remaining_uses) == 1
     assert failed.tasks[0].current_table is not None
@@ -1198,14 +1491,17 @@ def test_degraded_first_use_is_recomputed_for_the_next_same_key() -> None:
 def test_cached_success_is_rechecked_when_the_same_reader_closes(
     request: pytest.FixtureRequest,
 ) -> None:
-    before = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');"
-    ))
-    current = _session_bound(bound(
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');"
-    ))
+    before = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
+            "INSERT INTO t VALUES (1, 'before');"
+        )
+    )
+    current = _session_bound(
+        bound(
+            "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'after');"
+        )
+    )
     template = plan(before, current)
     table = template.tasks[0].current_table
     assert table is not None and table.reader is not None
@@ -1246,25 +1542,33 @@ def test_ordered_reader_failure_preserves_standard_ordered_and_blank_degradation
     request: pytest.FixtureRequest,
 ) -> None:
     before = bound(
-        "CREATE TABLE t (gid BIGINT, no BIGINT, name TEXT); "
-        "INSERT INTO t VALUES (1, 1, 'before');"
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name TEXT); INSERT INTO t VALUES (1, 1, 'before');"
     )
     current = bound(
-        "CREATE TABLE t (gid BIGINT, no BIGINT, name TEXT); "
-        "INSERT INTO t VALUES (1, 1, 'after');"
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name TEXT); INSERT INTO t VALUES (1, 1, 'after');"
     )
 
     def missing_reader(planned: ComparisonPlan) -> ComparisonPlan:
         task = planned.tasks[0]
         assert task.current_table is not None
-        return replace(planned, tasks=(replace(
-            task, current_table=replace(task.current_table, reader=None, batch_reader=None),
-        ),))
+        return replace(
+            planned,
+            tasks=(
+                replace(
+                    task,
+                    current_table=replace(task.current_table, reader=None, batch_reader=None),
+                ),
+            ),
+        )
 
     expected = frozen_case(request.node.nodeid)
-    native_plan = missing_reader(plan(
-        _ordered_bound(before), _ordered_bound(current), ordered=True,
-    ))
+    native_plan = missing_reader(
+        plan(
+            _ordered_bound(before),
+            _ordered_bound(current),
+            ordered=True,
+        )
+    )
     product = compare_plan_native(native_plan)
     try:
         assert isinstance(product.result, DetailedFactsResult)
@@ -1284,13 +1588,13 @@ def test_ordered_reader_failure_preserves_standard_ordered_and_blank_degradation
 
 @pytest.mark.parametrize("ordered", (False, True))
 def test_closed_reader_is_an_ordinary_per_table_failure(
-    ordered: bool, request: pytest.FixtureRequest,
+    ordered: bool,
+    request: pytest.FixtureRequest,
 ) -> None:
     before_sql = (
-        "CREATE TABLE t (gid BIGINT, no BIGINT, name TEXT); "
-        "INSERT INTO t VALUES (1, 1, 'before');"
-        if ordered else
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, name TEXT); "
+        "CREATE TABLE t (gid BIGINT, no BIGINT, name TEXT); INSERT INTO t VALUES (1, 1, 'before');"
+        if ordered
+        else "CREATE TABLE t (id BIGINT PRIMARY KEY, name TEXT); "
         "INSERT INTO t VALUES (1, 'before');"
     )
     current_sql = before_sql.replace("before", "after")
@@ -1317,8 +1621,11 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
         assert expected["tables"][0]["diagnostics"] == ["TableAccessError"]
         assert actual.facts_core_digest.value == expected["facts_core_digest"]
         assert actual.comparison_digest.value == expected["comparison_digest"]
-        assert (actual.tables[0].row_added_count, actual.tables[0].row_deleted_count,
-                actual.tables[0].row_modified_count) == (0, 0, 0)
+        assert (
+            actual.tables[0].row_added_count,
+            actual.tables[0].row_deleted_count,
+            actual.tables[0].row_modified_count,
+        ) == (0, 0, 0)
     finally:
         product.close()
 
@@ -1326,17 +1633,16 @@ def test_closed_reader_is_an_ordinary_per_table_failure(
 def test_duplicate_key_keeps_the_frozen_table_diagnostic(
     request: pytest.FixtureRequest,
 ) -> None:
-    before = bound(
-        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);"
-    )
-    current = bound(
-        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1), (1);"
-    )
+    before = bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);")
+    current = bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1), (1);")
     expected = frozen_case(request.node.nodeid)
     assert expected["tables"][0]["diagnostics"] == ["DUPLICATE_EFFECTIVE_KEY:t"]
-    product = compare_plan_native(plan(
-        _canonical_bound(before), _canonical_bound(current),
-    ))
+    product = compare_plan_native(
+        plan(
+            _canonical_bound(before),
+            _canonical_bound(current),
+        )
+    )
     try:
         assert isinstance(product.result, DetailedFactsResult)
         actual = product.result.facts
@@ -1350,15 +1656,14 @@ def test_duplicate_key_keeps_the_frozen_table_diagnostic(
 
 @pytest.mark.parametrize("fresh", (False, True))
 def test_reader_cancel_inside_arrow_stream_stops_before_table_degradation(
-    monkeypatch: pytest.MonkeyPatch, fresh: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    fresh: bool,
 ) -> None:
     before_sql = (
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'before');"
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'before');"
     )
     current_sql = (
-        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); "
-        "INSERT INTO t VALUES (1, 'after');"
+        "CREATE TABLE t (id BIGINT PRIMARY KEY, value TEXT); INSERT INTO t VALUES (1, 'after');"
     )
     if fresh:
         store = InMemoryArtifactStore()

@@ -21,9 +21,7 @@ def test_storage_key_order_uses_jcs_document_bytes() -> None:
     vectors = storage_table_vectors()
     for case in vectors["jcs_storage_keys"]:
         key = CanonicalStorageKey(
-            columns=tuple(
-                (entry["column"], entry["value"]) for entry in case["input_columns"]
-            )
+            columns=tuple((entry["column"], entry["value"]) for entry in case["input_columns"])
         )
         assert key_bytes_for_ordering(key) == case["expected_key_document_utf8"].encode()
     ten, two = vectors["jcs_storage_keys"][1:]

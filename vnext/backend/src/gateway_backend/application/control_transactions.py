@@ -20,11 +20,21 @@ class ControlTransaction(Protocol):
 
 
 class ReadOnlySubmissionReader(Protocol):
-    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
-                           repository_id: str | None = None) -> SubmitAttempt | None: ...
+    def get_submit_attempt(
+        self,
+        submit_attempt_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> SubmitAttempt | None: ...
 
-    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
-                       repository_id: str | None = None) -> Submission | None: ...
+    def get_submission(
+        self,
+        submission_id: str,
+        *,
+        workspace_id: str | None = None,
+        repository_id: str | None = None,
+    ) -> Submission | None: ...
 
 
 class ControlDbSession(Protocol):

@@ -8,19 +8,33 @@ from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_d
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonFacts, ComparisonPlan, ComparisonRecord,
-    ComparisonRecordKind, ComparisonSchemaChanges, ComparisonSummary,
-    ComparisonTableFact, ComparisonTableStatus, PairResultStatus,
-    SchemaEvolution, _ComparisonTablePolicy,
+    ComparisonFacts,
+    ComparisonPlan,
+    ComparisonRecord,
+    ComparisonRecordKind,
+    ComparisonSchemaChanges,
+    ComparisonSummary,
+    ComparisonTableFact,
+    ComparisonTableStatus,
+    PairResultStatus,
+    SchemaEvolution,
+    _ComparisonTablePolicy,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.row_encoding import (
-    _can_table_early_exit, _column_map, _empty_schema_changes,
-    _ordered_policy_payload, _schema_changes_from_view,
-    _schema_diagnostics, _schema_only_fact, _schema_view, _pure_column_change,
+    _can_table_early_exit,
+    _column_map,
+    _empty_schema_changes,
+    _ordered_policy_payload,
+    _schema_changes_from_view,
+    _schema_diagnostics,
+    _schema_only_fact,
+    _schema_view,
+    _pure_column_change,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    COMPARISON_PROJECTION_CONTRACT_VERSION, SCALAR_ENCODING_VERSION,
+    COMPARISON_PROJECTION_CONTRACT_VERSION,
+    SCALAR_ENCODING_VERSION,
     SnapshotTableDescriptor,
 )
 
@@ -73,18 +87,26 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
     schema = _schema_view(before_descriptor, current_descriptor, policy)
     schema_changes = _schema_changes_from_view(schema, policy)
     schema_diagnostics = _schema_diagnostics(schema, policy)
-    if before_descriptor.row_count == current_descriptor.row_count == 0 and _pure_column_change(schema):
+    if before_descriptor.row_count == current_descriptor.row_count == 0 and _pure_column_change(
+        schema
+    ):
         return ComparisonTableFact(
-            table_name=task.table_name, status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
-            before_descriptor=before_descriptor, current_descriptor=current_descriptor,
-            schema_changes=schema_changes, row_count_before=0, row_count_current=0,
+            table_name=task.table_name,
+            status=ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
+            before_descriptor=before_descriptor,
+            current_descriptor=current_descriptor,
+            schema_changes=schema_changes,
+            row_count_before=0,
+            row_count_current=0,
             shared_value_equality="BOUND_EMPTY_DESCRIPTORS",
         )
     # With no rows on either side, equal bound schemas prove equality even
     # when an explicit comparison column is absent. Do not guess a row key.
-    if (before_descriptor.row_count == current_descriptor.row_count == 0
-            and before_descriptor.business_schema_digest == current_descriptor.business_schema_digest
-            and not schema.key_changed):
+    if (
+        before_descriptor.row_count == current_descriptor.row_count == 0
+        and before_descriptor.business_schema_digest == current_descriptor.business_schema_digest
+        and not schema.key_changed
+    ):
         return ComparisonTableFact(
             table_name=task.table_name,
             status=ComparisonTableStatus.UNCHANGED,
@@ -134,6 +156,7 @@ def _compare_task_metadata(task: Any) -> ComparisonTableFact:
 
     raise StandardComparisonError("METADATA_ROUTE_REQUIRES_NATIVE_ROWS")
 
+
 def _compare_single_side(
     table_name: str,
     descriptor: SnapshotTableDescriptor | None,
@@ -149,9 +172,7 @@ def _compare_single_side(
         before_only_columns=() if added else selected,
         selected_columns=selected,
         effective_compare_key_current=policy.effective_key_current if added else (),
-        effective_compare_key_before=()
-        if added
-        else policy.effective_key_before,
+        effective_compare_key_before=() if added else policy.effective_key_before,
     )
     return ComparisonTableFact(
         table_name=table_name,
@@ -165,6 +186,7 @@ def _compare_single_side(
         row_deleted_count=0,
     )
 
+
 def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> ComparisonTableFact:
     before = task.before_descriptor
     current = task.current_descriptor
@@ -177,7 +199,9 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
         key = policy.effective_key_current if added else policy.effective_key_before
         return ComparisonTableFact(
             table_name=task.table_name,
-            status=ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE,
+            status=ComparisonTableStatus.ADDED_TABLE
+            if added
+            else ComparisonTableStatus.DELETED_TABLE,
             before_descriptor=before,
             current_descriptor=current,
             schema_changes=ComparisonSchemaChanges(
@@ -224,6 +248,7 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
         content_changed=content_changed,
     )
 
+
 def _build_facts(
     plan: ComparisonPlan,
     tables: tuple[ComparisonTableFact, ...],
@@ -262,11 +287,7 @@ def _build_facts(
         "table_policies": table_policy_payloads,
     }
     comparison_digest = raw_blob_digest(canonicalize_json_value(envelope))
-    diagnostics = tuple(
-        diagnostic
-        for table in tables
-        for diagnostic in table.diagnostics
-    )
+    diagnostics = tuple(diagnostic for table in tables for diagnostic in table.diagnostics)
     return ComparisonFacts(
         comparison_digest=comparison_digest,
         facts_core_digest=facts_core_digest,
@@ -337,4 +358,3 @@ def _summary(tables: tuple[ComparisonTableFact, ...]) -> ComparisonSummary:
         suppressed_deleted_count=sum(item.suppressed_deleted_count for item in tables),
         diagnostics_count=sum(len(item.diagnostics) for item in tables),
     )
-

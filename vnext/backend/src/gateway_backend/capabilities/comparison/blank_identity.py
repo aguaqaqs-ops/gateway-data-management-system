@@ -1,7 +1,10 @@
 """Ordered blank identity according to materialization provenance."""
 
 from gateway_backend.capabilities.comparison.contracts import (
-    GID_PSEUDO_MAX, GID_PSEUDO_MIN, GID_REAL_MAX, GID_REAL_MIN,
+    GID_PSEUDO_MAX,
+    GID_PSEUDO_MIN,
+    GID_REAL_MAX,
+    GID_REAL_MIN,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import BlankRowProvenance
 
@@ -14,6 +17,9 @@ def ordered_blank_identity(gid: object, provenance: BlankRowProvenance) -> bool 
         return None
     if GID_REAL_MIN <= gid <= GID_REAL_MAX:
         return False
-    if provenance is BlankRowProvenance.CANONICAL_PSEUDO_GID and GID_PSEUDO_MIN <= gid <= GID_PSEUDO_MAX:
+    if (
+        provenance is BlankRowProvenance.CANONICAL_PSEUDO_GID
+        and GID_PSEUDO_MIN <= gid <= GID_PSEUDO_MAX
+    ):
         return True
     return None

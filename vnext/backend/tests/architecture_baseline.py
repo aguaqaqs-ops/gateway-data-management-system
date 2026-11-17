@@ -13,9 +13,7 @@ Group tags: ``A<n>`` = design §9 W6 row; unreachable comments name the closing 
 
 from __future__ import annotations
 
-IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
-    {}
-)
+IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset({})
 
 RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()
 

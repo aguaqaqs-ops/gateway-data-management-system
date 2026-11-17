@@ -293,3 +293,20 @@ Owner 已确认 `remediation-input-backend.md` 与 `project-review-2026-11.md` �
 ## 20. 后端默认实施与独审模型调整（Owner 2026-11-15）
 
 从本决定起，新建的后端角色默认采用持续协调 `gpt-6.1-terra` / high、每包实施 `gpt-6.1-terra` / high、独立审核 `gpt-6.1-sol` / xhigh（复杂判断可 max）。独审仍使用新上下文和与实施者不同的模型家族；同一 finding 由原审复审。取消专职测试者、风险分级、门禁和验收范围不变。此前阶段的角色与审核记录按原时点保留；前端不适用后端固定角色安排。
+
+## 21. 后端整顿恢复计划增补（codex-20261117，2026-11-17）
+
+依据 Owner 转交的 `/home/dev/gdds-stage-exchange/whole-project-review/remediation-reassessment-2026-11-16.md`（§1、§2、§4、§5、§7、§8），以及本次允许文件名增加标识以避免多会话覆盖的指令，形成[独立标识的执行计划候选](p7-backend-remediation-execution-plan-codex-20261117.md)。它保留原四批正文，仅更新入口和门禁说明并增加 §8；原计划及本文件历史记录不改写。状态为**待整体复盘会话核对、待 B′ 核收，不启动产品实施**，不沿用旧计划的复审通过状态。
+
+下表补充 §19 对应决定的恢复条件，不产生新的产品范围或授权：
+
+| 对应决定 | 本次恢复安排 |
+| --- | --- |
+| P7-D28 | 两端以附注 tag `gw08-midterm-exit` 指向的 B′ 为冻结基准；门禁整改合入后，B′ 必须有后端门禁和前端 mock 全量/截图，前端另跑一次真实 backend journeys 完整集对照。门禁/mock 失败先修复并重核候选；对照 journeys 逐项记失败，不要求全通过才开工。整顿后进入 S3 的顺序、R1/R2 例外保持。前后端经 Owner 转交，两份规则文档仍只由规则会话修改 |
+| P7-D29 / WT | 第 1 批回收范围包含复评 §7 的分支和工作区；未合入分支先归档再删，展示候选数/排除项后执行前复核。保护活动、dirty、未知用途、finding/证据/carried、固定门禁及归属、`fe-vnext`/`gdds-fe`；门禁整改在途树也排除。已授权 `gdds-gw08-dual-env` 回收不豁免现场核查，无 force。本次不清理 |
+| P7-D31 | K1 增加 History 列表游标/分页/授权；History 成功结果的完整读取和绑定检查整体纳入原结果读取块。两条 Submission result 路由核既有 application 授权入口。J1 storage facts codec 与 `fact_document.py` 分开；J3 四个中期同级模块留原位；K2 覆盖五个 policies 导入文件及 statistics 间接授权，HTTP 错误映射/拒绝顺序保持 |
+| P7-D32 | J6/J5 接新 runner 最早检查批次，失败传播；工作包使用 package（容器 deferred），批末及最终 stage 由脚本按 `vnext` 树相等、闭包与证据/镜像等条件判沿用，不扫描区间历史。旧私有导入、OpenAPI 和复杂度计数在 B′ 重核；现行角色采用 §20 |
+| P7-D33 | P1/P2 扫描包含中期新增摘要和版本常量，核“防什么、谁核对”，未知照实记录；L2 原对象、四判据及 P1 删除次序不变。结构改动避开 table_rules/business_navigation/risk_evaluation；J6 全量覆盖，J5 只加超阈值豁免注释；这些目录的 P1 删除待规则变更合入，L2 比较保持同规则版本 |
+| P7-D34 | B′ 上重填真实运行卡、追踪 driver 到实际 worker/cgroup 的 N1/N2 接线，DC33 核收后执行；D24 N1/N2 同规则版本、同节点/输入/配置，生产 N1 与资源预算不变 |
+
+只读核对点为 main `320cf32ec09846918adf59c1c15960cc599f7c1d`：门禁整改已合入，本地未找到 `gw08-midterm-exit`，未收到 B′ 证据交接；这不是正式 B′，不据此宣布开工。暂停前核收点/数字只保留历史意义，复评 §5 的 11 项已落实到候选 §8。源码接点与暂定计数在阶段区 `reference/reassessment-codex-20261117.md`，提交与检查结果追加 `log.md`；本次只做文档差异、链接和源码依据核对，不运行测试、lint、构建，不打 tag、不推送。

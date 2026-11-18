@@ -91,7 +91,7 @@ CT201 是联网开发节点，不用于运行测试。专用测试 CT 禁止直�
 | 修改仓库构建脚本、Dockerfile、依赖/锁、entrypoint 等源码 | 实施者修复 → 原审对修订做一次针对性代码评审 → 执行者重建/必要验证；后续命令/环境修正不再次评审，有新代码差异才审其差异 |
 | 程序逻辑、部署行为、测试断言或结果正确性问题 | 正常实现/独审/测试流程及 owning Contract；不使用环境故障名义放宽验收 |
 
-确认属于非程序逻辑、未改变依赖选择/部署语义/预期的构建条件或工具修复（上表前两类），修正复跑**无固定次数上限**；源码修订仍按第二类做针对性评审。每次要有具体修正、诊断支持的新排查方案或已核实的环境变化，不无变化盲重试。失败持续时继续收集有用诊断并调整方案，不因达到两三次机械停工。真正需要新权限/他人资源、无法确认副作用/安全收尾、来源/身份冲突无法消解或需要改变已接受边界时，才停受影响部分并交 Owner 所需决定；可以继续无依赖工作。原因未明时先做只读诊断，不自行把未知错误当已确认的环境故障。
+上表前两类故障，有诊断依据的新方案时可继续排查。重跑失败步骤前须有具体修正或已核实的环境变化，满足条件后的复跑**不设固定次数上限**。涉及源码修订时仍按第二类做针对性评审。真正需要新权限/他人资源、无法确认副作用/安全收尾、来源/身份冲突无法消解或需要改变已接受边界时，才停受影响部分并交 Owner 所需决定；可以继续无依赖工作。原因未明时先做只读诊断，不自行把未知错误当已确认的环境故障。
 
 每个故障只维护一个普通条目：首次保存失败步骤、候选/节点、原始 exit/日志/SHA；后续简短追加根因、修正、复跑结果与日志索引，最终 handoff 只引用一次。不逐次重写报告、建立新签署或重复记录相同上下文。原始失败和未知不改写为成功，阶段最终证据核收仍完成。
 
@@ -247,7 +247,7 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 | --- | --- |
 | J6 格式 | `src/`、`tests/` 全量检查，无存量豁免。Ruff 列出 `Would reformat` 的文件并以非零退出。 |
 | J4 跨目录私有导入 | `src/` 中的私有名字限定义文件所在包目录内导入，测试代码不在扫描范围。相对和绝对导入、别名、`TYPE_CHECKING` 和跨目录再导出均受检。空基线，漂移报 `Import boundary drift`，以 `[private]` 列出导入位置和目标。 |
-| K2 HTTP 授权边界 | `gateway_backend.http` 及其子模块禁止导入 `domain.*.policies`。空基线，违规报 `[http-policy]` 并列出导入位置和目标。用例入口是否实际执行授权，由人工审核调用链。 |
+| K2 HTTP 授权边界 | 静态门禁检查 `gateway_backend.http` 及其各级子模块中的导入语句，禁止导入 `domain.*.policies`。门禁不追踪其他模块的再导出链。空基线，违规报 `[http-policy]` 并列出导入位置和目标。审核者须沿路由到应用层用例入口核对实际授权调用。 |
 | J5 复杂度 | 函数 McCabe 复杂度超过 30 报 `C901`。提交前仍执行全包 `ruff check .`。架构测试在 `src/`、`tests/`、`benchmarks/` 按相对路径和函数限定名核对豁免：交接时共 14 项（源码 9、基准 5、测试 0），清单只减不增。未登记、过期或重复项、整文件屏蔽 C901、裸 `noqa` 或在非定义行屏蔽 C901 均失败。 |
 
 规则实现见[导入检查](../../vnext/backend/tests/support/import_rules.py)、[复杂度豁免检查](../../vnext/backend/tests/support/complexity_rules.py)及[冻结基线](../../vnext/backend/tests/architecture_baseline.py)。生效提交为 J6 的 `fcba0cbaeb`（格式化）与 `f4321ea927`（接线）、J4 的 `68dde29a35`、K2 的 `f85bbf3f60`、J5 的 `f0d091baf4`。[阶段总结](refactoring/formal/plans/p7-backend-remediation-summary.md)
@@ -261,7 +261,7 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 （`-m "serial and not parallel_safe" -n 0`）。当设置 `GATEWAY_TEST_SCOPE=package`（对应门禁 `--purpose package`）时，并行批与 serial 批都在原 marker 表达式后排除 `and not container`，跳过所有标注 `@pytest.mark.container` 的 Docker/Compose 测试。`rust` 包由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。
 两遍拆分避免 timing-sensitive 测试争用 CPU；`parallel_safe` 只包括下文经逐项隔离审查的例外，backend 当前没有此例外。其余三个 Python 包的 worker 启动开销超过并行收益，因此保持单进程。
 
-非串行worker默认`auto`；初始建议`GATEWAY_TEST_WORKERS=4`，按本次资源调整。阶段性验证不要跑全量；日常迭代用 marker 缩小范围：
+权威 runner 的非串行 worker 默认 `auto`；初始建议`GATEWAY_TEST_WORKERS=4`，按本次资源调整。阶段性验证不要跑全量；日常迭代用 marker 缩小范围：
 
 ```bash
 cd vnext/backend
@@ -288,8 +288,7 @@ cd ../repository_service
 持久化、崩溃恢复、快照和容量语义验收。权威脚本在启用该变量且非 `GATEWAY_TEST_SCOPE=package` 时，会让标注 `@pytest.mark.container` 的容器测试回到真实磁盘临时目录，以避开 unprivileged LXC 下 Docker secret bind mount 的
 remount 限制；其余测试仍使用 tmpfs。`GATEWAY_TEST_SCOPE=package` 时不运行 `container` 用例，因此 serial 批可保留 `--basetemp`。
 
-不带 marker 直接运行 pytest 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他
-测试争用 CPU，判定 flaky 时以脚本为准。
+直接运行 pytest 且未额外指定并发参数时，`backend` 默认单进程，`repository_service` 默认 `-n auto`。手工运行 `serial and not parallel_safe` 组时，两包均须显式指定 `-n 0`。判定时序敏感用例是否偶发失败，以权威 runner 的结果为准。
 
 权威脚本的运行前提（已提交的 clean worktree、运行期间不写 worktree、整机单飞、日志记录
 HEAD 与 exit code）见 [AGENTS.md](../../AGENTS.md)“跑测试”一节；不满足时结果不能作为门禁

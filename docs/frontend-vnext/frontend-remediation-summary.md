@@ -13,7 +13,7 @@
 - **O1（`loadTable` 纯函数接线与敏感探针）：** 拆出 `checkTableRowLocations`、`decodeTableEncodings`、`assembleTableRows` 三段纯函数至 `features/view-model/table-assembly.ts` 并加 4 项 `table-assembly.test.ts` 用例，R10d 与 R11f 探针均击中预期失败。
 - **O2 / O4（静态确认）：** 确认 `DerivedTable.tableScope` 死代码（O2）与 `.compare-status` 过时 N5 注释（O4）均已于中期清理，仅保留有消费者的 `NavigationTableNotice.table_scope`，本轮未再改动。
 - **R9 / T4（无滚动稳定门）：** `upload-mode.spec.ts` 与 `t1.spec.ts` 改为视口可见区域 clip 稳定门并记录 `scroll_before`/`scroll_after`，`styles.css` 修正 `.operation-status-card__heading strong` 半像素行高消除原生抖动。
-- **T1（真实运行 trace 脱敏）：** `run-real-backend-e2e.sh` 结束后在 `set +e` 下调用只读标准库 `redact-entry-tokens.py` 对明文与 `trace.zip` 成员按值脱敏并记 `trace_redaction=ok|failed`。
+- **T1（真实运行 trace 脱敏）：** `run-real-backend-e2e.sh` 结束后在 `set +e` 下调用标准库脚本 `redact-entry-tokens.py` 对明文与 `trace.zip` 成员就地按值脱敏并记 `trace_redaction=ok|failed`。
 - **T3（复用日志目录前置拒绝）：** `run-real-backend-e2e.sh` 在取得节点占用之前核查 11 项固定名输出，存在任一项即列出并以 `2` 退出。
 - **T5（凭据检索）：** 新增只读标准库 `scan-credentials.py`，单一正则覆盖四类 token，先逐份自检 6 份样本再递归扫描明文与 zip 成员。
 - **T6（截断 hex 回源）：** 更新 `check-handoff-hex.py` 校验 `<hex>…<hex>` 截断形式（前后缀各不少于 4 位且唯一匹配已知完整值），对三份交接与审核报告全部回源通过。
@@ -39,5 +39,5 @@
 
 | 门禁 | 实际命令与触发点 | 失败处理 | 豁免与规则 |
 | --- | --- | --- | --- |
-| 前端格式检查 | `frontend/scripts/run-tests.sh` 在 `npm ci --offline` 之后执行 `npm run format:check`（`prettier --check .`，Prettier 3.9.10，配置 `frontend/.prettierrc.json`） | 列出未格式化文件并以非零退出，入口失败；须在开发 worktree 重复运行 `npm run format` 至无变化且 `npm run format:check` 通过后提交 | 仅限 `frontend/.prettierignore` 所列生成类型、测试夹具、OpenAPI 快照与 lockfile；禁止行内 `prettier-ignore` |
-| 前端分层规则 | 同一入口接续执行 `npm run lint`（`eslint .`，三条 `no-restricted-imports` 规则定义于 `frontend/eslint.config.js`，由 `src/test/layering-rules.test.ts` 证明生效） | ESLint 报 `no-restricted-imports` 与层次约束说明并退出非零，入口失败 | 生产代码无豁免；A 层测试仅例外允许导入 `features/dev` |
+| 前端格式检查 | `frontend/scripts/run-tests.sh` 在 `npm ci --offline` 之后执行 `npm run format:check`（`prettier --check .`，Prettier 3.9.10，配置 `frontend/.prettierrc.json`） | 列出未格式化文件并以非零退出，入口失败；须在开发 worktree 重复运行 `npm run format` 至无变化且 `npm run format:check` 通过后提交 | 仅限 `frontend/.prettierignore` 所列生成类型、测试夹具、OpenAPI 快照、lockfile 及构建与测试产物目录；禁止行内 `prettier-ignore` |
+| 前端分层规则 | 同一入口在类型检查（`npm run typecheck`）之后执行 `npm run lint`（`eslint .`，三条 `no-restricted-imports` 规则定义于 `frontend/eslint.config.js`，由 `src/test/layering-rules.test.ts` 证明生效） | ESLint 报 `no-restricted-imports` 与层次约束说明并退出非零，入口失败 | 生产代码无豁免；A 层测试仅例外允许导入 `features/dev` |

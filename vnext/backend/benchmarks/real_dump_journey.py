@@ -235,7 +235,9 @@ S1B_V2_PREVIEW_CHANGED_COUNTS = {
     "rd-t1-a-v2": 4,
     "rd-t2-b-v2": 57,
     "rd-t3-c-v2": 23,
-    "rd-t4-d-v2": 26,
+    # GW08 (9465f7a853) moved 11 BUSINESS_SEQUENCE_KEYS tables out of BROWSE_ONLY and ignored
+    # sequence-only renumbering, reducing real rd-t4-d-v2 changed tables from 26 to 15.
+    "rd-t4-d-v2": 15,
 }
 S1B_HISTORY_RECORD_COUNTS = {"t1": 12, "t2": 1_147, "t3": 711, "t4": 168}
 TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}

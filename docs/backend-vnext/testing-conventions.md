@@ -10,17 +10,11 @@
 
 后端自 S1a-C（P7-D27）、前端自 FE4a 之后采用新流程；产品范围、验收范围与 exit 条件不因流程变化。设计/Contract/决议入库，过程日志、handoff、提示词和审核意见放 `/home/dev/gdds-stage-exchange/<stage>/`；阶段退出只入库一页总结。下文旧 handoff 字段由阶段日志或机器结果承接，不再要求重复入库文档。
 
-后端每阶段一个设计者、一个持续协调者；每包新实施上下文（内聚两三个小包可合并），取消专职测试者；前端不适用这套角色分工（Owner 2026-11-11，见 [AGENTS.md](../../AGENTS.md)）。协调者按比例化政策 §4 定风险：A/B 逐包独审，C/D 实施者加门禁；阶段末全部包做一次全范围独审。独审使用新上下文及不同模型家族。独立代码审核、真实旅程、clean 已提交权威运行与架构门禁保留。
+后端阶段与包的角色、风险分级、独审、协调者权限和 Owner 裁决事项按 [AGENTS 的流程与角色](../../AGENTS.md#流程与角色p7-d25d26)执行。前端角色遵守该节的单独安排。独立代码审核、真实旅程、clean 已提交权威运行与架构门禁保留。交付核对的职责及升级边界见[流程规格 §7](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md#7-代码独审与验收核对)。
 
-[代码独审与验收核对](../../AGENTS.md#代码独审与验收核对)按职责分离：Sol 审核代码及关键证据，Luna 按需核对交付、原始证据和截图，确定性条件交自动门禁。测试仍由现有入口与授权执行者运行；核对不替代独审或修改验收标准。记录及升级边界见[流程规格 §7](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md#7-代码独审与验收核对)。
+从开发节点用 [run-stage-gate.py](../../scripts/run-stage-gate.py) 指定 SHA 和可选包列表。脚本在 04 固定 worktree 自动占用、准备闭包、查表、调用权威 runner、写仓库外 JSON 并释放占用。闭包与镜像等价由脚本判定，不手工重做、抄录或迁移固定 worktree 获取命中。工作包按需验证，完整门禁集中在阶段最终候选。入口于 2026-11-10 经独审和 04 验证后启用。见[操作说明](../../scripts/README.md)、[启用总结](refactoring/formal/plans/p7-process-rollout-summary.md)及[门禁与交接规格](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。
 
-范围内节点调度/占用、可逆实现细节、风险定级及已确认环境/命令错误的修复按默认规则自决；产品/验收范围变化、来源冲突和不可逆操作交 Owner。构建快速修复规则保持，产品失败仍停止该次 runner 及依赖验收，修正后新运行不覆盖原失败。
-
-后端阶段门禁入口是 [`scripts/run-stage-gate.py`](../../scripts/run-stage-gate.py)（[操作说明](../../scripts/README.md)）：输入 SHA 与可选包列表，在 04 固定 worktree 自动占用、准备闭包、运行权威 runner、写仓库外 JSON、释放占用；按同来源闭包查表替代手工 carried。脚本已于 2026-11-10 经独审和 04 验证后启用（[总结](refactoring/formal/plans/p7-process-rollout-summary.md)）。详细算法、失败语义、最初来源、镜像等价、目录与模板见 [门禁与交接规格](refactoring/formal/plans/p7-gate-and-stage-workflow-design.md)。
-
-下文关于 runner、闭包和镜像等价的内容，说明的是脚本所调用入口的行为和脚本的判定条件，由脚本执行，不手工重复，也不在文档里抄录结果。门禁之外的手工运行（focused、真实数据旅程、前端入口）仍由执行者自行满足所列前提。工作包不因自动化改跑全量，完整门禁集中在阶段最终候选。
-
-五节点资源池保持现行规则；Owner 已确认规格 §6 的处理：自动门禁固定 04，其他工作继续池调度，不恢复旧节点职责。新自动门禁不迁移固定 worktree 来获取命中。前端继续独立 runner/e2e，不以 backend 包命中推断 FE 通过。
+其他工作按五节点池调度。门禁外的 focused、真实旅程、前端 runner/e2e 由执行者满足各自前提。后端包命中不能证明前端通过。
 
 ## 执行入口
 
@@ -49,7 +43,7 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 
 ### 长时间执行与分工（Owner 2026-11-09）
 
-按DC91/DC97，五节点是统一空闲资源池，没有前端、后端、门禁、真实数据或性能的固定功能分工；任一空闲节点均可选用，选后满足本次工具链、离线缓存与输入前提，池内换点无需另请用途许可。执行时核现场并原子取本人标记，无需常规跨会话预约、批准或逐次通报；仅真实占用／资源干扰、同路径写入或涉及他人资源时协调。同节点单飞、04/06/07共享宿主、同统计组同节点／配置、carried同来源节点／worktree规则保持。
+按上述执行入口选点并现场取得占用。已授权测试无需跨会话预约、批准或逐次通报，仅实际占用、资源干扰、同路径写入或涉及他人资源时协调（DC91、DC97）。
 
 长测由唯一测试执行者负责执行与监视。启动及必要预检完成后，优先等待既有进程的异常／退出事件；常规巡视按预计时长降低频率，可以间隔小时级时间，不要求分钟级轮询或定期逐项进度转述。出现失败、需要协调的异常或执行完成时，测试者主动汇报并唤醒协调者；协调者等待事件，不重复巡视同一执行。实施者和独审者在固定候选、修复或原件核收时介入，无需同步轮询。按需只读监视角色仍与唯一执行责任人合并或错峰，不启动第二份测试、不自行重试／终止、不代签通过。
 
@@ -108,12 +102,7 @@ CT201 是联网开发节点，不用于运行测试。专用测试 CT 禁止直�
 手工运行时，linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；该目录不在提交里，backend 的
 `test_table_rules_resolver.py` 依赖该链接），再执行上面的两步；门禁脚本对固定 worktree 自行建立并核对该链接。
 
-`prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 先跑 `rust` 包，再按正确顺序跑
-完全部 Python 包：
-
-```bash
-./vnext/scripts/run-tests.sh
-```
+`prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 在适用的 [backend 源码门禁](#backend-源码门禁)预检之后，先跑选中的 `rust` 包，再跑选中的 Python 包。
 
 阶段允许通过 `GATEWAY_TEST_PACKAGES` 指定部分包，例如
 `GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法值按固定顺序是
@@ -244,9 +233,28 @@ Docker build 的 `GATEWAY_DOCKER_BUILD_NETWORK` 由 `deploy/compose.yaml` 与 `b
 五锁 canonical registry identity 的权威 owner 为
 `backend/tests/test_canonical_lock_identity.py`。
 
+### backend 源码门禁
+
+选中 `backend` 时，runner 在环境同步后、Rust 与 pytest 批次前依次运行格式与 lint 检查。任一失败即记 backend 失败，并跳过后续串行批次。架构检查由 backend pytest 批次执行。单独核对时，以下命令均以仓库根为起点，在已占用的专用节点运行：
+
+```bash
+./vnext/scripts/uv-consume.sh -C vnext/backend run ruff format --check src tests
+./vnext/scripts/uv-consume.sh -C vnext/backend run ruff check src tests
+./vnext/scripts/uv-consume.sh -C vnext/backend run pytest tests/test_architecture.py -n 0
+```
+
+| 门禁 | 范围、失败与豁免 |
+| --- | --- |
+| J6 格式 | `src/`、`tests/` 全量检查，无存量豁免。Ruff 列出 `Would reformat` 的文件并以非零退出。 |
+| J4 跨目录私有导入 | `src/` 中的私有名字限定义文件所在包目录内导入，测试代码不在扫描范围。相对和绝对导入、别名、`TYPE_CHECKING` 和跨目录再导出均受检。空基线，漂移报 `Import boundary drift`，以 `[private]` 列出导入位置和目标。 |
+| K2 HTTP 授权边界 | `gateway_backend.http` 及其子模块禁止导入 `domain.*.policies`。空基线，违规报 `[http-policy]` 并列出导入位置和目标。用例入口是否实际执行授权，由人工审核调用链。 |
+| J5 复杂度 | 函数 McCabe 复杂度超过 30 报 `C901`。提交前仍执行全包 `ruff check .`。架构测试在 `src/`、`tests/`、`benchmarks/` 按相对路径和函数限定名核对豁免：交接时共 14 项（源码 9、基准 5、测试 0），清单只减不增。未登记、过期或重复项、整文件屏蔽 C901、裸 `noqa` 或在非定义行屏蔽 C901 均失败。 |
+
+规则实现见[导入检查](../../vnext/backend/tests/support/import_rules.py)、[复杂度豁免检查](../../vnext/backend/tests/support/complexity_rules.py)及[冻结基线](../../vnext/backend/tests/architecture_baseline.py)。生效提交为 J6 的 `fcba0cbaeb`（格式化）与 `f4321ea927`（接线）、J4 的 `68dde29a35`、K2 的 `f85bbf3f60`、J5 的 `f0d091baf4`。[阶段总结](refactoring/formal/plans/p7-backend-remediation-summary.md)
+
 ### 测试批次与 focused 运行
 
-权威 runner 先执行廉价与并行批次：依次运行 `rust`、三个小 Python 包、`backend` 并行批与
+上述 backend 预检之后，权威 runner 执行廉价与并行批次：依次运行 `rust`、三个小 Python 包、`backend` 并行批与
 `repository_service` 并行批（`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"`）。
 前序步骤全部执行完后若任一步失败，则跳过两个 serial 批，被跳过的包输出 `status=not_run` 并以非零退出；
 前序全部通过时再依次执行 `backend` 与 `repository_service` 的 serial 批
@@ -416,6 +424,17 @@ SHA256、日志路径、run ID 这类机器记录不抄进总结，用引用指�
 在 CT201 依 `package-lock.json` 取得 npm 缓存，经获准的局域网预填充到实际使用的节点；运行时把缓存挂载进工具链
 容器，在容器中执行 `npm ci --offline`。缓存缺失即停止，补齐预填充后从头运行。DC67 关于转发代理的限制同样适用：
 任何节点上的证据运行均不经转发代理。
+
+前端整顿退出合入 `main` 并完成默认缓存切换后，04、05、07 的前端入口预检使用以下身份：
+
+| 项目 | 退出后默认值 |
+| --- | --- |
+| 缓存目录 | `/home/dev/gdds-fe-cache/frontend/npm-cache` |
+| 归档及 SHA256 | `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz` · `332deeb8d7a0a750f8f9cc56dfae146249c31baae81df52d4e557c2f5cfda0eb` |
+| 缓存来源提交 | `c5d548219390ae93cb90a64ee804b2020b0310de` |
+| 对应的 `frontend/package-lock.json` SHA256 | `3cd77751f9c5399ef17a1ad0b4606989b77aec1cc46bcde483711b40cae7e7c6` |
+
+合入前保持节点默认缓存原状，取用 H4 工具提交后的整顿候选显式使用 `fe-remediation` 缓存。切换步骤、旧归档保留和各节点原路径见[前端整顿计划 §3、§9](../frontend-vnext/frontend-remediation-plan.md)。
 
 ### 节点协调（DC70 补充）
 

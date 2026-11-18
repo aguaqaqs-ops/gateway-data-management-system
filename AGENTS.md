@@ -66,23 +66,11 @@ scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose package|st
 
 ### 专用测试节点
 
-所有测试、容器门禁和测试取证都在专用测试节点上执行，不在开发主机上运行（owner 决议 DC34、DC36）。
-五节点（SSH 别名 `ct108-gw-dms-04`、`ct108-gw-dms-05`、`ct108-gw-dms`、`ct107-gw-dms-06`、`ct109-gw-dms-07`）均为 **32 vCPU / 64 GiB**，组成无固定功能分工的资源池（DC91）。任一空闲且本次工具链、缓存、输入满足前提的节点均可使用，池内换节点无需另申请用途例外；自动门禁固定在 04，由脚本保证。
+所有测试与取证都在专用节点执行。节点上的测试、编译、lint、构建、e2e、取证和有写入的清理按[执行入口](docs/backend-vnext/testing-conventions.md#执行入口)办理。执行时核现场空闲、服务/端口、有效标记，再原子取得本节点占用；自行管理标记的入口由入口获取。只读核对无需占用，不抢占或删除他人标记。五节点按实时空闲、工具链、缓存和输入选择，自动门禁固定在 04。
 
-- 开始前核现场空闲、服务/端口和有效标记；所有测试、编译、lint、构建、mock/真实 e2e、取证及有写入的清理，均以 `mkdir /home/dev/gdds-node-busy.d` 原子取得本节点占用，写会话、用途与开始 UTC，收尾后只释放本人标记。自行管理标记的入口（`run-stage-gate.py`、前端真实 backend e2e）由入口获取，外层不要重复获取。只读现场核对无需占用；不抢占、不删除他人标记，不以旧空闲快照代替执行时检查。
-- 已授权测试不需逐次与其他会话沟通、预约或通报；核实时空闲并原子取标记即可。只有实际占用／资源干扰、共享文件写入或涉及他人资源时才协调（DC97）。
-- 同节点整机单飞；计时测量期间该节点不运行其他任务。五节点不是五套独立硬件，跨节点不自动互斥，实际干扰时针对性协调。
-- 节点容量不构成增预算授权：生产默认 N1、单 active、32 GiB worker envelope、8 GiB reserve、显式 M24 GiB，其他资源档须有适用授权、固定参数及独审。测试并发与产品 N/M 分开设置。
-- 缓存不跨节点共享，证据不随调度搬迁。
-- 启动长测、等待他人的长测或做正式性能测量之前，先读 [执行入口](docs/backend-vnext/testing-conventions.md#执行入口) 的节点段和 [长时间执行与分工](docs/backend-vnext/testing-conventions.md#长时间执行与分工owner-2026-11-09)：唯一执行者与巡视频率、同一统计组留在同一节点与配置、物理拓扑、并发初始值。
-- 清理仅限已授权且确认无运行者、无待用消费者、无需保留的本人或明确废弃派生文件，逐项留路径、理由及前后空间记录。保留已引用成功/失败原始证据、当前 carried worktree/环境/镜像、真实输入、冻结基准资源及未决故障状态；不按年龄批删，不执行全局 Docker prune，不清他人有效资源。
-
-网络与缓存：
-
-- CT201 只作联网开发与获准缓存来源；测试 CT 禁止直连公网，只经获准 LAN 获取源码、依赖、镜像与制品。各节点分别预填充并确认本次缓存端点可达，不能假设缓存跨节点共享。
-- **DC67 缓存与代理：**依赖、锁或基础镜像变化先在 CT201 获取并向实际节点预填充；缓存缺失或 LAN 不可达即停止，补齐后从头运行。任何池内节点的 runner/carried、正式测量及真实数据取证均不经转发代理；05 调试构建的受限代理例外见下条链接，结果不作证据。
-- **镜像身份：**跨节点比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID。client e2e revision 不符由门禁本机重建，不手工 `docker rmi`。日志、阶段日志和节点配置不得含凭据。
-- 在节点上不经门禁脚本直接调用 runner、同步环境、编译 Rust 或跑 Compose 之前，以及依赖、锁、工具链或基础镜像有变化时，先读 [测试节点网络与缓存](docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)：离线变量与 Rust 环境、backend/worker 依赖基础镜像的构建与传输流程、缓存来源要记的字段。
+- 同节点整机单飞，计时独占。按 DC97，仅实际占用、资源干扰、共享文件写入或涉及他人资源时协调。生产预算、清理范围及逐项清理前后空间记录均按上述执行入口。
+- 启动长测、等待他人长测或正式测量前，先读执行入口的节点段和[长时间执行与分工](docs/backend-vnext/testing-conventions.md#长时间执行与分工owner-2026-11-09)，遵守唯一执行者、巡视频率、物理拓扑、并发初始值与同组测量条件。
+- 直接调用 runner、同步环境、编译 Rust、跑 Compose 前，或依赖、锁、工具链、基础镜像有变化时，先读[测试节点网络与缓存](docs/backend-vnext/testing-conventions.md#测试节点网络与缓存owner-2026-10-28)。测试 CT 禁止直连公网，逐节点核实获准 LAN 和预填缓存，缓存缺失或 LAN 不可达即停，补齐后从头运行。代理例外限 05 调试构建，结果不作证据。跨节点镜像身份、client e2e 重建和来源记录按该节执行，日志、阶段日志和节点配置不得含凭据。
 
 ### 构建故障快速修复（Owner 2026-11-10）
 
@@ -103,47 +91,23 @@ scripts/run-stage-gate.py <full-sha> [--packages <列表>] [--purpose package|st
 依据 [前端 kickoff §6](docs/frontend-vnext/frontend-kickoff.md#6-测试与证据fd7)（owner 2026-11-02 确认）。运行前端入口、准备工具链镜像或 npm 缓存、做截图验收之前，
 先读 [testing-conventions.md “前端测试”一节](docs/backend-vnext/testing-conventions.md#前端测试fd7)：镜像与缓存的取得流程、日志内容、截图宽度与核对项。
 
-- **位置与入口：**前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下，不进入后端测试闭包与 Docker context。
-  权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。真实 backend e2e 的独立入口为
-  `frontend/scripts/run-real-backend-e2e.sh`，不并入 `run-tests.sh`；`--session` 必填。
+- 前端使用独立入口。按 [FD7 的 npm 缓存规则](docs/backend-vnext/testing-conventions.md#npm-依赖缓存dc67)核对归档摘要，留意前端整顿退出合入后的切换条件。
 - **后端改 `frontend/`（owner 2026-11-11）：**后端会话改动 `frontend/` 下任何文件（包括 `frontend/scripts/` 中的真实 backend e2e 入口）之前，先告知前端设计会话改动目的与范围。这类提交属于前端审核范围，由前端设计会话列入当前或下一个前端阶段的审核与调试（起因见 [FE4 kickoff](docs/frontend-vnext/fe4-kickoff.md) 的 FE4a 退出记录）。
-- **节点与占用：**与后端共用上述五节点池和原子占用规则，不在开发主机运行；阶段证据使用 clean、已提交 worktree 与权威入口，记录实际节点。`run-real-backend-e2e.sh` 自行取得、核对和释放占用标记，调用前不要手工获取，否则脚本以 exit 3 退出。其他入口由执行者取得占用，核本机 Dolt/Compose、8000 端口及实际资源干扰，清理本人运行后释放。
-- **工具链与缓存：**测试节点宿主机不安装 Node.js，前端测试只在固定版本的工具链镜像中运行。镜像或 npm 缓存缺失、身份不符即停止，按 DC67 从 CT201 补齐后从头运行。
-- **截图验收：**截图与 `docs/frontend-vnext/sketches` 不符处要么修正，要么作为偏差交 owner 确认。
+- 真实 backend e2e 必填 `--session`，由入口取得、核对和释放占用。其他入口由执行者取得占用，核本机 Dolt/Compose、8000 端口及资源干扰，清理本人运行后释放。镜像或 npm 缓存缺失、身份不符即停止，按 DC67 从 CT201 补齐后从头运行。截图偏差须修正或交 Owner 确认。
 
 ## 写测试
 
 `backend` 与 `repository_service` 的五个 marker 已声明，`--strict-markers` 生效，拼错会导致收集失败。
 
-- **不要**手写 `@pytest.mark.skipif(not dolt_available(), ...)`。dolt 门禁只有一处，
-  在 `vnext/repository_service/tests/conftest.py`。
-- 通过 `lifecycle_settings()`、`ServiceRuntime.start()`、`DoltRunner()` 等方式依赖
-  真实 dolt 的测试，**必须**加 `@pytest.mark.integration`。请求 `import_layout` /
-  `import_provider` fixture 的会被 conftest 自动判定，无需重复标注。
-- 依赖固定时间预算（`Event.wait(timeout=...)`、`thread.join(timeout=...)`、子进程
-  sleep 与 stream timeout 的相对关系）的测试，**必须**加 `@pytest.mark.serial`。
-- 启动真实 Docker 或 Compose 的测试，**必须**加 `@pytest.mark.container`（并配合 `serial`）。
+- 遵守 [marker 分层](docs/backend-vnext/testing-conventions.md#marker-分层)的 Dolt 门禁、fixture 自动分类和显式 `integration`、`serial` 标注规则。启动真实 Docker 或 Compose 必须同时标 `container` 和 `serial`。
 - **artifact ID（Owner 2026-11-12）：**除 golden 和 ID 格式校验的测试外，backend 测试经 `build_artifact_id`
   （`gateway_backend/artifacts/location.py`）生成 artifact ID，不手写 `a1:` 字面量。已有的字面量在下次改到该文件时
   顺手改，不为此专门返工。
-- 改动测试分类后，仅在专用测试节点按占用规则用「移开 dolt 再跑 `-m unit`」验证，静态扫描不可靠：
-
-```bash
-mv /usr/local/bin/dolt /usr/local/bin/dolt.parked
-./vnext/scripts/uv-consume.sh -C vnext/repository_service run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
-```
+- 改动分类后，按[分类验证](docs/backend-vnext/testing-conventions.md#分类正确性怎么验)在专用节点取得占用、移开 Dolt 并运行 unit 组。
 
 ## 测试性能红线
 
-- **禁止**为纯解析、纯校验、纯类型映射的逻辑引入会执行 `dolt init` 的 fixture。
-  「建真实仓库再把 `run_cli` 整个 mock 掉」是明确的反模式。
-- 仅 payload 与期望错误消息不同的同构用例，**必须**收敛为模块级共享参数表
-  （范例：`MALFORMED_JSON_SHAPES`、`CATALOG_ROW_SHAPE_FAULTS`），不得复制粘贴成多个
-  测试函数。
-- 构造测试前置状态时，不要在循环里反复 spawn 外部进程，按批构造。
-- 任何创建全新 dolt HOME 的代码路径，必须预置 `.dolt/config_global.json` 关闭
-  versioncheck（见 `DoltRunner._seed_private_dolt_config`）。否则每次都会联网查版本，
-  单次 3~5 秒，且违反 offline provider 边界。
+遵守[性能约束](docs/backend-vnext/testing-conventions.md#性能约束)的四条要求：纯解析、校验和类型映射禁用真实建仓 fixture；同构用例共用模块级参数表；按批构造前置状态；新 Dolt HOME 预置关闭 versioncheck 的配置。
 
 ## 改依赖
 
@@ -202,6 +166,10 @@ sidecar状态机或安全探针，除非先按reopen conditions修订ADR。
 cleanup测试按Contract行为命名，不按`r8_*`、`r19_*`等修复轮次命名；不可逆的Dolt commit/
 main CAS、control DB事务和跨root误操作仍保持强验证。完整测试取舍见
 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+
+## backend 源码门禁
+
+`vnext/backend` 的格式、跨目录私有导入、HTTP 导入 domain policies、函数复杂度遵守[四条门禁](docs/backend-vnext/testing-conventions.md#backend-源码门禁)。审核仍须核对应用层用例入口实际执行授权。C901 存量豁免按函数登记，只减不增。
 
 ## 提交前
 

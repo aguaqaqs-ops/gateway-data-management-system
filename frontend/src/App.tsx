@@ -4,7 +4,11 @@ import { ComparisonPage } from "./pages/ComparisonPage";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
 
 const DevelopmentIdentityControl = import.meta.env.DEV
-  ? lazy(() => import("./features/dev/DevIdentityControl").then((module) => ({ default: module.DevIdentityControl })))
+  ? lazy(() =>
+      import("./features/dev/DevIdentityControl").then((module) => ({
+        default: module.DevIdentityControl,
+      })),
+    )
   : null;
 
 function currentPage(): "workspace" | "compare" | "design-system" {
@@ -15,13 +19,21 @@ function currentPage(): "workspace" | "compare" | "design-system" {
 
 export function App({ headerControl }: { headerControl?: ReactNode }) {
   const [sessionGeneration, setSessionGeneration] = useState(0);
-  useEffect(() => { const changed = () => setSessionGeneration((value) => value + 1); window.addEventListener("gateway-session-change", changed); return () => window.removeEventListener("gateway-session-change", changed); }, []);
+  useEffect(() => {
+    const changed = () => setSessionGeneration((value) => value + 1);
+    window.addEventListener("gateway-session-change", changed);
+    return () => window.removeEventListener("gateway-session-change", changed);
+  }, []);
   const key = sessionGeneration;
-  const identityControl = DevelopmentIdentityControl
-    ? <Suspense fallback={null}><DevelopmentIdentityControl /></Suspense>
-    : undefined;
+  const identityControl = DevelopmentIdentityControl ? (
+    <Suspense fallback={null}>
+      <DevelopmentIdentityControl />
+    </Suspense>
+  ) : undefined;
   const page = currentPage();
   if (page === "design-system") return <DesignSystemPage />;
   if (page === "compare") return <ComparisonPage key={key} identityControl={identityControl} />;
-  return <WorkbenchPage key={key} identityControl={identityControl} headerControl={headerControl} />;
+  return (
+    <WorkbenchPage key={key} identityControl={identityControl} headerControl={headerControl} />
+  );
 }

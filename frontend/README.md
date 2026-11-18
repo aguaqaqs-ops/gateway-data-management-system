@@ -17,8 +17,13 @@ npm run generate:api-types
 
 The authoritative test entry is `scripts/run-tests.sh`. It runs in the fixed
 Playwright toolchain image and installs with `npm ci --offline` inside a
-disposable container, then runs type checking, lint, unit tests, and the
-production build. Pass `--e2e` to also run Playwright browser tests.
+disposable container, then checks formatting, type checking, lint, unit tests,
+and the production build. Pass `--e2e` to also run Playwright browser tests.
+The repository is formatted with Prettier 3.9.10 (print width 100). Run
+`npm run format` to rewrite files and `npm run format:check` to verify them;
+the authoritative test entry runs `format:check` before type checking. Generated
+API types (`src/features/api/generated/`), golden fixtures, `openapi.json`, and
+the lockfile are intentionally ignored in `.prettierignore`.
 
 The stage-neutral defaults are `/home/dev/gdds-fe-cache/frontend/npm-cache`
 for the npm cache, `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz` for

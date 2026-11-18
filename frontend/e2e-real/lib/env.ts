@@ -53,7 +53,10 @@ export interface JourneyScope {
 
 function requireEnv(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`${name} is required by the journeys suite (run scripts/run-real-backend-e2e.sh --suite journeys)`);
+  if (!value)
+    throw new Error(
+      `${name} is required by the journeys suite (run scripts/run-real-backend-e2e.sh --suite journeys)`,
+    );
   return value;
 }
 
@@ -64,14 +67,16 @@ export function previewBaseUrl(): string {
 export function identities(): JourneyIdentity[] {
   const raw = requireEnv("GATEWAY_FE_IDENTITIES");
   const parsed = JSON.parse(raw) as JourneyIdentity[];
-  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("GATEWAY_FE_IDENTITIES is empty");
+  if (!Array.isArray(parsed) || parsed.length === 0)
+    throw new Error("GATEWAY_FE_IDENTITIES is empty");
   return parsed;
 }
 
 export function journeyScopes(): JourneyScope[] {
   const raw = requireEnv("GATEWAY_FE_JOURNEY_SCOPES");
   const parsed = JSON.parse(raw) as { scopes?: JourneyScope[] };
-  if (!parsed.scopes || parsed.scopes.length === 0) throw new Error("GATEWAY_FE_JOURNEY_SCOPES has no scopes");
+  if (!parsed.scopes || parsed.scopes.length === 0)
+    throw new Error("GATEWAY_FE_JOURNEY_SCOPES has no scopes");
   return parsed.scopes;
 }
 
@@ -85,7 +90,8 @@ export function identityFor(scope: JourneyScope, role: string): JourneyIdentity 
   const declared = scope.roles.find((entry) => entry.role === role);
   if (!declared) throw new Error(`journey scope ${scope.slug} has no ${role} session`);
   const found = identities().find((identity) => identity.name === declared.name);
-  if (!found) throw new Error(`identity ${declared.name} for scope ${scope.slug}/${role} is missing`);
+  if (!found)
+    throw new Error(`identity ${declared.name} for scope ${scope.slug}/${role} is missing`);
   return found;
 }
 

@@ -1,20 +1,46 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installedFixtureBundle } from "../../test/helpers";
 import { loadComparisonPresentation } from "../bundle/presentation";
-import { BrowseCommandRuntime, decodeBrowseState, encodeBrowseState, executeBrowseCommand, initialBrowseState } from "./commands";
+import {
+  BrowseCommandRuntime,
+  decodeBrowseState,
+  encodeBrowseState,
+  executeBrowseCommand,
+  initialBrowseState,
+} from "./commands";
 
 describe("read-only browsing commands and URL state", () => {
   beforeEach(() => window.history.replaceState(null, "", "/"));
 
   it("round-trips pair, navigation, filters, search and comparison refs through the URL", () => {
-    const bundled = executeBrowseCommand(initialBrowseState, { name: "set-bundle", mode: "REVIEW", bundleDigest: "sha256:abc" });
-    const withRoute = { ...bundled, workspaceId: "workspace-1", submissionId: "submission-1", operationId: "history-op-1", operationKind: "history-compare" as const, workbenchNodeKey: "submission:s1" };
-    const pair = executeBrowseCommand(withRoute, { name: "select-pair", pairId: "node-a_to_node-b" });
+    const bundled = executeBrowseCommand(initialBrowseState, {
+      name: "set-bundle",
+      mode: "REVIEW",
+      bundleDigest: "sha256:abc",
+    });
+    const withRoute = {
+      ...bundled,
+      workspaceId: "workspace-1",
+      submissionId: "submission-1",
+      operationId: "history-op-1",
+      operationKind: "history-compare" as const,
+      workbenchNodeKey: "submission:s1",
+    };
+    const pair = executeBrowseCommand(withRoute, {
+      name: "select-pair",
+      pairId: "node-a_to_node-b",
+    });
     const state = executeBrowseCommand(pair, { name: "select-node", nodeKey: "device:addr:1" });
     const withTab = executeBrowseCommand(state, { name: "select-tab", tabKey: "measurements" });
     const filtered = executeBrowseCommand(withTab, { name: "set-only-interesting", enabled: true });
-    const expanded = executeBrowseCommand(filtered, { name: "toggle-group", groupKey: "SECONDARY_DEVICES" });
-    const compared = executeBrowseCommand(expanded, { name: "add-comparison-node", ref: "submission:s1" });
+    const expanded = executeBrowseCommand(filtered, {
+      name: "toggle-group",
+      groupKey: "SECONDARY_DEVICES",
+    });
+    const compared = executeBrowseCommand(expanded, {
+      name: "add-comparison-node",
+      ref: "submission:s1",
+    });
     const encoded = encodeBrowseState(compared);
     expect(decodeBrowseState(encoded)).toEqual(compared);
     expect(new URLSearchParams(encoded).has("view")).toBe(false);
@@ -23,20 +49,38 @@ describe("read-only browsing commands and URL state", () => {
     expect(new URLSearchParams(encoded).get("submissionId")).toBe("submission-1");
     expect(new URLSearchParams(encoded).get("operationId")).toBe("history-op-1");
     expect(new URLSearchParams(encoded).get("workbenchNode")).toBe("submission:s1");
-    for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URLSearchParams(encoded).has(legacy)).toBe(false);
+    for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"])
+      expect(new URLSearchParams(encoded).has(legacy)).toBe(false);
   });
 
   it("keeps orphan browsing bound to its whole-table tab, pair and bundle", () => {
-    const whole = executeBrowseCommand({ ...initialBrowseState, pairId: "p1", nodeKey: "device:table" }, { name: "select-tab", tabKey: "__whole__:device_st" });
+    const whole = executeBrowseCommand(
+      { ...initialBrowseState, pairId: "p1", nodeKey: "device:table" },
+      { name: "select-tab", tabKey: "__whole__:device_st" },
+    );
     const orphan = executeBrowseCommand(whole, { name: "set-unassigned", side: "BEFORE" });
     const encoded = encodeBrowseState(orphan);
     expect(new URLSearchParams(encoded).get("unassigned")).toBe("BEFORE");
     expect(decodeBrowseState(encoded)).toEqual(orphan);
     // Re-selecting the same tab keeps it; another table, another pair or a new bundle drops it.
-    expect(executeBrowseCommand(orphan, { name: "select-tab", tabKey: "__whole__:device_st" }).unassignedSide).toBe("BEFORE");
-    expect(executeBrowseCommand(orphan, { name: "select-tab", tabKey: "__whole__:device_cfg" }).unassignedSide).toBeNull();
-    expect(executeBrowseCommand(orphan, { name: "select-pair", pairId: "p2" }).unassignedSide).toBeNull();
-    expect(executeBrowseCommand(orphan, { name: "set-bundle", mode: "PREVIEW", bundleDigest: "sha256:new" }).unassignedSide).toBeNull();
+    expect(
+      executeBrowseCommand(orphan, { name: "select-tab", tabKey: "__whole__:device_st" })
+        .unassignedSide,
+    ).toBe("BEFORE");
+    expect(
+      executeBrowseCommand(orphan, { name: "select-tab", tabKey: "__whole__:device_cfg" })
+        .unassignedSide,
+    ).toBeNull();
+    expect(
+      executeBrowseCommand(orphan, { name: "select-pair", pairId: "p2" }).unassignedSide,
+    ).toBeNull();
+    expect(
+      executeBrowseCommand(orphan, {
+        name: "set-bundle",
+        mode: "PREVIEW",
+        bundleDigest: "sha256:new",
+      }).unassignedSide,
+    ).toBeNull();
     // A filtered device tab never carries an orphan state, and unknown sides are ignored.
     expect(decodeBrowseState("?tab=device_st&unassigned=CURRENT").unassignedSide).toBeNull();
     expect(decodeBrowseState("?tab=__whole__:device_st&unassigned=BOTH").unassignedSide).toBeNull();
@@ -54,8 +98,16 @@ describe("read-only browsing commands and URL state", () => {
   });
 
   it("restores a direct resource route from identifiers rather than request paths", () => {
-    const decoded = decodeBrowseState("?page=compare&mode=PREVIEW&workspaceId=workspace-1&previewResultId=preview-1&node=device%3A1&tab=telemetry");
-    expect(decoded).toMatchObject({ mode: "PREVIEW", workspaceId: "workspace-1", previewResultId: "preview-1", nodeKey: "device:1", tabKey: "telemetry" });
+    const decoded = decodeBrowseState(
+      "?page=compare&mode=PREVIEW&workspaceId=workspace-1&previewResultId=preview-1&node=device%3A1&tab=telemetry",
+    );
+    expect(decoded).toMatchObject({
+      mode: "PREVIEW",
+      workspaceId: "workspace-1",
+      previewResultId: "preview-1",
+      nodeKey: "device:1",
+      tabKey: "telemetry",
+    });
     expect(encodeBrowseState(decoded)).not.toContain("Request");
   });
 
@@ -63,20 +115,39 @@ describe("read-only browsing commands and URL state", () => {
     const { bundle, manifest } = await installedFixtureBundle("preview-full");
     const pairIds = manifest.pairs.map((pair) => (pair as { pair_id: string }).pair_id);
     expect(pairIds).toEqual(["baseline_to_initial", "initial_to_modified"]);
-    const presentations = await Promise.all(pairIds.map((pairId) => loadComparisonPresentation(bundle, pairId)));
-    expect(presentations.map(({ surface }) => (surface.view as Record<string, unknown>).view_id)).toEqual(["baseline_to_initial", "initial_to_modified"]);
-    const first = executeBrowseCommand(initialBrowseState, { name: "select-pair", pairId: pairIds[0] as string });
-    const second = executeBrowseCommand(first, { name: "select-pair", pairId: pairIds[1] as string });
+    const presentations = await Promise.all(
+      pairIds.map((pairId) => loadComparisonPresentation(bundle, pairId)),
+    );
+    expect(
+      presentations.map(({ surface }) => (surface.view as Record<string, unknown>).view_id),
+    ).toEqual(["baseline_to_initial", "initial_to_modified"]);
+    const first = executeBrowseCommand(initialBrowseState, {
+      name: "select-pair",
+      pairId: pairIds[0] as string,
+    });
+    const second = executeBrowseCommand(first, {
+      name: "select-pair",
+      pairId: pairIds[1] as string,
+    });
     expect(decodeBrowseState(encodeBrowseState(second)).pairId).toBe("initial_to_modified");
     expect(new URLSearchParams(encodeBrowseState(second)).has("view")).toBe(false);
   });
 
   it("caps the comparison tray at three entries and keeps writes outside the command type", () => {
-    const state = executeBrowseCommand(initialBrowseState, { name: "add-comparison-node", ref: "baseline:b1" });
+    const state = executeBrowseCommand(initialBrowseState, {
+      name: "add-comparison-node",
+      ref: "baseline:b1",
+    });
     const two = executeBrowseCommand(state, { name: "add-comparison-node", ref: "submission:s1" });
     const three = executeBrowseCommand(two, { name: "add-comparison-node", ref: "submission:s2" });
-    expect(executeBrowseCommand(three, { name: "add-comparison-node", ref: "submission:s3" }).comparisonNodeRefs).toHaveLength(3);
-    expect(executeBrowseCommand(three, { name: "remove-comparison-node", ref: "submission:s1" }).comparisonNodeRefs).toEqual(["baseline:b1", "submission:s2"]);
+    expect(
+      executeBrowseCommand(three, { name: "add-comparison-node", ref: "submission:s3" })
+        .comparisonNodeRefs,
+    ).toHaveLength(3);
+    expect(
+      executeBrowseCommand(three, { name: "remove-comparison-node", ref: "submission:s1" })
+        .comparisonNodeRefs,
+    ).toEqual(["baseline:b1", "submission:s2"]);
   });
 
   it("allows a human command to interrupt an external browsing operation", () => {

@@ -107,7 +107,9 @@ async function contextWithIdentity(browser: Browser, identity: Identity) {
 
 async function gotoWorkbench(page: Page): Promise<void> {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 60000 });
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({
+    timeout: 60000,
+  });
 }
 
 /** Collect uncaught page errors; assert empty at the end of every test (§4.7). */
@@ -119,23 +121,31 @@ function collectPageErrors(page: Page): string[] {
 
 /** CreateOrGet the workspace through the same same-origin API the page uses. */
 async function workspaceFromPage(page: Page, identity: Identity): Promise<WorkspaceBody> {
-  return page.evaluate(
-    async ({ token, businessProjectId, gatewayDeviceExternalKey }) => {
-      const snapshot = window.__gatewaySession as GatewaySession;
-      if (snapshot.accessToken !== token) throw new Error("会话已变化");
-      const response = await fetch("/v1/workspaces", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey },
-        body: JSON.stringify({ business_project_id: businessProjectId, gateway_device_external_key: gatewayDeviceExternalKey }),
-      });
-      if (!response.ok) throw new Error(`POST /v1/workspaces returned ${response.status}`);
-      return (await response.json()) as WorkspaceBody;
-    },
-    identity,
-  );
+  return page.evaluate(async ({ token, businessProjectId, gatewayDeviceExternalKey }) => {
+    const snapshot = window.__gatewaySession as GatewaySession;
+    if (snapshot.accessToken !== token) throw new Error("会话已变化");
+    const response = await fetch("/v1/workspaces", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+        "X-Gateway-Device-Key": snapshot.deviceRouteKey,
+      },
+      body: JSON.stringify({
+        business_project_id: businessProjectId,
+        gateway_device_external_key: gatewayDeviceExternalKey,
+      }),
+    });
+    if (!response.ok) throw new Error(`POST /v1/workspaces returned ${response.status}`);
+    return (await response.json()) as WorkspaceBody;
+  }, identity);
 }
 
-async function selectAndUpload(page: Page, modifiedDir: string, initialDir?: string): Promise<void> {
+async function selectAndUpload(
+  page: Page,
+  modifiedDir: string,
+  initialDir?: string,
+): Promise<void> {
   if (initialDir) {
     await page.locator('[data-testid="upload-initial-input"]').setInputFiles(initialDir);
   }
@@ -144,47 +154,89 @@ async function selectAndUpload(page: Page, modifiedDir: string, initialDir?: str
     // FULL must show both the ① original backup and ② this archive before upload
     // (same wait as packaging-memory.spec.ts); otherwise the UI would fall back
     // to MODIFIED_ONLY and the comparison would silently have one pair.
-    await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({
+      timeout: 30000,
+    });
   }
   await page.getByRole("button", { name: "上传并生成预览" }).click();
 }
 
-async function waitForOperation(page: Page, token: string, operationId: string): Promise<OperationBody> {
+async function waitForOperation(
+  page: Page,
+  token: string,
+  operationId: string,
+): Promise<OperationBody> {
+  const origin = new URL(page.url()).origin;
   const deadline = Date.now() + 300_000;
   while (Date.now() < deadline) {
-    const operation = await page.evaluate(
-      async ({ token, operationId }) => {
-        const snapshot = window.__gatewaySession as GatewaySession;
-        if (snapshot.accessToken !== token) throw new Error("会话已变化");
-        const response = await fetch(`/v1/operations/${encodeURIComponent(operationId)}`, {
-          headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey },
-        });
-        if (!response.ok) throw new Error(`GET /v1/operations returned ${response.status}`);
-        return (await response.json()) as OperationBody;
+    let session: { accessToken: string; deviceRouteKey: string } | null;
+    try {
+      session = await page.evaluate(() => {
+        const snapshot = window.__gatewaySession as GatewaySession | undefined;
+        return snapshot
+          ? { accessToken: snapshot.accessToken, deviceRouteKey: snapshot.deviceRouteKey }
+          : null;
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /Execution context was destroyed|Cannot find context/i.test(error.message)
+      ) {
+        await page.waitForLoadState("domcontentloaded");
+        continue;
+      }
+      throw error;
+    }
+    if (!session) {
+      await page.waitForTimeout(100);
+      continue;
+    }
+    if (session.accessToken !== token) throw new Error("会话已变化");
+    const response = await page.request.get(
+      `${origin}/v1/operations/${encodeURIComponent(operationId)}`,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "X-Gateway-Device-Key": session.deviceRouteKey,
+        },
       },
-      { token, operationId },
     );
+    if (!response.ok()) throw new Error(`GET /v1/operations returned ${response.status()}`);
+    const operation = (await response.json()) as OperationBody;
     if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(operation.status)) return operation;
     await page.waitForTimeout(500);
   }
   throw new Error(`operation ${operationId} did not finish within 300s`);
 }
 
-async function previewAndBundle(page: Page, identity: Identity): Promise<{ preview: PreviewResultBody; bundle: BundleBody }> {
+async function previewAndBundle(
+  page: Page,
+  identity: Identity,
+): Promise<{ preview: PreviewResultBody; bundle: BundleBody }> {
   const workspace = await workspaceFromPage(page, identity);
-  if (!workspace.current_preview_result_id) throw new Error("workspace has no current preview result");
+  if (!workspace.current_preview_result_id)
+    throw new Error("workspace has no current preview result");
   const preview = await page.evaluate(
     async ({ token, workspaceId, previewResultId }) => {
       const snapshot = window.__gatewaySession as GatewaySession;
       if (snapshot.accessToken !== token) throw new Error("会话已变化");
       const response = await fetch(
         `/v1/workspaces/${encodeURIComponent(workspaceId)}/preview-results/${encodeURIComponent(previewResultId)}`,
-        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey } },
+        {
+          headers: {
+            authorization: `Bearer ${token}`,
+            "X-Gateway-Device-Key": snapshot.deviceRouteKey,
+          },
+        },
       );
       if (!response.ok) throw new Error(`GET preview-results returned ${response.status}`);
       return (await response.json()) as PreviewResultBody;
     },
-    { token: identity.token, workspaceId: workspace.workspace_id, previewResultId: workspace.current_preview_result_id },
+    {
+      token: identity.token,
+      workspaceId: workspace.workspace_id,
+      previewResultId: workspace.current_preview_result_id,
+    },
   );
   const bundleBytes = await page.evaluate(
     async ({ token, workspaceId, previewResultId }) => {
@@ -192,15 +244,34 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
       if (snapshot.accessToken !== token) throw new Error("会话已变化");
       const response = await fetch(
         `/v1/workspaces/${encodeURIComponent(workspaceId)}/preview-results/${encodeURIComponent(previewResultId)}/bundle`,
-        { headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey } },
+        {
+          headers: {
+            authorization: `Bearer ${token}`,
+            "X-Gateway-Device-Key": snapshot.deviceRouteKey,
+          },
+        },
       );
       if (!response.ok) throw new Error(`GET preview bundle returned ${response.status}`);
-      if (response.headers.get("Content-Type")?.split(";", 1)[0] !== "application/x-tar") throw new Error("preview bundle must be a tar stream");
-      return { bytes: Array.from(new Uint8Array(await response.arrayBuffer())), contentLength: response.headers.get("Content-Length"), etag: response.headers.get("ETag") };
+      if (response.headers.get("Content-Type")?.split(";", 1)[0] !== "application/x-tar")
+        throw new Error("preview bundle must be a tar stream");
+      return {
+        bytes: Array.from(new Uint8Array(await response.arrayBuffer())),
+        contentLength: response.headers.get("Content-Length"),
+        etag: response.headers.get("ETag"),
+      };
     },
-    { token: identity.token, workspaceId: workspace.workspace_id, previewResultId: workspace.current_preview_result_id },
+    {
+      token: identity.token,
+      workspaceId: workspace.workspace_id,
+      previewResultId: workspace.current_preview_result_id,
+    },
   );
-  const bundle = (await parseBundleTar(Buffer.from(bundleBytes.bytes), { ...bundleBytes, expectedBundleDigest: preview.bundle_digest })).manifest;
+  const bundle = (
+    await parseBundleTar(Buffer.from(bundleBytes.bytes), {
+      ...bundleBytes,
+      expectedBundleDigest: preview.bundle_digest,
+    })
+  ).manifest;
   expect(bundle.bundle_digest).toBe(preview.bundle_digest);
   return { preview, bundle };
 }
@@ -226,11 +297,19 @@ async function runInputScope(
   const uploadStatuses: number[] = [];
   page.on("response", (response) => {
     const path = new URL(response.url()).pathname;
-    if (response.request().method() === "POST" && /\/v1\/workspaces\/[^/]+\/upload-revisions$/.test(path)) {
+    if (
+      response.request().method() === "POST" &&
+      /\/v1\/workspaces\/[^/]+\/upload-revisions$/.test(path)
+    ) {
       uploadStatuses.push(response.status());
     }
   });
-  const acceptedResponse = await captureResponse(page, identity, "POST", /\/v1\/workspaces\/[^/]+\/preview-operations$/);
+  const acceptedResponse = await captureResponse(
+    page,
+    identity,
+    "POST",
+    /\/v1\/workspaces\/[^/]+\/preview-operations$/,
+  );
 
   await gotoWorkbench(page);
   await selectAndUpload(page, modifiedDir, initialDir);
@@ -246,12 +325,20 @@ async function runInputScope(
 
   const { preview, bundle } = await previewAndBundle(page, identity);
   expect(bundle.failed_pairs).toEqual([]);
-  const expectedPairs: Array<[number, number]> = mode === "full" ? [[0, 1], [1, 2]] : [[0, 1]];
+  const expectedPairs: Array<[number, number]> =
+    mode === "full"
+      ? [
+          [0, 1],
+          [1, 2],
+        ]
+      : [[0, 1]];
   expect(bundle.pairs, `${mode} comparison pair count`).toHaveLength(expectedPairs.length);
   const sortedPairs = [...bundle.pairs].sort((a, b) => a.before_input_index - b.before_input_index);
   expectedPairs.forEach(([before, current], index) => {
     expect(sortedPairs[index]?.before_input_index, `pair ${index} before_input_index`).toBe(before);
-    expect(sortedPairs[index]?.current_input_index, `pair ${index} current_input_index`).toBe(current);
+    expect(sortedPairs[index]?.current_input_index, `pair ${index} current_input_index`).toBe(
+      current,
+    );
   });
   const lastInputIndex = Math.max(...bundle.inputs.map((input) => input.input_index));
   const pairs = sortedPairs.map((pair) => ({
@@ -264,7 +351,8 @@ async function runInputScope(
     degraded_table_count: Number(pair.summary.degraded_table_count),
     failed_table_count: Number(pair.summary.failed_table_count),
   }));
-  for (const pair of pairs) expect(pair.failed_table_count, `${pair.pair_id}.failed_table_count`).toBe(0);
+  for (const pair of pairs)
+    expect(pair.failed_table_count, `${pair.pair_id}.failed_table_count`).toBe(0);
   const currentPair = pairs.find((pair) => pair.current_input_index === lastInputIndex);
   expect(currentPair, "comparison pair containing the ② input").toBeTruthy();
   expect(currentPair!.changed_table_count).toBeGreaterThanOrEqual(1);
@@ -286,7 +374,9 @@ async function runInputScope(
   return record;
 }
 
-test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL", async ({ browser }) => {
+test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL", async ({
+  browser,
+}) => {
   const identity = byName("submitter");
   const context = await contextWithIdentity(browser, identity);
   const page = await context.newPage();
@@ -294,7 +384,8 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
   const pageErrors = collectPageErrors(page);
 
   const created = page.waitForResponse(
-    (response) => response.url().endsWith("/v1/workspaces") && response.request().method() === "POST",
+    (response) =>
+      response.url().endsWith("/v1/workspaces") && response.request().method() === "POST",
     { timeout: 120000 },
   );
   await gotoWorkbench(page);
@@ -303,12 +394,17 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
 
   // History has only the INITIAL baseline: the tree shows the initial node.
   await expect(page.getByText("初始基线").first()).toBeVisible({ timeout: 60000 });
-  expect(await workspaceFromPage(page, identity)).toMatchObject({ workspace_id: expect.any(String) });
+  expect(await workspaceFromPage(page, identity)).toMatchObject({
+    workspace_id: expect.any(String),
+  });
   const history = await page.evaluate(async (token: string) => {
     const snapshot = window.__gatewaySession as GatewaySession;
     if (snapshot.accessToken !== token) throw new Error("会话已变化");
     const response = await fetch("/v1/history?limit=100", {
-      headers: { authorization: `Bearer ${token}`, "X-Gateway-Device-Key": snapshot.deviceRouteKey },
+      headers: {
+        authorization: `Bearer ${token}`,
+        "X-Gateway-Device-Key": snapshot.deviceRouteKey,
+      },
     });
     if (!response.ok) throw new Error(`GET /v1/history returned ${response.status}`);
     return (await response.json()) as {
@@ -325,7 +421,9 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
   await context.close();
 });
 
-test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught error", async ({ browser }) => {
+test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught error", async ({
+  browser,
+}) => {
   const identity = byName("submitter");
   const context = await contextWithIdentity(browser, identity);
   const page = await context.newPage();
@@ -342,17 +440,32 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
     if (request.method() === "POST" && /\/v1\/workspaces\/[^/]+\/upload-revisions$/.test(path)) {
       uploadResponses.push(response.status());
     }
-    if (request.method() === "GET" && /\/preview-results\/[^/]+$/.test(path) && response.status() === 200) {
-      void response.json().then((body) => previewResults.push(body as PreviewResultBody)).catch((error: unknown) => responseErrors.push(error));
+    if (
+      request.method() === "GET" &&
+      /\/preview-results\/[^/]+$/.test(path) &&
+      response.status() === 200
+    ) {
+      void response
+        .json()
+        .then((body) => previewResults.push(body as PreviewResultBody))
+        .catch((error: unknown) => responseErrors.push(error));
     }
-    if (request.method() === "GET" && /\/v1\/operations\/[^/]+$/.test(path) && response.status() === 200) {
-      void response.json().then((body) => operationStates.push((body as { status: string }).status)).catch((error: unknown) => responseErrors.push(error));
+    if (
+      request.method() === "GET" &&
+      /\/v1\/operations\/[^/]+$/.test(path) &&
+      response.status() === 200
+    ) {
+      void response
+        .json()
+        .then((body) => operationStates.push((body as { status: string }).status))
+        .catch((error: unknown) => responseErrors.push(error));
     }
   });
 
   const bundleResponse = page.waitForResponse(
-    (response) => response.request().method() === "GET"
-      && /\/preview-results\/[^/]+\/bundle$/.test(new URL(response.url()).pathname),
+    (response) =>
+      response.request().method() === "GET" &&
+      /\/preview-results\/[^/]+\/bundle$/.test(new URL(response.url()).pathname),
     { timeout: 120000 },
   );
 
@@ -362,9 +475,25 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
   // The upload is accepted by the real backend (upload_revision created).
   await expect.poll(() => uploadResponses, { timeout: 300000 }).toContain(201);
   // The preview operation reaches SUCCEEDED.
-  await expect.poll(() => { if (responseErrors.length) throw responseErrors[0]; return operationStates; }, { timeout: 600000 }).toContain("SUCCEEDED");
+  await expect
+    .poll(
+      () => {
+        if (responseErrors.length) throw responseErrors[0];
+        return operationStates;
+      },
+      { timeout: 600000 },
+    )
+    .toContain("SUCCEEDED");
   // GET preview-results/{id} returns 200.
-  await expect.poll(() => { if (responseErrors.length) throw responseErrors[0]; return previewResults.length; }, { timeout: 120000 }).toBeGreaterThan(0);
+  await expect
+    .poll(
+      () => {
+        if (responseErrors.length) throw responseErrors[0];
+        return previewResults.length;
+      },
+      { timeout: 120000 },
+    )
+    .toBeGreaterThan(0);
   const previewBody = previewResults[0]!;
 
   // The workspace pointer is the same preview result (kickoff §3.3).
@@ -392,7 +521,10 @@ test("smoke: no-permission upload returns 403 copy", async ({ browser }) => {
   const uploadStatuses: number[] = [];
   page.on("response", (response) => {
     const path = new URL(response.url()).pathname;
-    if (response.request().method() === "POST" && /\/v1\/workspaces\/[^/]+\/upload-revisions$/.test(path)) {
+    if (
+      response.request().method() === "POST" &&
+      /\/v1\/workspaces\/[^/]+\/upload-revisions$/.test(path)
+    ) {
       uploadStatuses.push(response.status());
     }
   });
@@ -437,28 +569,47 @@ test("smoke: upload-only identity gets 403 on preview start", async ({ browser }
   await context.close();
 });
 
-test("smoke inputs A: baseline MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({ browser }) => {
+test("smoke inputs A: baseline MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({
+  browser,
+}) => {
   await runInputScope(browser, "input-a", "modified", join(inputRoot(), "a"));
 });
 
-test("smoke inputs B②: initial MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({ browser }) => {
+test("smoke inputs B②: initial MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({
+  browser,
+}) => {
   await runInputScope(browser, "input-b-mod", "modified", join(inputRoot(), "b"));
 });
 
-test("smoke inputs C: modified MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({ browser }) => {
+test("smoke inputs C: modified MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({
+  browser,
+}) => {
   await runInputScope(browser, "input-c", "modified", join(inputRoot(), "c"));
 });
 
-test("smoke inputs D: replacement-current MODIFIED_ONLY reaches SUCCEEDED and records identity pairs", async ({ browser }) => {
+test("smoke inputs D: replacement-current MODIFIED_ONLY reaches SUCCEEDED and records identity pairs", async ({
+  browser,
+}) => {
   await runInputScope(browser, "input-d", "modified", join(inputRoot(), "d"));
 });
 
-test("smoke inputs B FULL: ① = A and ② = B reaches SUCCEEDED with a canonical change", async ({ browser }) => {
-  await runInputScope(browser, "input-b-full", "full", join(inputRoot(), "b"), join(inputRoot(), "a"));
+test("smoke inputs B FULL: ① = A and ② = B reaches SUCCEEDED with a canonical change", async ({
+  browser,
+}) => {
+  await runInputScope(
+    browser,
+    "input-b-full",
+    "full",
+    join(inputRoot(), "b"),
+    join(inputRoot(), "a"),
+  );
 });
 
 test.afterAll(() => {
   const directory = process.env.GATEWAY_FE_RESULTS_DIR ?? "/results";
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "input-scope-results.json"), `${JSON.stringify(inputResults, null, 2)}\n`);
+  writeFileSync(
+    join(directory, "input-scope-results.json"),
+    `${JSON.stringify(inputResults, null, 2)}\n`,
+  );
 });

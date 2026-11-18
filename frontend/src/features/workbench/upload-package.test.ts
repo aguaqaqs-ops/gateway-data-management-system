@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildSourcePackage, buildTar, collectLocalDirectory, type LocalDirectory } from "./upload-package";
+import {
+  buildSourcePackage,
+  buildTar,
+  collectLocalDirectory,
+  type LocalDirectory,
+} from "./upload-package";
 
 function withRelativePath(file: File, path: string): File {
   Object.defineProperty(file, "webkitRelativePath", { value: path });
@@ -45,13 +50,17 @@ describe("collectLocalDirectory", () => {
   });
 
   it("rejects selecting more than one root directory", () => {
-    const result = collectLocalDirectory([...validInput("one"), directoryFile("two/sql/dbcfg.sql")]);
+    const result = collectLocalDirectory([
+      ...validInput("one"),
+      directoryFile("two/sql/dbcfg.sql"),
+    ]);
     expect(result.errors).toEqual(["只能选择一个根目录"]);
   });
 
   it("rejects directories above the file count budget", () => {
     const files = [directoryFile("station/station.pmc"), directoryFile("station/sql/dbcfg.sql")];
-    for (let index = 0; index < 5000; index += 1) files.push(directoryFile(`station/data/${index}.txt`));
+    for (let index = 0; index < 5000; index += 1)
+      files.push(directoryFile(`station/data/${index}.txt`));
     const result = collectLocalDirectory(files);
     expect(result.directory).toBeNull();
     expect(result.errors).toContain("文件数量不能超过 5000 个");
@@ -64,7 +73,9 @@ describe("buildTar", () => {
     return Number.parseInt(raw, 8);
   }
 
-  function readMembers(archive: Uint8Array): Array<{ path: string; size: number; content: Uint8Array }> {
+  function readMembers(
+    archive: Uint8Array,
+  ): Array<{ path: string; size: number; content: Uint8Array }> {
     const members: Array<{ path: string; size: number; content: Uint8Array }> = [];
     let offset = 0;
     for (;;) {
@@ -114,7 +125,9 @@ describe("buildTar", () => {
     for (const member of members) {
       const text = new TextDecoder().decode(member.content);
       expect(text).toBe(expected.get(member.path));
-      expect(member.size).toBe(new TextEncoder().encode(expected.get(member.path) ?? "").byteLength);
+      expect(member.size).toBe(
+        new TextEncoder().encode(expected.get(member.path) ?? "").byteLength,
+      );
     }
   });
 
@@ -144,8 +157,16 @@ describe("buildTar", () => {
   });
 
   it("rejects an over-limit directory before packaging", async () => {
-    const files = Array.from({ length: 8193 }, (_, index) => ({ path: `f${index}.txt`, file: new File(["x"], `f${index}.txt`) }));
-    const directory: LocalDirectory = { rootName: "too-many", totalBytes: files.length, mainFile: "station.pmc", files };
+    const files = Array.from({ length: 8193 }, (_, index) => ({
+      path: `f${index}.txt`,
+      file: new File(["x"], `f${index}.txt`),
+    }));
+    const directory: LocalDirectory = {
+      rootName: "too-many",
+      totalBytes: files.length,
+      mainFile: "station.pmc",
+      files,
+    };
     await expect(buildSourcePackage(directory)).rejects.toThrow("8192");
   });
 

@@ -12,7 +12,10 @@ copying:
   ``--source-dir``).
 - Any other length (13-39, 41-63, 65+) is reported as ``abnormal length`` and
   makes the run fail.
-- Truncated forms (``<hex>…<hex>``) are printed and not verified.
+- Truncated forms (``<hex>…<hex>``) must uniquely complete to one known full
+  value from the evidence sources or a resolved git object; a prefix or suffix
+  shorter than four hex characters, no match, or multiple matches is a
+  failure.
 
 Path+SHA256 pairing is recognised in two shapes: a Markdown table row (path
 and value in cells, or ``path``[，/,]SHA256 ``value`` prose inside a cell)
@@ -335,6 +338,7 @@ def main(argv=None):
 
     failures = []
     truncated = []
+    known_full = set(observed) | set(files_by_hash)
     findings = []
     for lineno, line in enumerate(lines, 1):
         trunc_spans = [(m.start(), m.end(), m.group(0)) for m in TRUNC_RE.finditer(line)]
@@ -350,6 +354,41 @@ def main(argv=None):
             ):
                 continue
             findings.append((lineno, line, match.start(), match.group(0), len(match.group(0))))
+
+    for _lineno, _line, _start, token, length in findings:
+        if length == 40 or 7 <= length <= 12:
+            if repo is None:
+                continue
+            resolved = subprocess.run(
+                ["git", "-C", repo, "rev-parse", "--verify", f"{token}^{{object}}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if resolved.returncode == 0 and resolved.stdout.strip():
+                known_full.add(resolved.stdout.strip())
+
+    for lineno, text in truncated:
+        prefix, suffix = text.split("…", 1)
+        where = f"line {lineno}: {text}"
+        if len(prefix) < 4 or len(suffix) < 4:
+            failures.append(f"truncated form too short (prefix and suffix need >=4 hex chars): {where}")
+            continue
+        matches = [
+            value
+            for value in known_full
+            if value.startswith(prefix)
+            and value.endswith(suffix)
+            and len(value) > len(prefix) + len(suffix)
+        ]
+        if len(matches) == 1:
+            print(f"ok truncated {text} -> {matches[0]} (line {lineno})")
+        elif not matches:
+            failures.append(f"truncated form has no known full value to complete: {where}")
+        else:
+            failures.append(
+                f"truncated form is ambiguous ({len(matches)} known full values): {where}"
+            )
 
     failures.extend(f"sha-file problem: {problem}" for problem in sha_problems)
     failures.extend(f"evidence-file problem: {problem}" for problem in ev_problems)
@@ -492,9 +531,6 @@ def main(argv=None):
             f"on-site={','.join(onsite) if onsite else '-'} "
             f"recorded={','.join(recorded) if recorded else '-'}"
         )
-
-    for lineno, token in truncated:
-        print(f"truncated (not verified): {token} (line {lineno})")
 
     print(
         f"summary: {len(token_lines)} distinct full token(s); "

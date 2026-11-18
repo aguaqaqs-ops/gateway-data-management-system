@@ -1,0 +1,9 @@
+src/features/api/generated/
+src/test/fixtures/
+e2e-real/fixtures/
+openapi.json
+package-lock.json
+dist/
+coverage/
+playwright-report/
+test-results/

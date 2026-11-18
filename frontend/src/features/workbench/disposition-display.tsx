@@ -17,7 +17,13 @@ export function formatDispositionTime(iso: string): string {
  * long single line wraps like any other long reason and a short reason keeps
  * its exact pre-fold layout. Line breaks are preserved.
  */
-export function ReasonText({ children, as: Tag = "span" }: { children: ReactNode; as?: "p" | "span" }) {
+export function ReasonText({
+  children,
+  as: Tag = "span",
+}: {
+  children: ReactNode;
+  as?: "p" | "span";
+}) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const textRef = useRef<HTMLSpanElement | null>(null);
@@ -35,9 +41,20 @@ export function ReasonText({ children, as: Tag = "span" }: { children: ReactNode
 
   return (
     <Tag className="reason-text">
-      <span ref={textRef} className={expanded ? "reason-text__body" : "reason-text__body reason-text__body--clamped"}>{children}</span>
+      <span
+        ref={textRef}
+        className={expanded ? "reason-text__body" : "reason-text__body reason-text__body--clamped"}
+      >
+        {children}
+      </span>
       {(overflowing || expanded) && (
-        <button type="button" className="link-button" onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开"}</button>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "收起" : "展开"}
+        </button>
       )}
     </Tag>
   );

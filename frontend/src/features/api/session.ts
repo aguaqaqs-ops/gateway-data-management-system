@@ -20,8 +20,12 @@ export function validateScopeIdentity(value: string): void {
   let count = 0;
   for (const scalar of value) {
     const code = scalar.codePointAt(0)!;
-    if (code === 0 || (code >= 0xd800 && code <= 0xdfff)
-      || (code >= 0xfdd0 && code <= 0xfdef) || (code & 0xffff) >= 0xfffe) {
+    if (
+      code === 0 ||
+      (code >= 0xd800 && code <= 0xdfff) ||
+      (code >= 0xfdd0 && code <= 0xfdef) ||
+      (code & 0xffff) >= 0xfffe
+    ) {
       throw new Error("设备或项目身份包含非法 Unicode 码点");
     }
     count += 1;
@@ -38,13 +42,21 @@ export function deviceRouteKey(device: string): string {
 
 export function createGatewaySession(input: GatewaySessionInput): GatewaySession {
   validateScopeIdentity(input.businessProjectId);
-  const snapshot = Object.freeze({ ...input, deviceRouteKey: deviceRouteKey(input.gatewayDeviceExternalKey) });
+  const snapshot = Object.freeze({
+    ...input,
+    deviceRouteKey: deviceRouteKey(input.gatewayDeviceExternalKey),
+  });
   sessions.set(snapshot, snapshot);
   return snapshot;
 }
 
 const sessions = new WeakMap<GatewaySessionInput, GatewaySession>();
-const emptySession: GatewaySession = Object.freeze({ businessProjectId: "", gatewayDeviceExternalKey: "", accessToken: null, deviceRouteKey: "" });
+const emptySession: GatewaySession = Object.freeze({
+  businessProjectId: "",
+  gatewayDeviceExternalKey: "",
+  accessToken: null,
+  deviceRouteKey: "",
+});
 
 export function currentGatewaySession(): GatewaySession {
   const input = window.__gatewaySession;
@@ -60,7 +72,10 @@ export function currentGatewaySession(): GatewaySession {
 }
 
 export class SessionChangedError extends Error {
-  constructor() { super("会话已变化"); this.name = "SessionChangedError"; }
+  constructor() {
+    super("会话已变化");
+    this.name = "SessionChangedError";
+  }
 }
 
 export function scopeMarker(session = currentGatewaySession()): string {

@@ -100,6 +100,37 @@ if path_in_repo "$LOG_DIR" || { [[ -n "$EVIDENCE_DIR" ]] && path_in_repo "$EVIDE
   exit 2
 fi
 
+# T3: refuse to reuse a log directory that already holds a previous run's
+# fixed outputs. Each real run needs its own fresh directory; a shared one can
+# leak the old groups-ready.json into the wait loop and overwrite results.
+# `artifacts` is the Playwright output directory (`GATEWAY_FE_RESULTS_DIR` is
+# the log dir inside the container) and `evidence` is the t1 screenshot
+# evidence directory (`resultsDir()/evidence`); both are written under
+# `$LOG_DIR` on the host, so they are fixed outputs too.
+if [[ -d "$LOG_DIR" ]]; then
+  stale_outputs=()
+  for fixed in \
+    groups-control \
+    processing-groups.log \
+    openapi-runtime.json \
+    openapi-runtime.normalized.json \
+    openapi-snapshot.normalized.json \
+    openapi.diff \
+    results.json \
+    suite-summary.txt \
+    input-scope-results.json \
+    artifacts \
+    evidence; do
+    [[ ! -e "$LOG_DIR/$fixed" ]] || stale_outputs+=("$fixed")
+  done
+  if (( ${#stale_outputs[@]} > 0 )); then
+    printf 'log dir already contains outputs from a previous run: %s\n' "$LOG_DIR" >&2
+    printf '  %s\n' "${stale_outputs[@]}" >&2
+    printf 'each real run must use its own empty --log-dir\n' >&2
+    exit 2
+  fi
+fi
+
 # --- occupancy: whole-node mkdir + compose gate flock (kickoff §4.2) ---
 BUSY_DIR="/home/dev/gdds-node-busy.d"
 GATE_LOCK="/tmp/gateway-compose-gate.lock"
@@ -1332,8 +1363,25 @@ log "playwright_process_exit=$PLAYWRIGHT_EXIT"
 
 if [[ -n "$EVIDENCE_DIR" ]]; then
   mkdir -p -- "$EVIDENCE_DIR/test-results"
-  docker cp "$TOOLCHAIN_CONTAINER:/tmp/frontend/test-results/." "$EVIDENCE_DIR/test-results/" 2>/dev/null || true
+  cp -a -- "$LOG_DIR/artifacts/." "$EVIDENCE_DIR/test-results/" 2>/dev/null || true
 fi
+
+# T1: the entry owns every real token value. `redact-entry-tokens.py` replaces
+# them with a placeholder in retained evidence (trace ZIPs member by member)
+# and proves that neither a token nor a Bearer credential survives in the logs
+# or evidence. The entry runs the script with `set +e` so a redaction failure
+# never overwrites the suite result; it only feeds `trace_redaction`.
+set +e
+REDACT_OUTPUT="$(python3 -I "$FRONTEND_DIR/scripts/redact-entry-tokens.py" "$LOG_DIR" "${EVIDENCE_DIR:-}" "$RUN_ROOT" "$RS_BEARER" "$INTERNAL_BEARER")"
+REDACT_EXIT=$?
+set -e
+log "$REDACT_OUTPUT"
+if [[ "$REDACT_EXIT" == "0" ]]; then
+  TRACE_REDACTION="ok"
+else
+  TRACE_REDACTION="failed"
+fi
+log "trace_redaction=$TRACE_REDACTION"
 
 SUITE_EXIT="$(python3 -I - "$RESULTS_FILE" "$LOG_DIR/suite-summary.txt" "$PLAYWRIGHT_EXIT" "$SUITE" <<'PY'
 import datetime
@@ -1435,6 +1483,7 @@ open(summary_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 print(code)
 PY
 )"
+printf 'trace_redaction=%s\n' "$TRACE_REDACTION" >> "$LOG_DIR/suite-summary.txt"
 cat "$LOG_DIR/suite-summary.txt" | tee -a "$LOG_FILE"
 log "results_file=$RESULTS_FILE"
 # Q10: per-scope bundle-manifest facts recorded by the smoke suite.
@@ -1463,4 +1512,7 @@ else
   log "input_scope_results=missing"
 fi
 log "suite_exit=$SUITE_EXIT"
+if [[ "$SUITE_EXIT" == "0" ]]; then
+  exit "$REDACT_EXIT"
+fi
 exit "$SUITE_EXIT"

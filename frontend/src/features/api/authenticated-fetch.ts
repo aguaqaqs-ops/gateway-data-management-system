@@ -5,7 +5,8 @@ import { expireHandoffSessionOnUnauthorized } from "../session/handoff-session";
 export type SessionProvider = () => GatewaySession;
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-export const DEVICE_UNAVAILABLE_MESSAGE = "当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。";
+export const DEVICE_UNAVAILABLE_MESSAGE =
+  "当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -34,13 +35,23 @@ export interface AuthenticatedFetchOptions {
  * is the one exception to "no credentials in browser storage": it keeps the
  * per-tab session in sessionStorage (see features/session/handoff-session.ts).
  */
-export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetcher = fetch, trackConnection = true }: AuthenticatedFetchOptions) {
+export function createAuthenticatedFetch({
+  baseUrl,
+  session,
+  boundSession,
+  fetcher = fetch,
+  trackConnection = true,
+}: AuthenticatedFetchOptions) {
   const root = baseUrl.replace(/\/$/, "");
-  return async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return async function authenticatedFetch(
+    path: string,
+    init: RequestInit = {},
+  ): Promise<Response> {
     const snapshot = boundSession ?? session();
     if (boundSession && session() !== boundSession) throw new SessionChangedError();
     const isApi = new URL(path, `${root}/`).pathname.startsWith("/v1/");
-    if (isApi && (!snapshot.accessToken || !snapshot.deviceRouteKey)) throw new Error("缺少有效设备会话");
+    if (isApi && (!snapshot.accessToken || !snapshot.deviceRouteKey))
+      throw new Error("缺少有效设备会话");
     const accessToken = snapshot.accessToken;
     const headers = new Headers(init.headers);
     headers.set("Accept", headers.get("Accept") ?? "application/json");
@@ -49,7 +60,8 @@ export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetch
     if (isApi) headers.set("X-Gateway-Device-Key", snapshot.deviceRouteKey);
     else headers.delete("X-Gateway-Device-Key");
     const response = await fetcher(new URL(path, `${root}/`), { ...init, headers });
-    if ((boundSession || session === currentGatewaySession) && session() !== snapshot) throw new SessionChangedError();
+    if ((boundSession || session === currentGatewaySession) && session() !== snapshot)
+      throw new SessionChangedError();
     if (response.ok) {
       if (trackConnection) reportConnectionStatus("connected");
       return response;
@@ -61,19 +73,23 @@ export function createAuthenticatedFetch({ baseUrl, session, boundSession, fetch
     } catch {
       body = undefined;
     }
-    const errorBody = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    const errorBody = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
     const code = typeof errorBody.code === "string" ? errorBody.code : null;
-    const message = typeof errorBody.message === "string"
-      ? errorBody.message
-      : `请求失败（HTTP ${response.status}）`;
-    if ((boundSession || session === currentGatewaySession) && session() !== snapshot) throw new SessionChangedError();
+    const message =
+      typeof errorBody.message === "string"
+        ? errorBody.message
+        : `请求失败（HTTP ${response.status}）`;
+    if ((boundSession || session === currentGatewaySession) && session() !== snapshot)
+      throw new SessionChangedError();
     if (response.status === 401) {
       // The handoff session is the only state that can expire here; injected
       // dev/test identities are left alone so their own error surfaces remain.
       expireHandoffSessionOnUnauthorized(snapshot);
     }
-    const displayMessage = response.status === 404 && init.method === "POST" && path === "/v1/workspaces"
-      ? DEVICE_UNAVAILABLE_MESSAGE : message;
+    const displayMessage =
+      response.status === 404 && init.method === "POST" && path === "/v1/workspaces"
+        ? DEVICE_UNAVAILABLE_MESSAGE
+        : message;
     throw new ApiError(displayMessage, response.status, code, errorBody.details);
   };
 }

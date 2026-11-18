@@ -8,7 +8,9 @@ export function Manual08Controls() {
   const slot = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     if (controls) slot.current?.append(controls);
-    return () => { if (controls && applicationRoot) applicationRoot.before(controls); };
+    return () => {
+      if (controls && applicationRoot) applicationRoot.before(controls);
+    };
   }, []);
   return <span ref={slot} className="manual08-reset-slot" />;
 }
@@ -39,14 +41,16 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
   let pageLocked = false;
   const resetKey = "gdds-a-reset-pending";
   const stages: Record<string, string> = {
-    stopping: "正在停止服务…", rebuilding: "正在重置…",
-    provisioning: "正在开通设备…", checking: "正在检查…",
+    stopping: "正在停止服务…",
+    rebuilding: "正在重置…",
+    provisioning: "正在开通设备…",
+    checking: "正在检查…",
   };
 
   async function readStatus(): Promise<string> {
     const response = await fetch("/manual-api/status", { cache: "no-store" });
     if (!response.ok) throw new Error("无法读取重置状态，请重试。");
-    const result = await response.json() as { state: string; stage: string };
+    const result = (await response.json()) as { state: string; stage: string };
     lockPage(result.state === "running" || result.state === "failed");
     reset.disabled = result.state === "running";
     if (result.state === "running") {
@@ -63,11 +67,14 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
 
   function lockPage(locked: boolean): void {
     pageLocked = locked;
-    for (const element of root.querySelectorAll<HTMLElement>("main > :not(.workspace-topbar), .workspace-topbar .workspace-brand, .workspace-topbar__right > :not(.manual08-reset-slot)")) element.inert = locked;
+    for (const element of root.querySelectorAll<HTMLElement>(
+      "main > :not(.workspace-topbar), .workspace-topbar .workspace-brand, .workspace-topbar__right > :not(.manual08-reset-slot)",
+    ))
+      element.inert = locked;
   }
 
   async function waitForReset(): Promise<void> {
-    while (await readStatus() === "running") {
+    while ((await readStatus()) === "running") {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     if (pageLocked) throw new Error(status.textContent ?? "重置失败，请重试。");
@@ -80,7 +87,10 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
     lockPage(true);
     void (async () => {
       try {
-        const response = await fetch("/manual-api/reset", { method: "POST", headers: { "X-GDDS-Reset": "confirm" } });
+        const response = await fetch("/manual-api/reset", {
+          method: "POST",
+          headers: { "X-GDDS-Reset": "confirm" },
+        });
         if (!response.ok && response.status !== 409) throw new Error("重置请求未确认，请重试。");
         sessionStorage.setItem(resetKey, "1");
         await waitForReset();
@@ -98,30 +108,53 @@ export async function prepareManual08(root: HTMLElement): Promise<boolean> {
     await waitForReset();
     if (sessionStorage.getItem(resetKey)) {
       for (const key of Object.keys(sessionStorage)) {
-        if (key === "gdds-gateway-session" || key === "gateway-preview-operation"
-          || key === "gateway-history-compare-pending-intent" || key.startsWith("gateway-review-history-key:")) sessionStorage.removeItem(key);
+        if (
+          key === "gdds-gateway-session" ||
+          key === "gateway-preview-operation" ||
+          key === "gateway-history-compare-pending-intent" ||
+          key.startsWith("gateway-review-history-key:")
+        )
+          sessionStorage.removeItem(key);
       }
       const storage = await navigator.storage.getDirectory();
-      try { await storage.removeEntry("gateway-comparison-bundles-v1", { recursive: true }); }
-      catch (error) { if (!(error instanceof DOMException) || error.name !== "NotFoundError") throw error; }
+      try {
+        await storage.removeEntry("gateway-comparison-bundles-v1", { recursive: true });
+      } catch (error) {
+        if (!(error instanceof DOMException) || error.name !== "NotFoundError") throw error;
+      }
       sessionStorage.removeItem(resetKey);
     }
     const catalog = await fetch("/api/catalog", { cache: "no-store" });
     if (!catalog.ok) throw new Error("无法读取设备，请刷新重试。");
-    const projects = (await catalog.json() as { projects: { station_code: string; provisioned: boolean; device_key: string }[] }).projects;
-    const devices = projects.filter((project) => project.station_code === "TEST-SINGLE-001" && project.provisioned);
+    const projects = (
+      (await catalog.json()) as {
+        projects: { station_code: string; provisioned: boolean; device_key: string }[];
+      }
+    ).projects;
+    const devices = projects.filter(
+      (project) => project.station_code === "TEST-SINGLE-001" && project.provisioned,
+    );
     if (devices.length !== 1) throw new Error("设备未就绪，请重试重置。");
-    const response = await fetch("/api/handoffs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device_key: devices[0].device_key }) });
+    const response = await fetch("/api/handoffs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_key: devices[0].device_key }),
+    });
     if (!response.ok) throw new Error("无法进入设备，请刷新重试。");
-    const target = new URL((await response.json() as { gateway_url: string }).gateway_url);
-    if (target.origin !== location.origin || !target.hash.startsWith("#gdds-handoff=")) throw new Error("设备交接无效，请刷新重试。");
+    const target = new URL(((await response.json()) as { gateway_url: string }).gateway_url);
+    if (target.origin !== location.origin || !target.hash.startsWith("#gdds-handoff="))
+      throw new Error("设备交接无效，请刷新重试。");
     history.replaceState(history.state, "", location.pathname + location.search + target.hash);
     resetObserved = false;
     setInterval(() => {
       if (busy) return;
-      void readStatus().then((state) => {
-        if (resetObserved && state === "success") location.replace("/");
-      }).catch(() => { status.textContent = "无法读取重置状态，请刷新重试。"; });
+      void readStatus()
+        .then((state) => {
+          if (resetObserved && state === "success") location.replace("/");
+        })
+        .catch(() => {
+          status.textContent = "无法读取重置状态，请刷新重试。";
+        });
     }, 2000);
     return true;
   } catch (error) {

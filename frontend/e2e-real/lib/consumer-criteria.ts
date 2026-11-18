@@ -70,7 +70,13 @@ interface NavigationTab {
 interface NavigationItem {
   item_key: string;
   tabs: NavigationTab[];
-  summary?: { change_kinds?: unknown; risk_level?: unknown; nonempty_tab_count?: unknown; change_complete?: unknown; risk_complete?: unknown };
+  summary?: {
+    change_kinds?: unknown;
+    risk_level?: unknown;
+    nonempty_tab_count?: unknown;
+    change_complete?: unknown;
+    risk_complete?: unknown;
+  };
 }
 
 interface NavigationGroup {
@@ -154,14 +160,17 @@ function fail(where: string, message: string): never {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function identityHex(value: unknown): string {
   let bytes: Uint8Array | null = null;
   if (value instanceof Uint8Array) bytes = value;
   else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
-  else if (ArrayBuffer.isView(value)) bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  else if (ArrayBuffer.isView(value))
+    bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   if (!bytes || bytes.byteLength !== 32) fail("locator", `行身份不是 32 字节（${String(value)}）`);
   return `sha256:${Buffer.from(bytes).toString("hex")}`;
 }
@@ -184,7 +193,8 @@ function contextDocument(value: unknown, where: string): Record<string, unknown>
 function indexValue(value: unknown, where: string): number | null {
   if (value === null || value === undefined) return null;
   const index = typeof value === "bigint" ? Number(value) : value;
-  if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 0) fail(where, `行下标无效（${String(value)}）`);
+  if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 0)
+    fail(where, `行下标无效（${String(value)}）`);
   return index;
 }
 
@@ -196,7 +206,8 @@ function compareValues(row: ParquetRow, column: string, predicate: Predicate): b
     const text = raw.toString();
     return predicate.values.some((value) => (value as number).toString() === text);
   }
-  if (raw instanceof Uint8Array || raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) return false;
+  if (raw instanceof Uint8Array || raw instanceof ArrayBuffer || ArrayBuffer.isView(raw))
+    return false;
   const text = String(raw);
   return predicate.values.some((value) => {
     if (typeof value === "number") return /^-?\d+$/.test(text) && text === String(value);
@@ -215,9 +226,12 @@ function decodePredicate(value: unknown, where: string): Predicate {
   if (!allNumbers && !allStrings) fail(where, "谓词 values 不是同类型的安全整数或字符串");
   if (new Set(values.map(String)).size !== values.length) fail(where, "谓词 values 有重复");
   const ordered = [...values].sort((left, right) =>
-    allNumbers ? (left as number) - (right as number) : Buffer.compare(Buffer.from(left as string, "utf8"), Buffer.from(right as string, "utf8")),
+    allNumbers
+      ? (left as number) - (right as number)
+      : Buffer.compare(Buffer.from(left as string, "utf8"), Buffer.from(right as string, "utf8")),
   );
-  if (ordered.some((item, index) => item !== values[index])) fail(where, "谓词 values 未按规范顺序排列");
+  if (ordered.some((item, index) => item !== values[index]))
+    fail(where, "谓词 values 未按规范顺序排列");
   return { column: record.column, values: values as Array<string | number> };
 }
 
@@ -225,8 +239,14 @@ function decodeRowFilter(value: unknown, where: string): RowFilter | null {
   if (value === null || value === undefined) return null;
   const record = asRecord(value);
   if (!record) fail(where, "row_filter 不是对象");
-  const before = record.before === null || record.before === undefined ? null : decodePredicate(record.before, `${where}.before`);
-  const current = record.current === null || record.current === undefined ? null : decodePredicate(record.current, `${where}.current`);
+  const before =
+    record.before === null || record.before === undefined
+      ? null
+      : decodePredicate(record.before, `${where}.before`);
+  const current =
+    record.current === null || record.current === undefined
+      ? null
+      : decodePredicate(record.current, `${where}.current`);
   if (before === null && current === null) fail(where, "row_filter 两侧都不存在");
   return { before, current };
 }
@@ -245,7 +265,11 @@ export class BundleCriteriaReader {
       if (!record || !ref) continue;
       const artifactId = ref.artifact_id;
       const logicalPath = record.logical_path;
-      if (typeof artifactId === "string" && typeof logicalPath === "string" && !this.artifactPaths.has(artifactId)) {
+      if (
+        typeof artifactId === "string" &&
+        typeof logicalPath === "string" &&
+        !this.artifactPaths.has(artifactId)
+      ) {
         this.artifactPaths.set(artifactId, logicalPath);
       }
     }
@@ -277,8 +301,10 @@ export class BundleCriteriaReader {
       return candidateRef?.artifact_id === artifactId;
     });
     const entryRef = asRecord(asRecord(entry)?.artifact_ref);
-    if (entryRef && record.raw_sha256 !== undefined && record.raw_sha256 !== entryRef.raw_sha256) fail(where, "引用摘要与 closure 不一致");
-    if (entryRef && record.size_bytes !== undefined && record.size_bytes !== entryRef.size_bytes) fail(where, "引用大小与 closure 不一致");
+    if (entryRef && record.raw_sha256 !== undefined && record.raw_sha256 !== entryRef.raw_sha256)
+      fail(where, "引用摘要与 closure 不一致");
+    if (entryRef && record.size_bytes !== undefined && record.size_bytes !== entryRef.size_bytes)
+      fail(where, "引用大小与 closure 不一致");
     if (!this.members.has(path)) fail(where, `tar 中缺少 artifact 成员 ${path}`);
     return path;
   }
@@ -305,7 +331,11 @@ interface NavigationSideGroups {
   where: string;
 }
 
-function collectSideGroups(navigation: NavigationDocument, mode: string, where: string): NavigationSideGroups[] {
+function collectSideGroups(
+  navigation: NavigationDocument,
+  mode: string,
+  where: string,
+): NavigationSideGroups[] {
   if (mode === "DATASET_REPLACEMENT") {
     if ((navigation.groups ?? []).length !== 0) fail(where, "替换模式导航不应含普通 groups");
     const sides = asRecord(navigation.replacement_sides);
@@ -317,22 +347,44 @@ function collectSideGroups(navigation: NavigationDocument, mode: string, where: 
     });
   }
   const groups = navigation.groups ?? [];
-  if (groups.length !== FIXED_GROUPS.length || groups.some((group, index) => group.group_key !== FIXED_GROUPS[index])) {
-    fail(where, `普通模式导航组不是固定的五组顺序（实际 ${groups.map((group) => group.group_key).join(",")}）`);
+  if (
+    groups.length !== FIXED_GROUPS.length ||
+    groups.some((group, index) => group.group_key !== FIXED_GROUPS[index])
+  ) {
+    fail(
+      where,
+      `普通模式导航组不是固定的五组顺序（实际 ${groups.map((group) => group.group_key).join(",")}）`,
+    );
   }
   return [{ side: null, groups, where }];
 }
 
-function checkNavigationShape(navigation: NavigationDocument, surface: ComparisonSurface, where: string): NavigationTab[] {
+function checkNavigationShape(
+  navigation: NavigationDocument,
+  surface: ComparisonSurface,
+  where: string,
+): NavigationTab[] {
   if (navigation.contract_version !== NAVIGATION_CONTRACT_VERSION) {
     fail(where, `导航 contract version 不是 ${NAVIGATION_CONTRACT_VERSION}`);
   }
   // v4 root: public table notices and device-definition changes are required arrays (empty for replacement).
-  if (!Array.isArray(navigation.table_notices) || !Array.isArray(navigation.device_definition_changes)) fail(where, "v4 导航缺少 table_notices 或 device_definition_changes");
-  if (navigation.replacement_sides && (navigation.table_notices.length > 0 || navigation.device_definition_changes.length > 0)) fail(where, "替换模式导航不能有公共提示或定义变化");
+  if (
+    !Array.isArray(navigation.table_notices) ||
+    !Array.isArray(navigation.device_definition_changes)
+  )
+    fail(where, "v4 导航缺少 table_notices 或 device_definition_changes");
+  if (
+    navigation.replacement_sides &&
+    (navigation.table_notices.length > 0 || navigation.device_definition_changes.length > 0)
+  )
+    fail(where, "替换模式导航不能有公共提示或定义变化");
   const tableIds = new Set((surface.tables ?? []).map((table) => table.table_id));
   const tabs: NavigationTab[] = [];
-  for (const { side, groups, where: sideWhere } of collectSideGroups(navigation, String(surface.comparison_mode ?? ""), where)) {
+  for (const { side, groups, where: sideWhere } of collectSideGroups(
+    navigation,
+    String(surface.comparison_mode ?? ""),
+    where,
+  )) {
     const groupKeys = new Set<string>();
     const itemKeys = new Set<string>();
     const wholeByTable = new Map<string, string>();
@@ -346,37 +398,86 @@ function checkNavigationShape(navigation: NavigationDocument, surface: Compariso
         if (itemKeys.has(item.item_key)) fail(sideWhere, `导航项重复：${item.item_key}`);
         itemKeys.add(item.item_key);
         const summary = item.summary;
-        if (!summary || !Array.isArray(summary.change_kinds)
-            || summary.change_kinds.some((kind) => typeof kind !== "string" || !["UNCHANGED", "BUSINESS_EQUIVALENT", "ADDED", "DELETED", "UPDATED", "SCHEMA_CHANGED", "DEGRADED", "FAILED", "REPLACED"].includes(kind))
-            || JSON.stringify(summary.change_kinds) !== JSON.stringify([...new Set(summary.change_kinds)].sort())) fail(sideWhere, `导航项 ${item.item_key} 的非空变化摘要无效`);
-        if (summary.risk_level !== null && !["LOW", "MEDIUM_LOW", "UNKNOWN", "MEDIUM_HIGH", "HIGH"].includes(String(summary.risk_level))) fail(sideWhere, `导航项 ${item.item_key} 的风险摘要无效`);
+        if (
+          !summary ||
+          !Array.isArray(summary.change_kinds) ||
+          summary.change_kinds.some(
+            (kind) =>
+              typeof kind !== "string" ||
+              ![
+                "UNCHANGED",
+                "BUSINESS_EQUIVALENT",
+                "ADDED",
+                "DELETED",
+                "UPDATED",
+                "SCHEMA_CHANGED",
+                "DEGRADED",
+                "FAILED",
+                "REPLACED",
+              ].includes(kind),
+          ) ||
+          JSON.stringify(summary.change_kinds) !==
+            JSON.stringify([...new Set(summary.change_kinds)].sort())
+        )
+          fail(sideWhere, `导航项 ${item.item_key} 的非空变化摘要无效`);
+        if (
+          summary.risk_level !== null &&
+          !["LOW", "MEDIUM_LOW", "UNKNOWN", "MEDIUM_HIGH", "HIGH"].includes(
+            String(summary.risk_level),
+          )
+        )
+          fail(sideWhere, `导航项 ${item.item_key} 的风险摘要无效`);
         const nonempty = (item.tabs ?? []).filter((tab) => tab.empty === false).length;
-        if (!Number.isSafeInteger(summary.nonempty_tab_count) || summary.nonempty_tab_count !== nonempty) fail(sideWhere, `导航项 ${item.item_key} 的非空页签计数不符`);
-        if (nonempty === 0 && (summary.change_kinds.length !== 0 || summary.risk_level !== null)) fail(sideWhere, `全空导航项 ${item.item_key} 的摘要不是中性`);
-        if (typeof summary.change_complete !== "boolean" || typeof summary.risk_complete !== "boolean") fail(sideWhere, `导航项 ${item.item_key} 缺少 v4 完整性摘要`);
+        if (
+          !Number.isSafeInteger(summary.nonempty_tab_count) ||
+          summary.nonempty_tab_count !== nonempty
+        )
+          fail(sideWhere, `导航项 ${item.item_key} 的非空页签计数不符`);
+        if (nonempty === 0 && (summary.change_kinds.length !== 0 || summary.risk_level !== null))
+          fail(sideWhere, `全空导航项 ${item.item_key} 的摘要不是中性`);
+        if (
+          typeof summary.change_complete !== "boolean" ||
+          typeof summary.risk_complete !== "boolean"
+        )
+          fail(sideWhere, `导航项 ${item.item_key} 缺少 v4 完整性摘要`);
         const tabKeys = new Set<string>();
         for (const tab of item.tabs ?? []) {
-          if (typeof tab.empty !== "boolean" || (side !== null && tab.empty)) fail(sideWhere, `页签 ${tab.tab_key} 的 empty 标记无效`);
+          if (typeof tab.empty !== "boolean" || (side !== null && tab.empty))
+            fail(sideWhere, `页签 ${tab.tab_key} 的 empty 标记无效`);
           if (typeof tab.tab_key !== "string") fail(sideWhere, "页签缺少 tab_key");
-          if (tabKeys.has(tab.tab_key)) fail(sideWhere, `导航项 ${item.item_key} 的页签重复：${tab.tab_key}`);
+          if (tabKeys.has(tab.tab_key))
+            fail(sideWhere, `导航项 ${item.item_key} 的页签重复：${tab.tab_key}`);
           tabKeys.add(tab.tab_key);
-          if (typeof tab.table_id !== "string" || !tableIds.has(tab.table_id)) fail(sideWhere, `页签 ${tab.tab_key} 引用了 surface 中不存在的表 ${String(tab.table_id)}`);
+          if (typeof tab.table_id !== "string" || !tableIds.has(tab.table_id))
+            fail(
+              sideWhere,
+              `页签 ${tab.tab_key} 引用了 surface 中不存在的表 ${String(tab.table_id)}`,
+            );
           const rowFilter = decodeRowFilter(tab.row_filter, `${sideWhere} 页签 ${tab.tab_key}`);
           if (rowFilter === null) {
-            if (wholeByTable.has(tab.table_id)) fail(sideWhere, `表 ${tab.table_id} 有多个整表页签`);
-            if (filterGroupByTable.has(tab.table_id)) fail(sideWhere, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
+            if (wholeByTable.has(tab.table_id))
+              fail(sideWhere, `表 ${tab.table_id} 有多个整表页签`);
+            if (filterGroupByTable.has(tab.table_id))
+              fail(sideWhere, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
             wholeByTable.set(tab.table_id, tab.tab_key);
           } else {
-            if (wholeByTable.has(tab.table_id)) fail(sideWhere, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
+            if (wholeByTable.has(tab.table_id))
+              fail(sideWhere, `表 ${tab.table_id} 的整表页签与筛选页签并存`);
             const previous = filterGroupByTable.get(tab.table_id);
-            if (previous !== undefined && previous !== group.group_key) fail(sideWhere, `表 ${tab.table_id} 的筛选页签跨组`);
+            if (previous !== undefined && previous !== group.group_key)
+              fail(sideWhere, `表 ${tab.table_id} 的筛选页签跨组`);
             filterGroupByTable.set(tab.table_id, group.group_key);
           }
           tabs.push(side ? { ...tab, side } : tab);
         }
       }
-      if (!Number.isSafeInteger(group.nonempty_item_count)
-          || group.nonempty_item_count !== (group.items ?? []).filter((item) => (item.summary?.nonempty_tab_count as number) > 0).length) fail(sideWhere, `导航组 ${group.group_key} 的非空项计数不符`);
+      if (
+        !Number.isSafeInteger(group.nonempty_item_count) ||
+        group.nonempty_item_count !==
+          (group.items ?? []).filter((item) => (item.summary?.nonempty_tab_count as number) > 0)
+            .length
+      )
+        fail(sideWhere, `导航组 ${group.group_key} 的非空项计数不符`);
     }
   }
   return tabs;
@@ -397,7 +498,9 @@ function rowCountOf(table: SurfaceTable, side: "before" | "current"): number | n
   if (!binding) return null;
   const count = binding.row_count;
   if (count === null || count === undefined) return null;
-  return typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : fail(`表 ${table.table_id}`, `${side} 行数无效`);
+  return typeof count === "number" && Number.isSafeInteger(count) && count >= 0
+    ? count
+    : fail(`表 ${table.table_id}`, `${side} 行数无效`);
 }
 
 function diagnosticsFor(
@@ -412,7 +515,8 @@ function diagnosticsFor(
     if (diagnostic.target?.table_id !== tableId) continue;
     if (String(diagnostic.side ?? "").toUpperCase() !== side.toUpperCase()) continue;
     const count = diagnostic.params?.row_count;
-    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) fail(`表 ${tableId}`, `${code} 诊断的 row_count 无效`);
+    if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0)
+      fail(`表 ${tableId}`, `${code} 诊断的 row_count 无效`);
     total += count;
   }
   return total;
@@ -439,10 +543,12 @@ async function checkCoverage(
     if (!tableRef) fail(where, `${side} 有行数绑定但缺少快照引用`);
     const path = reader.pathOf(tableRef, `${where}.${side}_table_ref`);
     const rows = await reader.parquet(path);
-    if (rows.length !== rowCount) fail(where, `${side} 快照行数 ${rows.length} 与绑定 ${rowCount} 不一致`);
+    if (rows.length !== rowCount)
+      fail(where, `${side} 快照行数 ${rows.length} 与绑定 ${rowCount} 不一致`);
     const covered = new Set<number>();
     for (const tab of filterTabs) {
-      const predicate = decodeRowFilter(tab.row_filter, `${where} 页签 ${tab.tab_key}`)?.[side] ?? null;
+      const predicate =
+        decodeRowFilter(tab.row_filter, `${where} 页签 ${tab.tab_key}`)?.[side] ?? null;
       if (!predicate) continue;
       rows.forEach((row, index) => {
         if (compareValues(row, predicate.column, predicate)) covered.add(index);
@@ -478,26 +584,46 @@ async function checkLocations(
     }
   }
   const locatorRef = table.row_locator_ref ?? null;
-  if (ordinary.length > 0 && !locatorRef) fail(where, "有已发布的 STANDARD 普通行记录但缺少 row_locator_ref（不允许表级回退）");
+  if (ordinary.length > 0 && !locatorRef)
+    fail(where, "有已发布的 STANDARD 普通行记录但缺少 row_locator_ref（不允许表级回退）");
   if (!locatorRef) return { tableLocated: false, rows: 0 };
   const path = reader.pathOf(locatorRef, `${where}.row_locator_ref`);
   const rows = await reader.parquet(path);
-  const located = new Map<string, { before: number | null; current: number | null; beforeContext: Record<string, unknown> | null; currentContext: Record<string, unknown> | null }>();
+  const located = new Map<
+    string,
+    {
+      before: number | null;
+      current: number | null;
+      beforeContext: Record<string, unknown> | null;
+      currentContext: Record<string, unknown> | null;
+    }
+  >();
   let previousIdentity: Buffer | null = null;
   rows.forEach((row, rowIndex) => {
     const identity = identityHex(row.row_identity);
-    const raw = row.row_identity instanceof Uint8Array ? Buffer.from(row.row_identity) : Buffer.from(new Uint8Array(row.row_identity as ArrayBuffer));
-    if (previousIdentity && Buffer.compare(previousIdentity, raw) >= 0) fail(where, `locator 行身份未严格升序（第 ${rowIndex} 行）`);
+    const raw =
+      row.row_identity instanceof Uint8Array
+        ? Buffer.from(row.row_identity)
+        : Buffer.from(new Uint8Array(row.row_identity as ArrayBuffer));
+    if (previousIdentity && Buffer.compare(previousIdentity, raw) >= 0)
+      fail(where, `locator 行身份未严格升序（第 ${rowIndex} 行）`);
     previousIdentity = raw;
     if (located.has(identity)) fail(where, `locator 行身份重复：${identity}`);
     located.set(identity, {
       before: indexValue(row.before_row_index, `${where} ${identity}.before_row_index`),
       current: indexValue(row.current_row_index, `${where} ${identity}.current_row_index`),
-      beforeContext: contextDocument(row.before_filter_context_json, `${where} ${identity}.before_filter_context_json`),
-      currentContext: contextDocument(row.current_filter_context_json, `${where} ${identity}.current_filter_context_json`),
+      beforeContext: contextDocument(
+        row.before_filter_context_json,
+        `${where} ${identity}.before_filter_context_json`,
+      ),
+      currentContext: contextDocument(
+        row.current_filter_context_json,
+        `${where} ${identity}.current_filter_context_json`,
+      ),
     });
   });
-  if (located.size !== ordinary.length) fail(where, `locator 行数 ${located.size} 与普通行记录数 ${ordinary.length} 不一致`);
+  if (located.size !== ordinary.length)
+    fail(where, `locator 行数 ${located.size} 与普通行记录数 ${ordinary.length} 不一致`);
   const anyFilterTab = beforeHasFilterTab || currentHasFilterTab;
   const beforeCount = rowCountOf(table, "before");
   const currentCount = rowCountOf(table, "current");
@@ -531,13 +657,29 @@ async function checkLocations(
       } else {
         if (index !== null) fail(label, "缺少快照的一侧却给出了行下标");
         const hasFilterTab = side === "before" ? beforeHasFilterTab : currentHasFilterTab;
-        if (hasFilterTab && context === null) fail(label, "缺少快照且有筛选页签时过滤上下文不能为空");
+        if (hasFilterTab && context === null)
+          fail(label, "缺少快照且有筛选页签时过滤上下文不能为空");
         if (!hasFilterTab && context !== null) fail(label, "整表入口不应带过滤上下文");
       }
     };
-    checkSide("before", beforeExists, entry.before, entry.beforeContext, beforeCount, beforeIndexes);
-    checkSide("current", currentExists, entry.current, entry.currentContext, currentCount, currentIndexes);
-    if (!anyFilterTab && (entry.beforeContext !== null || entry.currentContext !== null)) fail(where, "整表入口不应带过滤上下文");
+    checkSide(
+      "before",
+      beforeExists,
+      entry.before,
+      entry.beforeContext,
+      beforeCount,
+      beforeIndexes,
+    );
+    checkSide(
+      "current",
+      currentExists,
+      entry.current,
+      entry.currentContext,
+      currentCount,
+      currentIndexes,
+    );
+    if (!anyFilterTab && (entry.beforeContext !== null || entry.currentContext !== null))
+      fail(where, "整表入口不应带过滤上下文");
   }
   return { tableLocated: true, rows: located.size };
 }
@@ -561,7 +703,8 @@ export async function assertBundleConsumerCriteria(
     const surfacePath = `pairs/${pairId}/comparison-surface.json`;
     if (!reader.hasMember(surfacePath)) fail(where, "缺少 comparison-surface.json");
     const surface = reader.json<ComparisonSurface>(surfacePath);
-    if (surface.surface_contract_version !== SURFACE_CONTRACT_VERSION) fail(where, "surface contract version 不是 v4");
+    if (surface.surface_contract_version !== SURFACE_CONTRACT_VERSION)
+      fail(where, "surface contract version 不是 v4");
     const tables = surface.tables ?? [];
     const ids = new Set<string>();
     for (const table of tables) {
@@ -569,14 +712,27 @@ export async function assertBundleConsumerCriteria(
       if (ids.has(table.table_id)) fail(where, `surface 表重复：${table.table_id}`);
       ids.add(table.table_id);
     }
-    const navigationProjections = (surface.projections ?? []).filter((projection) => projection.projection_kind === "BUSINESS_NAVIGATION");
-    if (navigationProjections.length !== 1) fail(where, `必须恰有一个 BUSINESS_NAVIGATION projection（实际 ${navigationProjections.length}）`);
-    const navigationPath = reader.pathOf(navigationProjections[0].projection_ref, `${where}.navigation`);
+    const navigationProjections = (surface.projections ?? []).filter(
+      (projection) => projection.projection_kind === "BUSINESS_NAVIGATION",
+    );
+    if (navigationProjections.length !== 1)
+      fail(
+        where,
+        `必须恰有一个 BUSINESS_NAVIGATION projection（实际 ${navigationProjections.length}）`,
+      );
+    const navigationPath = reader.pathOf(
+      navigationProjections[0].projection_ref,
+      `${where}.navigation`,
+    );
     const navigation = reader.json<NavigationDocument>(navigationPath);
     let diagnostics: NavigationDiagnostic[] = [];
     if (navigationProjections[0].diagnostics_ref) {
-      const diagnosticsPath = reader.pathOf(navigationProjections[0].diagnostics_ref, `${where}.navigation_diagnostics`);
-      diagnostics = reader.json<{ diagnostics?: NavigationDiagnostic[] }>(diagnosticsPath).diagnostics ?? [];
+      const diagnosticsPath = reader.pathOf(
+        navigationProjections[0].diagnostics_ref,
+        `${where}.navigation_diagnostics`,
+      );
+      diagnostics =
+        reader.json<{ diagnostics?: NavigationDiagnostic[] }>(diagnosticsPath).diagnostics ?? [];
     }
     const tabs = checkNavigationShape(navigation, surface, where);
     const referenced = referencedTableIds(tabs);
@@ -588,24 +744,46 @@ export async function assertBundleConsumerCriteria(
       unreferenced += 1;
       // A null binding means the bundle carries no snapshot for that side;
       // kickoff §5.3 only requires zero rows for sides with a binding.
-      if ((rowCountOf(table, "before") ?? 0) !== 0 || (rowCountOf(table, "current") ?? 0) !== 0) fail(where, `未引用表 ${table.table_id} 的行数不为 0`);
-      if (table.change_kind !== "UNCHANGED" && table.change_kind !== "BUSINESS_EQUIVALENT") fail(where, `未引用表 ${table.table_id} 的变化类型为 ${String(table.change_kind)}`);
-      if (table.risk_refs?.risk_level !== null && table.risk_refs?.risk_level !== undefined) fail(where, `未引用表 ${table.table_id} 带有风险`);
-      if (table.risk_refs?.annotation_count !== 0 && table.risk_refs?.annotation_count !== undefined) fail(where, `未引用表 ${table.table_id} 带有风险注释`);
+      if ((rowCountOf(table, "before") ?? 0) !== 0 || (rowCountOf(table, "current") ?? 0) !== 0)
+        fail(where, `未引用表 ${table.table_id} 的行数不为 0`);
+      if (table.change_kind !== "UNCHANGED" && table.change_kind !== "BUSINESS_EQUIVALENT")
+        fail(where, `未引用表 ${table.table_id} 的变化类型为 ${String(table.change_kind)}`);
+      if (table.risk_refs?.risk_level !== null && table.risk_refs?.risk_level !== undefined)
+        fail(where, `未引用表 ${table.table_id} 带有风险`);
+      if (
+        table.risk_refs?.annotation_count !== 0 &&
+        table.risk_refs?.annotation_count !== undefined
+      )
+        fail(where, `未引用表 ${table.table_id} 带有风险注释`);
     }
     let coveredFilterSides = 0;
     let locatedTables = 0;
     let locatedRows = 0;
     for (const table of tables) {
-      const tableTabs = tabs.filter((tab) => tab.table_id === table.table_id && tab.row_filter !== null);
+      const tableTabs = tabs.filter(
+        (tab) => tab.table_id === table.table_id && tab.row_filter !== null,
+      );
       const filterTabsBySide = {
         before: tableTabs.filter((tab) => tabsOnSide(tab, "before")),
         current: tableTabs.filter((tab) => tabsOnSide(tab, "current")),
       };
       if (filterTabsBySide.before.length > 0 || filterTabsBySide.current.length > 0) {
-        coveredFilterSides += await checkCoverage(reader, pairId, table, filterTabsBySide, diagnostics, `${where} 表 ${table.table_id}`);
+        coveredFilterSides += await checkCoverage(
+          reader,
+          pairId,
+          table,
+          filterTabsBySide,
+          diagnostics,
+          `${where} 表 ${table.table_id}`,
+        );
       }
-      const located = await checkLocations(reader, table, filterTabsBySide.before.length > 0, filterTabsBySide.current.length > 0, `${where} 表 ${table.table_id}`);
+      const located = await checkLocations(
+        reader,
+        table,
+        filterTabsBySide.before.length > 0,
+        filterTabsBySide.current.length > 0,
+        `${where} 表 ${table.table_id}`,
+      );
       if (located.tableLocated) locatedTables += 1;
       locatedRows += located.rows;
     }

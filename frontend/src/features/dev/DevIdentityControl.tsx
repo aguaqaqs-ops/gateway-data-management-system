@@ -15,13 +15,13 @@ const IDENTITIES = [
   { id: "no-permission", label: "无权限身份", token: "dev-token-no-permission" },
 ] as const;
 
-type IdentityId = typeof IDENTITIES[number]["id"];
+type IdentityId = (typeof IDENTITIES)[number]["id"];
 const SESSION_KEY = "gateway-dev-identity";
 const listeners = new Set<() => void>();
 let selected: IdentityId = "submitter";
 let publishedByDevIdentity = false;
 
-function identityById(id: string): typeof IDENTITIES[number] {
+function identityById(id: string): (typeof IDENTITIES)[number] {
   return IDENTITIES.find((identity) => identity.id === id) ?? IDENTITIES[0];
 }
 
@@ -39,14 +39,21 @@ function publish(): void {
   window.__gatewaySession = session;
   adoptInjectedSession(session);
   window.dispatchEvent(new Event("gateway-session-change"));
-  try { window.sessionStorage.setItem(SESSION_KEY, selected); } catch { /* the in-memory session remains available */ }
+  try {
+    window.sessionStorage.setItem(SESSION_KEY, selected);
+  } catch {
+    /* the in-memory session remains available */
+  }
   for (const listener of listeners) listener();
 }
 
 try {
   const stored = window.sessionStorage.getItem(SESSION_KEY);
-  if (stored && IDENTITIES.some((identity) => identity.id === stored)) selected = stored as IdentityId;
-} catch { /* use the default simulated identity */ }
+  if (stored && IDENTITIES.some((identity) => identity.id === stored))
+    selected = stored as IdentityId;
+} catch {
+  /* use the default simulated identity */
+}
 // A directory handoff, an injected test session, or an invalid/expired
 // handoff always wins; only an otherwise empty session gets the dev identity.
 if (shouldPublishDevIdentity()) publish();
@@ -64,12 +71,27 @@ export function DevIdentityControl() {
   const identity = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const sessionState = useGatewaySessionState();
   const disabled = window.__gatewayTestConfig?.disableDevIdentity === true;
-  const visible = !disabled
-    && (sessionState.kind === "none" || (sessionState.kind === "preset" && publishedByDevIdentity));
+  const visible =
+    !disabled &&
+    (sessionState.kind === "none" || (sessionState.kind === "preset" && publishedByDevIdentity));
   if (!visible) return null;
-  return <label className="dev-identity-control">模拟身份
-    <select aria-label="模拟身份" value={identity} onChange={(event) => { selected = event.currentTarget.value as IdentityId; publish(); }}>
-      {IDENTITIES.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}
-    </select>
-  </label>;
+  return (
+    <label className="dev-identity-control">
+      模拟身份
+      <select
+        aria-label="模拟身份"
+        value={identity}
+        onChange={(event) => {
+          selected = event.currentTarget.value as IdentityId;
+          publish();
+        }}
+      >
+        {IDENTITIES.map((item) => (
+          <option value={item.id} key={item.id}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }

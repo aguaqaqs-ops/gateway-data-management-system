@@ -50,12 +50,31 @@ export interface BundleArtifactEntry {
   table_name?: string;
 }
 
+export type BundleInput = {
+  display_metadata: Record<string, unknown>;
+  display_name: string;
+  input_index: number;
+  role: string | null;
+  snapshot_digest: string | null;
+};
+
+export type BundlePair = {
+  before_input_index: number | null;
+  comparison_digest: string;
+  current_input_index: number | null;
+  pair_id: string;
+  risk_evaluation_digest?: string;
+  status: string;
+  summary: Record<string, string | number>;
+  surface_digest: string;
+};
+
 export interface BundleManifest {
   bundle_contract_version: string;
   bundle_profile: string;
   status: string;
-  inputs: unknown[];
-  pairs: unknown[];
+  inputs: BundleInput[];
+  pairs: BundlePair[];
   failed_pairs: unknown[];
   diagnostics: string[];
   closure: BundleSemanticClosure;
@@ -130,7 +149,11 @@ class StreamReader {
       if (!this.current || this.offset >= this.current.byteLength) {
         if (this.ended) break;
         let next: ReadableStreamReadResult<Uint8Array>;
-        try { next = await this.reader.read(); } catch { throw new BundleIntegrityError("bundle 下载流中断"); }
+        try {
+          next = await this.reader.read();
+        } catch {
+          throw new BundleIntegrityError("bundle 下载流中断");
+        }
         if (next.done) {
           this.ended = true;
           break;
@@ -161,7 +184,11 @@ class StreamReader {
     }
     while (!this.ended) {
       let next: ReadableStreamReadResult<Uint8Array>;
-      try { next = await this.reader.read(); } catch { throw new BundleIntegrityError("bundle 下载流中断"); }
+      try {
+        next = await this.reader.read();
+      } catch {
+        throw new BundleIntegrityError("bundle 下载流中断");
+      }
       if (next.done) {
         this.ended = true;
         break;
@@ -184,7 +211,11 @@ function fieldString(header: Uint8Array, start: number, end: number): string {
       break;
     }
   }
-  try { return textDecoder.decode(header.subarray(start, limit)); } catch { throw new BundleIntegrityError("tar header 文本不是有效 UTF-8"); }
+  try {
+    return textDecoder.decode(header.subarray(start, limit));
+  } catch {
+    throw new BundleIntegrityError("tar header 文本不是有效 UTF-8");
+  }
 }
 
 function octal(header: Uint8Array, start: number, end: number, label: string): number {
@@ -192,21 +223,30 @@ function octal(header: Uint8Array, start: number, end: number, label: string): n
   if (!raw) return 0;
   if (!/^[0-7]+$/.test(raw)) throw new BundleIntegrityError(`tar ${label} 不是有效八进制数`);
   const value = Number.parseInt(raw, 8);
-  if (!Number.isSafeInteger(value) || value < 0) throw new BundleIntegrityError(`tar ${label} 超出支持范围`);
+  if (!Number.isSafeInteger(value) || value < 0)
+    throw new BundleIntegrityError(`tar ${label} 超出支持范围`);
   return value;
 }
 
 function validatePath(path: string): string {
-  if (!path || path.startsWith("/") || path.includes("\\") || path.includes("\0") || path.endsWith("/")) {
+  if (
+    !path ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    path.includes("\0") ||
+    path.endsWith("/")
+  ) {
     throw new BundleIntegrityError("bundle 成员路径无效");
   }
   const parts = path.split("/");
-  if (parts.some((part) => !part || part === "." || part === "..")) throw new BundleIntegrityError("bundle 成员路径越界");
+  if (parts.some((part) => !part || part === "." || part === ".."))
+    throw new BundleIntegrityError("bundle 成员路径越界");
   return path;
 }
 
 function checkPathBudget(path: string): string {
-  if (textEncoder.encode(path).byteLength > MAX_PATH_UTF8_BYTES) throw new BundleIntegrityError("bundle 成员路径超过允许大小");
+  if (textEncoder.encode(path).byteLength > MAX_PATH_UTF8_BYTES)
+    throw new BundleIntegrityError("bundle 成员路径超过允许大小");
   return path;
 }
 
@@ -214,7 +254,8 @@ function checkPathBudget(path: string): string {
 export function parseTarHeader(header: Uint8Array): { path: string; size: number; type: string } {
   const stored = octal(header, 148, 156, "校验和");
   let checksum = 0;
-  for (let i = 0; i < header.byteLength; i += 1) checksum += i >= 148 && i < 156 ? 32 : (header[i] ?? 0);
+  for (let i = 0; i < header.byteLength; i += 1)
+    checksum += i >= 148 && i < 156 ? 32 : (header[i] ?? 0);
   if (checksum !== stored) throw new BundleIntegrityError("tar header 校验和不匹配");
   const name = fieldString(header, 0, 100);
   const prefix = fieldString(header, 345, 500);
@@ -231,7 +272,11 @@ interface RawPaxRecord {
 }
 
 function decodeUtf8(bytes: Uint8Array, label: string): string {
-  try { return textDecoder.decode(bytes); } catch { throw new BundleIntegrityError(`${label} 不是有效 UTF-8`); }
+  try {
+    return textDecoder.decode(bytes);
+  } catch {
+    throw new BundleIntegrityError(`${label} 不是有效 UTF-8`);
+  }
 }
 
 /**
@@ -245,19 +290,28 @@ function splitPaxRecords(payload: Uint8Array): RawPaxRecord[] {
   let offset = 0;
   while (offset < payload.byteLength) {
     let digitsEnd = offset;
-    while (digitsEnd < payload.byteLength && payload[digitsEnd] >= 0x30 && payload[digitsEnd] <= 0x39) digitsEnd += 1;
-    if (digitsEnd === offset || payload[digitsEnd] !== 0x20) throw new BundleIntegrityError("pax 记录长度格式无效");
+    while (
+      digitsEnd < payload.byteLength &&
+      payload[digitsEnd] >= 0x30 &&
+      payload[digitsEnd] <= 0x39
+    )
+      digitsEnd += 1;
+    if (digitsEnd === offset || payload[digitsEnd] !== 0x20)
+      throw new BundleIntegrityError("pax 记录长度格式无效");
     let digits = "";
-    for (let index = offset; index < digitsEnd; index += 1) digits += String.fromCharCode(payload[index]);
+    for (let index = offset; index < digitsEnd; index += 1)
+      digits += String.fromCharCode(payload[index]);
     const length = Number(digits);
-    if (!Number.isSafeInteger(length) || length <= digitsEnd - offset + 1) throw new BundleIntegrityError("pax 记录长度无效");
+    if (!Number.isSafeInteger(length) || length <= digitsEnd - offset + 1)
+      throw new BundleIntegrityError("pax 记录长度无效");
     const recordEnd = offset + length;
     if (recordEnd > payload.byteLength) throw new BundleIntegrityError("pax 记录越过 payload");
     if (payload[recordEnd - 1] !== 0x0a) throw new BundleIntegrityError("pax 记录缺少结尾换行");
     const bodyStart = digitsEnd + 1;
     let separator = bodyStart;
     while (separator < recordEnd - 1 && payload[separator] !== 0x3d) separator += 1;
-    if (separator === bodyStart || separator >= recordEnd - 1) throw new BundleIntegrityError("pax 记录缺少 key 或分隔符");
+    if (separator === bodyStart || separator >= recordEnd - 1)
+      throw new BundleIntegrityError("pax 记录缺少 key 或分隔符");
     records.push({
       key: decodeUtf8(payload.subarray(bodyStart, separator), "pax key"),
       valueBytes: payload.subarray(separator + 1, recordEnd - 1),
@@ -269,7 +323,10 @@ function splitPaxRecords(payload: Uint8Array): RawPaxRecord[] {
 
 /** Record-splitter layer: decodes every `(key, value)` pair with strict UTF-8. */
 export function parsePaxRecords(payload: Uint8Array): PaxRecord[] {
-  return splitPaxRecords(payload).map((record) => ({ key: record.key, value: decodeUtf8(record.valueBytes, `pax ${record.key}`) }));
+  return splitPaxRecords(payload).map((record) => ({
+    key: record.key,
+    value: decodeUtf8(record.valueBytes, `pax ${record.key}`),
+  }));
 }
 
 function parsePaxSize(value: string): number {
@@ -290,7 +347,8 @@ export function parseMemberPaxHeader(payload: Uint8Array): MemberPaxHeader {
     if (record.key === "path") {
       if (path !== null) throw new BundleIntegrityError("pax 头包含重复的 path");
       if (record.valueBytes.byteLength === 0) throw new BundleIntegrityError("pax 头 path 为空");
-      if (record.valueBytes.byteLength > MAX_PATH_UTF8_BYTES) throw new BundleIntegrityError("pax 头 path 超过允许大小");
+      if (record.valueBytes.byteLength > MAX_PATH_UTF8_BYTES)
+        throw new BundleIntegrityError("pax 头 path 超过允许大小");
       path = decodeUtf8(record.valueBytes, "pax path");
       continue;
     }
@@ -314,7 +372,8 @@ function parseJson<T>(bytes: Uint8Array, label: string): T {
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new BundleIntegrityError(`${label} 结构无效`);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new BundleIntegrityError(`${label} 结构无效`);
   return value as Record<string, unknown>;
 }
 
@@ -335,7 +394,11 @@ function hashJson(value: unknown): string {
   return `sha256:${new Sha256().update(bytes).digest()}`;
 }
 
-async function readMemberBytes(reader: StreamReader, size: number, label: string): Promise<Uint8Array> {
+async function readMemberBytes(
+  reader: StreamReader,
+  size: number,
+  label: string,
+): Promise<Uint8Array> {
   if (size > METADATA_LIMIT) throw new BundleIntegrityError(`${label} 超过最大索引大小`);
   const bytes = await reader.readExactly(size);
   if (!bytes) throw new BundleIntegrityError(`${label} 缺失`);
@@ -343,7 +406,7 @@ async function readMemberBytes(reader: StreamReader, size: number, label: string
 }
 
 async function discardPadding(reader: StreamReader, size: number): Promise<void> {
-  const padding = (BLOCK - size % BLOCK) % BLOCK;
+  const padding = (BLOCK - (size % BLOCK)) % BLOCK;
   if (padding) await reader.readExactly(padding);
 }
 
@@ -355,11 +418,13 @@ async function readArtifact(
   contentLength: number,
 ): Promise<void> {
   const size = entry.integrity.size_bytes;
-  if (!Number.isSafeInteger(size) || size < 0) throw new BundleIntegrityError("产物大小超出允许范围");
+  if (!Number.isSafeInteger(size) || size < 0)
+    throw new BundleIntegrityError("产物大小超出允许范围");
   const sinkValue = await transaction.openArtifact(entry.logical_path);
-  const sink: ArtifactSink = typeof (sinkValue as WritableStream<Uint8Array>).getWriter === "function"
-    ? writerSink((sinkValue as WritableStream<Uint8Array>).getWriter())
-    : sinkValue as ArtifactSink;
+  const sink: ArtifactSink =
+    typeof (sinkValue as WritableStream<Uint8Array>).getWriter === "function"
+      ? writerSink((sinkValue as WritableStream<Uint8Array>).getWriter())
+      : (sinkValue as ArtifactSink);
   const hasher = new Sha256();
   let remaining = size;
   try {
@@ -370,7 +435,8 @@ async function readArtifact(
       await sink.write(block);
       remaining -= block.byteLength;
       progress(reader.consumedBytes);
-      if (reader.consumedBytes > contentLength) throw new BundleIntegrityError("bundle 实际长度超过 Content-Length");
+      if (reader.consumedBytes > contentLength)
+        throw new BundleIntegrityError("bundle 实际长度超过 Content-Length");
     }
     if (normalizeSha256(hasher.digest()) !== normalizeSha256(entry.integrity.raw_sha256)) {
       throw new BundleIntegrityError(`产物摘要不匹配：${entry.logical_path}`);
@@ -388,38 +454,82 @@ function writerSink(writer: WritableStreamDefaultWriter<Uint8Array>): ArtifactSi
     write: async (chunk) => writer.write(chunk),
     close: async () => writer.close(),
     abort: async (reason) => {
-      try { await writer.abort(reason); } catch { /* preserve the primary failure */ }
+      try {
+        await writer.abort(reason);
+      } catch {
+        /* preserve the primary failure */
+      }
     },
   };
 }
 
 function verifyEntry(entry: BundleSemanticEntry, physical: BundleArtifactEntry): void {
-  if (entry.logical_path !== physical.logical_path || entry.kind !== physical.kind || entry.shared !== physical.shared) {
+  if (
+    entry.logical_path !== physical.logical_path ||
+    entry.kind !== physical.kind ||
+    entry.shared !== physical.shared
+  ) {
     throw new BundleIntegrityError("manifest closure entry 与引用索引不匹配");
   }
-  if (entry.integrity.raw_sha256 !== physical.raw_sha256 || entry.integrity.size_bytes !== physical.size_bytes || entry.integrity.raw_sha256 !== physical.artifact_ref.raw_sha256 || entry.integrity.size_bytes !== physical.artifact_ref.size_bytes || entry.integrity.media_type !== physical.artifact_ref.media_type) {
+  if (
+    entry.integrity.raw_sha256 !== physical.raw_sha256 ||
+    entry.integrity.size_bytes !== physical.size_bytes ||
+    entry.integrity.raw_sha256 !== physical.artifact_ref.raw_sha256 ||
+    entry.integrity.size_bytes !== physical.artifact_ref.size_bytes ||
+    entry.integrity.media_type !== physical.artifact_ref.media_type
+  ) {
     throw new BundleIntegrityError(`产物引用完整性字段不匹配：${entry.logical_path}`);
   }
-  if (entry.pair_id !== physical.pair_id || entry.table_name !== physical.table_name || !sameCanonical(entry.table_bindings ?? null, physical.table_bindings ?? null)) {
+  if (
+    entry.pair_id !== physical.pair_id ||
+    entry.table_name !== physical.table_name ||
+    !sameCanonical(entry.table_bindings ?? null, physical.table_bindings ?? null)
+  ) {
     throw new BundleIntegrityError(`产物作用域不匹配：${entry.logical_path}`);
   }
 }
 
-function validateManifests(manifestValue: unknown, closureValue: unknown, etag: string, expectedDigest: string): { manifest: BundleManifest; closure: BundleClosure } {
+function validateManifests(
+  manifestValue: unknown,
+  closureValue: unknown,
+  etag: string,
+  expectedDigest: string,
+): { manifest: BundleManifest; closure: BundleClosure } {
   const manifest = object(manifestValue, "bundle manifest") as unknown as BundleManifest;
   const closure = object(closureValue, "bundle closure") as unknown as BundleClosure;
-  const semanticClosure = object(manifest.closure, "bundle manifest closure") as unknown as BundleSemanticClosure;
-  if (!Array.isArray(semanticClosure.entries) || !Array.isArray(manifest.closure_entries) || !Array.isArray(closure.entries) || !Array.isArray(closure.closure_entries)) {
+  const semanticClosure = object(
+    manifest.closure,
+    "bundle manifest closure",
+  ) as unknown as BundleSemanticClosure;
+  if (
+    !Array.isArray(semanticClosure.entries) ||
+    !Array.isArray(manifest.closure_entries) ||
+    !Array.isArray(closure.entries) ||
+    !Array.isArray(closure.closure_entries)
+  ) {
     throw new BundleIntegrityError("bundle closure 列表缺失");
   }
-  if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(closure.bundle_digest) || normalizeSha256(manifest.bundle_digest) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("bundle 摘要不一致");
-  if (manifest.bundle_contract_version !== closure.bundle_contract_version) throw new BundleIntegrityError("bundle contract version 不一致");
-  if (manifest.bundle_contract_version !== BUNDLE_CONTRACT_VERSION) throw new BundleIntegrityError(`不支持的 bundle contract version：${manifest.bundle_contract_version}`);
-  if (normalizeSha256(etag) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("ETag 与预期 bundle 摘要不一致");
-  if (!sameCanonical(semanticClosure.entries, closure.entries) || !sameCanonical(manifest.closure_entries, closure.closure_entries)) {
+  if (
+    normalizeSha256(manifest.bundle_digest) !== normalizeSha256(closure.bundle_digest) ||
+    normalizeSha256(manifest.bundle_digest) !== normalizeSha256(expectedDigest)
+  )
+    throw new BundleIntegrityError("bundle 摘要不一致");
+  if (manifest.bundle_contract_version !== closure.bundle_contract_version)
+    throw new BundleIntegrityError("bundle contract version 不一致");
+  if (manifest.bundle_contract_version !== BUNDLE_CONTRACT_VERSION)
+    throw new BundleIntegrityError(
+      `不支持的 bundle contract version：${manifest.bundle_contract_version}`,
+    );
+  if (normalizeSha256(etag) !== normalizeSha256(expectedDigest))
+    throw new BundleIntegrityError("ETag 与预期 bundle 摘要不一致");
+  if (
+    !sameCanonical(semanticClosure.entries, closure.entries) ||
+    !sameCanonical(manifest.closure_entries, closure.closure_entries)
+  ) {
     throw new BundleIntegrityError("manifest 与 closure 内容不一致");
   }
-  if (semanticClosure.entries.length !== manifest.closure_entries.length) throw new BundleIntegrityError("closure 引用数量不一致");
+  if (semanticClosure.entries.length !== manifest.closure_entries.length)
+    throw new BundleIntegrityError("closure 引用数量不一致");
   const paths = new Set<string>();
   const artifactIds = new Set<string>();
   for (let index = 0; index < semanticClosure.entries.length; index += 1) {
@@ -433,7 +543,11 @@ function validateManifests(manifestValue: unknown, closureValue: unknown, etag: 
     artifactIds.add(artifactId);
     verifyEntry(entry, physical);
     validatePath(entry.logical_path);
-    if (entry.logical_path === "manifest.json" || entry.logical_path === "artifact-closure.json" || paths.has(entry.logical_path)) {
+    if (
+      entry.logical_path === "manifest.json" ||
+      entry.logical_path === "artifact-closure.json" ||
+      paths.has(entry.logical_path)
+    ) {
       throw new BundleIntegrityError(`closure 路径重复或保留：${entry.logical_path}`);
     }
     paths.add(entry.logical_path);
@@ -441,13 +555,21 @@ function validateManifests(manifestValue: unknown, closureValue: unknown, etag: 
   return { manifest, closure };
 }
 
-export async function verifyBundleMetadata(manifestValue: unknown, closureValue: unknown, expectedDigest: string, etag = expectedDigest): Promise<{ manifest: BundleManifest; closure: BundleClosure }> {
+export async function verifyBundleMetadata(
+  manifestValue: unknown,
+  closureValue: unknown,
+  expectedDigest: string,
+  etag = expectedDigest,
+): Promise<{ manifest: BundleManifest; closure: BundleClosure }> {
   const verified = validateManifests(manifestValue, closureValue, etag, expectedDigest);
   const { manifest, closure } = verified;
-  if (manifest.closure_manifest_digest !== await hashJson(manifest.closure)) throw new BundleIntegrityError("closure manifest 摘要不匹配");
+  if (manifest.closure_manifest_digest !== (await hashJson(manifest.closure)))
+    throw new BundleIntegrityError("closure manifest 摘要不匹配");
   const semanticDigest = await hashJson(manifestSemanticPayload(manifest));
-  if (closure.bundle_manifest_digest !== semanticDigest) throw new BundleIntegrityError("manifest 语义摘要不匹配");
-  if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(semanticDigest)) throw new BundleIntegrityError("bundle 语义摘要不匹配");
+  if (closure.bundle_manifest_digest !== semanticDigest)
+    throw new BundleIntegrityError("manifest 语义摘要不匹配");
+  if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(semanticDigest))
+    throw new BundleIntegrityError("bundle 语义摘要不匹配");
   return verified;
 }
 
@@ -461,7 +583,8 @@ export async function installBundleTar(options: {
   onProgress?: (progress: BundleDownloadProgress) => void;
 }): Promise<{ manifest: BundleManifest; closure: BundleClosure }> {
   const contentLength = Number(options.contentLength);
-  if (!Number.isSafeInteger(contentLength) || contentLength < 1024) throw new BundleIntegrityError("响应缺少有效 Content-Length");
+  if (!Number.isSafeInteger(contentLength) || contentLength < 1024)
+    throw new BundleIntegrityError("响应缺少有效 Content-Length");
   if (!options.etag) throw new BundleIntegrityError("响应缺少 ETag");
   const transaction = await options.store.begin(normalizeSha256(options.expectedBundleDigest));
   const reader = new StreamReader(options.body);
@@ -477,13 +600,17 @@ export async function installBundleTar(options: {
       if (header.every((byte) => byte === 0)) {
         if (pendingPax) throw new BundleIntegrityError("pax 扩展头没有后继成员");
         const second = await reader.readExactly(BLOCK);
-        if (!second || !second.every((byte) => byte === 0)) throw new BundleIntegrityError("tar 结束块无效");
+        if (!second || !second.every((byte) => byte === 0))
+          throw new BundleIntegrityError("tar 结束块无效");
         break;
       }
       const parsed = parseTarHeader(header);
       if (parsed.type === "x") {
         if (pendingPax) throw new BundleIntegrityError("pax 扩展头不能连续出现");
-        if (parsed.size > MAX_PAX_PAYLOAD_BYTES || parsed.size > contentLength - reader.consumedBytes) {
+        if (
+          parsed.size > MAX_PAX_PAYLOAD_BYTES ||
+          parsed.size > contentLength - reader.consumedBytes
+        ) {
           throw new BundleIntegrityError("pax 头超过允许大小");
         }
         const pax = await readMemberBytes(reader, parsed.size, "pax header");
@@ -491,14 +618,17 @@ export async function installBundleTar(options: {
         await discardPadding(reader, parsed.size);
         continue;
       }
-      if (parsed.type !== "0") throw new BundleIntegrityError(`不支持 tar 成员类型：${parsed.type}`);
+      if (parsed.type !== "0")
+        throw new BundleIntegrityError(`不支持 tar 成员类型：${parsed.type}`);
       const inheritedPax = pendingPax;
       pendingPax = null;
       const path = checkPathBudget(validatePath(inheritedPax?.path ?? parsed.path));
       const size = inheritedPax?.size ?? parsed.size;
-      if (size > contentLength - reader.consumedBytes) throw new BundleIntegrityError(`tar 成员超出 Content-Length：${path}`);
+      if (size > contentLength - reader.consumedBytes)
+        throw new BundleIntegrityError(`tar 成员超出 Content-Length：${path}`);
       if (!manifest) {
-        if (path !== "manifest.json") throw new BundleIntegrityError("tar 第一个成员必须是 manifest.json");
+        if (path !== "manifest.json")
+          throw new BundleIntegrityError("tar 第一个成员必须是 manifest.json");
         const bytes = await readMemberBytes(reader, size, "bundle manifest");
         manifest = parseJson<BundleManifest>(bytes, "bundle manifest");
         await discardPadding(reader, size);
@@ -506,7 +636,8 @@ export async function installBundleTar(options: {
         continue;
       }
       if (!closure) {
-        if (path !== "artifact-closure.json") throw new BundleIntegrityError("tar 第二个成员必须是 artifact-closure.json");
+        if (path !== "artifact-closure.json")
+          throw new BundleIntegrityError("tar 第二个成员必须是 artifact-closure.json");
         const bytes = await readMemberBytes(reader, size, "bundle closure");
         closure = parseJson<BundleClosure>(bytes, "bundle closure");
         await verifyBundleMetadata(manifest, closure, options.expectedBundleDigest, options.etag);
@@ -516,19 +647,36 @@ export async function installBundleTar(options: {
       }
       const entry = manifest.closure.entries[entryIndex];
       if (!entry) throw new BundleIntegrityError(`tar 中存在未声明成员：${path}`);
-      if (path !== entry.logical_path) throw new BundleIntegrityError(`tar 成员顺序或路径不匹配：预期 ${entry.logical_path}，收到 ${path}`);
-      if (size !== entry.integrity.size_bytes) throw new BundleIntegrityError(`tar 成员大小与 closure 不符：${path}`);
-      await readArtifact(reader, entry, transaction, (receivedBytes) => options.onProgress?.({ receivedBytes, contentLength }), contentLength);
+      if (path !== entry.logical_path)
+        throw new BundleIntegrityError(
+          `tar 成员顺序或路径不匹配：预期 ${entry.logical_path}，收到 ${path}`,
+        );
+      if (size !== entry.integrity.size_bytes)
+        throw new BundleIntegrityError(`tar 成员大小与 closure 不符：${path}`);
+      await readArtifact(
+        reader,
+        entry,
+        transaction,
+        (receivedBytes) => options.onProgress?.({ receivedBytes, contentLength }),
+        contentLength,
+      );
       entryIndex += 1;
     }
     if (pendingPax) throw new BundleIntegrityError("pax 扩展头没有后继成员");
-    if (!manifest || !closure) throw new BundleIntegrityError("tar 缺少 bundle manifest 或 closure");
-    if (entryIndex !== manifest.closure.entries.length) throw new BundleIntegrityError("tar 未包含全部 closure 产物");
+    if (!manifest || !closure)
+      throw new BundleIntegrityError("tar 缺少 bundle manifest 或 closure");
+    if (entryIndex !== manifest.closure.entries.length)
+      throw new BundleIntegrityError("tar 未包含全部 closure 产物");
     let hasNonZeroTrailer = false;
-    await reader.readToEnd((chunk) => { if (chunk.some((byte) => byte !== 0)) hasNonZeroTrailer = true; });
+    await reader.readToEnd((chunk) => {
+      if (chunk.some((byte) => byte !== 0)) hasNonZeroTrailer = true;
+    });
     if (hasNonZeroTrailer) throw new BundleIntegrityError("tar 结束块之后存在额外数据");
     const received = reader.consumedBytes;
-    if (received !== contentLength) throw new BundleIntegrityError(`Content-Length 不匹配：声明 ${contentLength}，收到 ${received}`);
+    if (received !== contentLength)
+      throw new BundleIntegrityError(
+        `Content-Length 不匹配：声明 ${contentLength}，收到 ${received}`,
+      );
     options.onProgress?.({ receivedBytes: received, contentLength });
     await transaction.commit(manifest, closure);
     return { manifest, closure };

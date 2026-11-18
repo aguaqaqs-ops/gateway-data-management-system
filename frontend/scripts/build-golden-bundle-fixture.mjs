@@ -29,7 +29,7 @@ const fixtureDirectories = {
   "empty-tabs": "scenarios/empty-tabs",
   "channel-rules": "scenarios/channel-rules",
   "pure-row-changes": "scenarios/pure-row-changes",
-  "ownership": "scenarios/ownership",
+  ownership: "scenarios/ownership",
   "ownership-risk-incomplete": "scenarios/ownership-risk-incomplete",
 };
 const fixtureNames = Object.keys(fixtureDirectories);
@@ -74,12 +74,12 @@ function pushEntry(chunks, path, bytes, index) {
   if (utf8Path.byteLength > 100) {
     const pax = paxRecord("path", path);
     chunks.push(tarHeader(`PaxHeaders/${index}`, pax, "x"), pax);
-    chunks.push(Buffer.alloc((512 - pax.byteLength % 512) % 512));
+    chunks.push(Buffer.alloc((512 - (pax.byteLength % 512)) % 512));
     chunks.push(tarHeader(`PaxFile/${index}`, bytes), bytes);
   } else {
     chunks.push(tarHeader(path, bytes), bytes);
   }
-  chunks.push(Buffer.alloc((512 - bytes.byteLength % 512) % 512));
+  chunks.push(Buffer.alloc((512 - (bytes.byteLength % 512)) % 512));
 }
 
 function createTar(members) {
@@ -99,14 +99,26 @@ async function readBackendBundle(fixtureName) {
   const closure = JSON.parse(closureBytes.toString("utf8"));
   const entries = manifest?.closure?.entries;
   const physicalEntries = manifest?.closure_entries;
-  if (!Array.isArray(entries) || !Array.isArray(physicalEntries) || entries.length !== physicalEntries.length) {
-    throw new Error("backend manifest must provide matching closure.entries and closure_entries arrays");
+  if (
+    !Array.isArray(entries) ||
+    !Array.isArray(physicalEntries) ||
+    entries.length !== physicalEntries.length
+  ) {
+    throw new Error(
+      "backend manifest must provide matching closure.entries and closure_entries arrays",
+    );
   }
-  if (closure.bundle_digest !== manifest.bundle_digest || closure.bundle_manifest_digest !== manifest.bundle_digest) {
+  if (
+    closure.bundle_digest !== manifest.bundle_digest ||
+    closure.bundle_manifest_digest !== manifest.bundle_digest
+  ) {
     throw new Error("backend closure digests do not match the manifest bundle digest");
   }
 
-  const members = [["manifest.json", manifestBytes], ["artifact-closure.json", closureBytes]];
+  const members = [
+    ["manifest.json", manifestBytes],
+    ["artifact-closure.json", closureBytes],
+  ];
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     const physical = physicalEntries[index];
@@ -114,11 +126,19 @@ async function readBackendBundle(fixtureName) {
       throw new Error(`backend closure order differs at index ${index}`);
     }
     const logicalPath = entry.logical_path;
-    if (typeof logicalPath !== "string" || logicalPath.startsWith("/") || logicalPath.includes("\\") || logicalPath.split("/").some((part) => !part || part === "." || part === "..")) {
+    if (
+      typeof logicalPath !== "string" ||
+      logicalPath.startsWith("/") ||
+      logicalPath.includes("\\") ||
+      logicalPath.split("/").some((part) => !part || part === "." || part === "..")
+    ) {
       throw new Error(`backend emitted an invalid logical path: ${logicalPath}`);
     }
     const artifactBytes = await readFile(join(fixtureRoot, ...logicalPath.split("/")));
-    if (artifactBytes.byteLength !== entry.integrity.size_bytes || sha256(artifactBytes) !== entry.integrity.raw_sha256) {
+    if (
+      artifactBytes.byteLength !== entry.integrity.size_bytes ||
+      sha256(artifactBytes) !== entry.integrity.raw_sha256
+    ) {
       throw new Error(`backend artifact bytes do not match closure integrity: ${logicalPath}`);
     }
     members.push([logicalPath, artifactBytes]);
@@ -140,10 +160,15 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
     await writeFile(join(outputRoot, fixtureName + ".tar"), bytes);
     process.stdout.write("fixture=" + fixtureName + "\n");
     process.stdout.write("fixture_bundle_digest=" + bundle.manifest.bundle_digest + "\n");
-    process.stdout.write("fixture_closure_manifest_digest=" + bundle.manifest.closure_manifest_digest + "\n");
-    process.stdout.write("fixture_bundle_manifest_digest=" + bundle.closure.bundle_manifest_digest + "\n");
+    process.stdout.write(
+      "fixture_closure_manifest_digest=" + bundle.manifest.closure_manifest_digest + "\n",
+    );
+    process.stdout.write(
+      "fixture_bundle_manifest_digest=" + bundle.closure.bundle_manifest_digest + "\n",
+    );
     process.stdout.write("fixture_tar_bytes=" + bytes.byteLength + "\n");
     process.stdout.write("fixture_tar_sha256=" + sha256(bytes) + "\n");
-    if (fixtureName === "preview-full") await writeFile(join(outputRoot, "golden-bundle.tar"), bytes);
+    if (fixtureName === "preview-full")
+      await writeFile(join(outputRoot, "golden-bundle.tar"), bytes);
   }
 }

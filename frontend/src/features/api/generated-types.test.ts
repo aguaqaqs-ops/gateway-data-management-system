@@ -20,27 +20,20 @@ describe("generated API types match the OpenAPI snapshot (§5.4)", () => {
       };
       const [command, ...args] = packageJson.scripts["generate:api-types"].trim().split(/\s+/);
       if (!command || (!args.includes("--output") && !args.includes("-o"))) {
-        throw new Error("generate:api-types script must name openapi-typescript and an output flag");
+        throw new Error(
+          "generate:api-types script must name openapi-typescript and an output flag",
+        );
       }
       const outputFlag = args.includes("--output") ? "--output" : "-o";
       args[args.indexOf(outputFlag) + 1] = join(workdir, "openapi.d.ts");
       await new Promise<void>((resolve, reject) => {
-        execFile(
-          command,
-          args,
-          { cwd: process.cwd() },
-          (error, stdout, stderr) => {
-            if (error) {
-              reject(
-                new Error(
-                  `openapi-typescript failed: ${error.message}\n${stdout}\n${stderr}`,
-                ),
-              );
-              return;
-            }
-            resolve();
-          },
-        );
+        execFile(command, args, { cwd: process.cwd() }, (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(`openapi-typescript failed: ${error.message}\n${stdout}\n${stderr}`));
+            return;
+          }
+          resolve();
+        });
       });
       const [fresh, committed] = await Promise.all([
         readFile(join(workdir, "openapi.d.ts"), "utf8"),

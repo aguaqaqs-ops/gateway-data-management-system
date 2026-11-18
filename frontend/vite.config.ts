@@ -10,16 +10,23 @@ const productionModuleManifest: Plugin = {
   name: "production-module-manifest",
   apply: "build" as const,
   async writeBundle(_options, bundle) {
-    const modules = [...new Set(Object.values(bundle).flatMap((output) =>
-      output.type === "chunk"
-        ? Object.entries(output.modules)
-            .filter(([, module]) => module.renderedLength > 0)
-            .map(([id]) => id.replaceAll("\\", "/"))
-        : []
-    ))];
+    const modules = [
+      ...new Set(
+        Object.values(bundle).flatMap((output) =>
+          output.type === "chunk"
+            ? Object.entries(output.modules)
+                .filter(([, module]) => module.renderedLength > 0)
+                .map(([id]) => id.replaceAll("\\", "/"))
+            : [],
+        ),
+      ),
+    ];
     const directory = resolve(process.cwd(), "node_modules", ".cache", "frontend-build");
     await mkdir(directory, { recursive: true });
-    await writeFile(resolve(directory, "production-modules.json"), JSON.stringify(modules, null, 2) + "\n");
+    await writeFile(
+      resolve(directory, "production-modules.json"),
+      JSON.stringify(modules, null, 2) + "\n",
+    );
   },
 };
 
@@ -41,6 +48,6 @@ export default defineConfig({
   test: {
     clearMocks: true,
     environment: "jsdom",
-    include: ["src/**/*.test.{ts,tsx}", "e2e-real/lib/**/*.test.ts"]
-  }
+    include: ["src/**/*.test.{ts,tsx}", "e2e-real/lib/**/*.test.ts"],
+  },
 });

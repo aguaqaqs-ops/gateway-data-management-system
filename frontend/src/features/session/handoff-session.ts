@@ -1,5 +1,11 @@
 import { useSyncExternalStore } from "react";
-import { createGatewaySession, currentGatewaySession, scopeMarker, type GatewaySessionInput, type GatewaySession } from "../api/session";
+import {
+  createGatewaySession,
+  currentGatewaySession,
+  scopeMarker,
+  type GatewaySessionInput,
+  type GatewaySession,
+} from "../api/session";
 import { clearScopedState } from "../api/scoped-storage";
 
 export const HANDOFF_SESSION_STORAGE_KEY = "gdds-gateway-session";
@@ -28,9 +34,7 @@ export type GatewaySessionState =
   | { kind: "expired"; returnUrl: string | null; display: HandoffDisplay | null };
 
 type FragmentResult =
-  | { kind: "absent" }
-  | { kind: "invalid" }
-  | { kind: "ok"; session: HandoffSession };
+  { kind: "absent" } | { kind: "invalid" } | { kind: "ok"; session: HandoffSession };
 
 const listeners = new Set<() => void>();
 let currentState: GatewaySessionState = { kind: "none" };
@@ -76,8 +80,13 @@ function parseHandoffPayload(value: unknown): HandoffSession | null {
   const businessProjectId = requiredString(value, "business_project_id");
   const display = parseDisplay(value.display);
   const returnUrl = parseReturnUrl(value.return_url);
-  if (!token || !gatewayDeviceExternalKey || !businessProjectId || !display || !returnUrl) return null;
-  try { createGatewaySession({ businessProjectId, gatewayDeviceExternalKey, accessToken: token }); } catch { return null; }
+  if (!token || !gatewayDeviceExternalKey || !businessProjectId || !display || !returnUrl)
+    return null;
+  try {
+    createGatewaySession({ businessProjectId, gatewayDeviceExternalKey, accessToken: token });
+  } catch {
+    return null;
+  }
   return { businessProjectId, gatewayDeviceExternalKey, accessToken: token, display, returnUrl };
 }
 
@@ -104,8 +113,9 @@ export function decodeHandoffFragment(hash: string): FragmentResult {
   // base64url without padding only; a length of 4n+1 cannot be valid.
   if (!/^[A-Za-z0-9_-]+$/.test(encoded) || encoded.length % 4 === 1) return { kind: "invalid" };
   try {
-    const base64 = encoded.replaceAll("-", "+").replaceAll("_", "/")
-      + "=".repeat((4 - encoded.length % 4) % 4);
+    const base64 =
+      encoded.replaceAll("-", "+").replaceAll("_", "/") +
+      "=".repeat((4 - (encoded.length % 4)) % 4);
     const binary = atob(base64);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -134,7 +144,10 @@ function removeStoredSession(): void {
 
 function persistSession(session: HandoffSession): void {
   try {
-    window.sessionStorage.setItem(HANDOFF_SESSION_STORAGE_KEY, JSON.stringify(storedPayload(session)));
+    window.sessionStorage.setItem(
+      HANDOFF_SESSION_STORAGE_KEY,
+      JSON.stringify(storedPayload(session)),
+    );
   } catch {
     // Same as above: keep the session in memory for this load only.
   }
@@ -164,7 +177,11 @@ function computeState(): GatewaySessionState {
   const fragment = decodeHandoffFragment(window.location.hash);
   if (fragment.kind === "ok") {
     const stored = readStoredSession();
-    if (stored && scopeMarker(toGatewaySession(stored)) !== scopeMarker(toGatewaySession(fragment.session))) clearScopedState();
+    if (
+      stored &&
+      scopeMarker(toGatewaySession(stored)) !== scopeMarker(toGatewaySession(fragment.session))
+    )
+      clearScopedState();
     clearHandoffFragment();
     window.__gatewaySession = toGatewaySession(fragment.session);
     persistSession(fragment.session);
@@ -179,7 +196,10 @@ function computeState(): GatewaySessionState {
   }
 
   const preset = window.__gatewaySession;
-  if (preset && (preset.businessProjectId || preset.gatewayDeviceExternalKey || preset.accessToken)) {
+  if (
+    preset &&
+    (preset.businessProjectId || preset.gatewayDeviceExternalKey || preset.accessToken)
+  ) {
     // Test injection: keep it exactly as supplied and never touch sessionStorage.
     return { kind: "preset", session: currentGatewaySession() };
   }
@@ -223,14 +243,20 @@ function setState(next: GatewaySessionState): void {
 
 export function useGatewaySessionState(): GatewaySessionState {
   ensureInitialized();
-  return useSyncExternalStore(subscribeGatewaySession, getGatewaySessionState, getGatewaySessionState);
+  return useSyncExternalStore(
+    subscribeGatewaySession,
+    getGatewaySessionState,
+    getGatewaySessionState,
+  );
 }
 
 export function hasGatewayIdentity(state: GatewaySessionState = getGatewaySessionState()): boolean {
   return state.kind === "handoff" || state.kind === "preset";
 }
 
-export function isGatewaySessionBlocked(state: GatewaySessionState = getGatewaySessionState()): boolean {
+export function isGatewaySessionBlocked(
+  state: GatewaySessionState = getGatewaySessionState(),
+): boolean {
   return state.kind === "none" || state.kind === "invalid" || state.kind === "expired";
 }
 
@@ -244,8 +270,10 @@ export function handoffSessionOwnsIdentity(): boolean {
 }
 
 export function shouldPublishDevIdentity(): boolean {
-  return getGatewaySessionState().kind === "none"
-    && window.__gatewayTestConfig?.disableDevIdentity !== true;
+  return (
+    getGatewaySessionState().kind === "none" &&
+    window.__gatewayTestConfig?.disableDevIdentity !== true
+  );
 }
 
 export function adoptInjectedSession(session: GatewaySessionInput): void {
@@ -268,5 +296,6 @@ export function expireHandoffSessionOnUnauthorized(snapshot = currentGatewaySess
 }
 
 window.addEventListener("hashchange", () => {
-  if (new URLSearchParams(window.location.hash.slice(1)).has(HANDOFF_FRAGMENT_KEY)) window.location.reload();
+  if (new URLSearchParams(window.location.hash.slice(1)).has(HANDOFF_FRAGMENT_KEY))
+    window.location.reload();
 });

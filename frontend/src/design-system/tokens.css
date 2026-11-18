@@ -1,10 +1,14 @@
 :root {
   color-scheme: light;
-  font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  font-family:
+    "IBM Plex Sans", "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei",
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  --font-family-ui: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+  --font-family-ui:
+    "IBM Plex Sans", "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei",
+    sans-serif;
   --font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --font-size-xs: 12px;
   --font-size-sm: 13px;
@@ -33,23 +37,23 @@
   --shadow-panel: 0 8px 24px rgb(25 39 57 / 12%);
   --shadow-dialog: 0 20px 56px rgb(15 23 42 / 24%);
 
-  --color-page: #F3F5F7;
+  --color-page: #f3f5f7;
   --color-surface: #ffffff;
-  --color-surface-muted: #F7F9FB;
-  --color-border: #DDE2E7;
-  --color-border-strong: #C9D0D8;
-  --color-row-separator: #EEF1F4;
-  --color-text: #1B2229;
-  --color-text-muted: #5F6B78;
-  --color-text-subtle: #4A5563;
+  --color-surface-muted: #f7f9fb;
+  --color-border: #dde2e7;
+  --color-border-strong: #c9d0d8;
+  --color-row-separator: #eef1f4;
+  --color-text: #1b2229;
+  --color-text-muted: #5f6b78;
+  --color-text-subtle: #4a5563;
   --color-text-on-accent: #ffffff;
-  --color-accent: #1F5FBF;
-  --color-accent-soft: #E9F0FB;
-  --color-accent-hover: #174A96;
-  --color-surface-hover: #F7F9FB;
-  --color-ghost-hover: #E9F0FB;
+  --color-accent: #1f5fbf;
+  --color-accent-soft: #e9f0fb;
+  --color-accent-hover: #174a96;
+  --color-surface-hover: #f7f9fb;
+  --color-ghost-hover: #e9f0fb;
   --color-search-result: #fff3cd;
-  --color-focus-ring: #1F5FBF;
+  --color-focus-ring: #1f5fbf;
   --color-danger: #b42318;
   --color-danger-soft: #fff2f0;
   --color-success: #247247;

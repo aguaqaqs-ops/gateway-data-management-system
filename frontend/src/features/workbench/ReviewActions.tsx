@@ -15,21 +15,42 @@ const STATUS_REASON: Record<string, string> = {
   WITHDRAWN: "该提交已撤回",
 };
 
-function actionError(cause: unknown, dialog: DialogKind | null): { title: string; code: string; expiredApprove: boolean; closed: boolean } {
+function actionError(
+  cause: unknown,
+  dialog: DialogKind | null,
+): { title: string; code: string; expiredApprove: boolean; closed: boolean } {
   const base = { expiredApprove: false, closed: false };
   if (cause instanceof ApiError) {
     if (cause.code === "ARCHIVE_CLOSED") {
-      return { title: "该提交已归档或关闭，已重新读取", code: "ARCHIVE_CLOSED", expiredApprove: false, closed: true };
+      return {
+        title: "该提交已归档或关闭，已重新读取",
+        code: "ARCHIVE_CLOSED",
+        expiredApprove: false,
+        closed: true,
+      };
     }
     if (cause.code === "BASELINE_VERSION_CONFLICT" && dialog === "approve") {
-      return { title: "该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。", code: "BASELINE_VERSION_CONFLICT", expiredApprove: true, closed: false };
+      return {
+        title:
+          "该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。",
+        code: "BASELINE_VERSION_CONFLICT",
+        expiredApprove: true,
+        closed: false,
+      };
     }
-    if (cause.code === "SCOPE_FORBIDDEN") return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN", ...base };
-    if (cause.code === "REVIEW_VERSION_CONFLICT") return { title: "数据已被更新，请刷新审核信息后重试", code: cause.code, ...base };
-    if (cause.code === "IDEMPOTENCY_CONFLICT") return { title: "本次审核与服务器记录不一致，请刷新后重试", code: cause.code, ...base };
+    if (cause.code === "SCOPE_FORBIDDEN")
+      return { title: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN", ...base };
+    if (cause.code === "REVIEW_VERSION_CONFLICT")
+      return { title: "数据已被更新，请刷新审核信息后重试", code: cause.code, ...base };
+    if (cause.code === "IDEMPOTENCY_CONFLICT")
+      return { title: "本次审核与服务器记录不一致，请刷新后重试", code: cause.code, ...base };
     return { title: cause.message || "审核操作失败", code: cause.code ?? "REVIEW_FAILED", ...base };
   }
-  return { title: cause instanceof Error ? cause.message : "审核操作失败", code: "REVIEW_FAILED", ...base };
+  return {
+    title: cause instanceof Error ? cause.message : "审核操作失败",
+    code: "REVIEW_FAILED",
+    ...base,
+  };
 }
 
 interface ReviewActionsProps {
@@ -51,7 +72,15 @@ interface ReviewActionsProps {
   errorNoticeHost?: RefObject<HTMLElement | null>;
 }
 
-export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCode, onFactsChanged, onReviewSettled, errorNoticeHost }: ReviewActionsProps) {
+export function ReviewActions({
+  submissionId,
+  facts,
+  bundleReady,
+  resultErrorCode,
+  onFactsChanged,
+  onReviewSettled,
+  errorNoticeHost,
+}: ReviewActionsProps) {
   const gatewayApi = useBoundGatewayApi();
   const generatedId = useId();
   const [dialog, setDialog] = useState<DialogKind | null>(null);
@@ -80,26 +109,46 @@ export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCod
   }, [facts.review_version, facts.status, facts.submission_disposition]);
   const disposition = facts.submission_disposition;
   const dispositionReason = disposition
-    ? disposition.disposition === "ARCHIVED_BASELINE" ? "该提交已归档" : "该提交已关闭（未归档）"
+    ? disposition.disposition === "ARCHIVED_BASELINE"
+      ? "该提交已归档"
+      : "该提交已关闭（未归档）"
     : undefined;
-  const approveDisabled = Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING" || expiredApprove;
-  const unreadableResult = resultErrorCode === "SUBMISSION_RESULT_UNAVAILABLE" || resultErrorCode === "SUBMISSION_RESULT_INTEGRITY_FAILURE";
-  const otherDisabled = Boolean(dispositionReason) || (!bundleReady && !unreadableResult) || facts.status !== "PENDING";
-  const blockedReason = dispositionReason
-    ?? (facts.status !== "PENDING" ? STATUS_REASON[facts.status] ?? "当前提交不可审核"
-      : !bundleReady && !unreadableResult ? "请等待提交绑定的比较结果核对完成" : undefined);
-  const approveReason = dispositionReason ?? (facts.status !== "PENDING" ? blockedReason
-    : unreadableResult ? "比较结果无法读取，不能通过"
-    : expiredApprove ? "该提交所基于的基线已更新，不能通过" : blockedReason);
+  const approveDisabled =
+    Boolean(dispositionReason) || !bundleReady || facts.status !== "PENDING" || expiredApprove;
+  const unreadableResult =
+    resultErrorCode === "SUBMISSION_RESULT_UNAVAILABLE" ||
+    resultErrorCode === "SUBMISSION_RESULT_INTEGRITY_FAILURE";
+  const otherDisabled =
+    Boolean(dispositionReason) || (!bundleReady && !unreadableResult) || facts.status !== "PENDING";
+  const blockedReason =
+    dispositionReason ??
+    (facts.status !== "PENDING"
+      ? (STATUS_REASON[facts.status] ?? "当前提交不可审核")
+      : !bundleReady && !unreadableResult
+        ? "请等待提交绑定的比较结果核对完成"
+        : undefined);
+  const approveReason =
+    dispositionReason ??
+    (facts.status !== "PENDING"
+      ? blockedReason
+      : unreadableResult
+        ? "比较结果无法读取，不能通过"
+        : expiredApprove
+          ? "该提交所基于的基线已更新，不能通过"
+          : blockedReason);
   const resultImpact = unreadableResult
-    ? `提交绑定的比较结果无法读取（错误码 ${resultErrorCode}），${dialog === "withdraw" ? "撤回" : "退回"}后提交人需重新上传` : null;
+    ? `提交绑定的比较结果无法读取（错误码 ${resultErrorCode}），${dialog === "withdraw" ? "撤回" : "退回"}后提交人需重新上传`
+    : null;
   // Rule 3: withdraw/reject always share blockedReason; approve joins them when
   // its reason is identical. The shared reason is rendered once below the group.
   const groupReason = blockedReason;
   const approveUsesGroup = Boolean(blockedReason) && approveReason === blockedReason;
   const groupReasonId = `${generatedId}-review-disabled-reason`;
-  const confirmDisabled = busy || (dialog === "approve" ? approveDisabled : otherDisabled)
-    || (dialog === "reject" && !reason.trim()) || (dialog === "withdraw" && !understood);
+  const confirmDisabled =
+    busy ||
+    (dialog === "approve" ? approveDisabled : otherDisabled) ||
+    (dialog === "reject" && !reason.trim()) ||
+    (dialog === "withdraw" && !understood);
 
   function open(next: DialogKind) {
     setDialog(next);
@@ -112,7 +161,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCod
   async function refreshFacts() {
     setBusy(true);
     try {
-      if (!await onReviewSettled()) setDialog(null);
+      if (!(await onReviewSettled())) setDialog(null);
       setError(null);
       dialogKey.current = null;
     } catch (cause) {
@@ -125,14 +174,27 @@ export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCod
 
   function renderError() {
     if (!error) return null;
-    return <div role="alert" className="form-error" title={`错误代码：${error.code}`}>
-      <span>{error.title}</span>
-      <span>错误代码：<code>{error.code}</code></span>
-      <span className="form-error__actions">
-        <button className="link-button" onClick={() => void navigator.clipboard?.writeText(error.code)}>复制错误代码</button>
-        {error.code === "REVIEW_VERSION_CONFLICT" && <button className="link-button" onClick={() => void refreshFacts()}>刷新审核信息</button>}
-      </span>
-    </div>;
+    return (
+      <div role="alert" className="form-error" title={`错误代码：${error.code}`}>
+        <span>{error.title}</span>
+        <span>
+          错误代码：<code>{error.code}</code>
+        </span>
+        <span className="form-error__actions">
+          <button
+            className="link-button"
+            onClick={() => void navigator.clipboard?.writeText(error.code)}
+          >
+            复制错误代码
+          </button>
+          {error.code === "REVIEW_VERSION_CONFLICT" && (
+            <button className="link-button" onClick={() => void refreshFacts()}>
+              刷新审核信息
+            </button>
+          )}
+        </span>
+      </div>
+    );
   }
 
   async function confirm() {
@@ -146,13 +208,21 @@ export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCod
     const failedDialog = dialog;
     try {
       const action = dialog === "approve" ? "APPROVE" : dialog === "reject" ? "REJECT" : "WITHDRAW";
-      await applyReviewAction(gatewayApi, submissionId, facts.review_version, action, dialog === "reject" ? reason.trim() : undefined, key);
+      await applyReviewAction(
+        gatewayApi,
+        submissionId,
+        facts.review_version,
+        action,
+        dialog === "reject" ? reason.trim() : undefined,
+        key,
+      );
       onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
       void onReviewSettled();
       setExpiredApprove(false);
       setDialog(null);
     } catch (cause) {
-      if (cause instanceof ApiError && (cause.status < 500 && cause.status !== 429)) dialogKey.current = null;
+      if (cause instanceof ApiError && cause.status < 500 && cause.status !== 429)
+        dialogKey.current = null;
       const failure = actionError(cause, failedDialog);
       if (failure.expiredApprove || failure.closed) {
         // Expired approvals and closed submissions refresh the facts behind
@@ -175,48 +245,147 @@ export function ReviewActions({ submissionId, facts, bundleReady, resultErrorCod
     }
   }
 
-
   const errorNotice = dialog === null && error ? renderError() : null;
   const errorHost = errorNoticeHost?.current ?? null;
 
-  return <>
-    <div className="review-actions">
-      <div className="review-actions__buttons" title={groupReason ?? undefined}>
-        <Button variant="danger" onClick={() => open("withdraw")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>撤回</Button>
-        <Button variant="danger" onClick={() => open("reject")} disabled={otherDisabled} disabledReason={groupReason ? undefined : blockedReason} aria-describedby={groupReason ? groupReasonId : undefined}>退回</Button>
-        <Button variant="primary" onClick={() => open("approve")} disabled={approveDisabled} disabledReason={approveUsesGroup ? undefined : approveReason} aria-describedby={approveUsesGroup ? groupReasonId : undefined}>审核通过</Button>
+  return (
+    <>
+      <div className="review-actions">
+        <div className="review-actions__buttons" title={groupReason ?? undefined}>
+          <Button
+            variant="danger"
+            onClick={() => open("withdraw")}
+            disabled={otherDisabled}
+            disabledReason={groupReason ? undefined : blockedReason}
+            aria-describedby={groupReason ? groupReasonId : undefined}
+          >
+            撤回
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => open("reject")}
+            disabled={otherDisabled}
+            disabledReason={groupReason ? undefined : blockedReason}
+            aria-describedby={groupReason ? groupReasonId : undefined}
+          >
+            退回
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => open("approve")}
+            disabled={approveDisabled}
+            disabledReason={approveUsesGroup ? undefined : approveReason}
+            aria-describedby={approveUsesGroup ? groupReasonId : undefined}
+          >
+            审核通过
+          </Button>
+        </div>
+        {groupReason && (
+          <span className="review-actions__reason" id={groupReasonId}>
+            {groupReason}
+          </span>
+        )}
+
+        <Dialog
+          open={dialog === "approve"}
+          title="确认审核通过"
+          onClose={() => {
+            if (!busy) setDialog(null);
+          }}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>
+                取消
+              </Button>
+              <Button variant="primary" onClick={() => void confirm()} disabled={confirmDisabled}>
+                确认通过
+              </Button>
+            </>
+          }
+        >
+          <p className="confirm-impact">
+            通过后该提交成为已通过提交，可以归档为新的业务基线；审核记录会保留。
+          </p>
+          {renderError()}
+        </Dialog>
+
+        <Dialog
+          open={dialog === "reject"}
+          title="退回提交"
+          onClose={() => {
+            if (!busy) setDialog(null);
+          }}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>
+                取消
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void confirm()}
+                disabled={confirmDisabled}
+                disabledReason={!reason.trim() ? "退回时必须填写理由" : undefined}
+              >
+                {busy ? "提交中…" : "确认退回"}
+              </Button>
+            </>
+          }
+        >
+          <p className="confirm-impact">
+            退回后该提交不会成为归档候选，提交人需要重新上传并提交；退回理由会保留在审核记录中。
+          </p>
+          {resultImpact && <p className="confirm-impact">{resultImpact}</p>}
+          <label className="confirm-reason">
+            退回理由
+            <textarea
+              aria-label="退回理由"
+              value={reason}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              placeholder="说明退回原因（必填）"
+            />
+          </label>
+          {renderError()}
+        </Dialog>
+
+        <Dialog
+          open={dialog === "withdraw"}
+          title="撤回提交"
+          onClose={() => {
+            if (!busy) setDialog(null);
+          }}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>
+                取消
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void confirm()}
+                disabled={confirmDisabled}
+                disabledReason={!understood ? "请先确认已了解撤回影响" : undefined}
+              >
+                {busy ? "提交中…" : "确认撤回"}
+              </Button>
+            </>
+          }
+        >
+          <p className="confirm-impact">
+            撤回后该提交不再进入归档候选，也无法继续审核；提交人需要重新上传并提交。此操作不可撤销。
+          </p>
+          {resultImpact && <p className="confirm-impact">{resultImpact}</p>}
+          <label className="confirm-checkbox">
+            <input
+              type="checkbox"
+              checked={understood}
+              onChange={(event) => setUnderstood(event.currentTarget.checked)}
+            />
+            我已了解撤回后需要重新提交，并确认继续
+          </label>
+          {renderError()}
+        </Dialog>
       </div>
-      {groupReason && <span className="review-actions__reason" id={groupReasonId}>{groupReason}</span>}
-
-    <Dialog open={dialog === "approve"} title="确认审核通过" onClose={() => { if (!busy) setDialog(null); }} actions={<>
-      <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>取消</Button>
-      <Button variant="primary" onClick={() => void confirm()} disabled={confirmDisabled}>确认通过</Button>
-    </>}>
-      <p className="confirm-impact">通过后该提交成为已通过提交，可以归档为新的业务基线；审核记录会保留。</p>
-      {renderError()}
-    </Dialog>
-
-    <Dialog open={dialog === "reject"} title="退回提交" onClose={() => { if (!busy) setDialog(null); }} actions={<>
-      <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>取消</Button>
-      <Button variant="danger" onClick={() => void confirm()} disabled={confirmDisabled} disabledReason={!reason.trim() ? "退回时必须填写理由" : undefined}>{busy ? "提交中…" : "确认退回"}</Button>
-    </>}>
-      <p className="confirm-impact">退回后该提交不会成为归档候选，提交人需要重新上传并提交；退回理由会保留在审核记录中。</p>
-      {resultImpact && <p className="confirm-impact">{resultImpact}</p>}
-      <label className="confirm-reason">退回理由<textarea aria-label="退回理由" value={reason} onChange={(event) => setReason(event.currentTarget.value)} placeholder="说明退回原因（必填）" /></label>
-      {renderError()}
-    </Dialog>
-
-    <Dialog open={dialog === "withdraw"} title="撤回提交" onClose={() => { if (!busy) setDialog(null); }} actions={<>
-      <Button variant="secondary" onClick={() => setDialog(null)} disabled={busy}>取消</Button>
-      <Button variant="danger" onClick={() => void confirm()} disabled={confirmDisabled} disabledReason={!understood ? "请先确认已了解撤回影响" : undefined}>{busy ? "提交中…" : "确认撤回"}</Button>
-    </>}>
-      <p className="confirm-impact">撤回后该提交不再进入归档候选，也无法继续审核；提交人需要重新上传并提交。此操作不可撤销。</p>
-      {resultImpact && <p className="confirm-impact">{resultImpact}</p>}
-      <label className="confirm-checkbox"><input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.currentTarget.checked)} />我已了解撤回后需要重新提交，并确认继续</label>
-      {renderError()}
-    </Dialog>
-    </div>
-    {errorNotice && errorHost && createPortal(errorNotice, errorHost)}
-    {errorNotice && !errorHost && errorNotice}
-  </>;
+      {errorNotice && errorHost && createPortal(errorNotice, errorHost)}
+      {errorNotice && !errorHost && errorNotice}
+    </>
+  );
 }

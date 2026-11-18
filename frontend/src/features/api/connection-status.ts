@@ -17,5 +17,9 @@ export function getConnectionStatus(): ConnectionStatus {
 
 export function reportConnectionStatus(status: Exclude<ConnectionStatus, null>): void {
   currentStatus = status;
-  window.dispatchEvent(new CustomEvent<Exclude<ConnectionStatus, null>>("gateway-connection-status", { detail: status }));
+  window.dispatchEvent(
+    new CustomEvent<Exclude<ConnectionStatus, null>>("gateway-connection-status", {
+      detail: status,
+    }),
+  );
 }

@@ -1,5 +1,13 @@
 import { captureResponse } from "./lib/response-snapshot";
-import { test, expect, type Browser, type BrowserContext, type Page, type TestInfo } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
 import { Buffer } from "node:buffer";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,7 +40,11 @@ import {
 import type { ParsedBundle } from "./lib/tar";
 import { captureBundleDownloads, type BundleObservation } from "./lib/bundle-observer";
 import { consumePreviewBundle } from "./lib/consume-bundle";
-import { assertBundleConsumerCriteria, BundleCriteriaReader, formatCriteriaSummary } from "./lib/consumer-criteria";
+import {
+  assertBundleConsumerCriteria,
+  BundleCriteriaReader,
+  formatCriteriaSummary,
+} from "./lib/consumer-criteria";
 import { identityFor, scopeBySlug, type JourneyIdentity, type JourneyScope } from "./lib/env";
 
 /**
@@ -49,10 +61,24 @@ interface T1Expected {
   S1B_V2_PREVIEW_CHANGED_COUNTS: Record<string, number>;
 }
 
-function requireT1Env(): { scope: JourneyScope; submitter: JourneyIdentity; reviewer: JourneyIdentity; archiver: JourneyIdentity; inputRoot: string; expected: T1Expected } {
-  const missing = ["GATEWAY_FE_IDENTITIES", "GATEWAY_FE_JOURNEY_SCOPES", "GATEWAY_FE_T1_INPUT_ROOT", "GATEWAY_FE_T1_EXPECTED_JSON"]
-    .filter((name) => !process.env[name]);
-  test.skip(missing.length > 0, `t1 suite requires ${missing.join(", ")}; run scripts/run-real-backend-e2e.sh --suite t1`);
+function requireT1Env(): {
+  scope: JourneyScope;
+  submitter: JourneyIdentity;
+  reviewer: JourneyIdentity;
+  archiver: JourneyIdentity;
+  inputRoot: string;
+  expected: T1Expected;
+} {
+  const missing = [
+    "GATEWAY_FE_IDENTITIES",
+    "GATEWAY_FE_JOURNEY_SCOPES",
+    "GATEWAY_FE_T1_INPUT_ROOT",
+    "GATEWAY_FE_T1_EXPECTED_JSON",
+  ].filter((name) => !process.env[name]);
+  test.skip(
+    missing.length > 0,
+    `t1 suite requires ${missing.join(", ")}; run scripts/run-real-backend-e2e.sh --suite t1`,
+  );
   return {
     scope: scopeBySlug("t1"),
     submitter: identityFor(scopeBySlug("t1"), "submitter"),
@@ -63,7 +89,13 @@ function requireT1Env(): { scope: JourneyScope; submitter: JourneyIdentity; revi
   };
 }
 
-async function readProcStatus(pid: number): Promise<{ hwmBytes: number; rssBytes: number; rssAnon: number | null; rssFile: number | null; rssShmem: number | null } | null> {
+async function readProcStatus(pid: number): Promise<{
+  hwmBytes: number;
+  rssBytes: number;
+  rssAnon: number | null;
+  rssFile: number | null;
+  rssShmem: number | null;
+} | null> {
   try {
     const status = await readFile(`/proc/${pid}/status`, "utf8");
     const num = (key: string): number | null => {
@@ -73,7 +105,13 @@ async function readProcStatus(pid: number): Promise<{ hwmBytes: number; rssBytes
     const hwmBytes = num("VmHWM");
     const rssBytes = num("VmRSS");
     if (hwmBytes === null || rssBytes === null) return null;
-    return { hwmBytes, rssBytes, rssAnon: num("RssAnon"), rssFile: num("RssFile"), rssShmem: num("RssShmem") };
+    return {
+      hwmBytes,
+      rssBytes,
+      rssAnon: num("RssAnon"),
+      rssFile: num("RssFile"),
+      rssShmem: num("RssShmem"),
+    };
   } catch {
     return null;
   }
@@ -82,7 +120,9 @@ async function readProcStatus(pid: number): Promise<{ hwmBytes: number; rssBytes
 async function browserProcs(browser: Browser): Promise<Array<{ pid: number; kind: string }>> {
   const session = await browser.newBrowserCDPSession();
   try {
-    const info = (await session.send("SystemInfo.getProcessInfo")) as { processInfo: Array<{ id: number; type: string }> };
+    const info = (await session.send("SystemInfo.getProcessInfo")) as {
+      processInfo: Array<{ id: number; type: string }>;
+    };
     return info.processInfo.map((p) => ({ pid: p.id, kind: p.type }));
   } finally {
     await session.detach().catch(() => undefined);
@@ -97,7 +137,16 @@ interface M1Sample {
 }
 
 /** Baseline every Chromium process, then sample RssAnon/RssFile/RssShmem every ~100ms until stop. */
-async function measurePackaging(browser: Browser, during: () => Promise<void>): Promise<{ rendererIncrementBytes: number | null; samples: M1Sample[]; maxRssAnon: number | null; maxRssFile: number | null; maxRssShmem: number | null }> {
+async function measurePackaging(
+  browser: Browser,
+  during: () => Promise<void>,
+): Promise<{
+  rendererIncrementBytes: number | null;
+  samples: M1Sample[];
+  maxRssAnon: number | null;
+  maxRssFile: number | null;
+  maxRssShmem: number | null;
+}> {
   const procs = await browserProcs(browser);
   expect(procs.length, "chromium processes visible").toBeGreaterThan(0);
   const baselines = new Map<number, { kind: string; hwm: number; rss: number }>();
@@ -126,7 +175,12 @@ async function measurePackaging(browser: Browser, during: () => Promise<void>): 
         if (status.rssFile !== null) file = Math.max(file ?? 0, status.rssFile);
         if (status.rssShmem !== null) shmem = Math.max(shmem ?? 0, status.rssShmem);
       }
-      samples.push({ atMs: Date.now() - startedAt, rssAnonMax: anon, rssFileMax: file, rssShmemMax: shmem });
+      samples.push({
+        atMs: Date.now() - startedAt,
+        rssAnonMax: anon,
+        rssFileMax: file,
+        rssShmemMax: shmem,
+      });
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   })();
@@ -175,13 +229,29 @@ function pairSummary(bundle: ParsedBundle, pairId: string): Record<string, strin
  * 等待超时或元素截图出错都不抛出：截图本身不是 t1 判据，是否空白由证据审核判定，
  * 中断旅程反而会丢掉后面的判据断言、M1 与证据步骤。
  */
+/** T4: clip to the grid's visible part so the stability gate never scrolls the page. */
+async function captureVisibleGridClip(page: Page, grid: Locator): Promise<Buffer | null> {
+  const box = await grid.boundingBox();
+  const viewport = page.viewportSize();
+  if (!box || !viewport) return null;
+  const x = Math.max(0, Math.floor(box.x));
+  const y = Math.max(0, Math.floor(box.y));
+  const width = Math.min(viewport.width, Math.ceil(box.x + box.width)) - x;
+  const height = Math.min(viewport.height, Math.ceil(box.y + box.height)) - y;
+  if (width <= 0 || height <= 0) return null;
+  return page.screenshot({ clip: { x, y, width, height }, animations: "disabled" });
+}
+
 async function waitForGridShotReady(page: Page, label: string, width: number): Promise<void> {
   const startedAt = Date.now();
   await settleFrames(page);
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   const grids = page.locator('div.grid-frame[aria-label="比较表格"]');
   const gridCount = await grids.count();
   if (gridCount === 0) {
-    await appendCaseLog(`shot-gate label=${label}-${width} grid=0 rendered=ok waited_ms=${Date.now() - startedAt} stable=0`);
+    await appendCaseLog(
+      `shot-gate label=${label}-${width} grid=0 rendered=ok waited_ms=${Date.now() - startedAt} stable=0 scroll_before=${scrollBefore} scroll_after=${scrollBefore}`,
+    );
     return;
   }
   let rendered: "ok" | "timeout" = "ok";
@@ -198,7 +268,11 @@ async function waitForGridShotReady(page: Page, label: string, width: number): P
   try {
     let previous: Buffer | null = null;
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const current = await grids.first().screenshot({ animations: "disabled" });
+      const current = await captureVisibleGridClip(page, grids.first());
+      if (current === null) {
+        stable = "0";
+        break;
+      }
       if (previous !== null && Buffer.compare(previous, current) === 0) {
         stable = String(attempt + 1);
         break;
@@ -209,12 +283,17 @@ async function waitForGridShotReady(page: Page, label: string, width: number): P
   } catch {
     stable = "error";
   }
+  const scrollAfter = await page.evaluate(() => window.scrollY);
   await appendCaseLog(
-    `shot-gate label=${label}-${width} grid=${gridCount} rendered=${rendered} waited_ms=${Date.now() - startedAt} stable=${stable}`,
+    `shot-gate label=${label}-${width} grid=${gridCount} rendered=${rendered} waited_ms=${Date.now() - startedAt} stable=${stable} scroll_before=${scrollBefore} scroll_after=${scrollAfter}`,
   );
 }
 
-async function saveEvidenceBothWidths(page: Page, testInfo: TestInfo, label: string): Promise<void> {
+async function saveEvidenceBothWidths(
+  page: Page,
+  testInfo: TestInfo,
+  label: string,
+): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 });
   await saveEvidence(page, testInfo, `${label}-1280-pregate`);
   await waitForGridShotReady(page, label, 1280);
@@ -229,7 +308,12 @@ interface NavigationTabLike {
   label: string;
   table_id: string;
   row_filter: unknown;
-  facts: { basis?: string; before_row_count?: number; current_row_count?: number; change_kind?: string } | null;
+  facts: {
+    basis?: string;
+    before_row_count?: number;
+    current_row_count?: number;
+    change_kind?: string;
+  } | null;
 }
 
 interface NavigationItemLike {
@@ -278,14 +362,26 @@ interface PairArtifacts {
 /** Read the published surface and business navigation of one bundle pair. */
 function pairArtifacts(bundle: ParsedBundle, pairId: string): PairArtifacts {
   const reader = new BundleCriteriaReader(bundle);
-  const surface = reader.json<SurfaceLike & { projections?: Array<{ projection_kind?: string; projection_ref?: unknown; diagnostics_ref?: unknown }> }>(
-    `pairs/${pairId}/comparison-surface.json`,
+  const surface = reader.json<
+    SurfaceLike & {
+      projections?: Array<{
+        projection_kind?: string;
+        projection_ref?: unknown;
+        diagnostics_ref?: unknown;
+      }>;
+    }
+  >(`pairs/${pairId}/comparison-surface.json`);
+  const projection = (surface.projections ?? []).find(
+    (candidate) => candidate.projection_kind === "BUSINESS_NAVIGATION",
   );
-  const projection = (surface.projections ?? []).find((candidate) => candidate.projection_kind === "BUSINESS_NAVIGATION");
   if (!projection?.projection_ref) throw new Error(`bundle 缺少 ${pairId} 的业务导航投影`);
-  const navigation = reader.json<{ groups?: NavigationGroupLike[] }>(reader.pathOf(projection.projection_ref, `${pairId}.navigation`));
+  const navigation = reader.json<{ groups?: NavigationGroupLike[] }>(
+    reader.pathOf(projection.projection_ref, `${pairId}.navigation`),
+  );
   const diagnostics = projection.diagnostics_ref
-    ? (reader.json<{ diagnostics?: NavigationDiagnosticLike[] }>(reader.pathOf(projection.diagnostics_ref, `${pairId}.diagnostics`)).diagnostics ?? [])
+    ? (reader.json<{ diagnostics?: NavigationDiagnosticLike[] }>(
+        reader.pathOf(projection.diagnostics_ref, `${pairId}.diagnostics`),
+      ).diagnostics ?? [])
     : [];
   return { surface, groups: navigation.groups ?? [], diagnostics };
 }
@@ -309,7 +405,9 @@ function tableOf(surface: SurfaceLike, tableId: string): SurfaceTableLike {
 
 function tabHasRows(surface: SurfaceLike, tab: NavigationTabLike): boolean {
   const facts = tab.facts ?? {};
-  const counts = [facts.before_row_count, facts.current_row_count].filter((value): value is number => typeof value === "number");
+  const counts = [facts.before_row_count, facts.current_row_count].filter(
+    (value): value is number => typeof value === "number",
+  );
   if (counts.length > 0) return counts.some((count) => count > 0);
   const bindings = tableOf(surface, tab.table_id).table_content_bindings ?? {};
   return ["before", "current"].some((side) => (bindings[side]?.row_count ?? 0) > 0);
@@ -329,7 +427,12 @@ function firstTabWithRows(surface: SurfaceLike, item: NavigationItemLike): Navig
 }
 
 function settleFrames(page: Page): Promise<void> {
-  return page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  return page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }
 
 async function expandNavigation(page: Page): Promise<void> {
@@ -357,7 +460,11 @@ function findSidebarTab(
     for (const item of group.items) {
       if (item.item_key !== target.item_key) continue;
       const tab =
-        item.tabs.find((candidate) => (candidate.tab_key ?? null) === (target.tab_key ?? null) && candidate.table_id === target.table_id) ??
+        item.tabs.find(
+          (candidate) =>
+            (candidate.tab_key ?? null) === (target.tab_key ?? null) &&
+            candidate.table_id === target.table_id,
+        ) ??
         item.tabs.find((candidate) => (candidate.tab_key ?? null) === (target.tab_key ?? null)) ??
         item.tabs[0];
       if (tab) return { item, tab };
@@ -366,7 +473,11 @@ function findSidebarTab(
   throw new Error(`导航中找不到 ${target.item_key}/${target.tab_key ?? "table"}`);
 }
 
-async function openSidebarTab(page: Page, item: NavigationItemLike, tab: NavigationTabLike): Promise<void> {
+async function openSidebarTab(
+  page: Page,
+  item: NavigationItemLike,
+  tab: NavigationTabLike,
+): Promise<void> {
   await expandNavigation(page);
   await expandAllGroups(page);
   const itemButton = page.locator(`.nav-item[data-item-key="${item.item_key}"] .nav-item__button`);
@@ -379,8 +490,12 @@ async function openSidebarTab(page: Page, item: NavigationItemLike, tab: Navigat
   await itemButton.click({ timeout: 120_000 });
   const key = tab.tab_key ?? "table";
   const tabButton = page.locator(`.overflow-tabs button[data-tab-key="${key}"]`);
-  if (!(await tabButton.count()) && new URL(page.url()).searchParams.get("tab") !== key) await revealEmpty();
-  if (await tabButton.count()) { await tabButton.scrollIntoViewIfNeeded(); await tabButton.click(); }
+  if (!(await tabButton.count()) && new URL(page.url()).searchParams.get("tab") !== key)
+    await revealEmpty();
+  if (await tabButton.count()) {
+    await tabButton.scrollIntoViewIfNeeded();
+    await tabButton.click();
+  }
   expect(new URL(page.url()).searchParams.get("tab"), "selected item's tab is reachable").toBe(key);
   await waitForDiffBrowsing(page);
   await settleFrames(page);
@@ -417,10 +532,15 @@ async function captureTabItemBothWidths(
     overflow.push((await assertTabsReachable(page)) ? `${width}=溢出` : `${width}=未溢出`);
     await openSidebarTab(page, item, tab);
   }
-  appendCaseLog(`${label} item=${item.item_key} tabs=${item.tabs.length} tab=${tab.tab_key ?? "table"} ${overflow.join(" ")}`);
+  appendCaseLog(
+    `${label} item=${item.item_key} tabs=${item.tabs.length} tab=${tab.tab_key ?? "table"} ${overflow.join(" ")}`,
+  );
 }
 
-function pickColumnsTab(surface: SurfaceLike, groups: readonly NavigationGroupLike[]): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
+function pickColumnsTab(
+  surface: SurfaceLike,
+  groups: readonly NavigationGroupLike[],
+): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
   const seen = new Set<string>();
   for (const group of groups) {
     for (const item of group.items) {
@@ -429,7 +549,12 @@ function pickColumnsTab(surface: SurfaceLike, groups: readonly NavigationGroupLi
         seen.add(tab.table_id);
         const table = tableOf(surface, tab.table_id);
         const hasPinned = table.columns.some((column) => column.pinned === true);
-        const hasDisplayName = table.columns.some((column) => typeof column.display_name === "string" && column.display_name.length > 0 && column.display_name !== column.name);
+        const hasDisplayName = table.columns.some(
+          (column) =>
+            typeof column.display_name === "string" &&
+            column.display_name.length > 0 &&
+            column.display_name !== column.name,
+        );
         if (hasPinned && hasDisplayName) return { item, tab, table };
       }
     }
@@ -437,7 +562,10 @@ function pickColumnsTab(surface: SurfaceLike, groups: readonly NavigationGroupLi
   return null;
 }
 
-function pickLocatedTab(surface: SurfaceLike, groups: readonly NavigationGroupLike[]): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
+function pickLocatedTab(
+  surface: SurfaceLike,
+  groups: readonly NavigationGroupLike[],
+): { item: NavigationItemLike; tab: NavigationTabLike; table: SurfaceTableLike } | null {
   const seen = new Set<string>();
   for (const group of groups) {
     for (const item of group.items) {
@@ -463,10 +591,18 @@ async function jumpToFirstLocatedRow(page: Page): Promise<void> {
 }
 
 function compositeChanged(bundle: ParsedBundle, pairId: string): number | null {
-  const member = bundle.members.find((item) => item.path === `pairs/${pairId}/comparison-surface.json`);
+  const member = bundle.members.find(
+    (item) => item.path === `pairs/${pairId}/comparison-surface.json`,
+  );
   if (!member) return null;
-  const surface = JSON.parse(member.body.toString("utf8")) as { tables?: Array<{ table_name?: string; display_name?: string; table_status?: string }> };
-  const table = (surface.tables ?? []).find((item) => item.table_name === "composite_signal_point" || item.display_name === "composite_signal_point");
+  const surface = JSON.parse(member.body.toString("utf8")) as {
+    tables?: Array<{ table_name?: string; display_name?: string; table_status?: string }>;
+  };
+  const table = (surface.tables ?? []).find(
+    (item) =>
+      item.table_name === "composite_signal_point" ||
+      item.display_name === "composite_signal_point",
+  );
   if (!table?.table_status) return null;
   return table.table_status === "UNCHANGED" || table.table_status === "BUSINESS_EQUIVALENT" ? 0 : 1;
 }
@@ -477,7 +613,10 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
   const v2Dir = join(inputRoot, "t1-v2");
   for (const dir of [v1Dir, v2Dir]) {
     const entries = await readdir(dir);
-    expect(entries.filter((name) => name.endsWith(".pmc")), `${dir} has one .pmc`).toHaveLength(1);
+    expect(
+      entries.filter((name) => name.endsWith(".pmc")),
+      `${dir} has one .pmc`,
+    ).toHaveLength(1);
     await stat(join(dir, "sql", "dbcfg.sql"));
     await stat(join(dir, "comps", "logic", "logics.xml"));
     appendCaseLog(`t1-input dir=${dir} entries=${entries.length}`);
@@ -495,7 +634,13 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
   const page: Page = await context.newPage();
   await page.setViewportSize({ width: 1920, height: 1080 });
   const diagnostics = collectPageDiagnostics(page);
-  const m1: Array<{ step: string; rendererIncrementBytes: number | null; maxRssAnon: number | null; maxRssFile: number | null; maxRssShmem: number | null }> = [];
+  const m1: Array<{
+    step: string;
+    rendererIncrementBytes: number | null;
+    maxRssAnon: number | null;
+    maxRssFile: number | null;
+    maxRssShmem: number | null;
+  }> = [];
   let navDiagnosticsCaptured = false;
   const bundleObservations: BundleObservation[] = [];
 
@@ -507,7 +652,12 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await selectUploadDirs(page, { modified: v1Dir });
     const recording1 = captureBundleDownloads(page, submitter);
     bundleObservations.push(recording1);
-    const uploadWait1 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
+    const uploadWait1 = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/upload-revisions"),
+      { timeout: 300_000 },
+    );
     const previewWait1 = await captureResponse(page, submitter, "POST", /\/preview-operations$/);
     const measured1 = await measurePackaging(browser, async () => {
       await startUpload(page);
@@ -517,24 +667,39 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(upload1.status(), "step1 upload status").toBe(201);
     const preview1 = await previewWait1.read();
     expect(preview1.status(), "step1 preview status").toBe(202);
-    const accepted1 = (await preview1.json()) as { operation_id: string; upload_revision_id: string };
+    const accepted1 = (await preview1.json()) as {
+      operation_id: string;
+      upload_revision_id: string;
+    };
     const operation1 = await waitForOperation(submitter, accepted1.operation_id, 600_000);
     expect(operation1.status, "step1 preview operation").toBe("SUCCEEDED");
-    m1.push({ step: "t1-v1-modified", rendererIncrementBytes: measured1.rendererIncrementBytes, maxRssAnon: measured1.maxRssAnon, maxRssFile: measured1.maxRssFile, maxRssShmem: measured1.maxRssShmem });
+    m1.push({
+      step: "t1-v1-modified",
+      rendererIncrementBytes: measured1.rendererIncrementBytes,
+      maxRssAnon: measured1.maxRssAnon,
+      maxRssFile: measured1.maxRssFile,
+      maxRssShmem: measured1.maxRssShmem,
+    });
     expect(await waitForPreviewOutcome(page)).toBe("compare");
     const compareUrl1 = new URL(page.url());
     const workspaceId = compareUrl1.searchParams.get("workspaceId");
     const previewId1 = compareUrl1.searchParams.get("previewResultId");
     expect(workspaceId, "step1 workspaceId").toBeTruthy();
     expect(previewId1, "step1 previewId").toBeTruthy();
-    const evidence1 = await consumePreviewBundle(page, recording1, { workspaceId: workspaceId as string,
-      previewId: previewId1 as string, operationId: accepted1.operation_id, uploadRevisionId: accepted1.upload_revision_id,
-      readPreview: () => getPreviewResult(submitter, workspaceId as string, previewId1 as string) });
+    const evidence1 = await consumePreviewBundle(page, recording1, {
+      workspaceId: workspaceId as string,
+      previewId: previewId1 as string,
+      operationId: accepted1.operation_id,
+      uploadRevisionId: accepted1.upload_revision_id,
+      readPreview: () => getPreviewResult(submitter, workspaceId as string, previewId1 as string),
+    });
     const bundle1 = evidence1.bundle;
     recording1.dispose();
     const criteria1 = await assertBundleConsumerCriteria(bundle1, "t1 step1 preview bundle");
     await recording1.assertIdentity();
-    appendCaseLog(`t1-step1 criteria source=${evidence1.source} ${formatCriteriaSummary(criteria1)}`);
+    appendCaseLog(
+      `t1-step1 criteria source=${evidence1.source} ${formatCriteriaSummary(criteria1)}`,
+    );
     const summary1 = pairSummary(bundle1, "initial_to_modified");
     expect(Number(summary1.table_count), "step1 table_count").toBe(v1PreviewCount + 1);
     expect(Number(summary1.changed_table_count), "step1 changed").toBe(v1PreviewCount + 1);
@@ -547,13 +712,31 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     // FE4b §7.3: dependent-on-BE-b pages, still outside the M1 window.
     const v1PairId = firstPairWithNavigation(bundle1);
     const v1 = pairArtifacts(bundle1, v1PairId);
-    const secondaryItem = maxTabsItem(v1.groups.find((group) => group.group_key === "SECONDARY_DEVICES")?.items ?? []);
+    const secondaryItem = maxTabsItem(
+      v1.groups.find((group) => group.group_key === "SECONDARY_DEVICES")?.items ?? [],
+    );
     if (secondaryItem) {
-      await captureTabItemBothWidths(page, testInfo, "fe4-t1-device-tabs", v1.surface, secondaryItem, firstTabWithRows(v1.surface, secondaryItem));
+      await captureTabItemBothWidths(
+        page,
+        testInfo,
+        "fe4-t1-device-tabs",
+        v1.surface,
+        secondaryItem,
+        firstTabWithRows(v1.surface, secondaryItem),
+      );
     }
-    const forwardItem = maxTabsItem(v1.groups.find((group) => group.group_key === "FORWARD_CHANNELS")?.items ?? []);
+    const forwardItem = maxTabsItem(
+      v1.groups.find((group) => group.group_key === "FORWARD_CHANNELS")?.items ?? [],
+    );
     if (forwardItem) {
-      await captureTabItemBothWidths(page, testInfo, "fe4-t1-forward-channel", v1.surface, forwardItem, firstTabWithRows(v1.surface, forwardItem));
+      await captureTabItemBothWidths(
+        page,
+        testInfo,
+        "fe4-t1-forward-channel",
+        v1.surface,
+        forwardItem,
+        firstTabWithRows(v1.surface, forwardItem),
+      );
     } else {
       appendCaseLog("fe4-t1-forward-channel skipped: FORWARD_CHANNELS 无项");
     }
@@ -563,35 +746,67 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
       await openSidebarTab(page, navTarget.item, navTarget.tab);
       await expect(page.locator(".diagnostic-note--navigation").first()).toBeVisible();
       await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-diagnostics");
-      appendCaseLog(`fe4-t1-nav-diagnostics pair=${v1PairId} code=${firstDiagnostic.code} item=${navTarget.item.item_key} tab=${navTarget.tab.tab_key ?? "table"}`);
+      appendCaseLog(
+        `fe4-t1-nav-diagnostics pair=${v1PairId} code=${firstDiagnostic.code} item=${navTarget.item.item_key} tab=${navTarget.tab.tab_key ?? "table"}`,
+      );
       navDiagnosticsCaptured = true;
     }
 
     // Submit v1.
-    const submitWait = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
+    const submitWait = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/submit-attempts"),
+      { timeout: 300_000 },
+    );
     await compareAction(page, "提交").click({ timeout: 120_000 });
-    await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "确认提交", exact: true })
+      .click({ timeout: 120_000 });
     expect((await submitWait).status(), "step1 submit status").toBe(202);
-    const { submission } = await waitForPendingSubmission(submitter, workspaceId as string, 600_000);
+    const { submission } = await waitForPendingSubmission(
+      submitter,
+      workspaceId as string,
+      600_000,
+    );
     const submissionV1 = submission.submission_id;
 
     // Step 2: approve as the reviewer.
     const factsV1 = (await getReviewFacts(reviewer, submissionV1)).body;
     expect(factsV1.status).toBe("PENDING");
-    await applyReview(reviewer, submissionV1, { expected_review_version: factsV1.review_version, action: "APPROVE" });
+    await applyReview(reviewer, submissionV1, {
+      expected_review_version: factsV1.review_version,
+      action: "APPROVE",
+    });
 
     // Step 3: archive v1; t1 carries generation time, so no anomalies are expected.
     const listed3 = (await listArchiveCandidates(archiver)).body;
-    const digestV1 = listed3.candidates.find((candidate) => candidate.submission_id === submissionV1)!.expected_candidate_digest;
-    const plan3 = (await previewArchivePlan(archiver, { submission_id: submissionV1, expected_candidate_digest: digestV1 })).body;
+    const digestV1 = listed3.candidates.find(
+      (candidate) => candidate.submission_id === submissionV1,
+    )!.expected_candidate_digest;
+    const plan3 = (
+      await previewArchivePlan(archiver, {
+        submission_id: submissionV1,
+        expected_candidate_digest: digestV1,
+      })
+    ).body;
     const codes3 = plan3.anomalies.map((anomaly) => anomaly.issue_code);
     appendCaseLog(`t1-step3 anomalies=${JSON.stringify(codes3)}`);
     for (const anomaly of plan3.anomalies) {
       expect(
-        ["GENERATION_TIME_MISSING", "GENERATION_TIME_INVALID_VALUES", "GENERATION_TIME_LAST_NOT_MAX", "TIME_ABNORMAL_MODIFIED", "TIME_ABNORMAL_INITIAL"].includes(anomaly.issue_code),
+        [
+          "GENERATION_TIME_MISSING",
+          "GENERATION_TIME_INVALID_VALUES",
+          "GENERATION_TIME_LAST_NOT_MAX",
+          "TIME_ABNORMAL_MODIFIED",
+          "TIME_ABNORMAL_INITIAL",
+        ].includes(anomaly.issue_code),
         `t1-step3 unexpected code ${anomaly.issue_code} (stop for design review)`,
       ).toBe(true);
-      const action = anomaly.issue_code.startsWith("TIME_ABNORMAL") ? "ACKNOWLEDGE_TIME_ORDER" : "ACKNOWLEDGE_TIME_QUALITY";
+      const action = anomaly.issue_code.startsWith("TIME_ABNORMAL")
+        ? "ACKNOWLEDGE_TIME_ORDER"
+        : "ACKNOWLEDGE_TIME_QUALITY";
       await appendArchiveAnomalyResolution(archiver, {
         expected_baseline_node_id: plan3.head.business_baseline_node_id,
         expected_baseline_head_version: plan3.head.baseline_head_version,
@@ -615,7 +830,9 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const archiverDiagnostics = collectPageDiagnostics(archiverPage);
     try {
       await gotoWorkbench(archiverPage);
-      await archiverPage.getByRole("button", { name: "提交 1", exact: true }).click({ timeout: 120_000 });
+      await archiverPage
+        .getByRole("button", { name: "提交 1", exact: true })
+        .click({ timeout: 120_000 });
       await workshopAction(archiverPage, "归档主线").click({ timeout: 120_000 });
       const archiveDialog = archiverPage.getByRole("dialog", { name: "归档主基线" });
       await expect(archiveDialog.getByText("预检状态")).toBeVisible({ timeout: 60_000 });
@@ -638,15 +855,29 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const recording2 = captureBundleDownloads(page, submitter);
     bundleObservations.push(recording2);
     const previewWait2 = await captureResponse(page, submitter, "POST", /\/preview-operations$/);
-    const uploadWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/upload-revisions"), { timeout: 300_000 });
+    const uploadWait2 = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/upload-revisions"),
+      { timeout: 300_000 },
+    );
     const measured2 = await measurePackaging(browser, async () => {
       await startUpload(page);
       await uploadWait2;
     });
-    m1.push({ step: "t1-full", rendererIncrementBytes: measured2.rendererIncrementBytes, maxRssAnon: measured2.maxRssAnon, maxRssFile: measured2.maxRssFile, maxRssShmem: measured2.maxRssShmem });
+    m1.push({
+      step: "t1-full",
+      rendererIncrementBytes: measured2.rendererIncrementBytes,
+      maxRssAnon: measured2.maxRssAnon,
+      maxRssFile: measured2.maxRssFile,
+      maxRssShmem: measured2.maxRssShmem,
+    });
     const preview2 = await previewWait2.read();
     expect(preview2.status(), "step4 preview status").toBe(202);
-    const accepted2 = (await preview2.json()) as { operation_id: string; upload_revision_id: string };
+    const accepted2 = (await preview2.json()) as {
+      operation_id: string;
+      upload_revision_id: string;
+    };
     const operation2 = await waitForOperation(submitter, accepted2.operation_id, 900_000);
     expect(operation2.status, "step4 preview operation").toBe("SUCCEEDED");
     expect(await waitForPreviewOutcome(page)).toBe("compare");
@@ -655,15 +886,24 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     const workspaceId2 = compareUrl2.searchParams.get("workspaceId");
     expect(previewId2, "step4 previewId").toBeTruthy();
     expect(workspaceId2, "step4 workspaceId").toBeTruthy();
-    const evidence2 = await consumePreviewBundle(page, recording2, { workspaceId: workspaceId2 as string,
-      previewId: previewId2 as string, operationId: accepted2.operation_id, uploadRevisionId: accepted2.upload_revision_id,
-      readPreview: () => getPreviewResult(submitter, workspaceId2 as string, previewId2 as string) });
+    const evidence2 = await consumePreviewBundle(page, recording2, {
+      workspaceId: workspaceId2 as string,
+      previewId: previewId2 as string,
+      operationId: accepted2.operation_id,
+      uploadRevisionId: accepted2.upload_revision_id,
+      readPreview: () => getPreviewResult(submitter, workspaceId2 as string, previewId2 as string),
+    });
     const bundle2 = evidence2.bundle;
     recording2.dispose();
     const criteria2 = await assertBundleConsumerCriteria(bundle2, "t1 step4 full bundle");
     await recording2.assertIdentity();
-    appendCaseLog(`t1-step4 criteria source=${evidence2.source} ${formatCriteriaSummary(criteria2)}`);
-    expect((bundle2).manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual(["baseline_to_initial", "initial_to_modified"]);
+    appendCaseLog(
+      `t1-step4 criteria source=${evidence2.source} ${formatCriteriaSummary(criteria2)}`,
+    );
+    expect(bundle2.manifest.pairs.map((pair) => pair.pair_id).sort()).toEqual([
+      "baseline_to_initial",
+      "initial_to_modified",
+    ]);
     const bti = pairSummary(bundle2, "baseline_to_initial");
     expect(Number(bti.changed_table_count), "baseline_to_initial changed").toBe(0);
     expect(Number(bti.degraded_table_count), "baseline_to_initial degraded").toBe(0);
@@ -675,7 +915,10 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(Number(itm.failed_table_count), "initial_to_modified failed").toBe(0);
     const composite = compositeChanged(bundle2, "initial_to_modified");
     appendCaseLog(`t1-step4 composite_changed=${composite}`);
-    expect(composite, "initial_to_modified comparison surface exposes composite_signal_point").not.toBeNull();
+    expect(
+      composite,
+      "initial_to_modified comparison surface exposes composite_signal_point",
+    ).not.toBeNull();
     const changedExpected = v2Changed + (composite as number);
     expect(Number(itm.changed_table_count), "initial_to_modified changed").toBe(changedExpected);
     await waitForDiffBrowsing(page);
@@ -696,13 +939,17 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     expect(columnsPick, "t1 v2 initial_to_modified 有中文列名与固定列的表").toBeTruthy();
     await openSidebarTab(page, columnsPick!.item, columnsPick!.tab);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-columns");
-    appendCaseLog(`fe4-t1-columns table=${columnsPick!.table.table_id} item=${columnsPick!.item.item_key} tab=${columnsPick!.tab.tab_key ?? "table"}`);
+    appendCaseLog(
+      `fe4-t1-columns table=${columnsPick!.table.table_id} item=${columnsPick!.item.item_key} tab=${columnsPick!.tab.tab_key ?? "table"}`,
+    );
     const locatedPick = pickLocatedTab(v2.surface, v2.groups);
     expect(locatedPick, "t1 v2 initial_to_modified 有 row_locator_ref 的表").toBeTruthy();
     await openSidebarTab(page, locatedPick!.item, locatedPick!.tab);
     await jumpToFirstLocatedRow(page);
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-located-rows");
-    appendCaseLog(`fe4-t1-located-rows table=${locatedPick!.table.table_id} item=${locatedPick!.item.item_key} tab=${locatedPick!.tab.tab_key ?? "table"}`);
+    appendCaseLog(
+      `fe4-t1-located-rows table=${locatedPick!.table.table_id} item=${locatedPick!.item.item_key} tab=${locatedPick!.tab.tab_key ?? "table"}`,
+    );
     if (!navDiagnosticsCaptured) {
       for (const pair of ["baseline_to_initial", "initial_to_modified"] as const) {
         const artifacts = pair === v2PairId ? v2 : pairArtifacts(bundle2, pair);
@@ -719,7 +966,9 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
         await openSidebarTab(page, navTarget.item, navTarget.tab);
         await expect(page.locator(".diagnostic-note--navigation").first()).toBeVisible();
         await saveEvidenceBothWidths(page, testInfo, "fe4-t1-nav-diagnostics");
-        appendCaseLog(`fe4-t1-nav-diagnostics pair=${pair} code=${firstDiagnostic.code} item=${navTarget.item.item_key} tab=${navTarget.tab.tab_key ?? "table"}`);
+        appendCaseLog(
+          `fe4-t1-nav-diagnostics pair=${pair} code=${firstDiagnostic.code} item=${navTarget.item.item_key} tab=${navTarget.tab.tab_key ?? "table"}`,
+        );
         navDiagnosticsCaptured = true;
         if (pair === "baseline_to_initial") {
           await page.getByRole("tab", { name: "本次组态视图" }).click({ timeout: 120_000 });
@@ -727,23 +976,41 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
         }
         break;
       }
-      if (!navDiagnosticsCaptured) appendCaseLog("fe4-t1-nav-diagnostics skipped: 所有比较对诊断数为 0");
+      if (!navDiagnosticsCaptured)
+        appendCaseLog("fe4-t1-nav-diagnostics skipped: 所有比较对诊断数为 0");
     }
-    const submitWait2 = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/submit-attempts"), { timeout: 300_000 });
+    const submitWait2 = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/submit-attempts"),
+      { timeout: 300_000 },
+    );
     await compareAction(page, "提交").click({ timeout: 120_000 });
-    await page.getByRole("dialog").getByRole("button", { name: "确认提交", exact: true }).click({ timeout: 120_000 });
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "确认提交", exact: true })
+      .click({ timeout: 120_000 });
     expect((await submitWait2).status(), "step4 submit status").toBe(202);
-    const { submission: submissionV2 } = await waitForPendingSubmission(submitter, workspaceId2 as string, 600_000);
+    const { submission: submissionV2 } = await waitForPendingSubmission(
+      submitter,
+      workspaceId2 as string,
+      600_000,
+    );
     const factsV2 = (await getReviewFacts(reviewer, submissionV2.submission_id)).body;
     expect(factsV2.status).toBe("PENDING");
-    await applyReview(reviewer, submissionV2.submission_id, { expected_review_version: factsV2.review_version, action: "APPROVE" });
+    await applyReview(reviewer, submissionV2.submission_id, {
+      expected_review_version: factsV2.review_version,
+      action: "APPROVE",
+    });
     await saveEvidence(page, testInfo, "t1-v2-diff");
     // FE4a §3.3: read-only review-mode visit for the reference screenshot.
     const reviewerContext = await contextForIdentity(browser, reviewer);
     const reviewerPage = await reviewerContext.newPage();
     await reviewerPage.setViewportSize({ width: 1920, height: 1080 });
     try {
-      await reviewerPage.goto(`/?page=compare&mode=REVIEW&submissionId=${submissionV2.submission_id}`);
+      await reviewerPage.goto(
+        `/?page=compare&mode=REVIEW&submissionId=${submissionV2.submission_id}`,
+      );
       await expect(reviewerPage.locator("main.comparison-page")).toBeVisible({ timeout: 60_000 });
       await waitForDiffBrowsing(reviewerPage);
       await expect(reviewerPage.locator(".review-actions")).toBeVisible({ timeout: 60_000 });
@@ -757,8 +1024,16 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await checkCompareRow(page, "初始基线");
     await checkCompareRow(page, "归档基线 1");
     await checkCompareRow(page, "提交 2");
-    const compareResponse = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/history-compares"), { timeout: 300_000 });
-    await page.locator(".compare-tray").getByRole("button", { name: "历史比较", exact: true }).click({ timeout: 120_000 });
+    const compareResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/history-compares"),
+      { timeout: 300_000 },
+    );
+    await page
+      .locator(".compare-tray")
+      .getByRole("button", { name: "历史比较", exact: true })
+      .click({ timeout: 120_000 });
     expect((await compareResponse).status()).toBeLessThan(300);
     const drawer = page.locator('section[aria-label="历史比较结果抽屉"]');
     await expect(drawer).toBeVisible({ timeout: 120_000 });
@@ -766,7 +1041,9 @@ test("t1 real-data journey with M1 re-measurement", async ({ browser }, testInfo
     await expect(drawer.locator(".history-pair-summary")).toHaveCount(2);
     await saveEvidence(page, testInfo, "t1-history-three-nodes");
     await saveEvidenceBothWidths(page, testInfo, "fe4-t1-history-3node");
-    await drawer.getByRole("button", { name: "打开差异工作台", exact: true }).click({ timeout: 120_000 });
+    await drawer
+      .getByRole("button", { name: "打开差异工作台", exact: true })
+      .click({ timeout: 120_000 });
     await waitForDiffBrowsing(page);
 
     // M1 report (single in-journey samples; FE3a t1 v1 MODIFIED renderer 24.86 MiB).

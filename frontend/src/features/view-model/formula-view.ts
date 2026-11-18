@@ -15,11 +15,21 @@ export interface AlignedFormulaLine {
   state: "same" | "changed" | "before-only" | "current-only";
 }
 
-type FormulaNode = { kind?: unknown; operator?: unknown; name?: unknown; value?: unknown; children?: unknown };
+type FormulaNode = {
+  kind?: unknown;
+  operator?: unknown;
+  name?: unknown;
+  value?: unknown;
+  children?: unknown;
+};
 
 function parse(value: unknown): unknown {
   if (typeof value !== "string") return value;
-  try { return JSON.parse(value) as unknown; } catch { return null; }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 function pointLabel(value: unknown, devices: readonly FormulaSourceRow[]): string {
@@ -28,8 +38,12 @@ function pointLabel(value: unknown, devices: readonly FormulaSourceRow[]): strin
   if (!match) return value;
   const address = match[1];
   const pointName = match[2] ?? "";
-  const mapped = devices.filter((device) => String(device.dev_addr ?? "") === address
-    && typeof device.description === "string" && device.description.trim().length > 0);
+  const mapped = devices.filter(
+    (device) =>
+      String(device.dev_addr ?? "") === address &&
+      typeof device.description === "string" &&
+      device.description.trim().length > 0,
+  );
   return mapped.length === 1 ? `${mapped[0]?.description}:${pointName}` : value;
 }
 
@@ -37,18 +51,31 @@ function flattenChildren(children: unknown[], operator: string): unknown[] {
   return children.flatMap((child) => {
     if (!child || typeof child !== "object" || Array.isArray(child)) return [child];
     const node = child as FormulaNode;
-    if (node.kind === "EXPRESS" && node.operator === operator && !node.name && Array.isArray(node.children)) {
+    if (
+      node.kind === "EXPRESS" &&
+      node.operator === operator &&
+      !node.name &&
+      Array.isArray(node.children)
+    ) {
       return flattenChildren(node.children, operator);
     }
     return [child];
   });
 }
 
-export function renderFormulaLines(value: unknown, devices: readonly FormulaSourceRow[] = []): FormulaLine[] {
+export function renderFormulaLines(
+  value: unknown,
+  devices: readonly FormulaSourceRow[] = [],
+): FormulaLine[] {
   const root = parse(value);
   const lines: FormulaLine[] = [];
   const occurrences = new Map<string, number>();
-  const append = (kind: FormulaLine["kind"], comparisonText: string, text: string, depth: number) => {
+  const append = (
+    kind: FormulaLine["kind"],
+    comparisonText: string,
+    text: string,
+    depth: number,
+  ) => {
     const occurrenceBase = `${kind}\0${comparisonText}`;
     const occurrence = occurrences.get(occurrenceBase) ?? 0;
     occurrences.set(occurrenceBase, occurrence + 1);
@@ -56,7 +83,13 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
     lines.push({ key: alignmentKey, alignmentKey, comparisonText, text, kind, depth });
   };
 
-  const visit = (raw: unknown, depth: number, prefix = "", parentOperator = "", showNameGroup = false): void => {
+  const visit = (
+    raw: unknown,
+    depth: number,
+    prefix = "",
+    parentOperator = "",
+    showNameGroup = false,
+  ): void => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       const text = raw == null ? "" : String(raw);
       append("expression", prefix + text, prefix + text, depth);
@@ -74,7 +107,11 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
       append("expression", prefix + valueText, prefix + valueText, depth);
       return;
     }
-    if (node.kind !== "EXPRESS" || !Array.isArray(node.children) || typeof node.operator !== "string") {
+    if (
+      node.kind !== "EXPRESS" ||
+      !Array.isArray(node.children) ||
+      typeof node.operator !== "string"
+    ) {
       append("expression", prefix + "公式结构暂不支持", prefix + "公式结构暂不支持", depth);
       return;
     }
@@ -101,19 +138,33 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
       visitChildren(node.children, node.operator, depth + 1, node.operator + " ");
       return;
     }
-    const operationPrefix = parentOperator && parentOperator !== node.operator ? `${node.operator} ` : prefix;
+    const operationPrefix =
+      parentOperator && parentOperator !== node.operator ? `${node.operator} ` : prefix;
     visitChildren(node.children, node.operator, depth, operationPrefix);
   };
 
-  const visitChildren = (children: unknown[], operator: string, depth: number, leadingPrefix = ""): void => {
+  const visitChildren = (
+    children: unknown[],
+    operator: string,
+    depth: number,
+    leadingPrefix = "",
+  ): void => {
     if (!operator && children.length === 1) {
       visit(children[0], depth, leadingPrefix, operator);
       return;
     }
-    const terms = ["|", "+", "*"].includes(operator) ? flattenChildren(children, operator) : children;
+    const terms = ["|", "+", "*"].includes(operator)
+      ? flattenChildren(children, operator)
+      : children;
     terms.forEach((child, index) => {
-      const childIsNamedExpression = Boolean(child && typeof child === "object" && !Array.isArray(child)
-        && (child as FormulaNode).kind === "EXPRESS" && typeof (child as FormulaNode).name === "string" && (child as FormulaNode).name);
+      const childIsNamedExpression = Boolean(
+        child &&
+        typeof child === "object" &&
+        !Array.isArray(child) &&
+        (child as FormulaNode).kind === "EXPRESS" &&
+        typeof (child as FormulaNode).name === "string" &&
+        (child as FormulaNode).name,
+      );
       if (childIsNamedExpression) {
         visit(child, depth, index === 0 ? leadingPrefix : "", operator, true);
         return;
@@ -133,23 +184,30 @@ function lcsAnchors(before: FormulaLine[], current: FormulaLine[]): Array<[numbe
   const table = Array.from({ length: rows }, () => new Uint32Array(columns));
   for (let i = before.length - 1; i >= 0; i -= 1) {
     for (let j = current.length - 1; j >= 0; j -= 1) {
-      table[i]![j] = before[i]?.alignmentKey === current[j]?.alignmentKey
-        ? (table[i + 1]?.[j + 1] ?? 0) + 1
-        : Math.max(table[i + 1]?.[j] ?? 0, table[i]?.[j + 1] ?? 0);
+      table[i]![j] =
+        before[i]?.alignmentKey === current[j]?.alignmentKey
+          ? (table[i + 1]?.[j + 1] ?? 0) + 1
+          : Math.max(table[i + 1]?.[j] ?? 0, table[i]?.[j + 1] ?? 0);
     }
   }
   const anchors: Array<[number, number]> = [];
   let i = 0;
   let j = 0;
   while (i < before.length && j < current.length) {
-    if (before[i]?.alignmentKey === current[j]?.alignmentKey) { anchors.push([i, j]); i += 1; j += 1; }
-    else if ((table[i + 1]?.[j] ?? 0) >= (table[i]?.[j + 1] ?? 0)) i += 1;
+    if (before[i]?.alignmentKey === current[j]?.alignmentKey) {
+      anchors.push([i, j]);
+      i += 1;
+      j += 1;
+    } else if ((table[i + 1]?.[j] ?? 0) >= (table[i]?.[j + 1] ?? 0)) i += 1;
     else j += 1;
   }
   return anchors;
 }
 
-export function alignFormulaLines(before: FormulaLine[], current: FormulaLine[]): AlignedFormulaLine[] {
+export function alignFormulaLines(
+  before: FormulaLine[],
+  current: FormulaLine[],
+): AlignedFormulaLine[] {
   const anchors = lcsAnchors(before, current);
   const result: AlignedFormulaLine[] = [];
   let beforeAt = 0;
@@ -161,12 +219,20 @@ export function alignFormulaLines(before: FormulaLine[], current: FormulaLine[])
     for (let i = 0; i < length; i += 1) {
       const oldLine = beforeGap[i] ?? null;
       const newLine = currentGap[i] ?? null;
-      result.push({ before: oldLine, current: newLine, state: oldLine && newLine ? "changed" : oldLine ? "before-only" : "current-only" });
+      result.push({
+        before: oldLine,
+        current: newLine,
+        state: oldLine && newLine ? "changed" : oldLine ? "before-only" : "current-only",
+      });
     }
   };
   for (const [beforeIndex, currentIndex] of anchors) {
     appendGap(beforeIndex, currentIndex);
-    result.push({ before: before[beforeIndex] ?? null, current: current[currentIndex] ?? null, state: "same" });
+    result.push({
+      before: before[beforeIndex] ?? null,
+      current: current[currentIndex] ?? null,
+      state: "same",
+    });
     beforeAt = beforeIndex + 1;
     currentAt = currentIndex + 1;
   }

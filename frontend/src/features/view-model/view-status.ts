@@ -8,7 +8,10 @@ function positiveCount(value: unknown): number {
   return Math.floor(value);
 }
 
-export function presentViewStatus(view: Record<string, unknown> | undefined, diagnosticTableCount: number): ViewStatusPresentation {
+export function presentViewStatus(
+  view: Record<string, unknown> | undefined,
+  diagnosticTableCount: number,
+): ViewStatusPresentation {
   const summary = view ?? {};
   const changed = positiveCount(summary.changed_table_count);
   const degraded = positiveCount(summary.degraded_table_count);

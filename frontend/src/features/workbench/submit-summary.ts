@@ -28,9 +28,7 @@ export function submissionDisplayName(
   const ordered = history.nodes
     .filter((node) => node.node_kind === "SUBMISSION")
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
-  const index = ordered.findIndex(
-    (node) => nodeKey(node) === `${refKind}:${refId}`,
-  );
+  const index = ordered.findIndex((node) => nodeKey(node) === `${refKind}:${refId}`);
   return index === -1 ? null : `提交 ${index + 1}`;
 }
 

@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBoundGatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { currentGatewaySession } from "../api/session";
-import { deriveUploadModeGates, type Problem, type UploadModeAttempt, type UploadModeGates, type UploadModeOperation, type UploadModeWorkspace } from "./upload-header";
+import {
+  deriveUploadModeGates,
+  type Problem,
+  type UploadModeAttempt,
+  type UploadModeGates,
+  type UploadModeOperation,
+  type UploadModeWorkspace,
+} from "./upload-header";
 import type { GatewayApi, SafeReviewFacts } from "../api/client";
 import { InflightGate } from "./inflight";
 
@@ -217,7 +224,10 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         }
         if (loaded.active_submit_attempt_id) {
           attemptIdRef.current = loaded.active_submit_attempt_id;
-          const loadedAttempt = await readAttemptChain(loaded.workspace_id, loaded.active_submit_attempt_id);
+          const loadedAttempt = await readAttemptChain(
+            loaded.workspace_id,
+            loaded.active_submit_attempt_id,
+          );
           return { workspace: loaded, attempt: loadedAttempt, workspaceError: null };
         }
         clearAttemptChain();
@@ -248,34 +258,51 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     void refresh();
   }, [enabled, refresh]);
 
-  const gates = useMemo(() => deriveUploadModeGates({
-    workspace,
-    workspaceLoading,
-    workspaceError: workspaceProblem,
-    attempt,
-    attemptLoading,
-    attemptError: attemptProblem,
-    operation,
-    operationLoading,
-    operationError: operationProblem,
-    review,
-    reviewLoading,
-    reviewError: reviewProblem,
-  }), [workspace, workspaceLoading, workspaceProblem, attempt, attemptLoading, attemptProblem,
-    operation, operationLoading, operationProblem, review, reviewLoading, reviewProblem]);
+  const gates = useMemo(
+    () =>
+      deriveUploadModeGates({
+        workspace,
+        workspaceLoading,
+        workspaceError: workspaceProblem,
+        attempt,
+        attemptLoading,
+        attemptError: attemptProblem,
+        operation,
+        operationLoading,
+        operationError: operationProblem,
+        review,
+        reviewLoading,
+        reviewError: reviewProblem,
+      }),
+    [
+      workspace,
+      workspaceLoading,
+      workspaceProblem,
+      attempt,
+      attemptLoading,
+      attemptProblem,
+      operation,
+      operationLoading,
+      operationProblem,
+      review,
+      reviewLoading,
+      reviewProblem,
+    ],
+  );
 
   // B2: one re-read per stale snapshot, never a loop. The key pins the exact
   // stale content; a refresh that leaves the same content behind is consumed.
-  const rereadKey = gates.withdraw.reread || gates.submit.reread || gates.upload.reread
-    ? [
-      workspace?.workspace_id ?? "",
-      workspace?.active_submission_id ?? "",
-      workspace?.active_submit_attempt_id ?? "",
-      review?.status ?? "",
-      review?.submission_disposition?.disposition ?? "",
-      attempt?.state ?? "",
-    ].join("|")
-    : null;
+  const rereadKey =
+    gates.withdraw.reread || gates.submit.reread || gates.upload.reread
+      ? [
+          workspace?.workspace_id ?? "",
+          workspace?.active_submission_id ?? "",
+          workspace?.active_submit_attempt_id ?? "",
+          review?.status ?? "",
+          review?.submission_disposition?.disposition ?? "",
+          attempt?.state ?? "",
+        ].join("|")
+      : null;
   useEffect(() => {
     if (!enabled || !rereadKey) return;
     if (rereadConsumed.current === rereadKey) return;
@@ -286,7 +313,9 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     // it so the stale content is always re-read exactly once.
     const pending = inflight.current;
     if (pending) {
-      const reread = () => { void refresh(); };
+      const reread = () => {
+        void refresh();
+      };
       void pending.then(reread, reread);
       return;
     }
@@ -369,10 +398,13 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
     });
   }, [clearAttemptChain, readAttemptChain, readReview]);
 
-  const resumeAfterOperation = useCallback(async (finishedOperationId: string): Promise<ResumeOutcome> => {
-    void finishedOperationId;
-    return retryResume();
-  }, [retryResume]);
+  const resumeAfterOperation = useCallback(
+    async (finishedOperationId: string): Promise<ResumeOutcome> => {
+      void finishedOperationId;
+      return retryResume();
+    },
+    [retryResume],
+  );
 
   // F1: the resume notice and the gates come from this same snapshot (§6.2).
   // ABORTED (pointers cleared, attempt readable) keeps the unfinished-submit
@@ -389,7 +421,10 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
       const liveAttempt = workspace.active_submit_attempt_id ?? null;
       const liveSubmission = workspace.active_submission_id ?? null;
       if (liveAttempt !== null || liveSubmission !== null) {
-        if (liveAttempt !== resumeAttemptId.current || liveSubmission !== resumeSubmissionId.current) {
+        if (
+          liveAttempt !== resumeAttemptId.current ||
+          liveSubmission !== resumeSubmissionId.current
+        ) {
           return null;
         }
       }
@@ -402,21 +437,41 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
         return { title: "无法确认提交状态", code: null, codeLabel: null };
       }
       if (attempt.state === "ABORTED") {
-        return { title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null, codeLabel: "原始代码" };
+        return {
+          title: "提交未完成，请检查上传与 Preview 后重试",
+          code: attempt.abort_code ?? null,
+          codeLabel: "原始代码",
+        };
       }
-      return { title: gates.submit.reason ?? "无法确认提交状态", code: attempt.operation_id ?? null, codeLabel: "操作ID" };
+      return {
+        title: gates.submit.reason ?? "无法确认提交状态",
+        code: attempt.operation_id ?? null,
+        codeLabel: "操作ID",
+      };
     }
     if (workspace.active_submission_id) {
       return { title: gates.submit.reason ?? "无法确认提交状态", code: null, codeLabel: null };
     }
     if (attempt && attempt.state === "ABORTED") {
-      return { title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null, codeLabel: "原始代码" };
+      return {
+        title: "提交未完成，请检查上传与 Preview 后重试",
+        code: attempt.abort_code ?? null,
+        codeLabel: "原始代码",
+      };
     }
     if (attemptProblem) {
       return { title: "无法读取提交结果，请刷新后重试", code: null, codeLabel: null };
     }
     return { title: "提交未完成，请检查上传与 Preview 后重试", code: null, codeLabel: null };
-  }, [resumeSeq, workspace, workspaceProblem, attempt, attemptProblem, operationProblem, gates.submit.reason]);
+  }, [
+    resumeSeq,
+    workspace,
+    workspaceProblem,
+    attempt,
+    attemptProblem,
+    operationProblem,
+    gates.submit.reason,
+  ]);
 
   return {
     workspace,
@@ -445,7 +500,10 @@ export function useUploadModeState(options: { enabled: boolean }): UploadModeSna
  * the pages can tell a submit operation from a preview operation (§6.2).
  * Returns null when the operation cannot be read.
  */
-export async function getUrlOperationJobKind(api: GatewayApi, operationId: string): Promise<string | null> {
+export async function getUrlOperationJobKind(
+  api: GatewayApi,
+  operationId: string,
+): Promise<string | null> {
   try {
     const loaded = await api.getOperation(operationId);
     return loaded.job_kind ?? null;

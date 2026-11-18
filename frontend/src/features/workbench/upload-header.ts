@@ -116,7 +116,13 @@ function attemptGate(input: UploadModeInput, mode: "withdraw" | "upload"): Gate 
     case "loading":
       return loadingGate(copy);
     case "stale":
-      return { enabled: false, reason: copy.unknown, retry: true, reread: true, retryLabel: "重试读取" };
+      return {
+        enabled: false,
+        reason: copy.unknown,
+        retry: true,
+        reread: true,
+        retryLabel: "重试读取",
+      };
     case "unknown":
       return { enabled: false, reason: copy.unknown, retry: true, retryLabel: "重试读取" };
     case "recovery":
@@ -131,8 +137,10 @@ function submissionGate(input: UploadModeInput, mode: "withdraw" | "upload"): Ga
   if (input.reviewLoading) return { enabled: false, reason: WITHDRAW_COPY.reading };
   if (input.reviewError) {
     const status = input.reviewError.status ?? null;
-    if (mode === "withdraw" && status === 403) return { enabled: false, reason: WITHDRAW_COPY.forbidden };
-    if (mode === "withdraw" && status === 404) return { enabled: false, reason: WITHDRAW_COPY.notFound, retry: true, retryLabel: "刷新" };
+    if (mode === "withdraw" && status === 403)
+      return { enabled: false, reason: WITHDRAW_COPY.forbidden };
+    if (mode === "withdraw" && status === 404)
+      return { enabled: false, reason: WITHDRAW_COPY.notFound, retry: true, retryLabel: "刷新" };
     if (mode === "upload") return { enabled: false, reason: UPLOAD_COPY.inReview };
     return { enabled: false, reason: WITHDRAW_COPY.failed, retry: true, retryLabel: "重试读取" };
   }
@@ -140,21 +148,32 @@ function submissionGate(input: UploadModeInput, mode: "withdraw" | "upload"): Ga
   if (disposition) {
     return {
       enabled: false,
-      reason: disposition.disposition === "ARCHIVED_BASELINE" ? WITHDRAW_COPY.archived : WITHDRAW_COPY.closed,
+      reason:
+        disposition.disposition === "ARCHIVED_BASELINE"
+          ? WITHDRAW_COPY.archived
+          : WITHDRAW_COPY.closed,
       reread: true,
     };
   }
   switch (input.review?.status ?? null) {
     case "PENDING":
-      return mode === "withdraw" ? { enabled: true } : { enabled: false, reason: UPLOAD_COPY.pending };
+      return mode === "withdraw"
+        ? { enabled: true }
+        : { enabled: false, reason: UPLOAD_COPY.pending };
     case "APPROVED":
-      return { enabled: false, reason: mode === "withdraw" ? WITHDRAW_COPY.approved : UPLOAD_COPY.approved };
+      return {
+        enabled: false,
+        reason: mode === "withdraw" ? WITHDRAW_COPY.approved : UPLOAD_COPY.approved,
+      };
     case "REJECTED":
       return { enabled: false, reason: WITHDRAW_COPY.rejected, reread: true };
     case "WITHDRAWN":
       return { enabled: false, reason: WITHDRAW_COPY.withdrawn, reread: true };
     default:
-      return { enabled: false, reason: mode === "withdraw" ? WITHDRAW_COPY.failed : UPLOAD_COPY.inReview };
+      return {
+        enabled: false,
+        reason: mode === "withdraw" ? WITHDRAW_COPY.failed : UPLOAD_COPY.inReview,
+      };
   }
 }
 
@@ -178,7 +197,12 @@ export function deriveUploadModeGates(input: UploadModeInput): UploadModeGates {
   }
   if (!input.workspace || input.workspaceError) {
     return {
-      withdraw: { enabled: false, reason: WITHDRAW_COPY.unknown, retry: true, retryLabel: "重试读取" },
+      withdraw: {
+        enabled: false,
+        reason: WITHDRAW_COPY.unknown,
+        retry: true,
+        retryLabel: "重试读取",
+      },
       submit: { enabled: false, reason: UPLOAD_COPY.unknown, retry: true, retryLabel: "重试读取" },
       upload: { enabled: false, reason: UPLOAD_COPY.unknown, retry: true, retryLabel: "重试读取" },
     };
@@ -192,7 +216,10 @@ export function deriveUploadModeGates(input: UploadModeInput): UploadModeGates {
     };
   }
 
-  const withdraw = submissionGate(input, "withdraw") ?? { enabled: false, reason: WITHDRAW_COPY.none };
+  const withdraw = submissionGate(input, "withdraw") ?? {
+    enabled: false,
+    reason: WITHDRAW_COPY.none,
+  };
   const upload = submissionGate(input, "upload") ?? { enabled: true };
   return {
     withdraw,

@@ -4,13 +4,34 @@ import { Buffer } from "node:buffer";
 import { join } from "node:path";
 import type { components } from "../src/features/api/generated/openapi";
 import {
-  HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_RUNNING, MANUAL_RECOVERY_TO_SUCCESS,
-  INITIAL_ONLY_HISTORY, INITIAL_ONLY_WORKSPACE,
-  SIMULATED_ERROR_RESPONSES, TEST_REVIEW_FACTS, WORKSPACE_ALREADY_EXISTS, WORKSPACE_CREATED, HISTORY_COMPARE_ACCEPT_BODY,
-  TEST_OPERATION_SUCCEEDED, testHistoryCompareSucceeded, TEST_SUBMIT_ACCEPTED,
-  TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_SUBMISSION, testPreviewResult, testSubmissionResult, TEST_UPLOAD_FULL,
-  TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_STARTED, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_CONFIRM_APPEND,
-  TEST_ARCHIVE_RESOLUTION_APPEND, ARCHIVE_PLAN_READY, ARCHIVE_PLAN_NEEDS_CONFIRMATION, TEST_REVIEW_APPLIED, validateSimulatedRequest,
+  HISTORY_PAGE_ONE,
+  HISTORY_PAGE_TWO,
+  HISTORY_COMPARE_RUNNING,
+  MANUAL_RECOVERY_TO_SUCCESS,
+  INITIAL_ONLY_HISTORY,
+  INITIAL_ONLY_WORKSPACE,
+  SIMULATED_ERROR_RESPONSES,
+  TEST_REVIEW_FACTS,
+  WORKSPACE_ALREADY_EXISTS,
+  WORKSPACE_CREATED,
+  HISTORY_COMPARE_ACCEPT_BODY,
+  TEST_OPERATION_SUCCEEDED,
+  testHistoryCompareSucceeded,
+  TEST_SUBMIT_ACCEPTED,
+  TEST_SUBMIT_ATTEMPT_FINALIZED,
+  TEST_SUBMISSION,
+  testPreviewResult,
+  testSubmissionResult,
+  TEST_UPLOAD_FULL,
+  TEST_ARCHIVE_CANDIDATES,
+  TEST_ARCHIVE_STARTED,
+  TEST_ARCHIVE_RESULT,
+  TEST_ARCHIVE_CONFIRM_APPEND,
+  TEST_ARCHIVE_RESOLUTION_APPEND,
+  ARCHIVE_PLAN_READY,
+  ARCHIVE_PLAN_NEEDS_CONFIRMATION,
+  TEST_REVIEW_APPLIED,
+  validateSimulatedRequest,
 } from "../src/features/dev/simulated-api";
 
 type Schemas = components["schemas"];
@@ -27,8 +48,13 @@ async function loadFixture(name: string) {
   const cached = fixtures.get(name);
   if (cached) return cached;
   const tar = await readFile("src/test/fixtures/generated/" + name + ".tar");
-  const manifestSize = Number.parseInt(tar.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8);
-  const manifest = JSON.parse(tar.subarray(512, 512 + manifestSize).toString("utf8")) as FixtureManifest;
+  const manifestSize = Number.parseInt(
+    tar.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(),
+    8,
+  );
+  const manifest = JSON.parse(
+    tar.subarray(512, 512 + manifestSize).toString("utf8"),
+  ) as FixtureManifest;
   const result = { tar, manifest };
   fixtures.set(name, result);
   return result;
@@ -36,78 +62,124 @@ async function loadFixture(name: string) {
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((r) => { resolve = r; });
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
   return { promise, resolve };
 }
 
-async function installFixtureRoutes(page: Page, options: {
-  truncateFirst?: boolean;
-  fail?: boolean;
-  slowPreview?: Promise<void>;
-  noPermission?: boolean;
-  timeoutFirstCompare?: Promise<void>;
-  historyCompareForbidden?: boolean;
-  failHistoryBundleAttempts?: number;
-  historyCompareErrors?: number;
-  historyCompareStatus?: (operationId: string, index: number) => Schemas["HistoryCompareResultResponse"];
-  operationStatus?: (operationId: string, index: number) => Schemas["OperationResponse"];
-  operationHold?: { operationId: string; onHold?: () => void; release: Promise<void> };
-  operationStatusForbidden?: boolean;
-  uploadHoldPolls?: number;
-  submitIdentity?: "confirm";
-  submitForbidden?: boolean;
-  submitConflict?: "WORKSPACE_VERSION_CONFLICT" | "NO_CANONICAL_CHANGE";
-  submitAttemptReadFails?: boolean;
-  submitAttemptState?: Schemas["SubmitAttemptResponse"]["state"];
-  workspaceSubmitAttemptId?: string;
-  clearWorkspacePointer?: boolean;
-  /** F2: queued workspace snapshots; each POST /v1/workspaces consumes one. */
-  workspaceSequence?: Schemas["WorkspaceResponse"][];
-  /** C2: hold the next POST /v1/workspaces in flight until released. */
-  workspacePostHold?: { onHold: () => void; release: Promise<void>; onCall?: number };
-  operationReadFails?: boolean;
-  workspaceReadFails?: boolean;
-  operationById?: Record<string, Schemas["OperationResponse"]>;
-  clearWorkspacePointerOnTerminal?: boolean;
-  submitAborted?: boolean;
-  submitTimeoutFirst?: boolean;
-  uploadConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
-  uploadConflictOnce?: "WORKSPACE_VERSION_CONFLICT";
-  previewConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
-  previewForbidden?: boolean;
-  reviewForbidden?: boolean;
-  reviewFixture?: string;
-  reviewResultError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
-  reviewBundleError?: "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
-  reviewResultHold?: Promise<void>;
-  reviewResultHoldAfter?: number;
-  reviewVersion?: number;
-  reviewConflict?: "REVIEW_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "BASELINE_VERSION_CONFLICT" | "ARCHIVE_CLOSED";
-  reviewTimeoutFirst?: boolean;
-  archiveForbidden?: boolean;
-  archiveConflict?: "BASELINE_VERSION_CONFLICT" | "ARCHIVE_AUDIT_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
-  archiveBlocked?: boolean;
-  approvedSubmission?: boolean;
-  submissionOne?: boolean;
-  /** B7: workspace/history contain only the INITIAL baseline. */
-  initialOnly?: boolean;
-  /** Every API call is rejected with 401 AUTHENTICATION_REQUIRED. */
-  unauthorized?: boolean;
-} = {}) {
+async function installFixtureRoutes(
+  page: Page,
+  options: {
+    truncateFirst?: boolean;
+    fail?: boolean;
+    slowPreview?: Promise<void>;
+    noPermission?: boolean;
+    timeoutFirstCompare?: Promise<void>;
+    historyCompareForbidden?: boolean;
+    failHistoryBundleAttempts?: number;
+    historyCompareErrors?: number;
+    historyCompareStatus?: (
+      operationId: string,
+      index: number,
+    ) => Schemas["HistoryCompareResultResponse"];
+    operationStatus?: (operationId: string, index: number) => Schemas["OperationResponse"];
+    operationHold?: { operationId: string; onHold?: () => void; release: Promise<void> };
+    operationStatusForbidden?: boolean;
+    uploadHoldPolls?: number;
+    submitIdentity?: "confirm";
+    submitForbidden?: boolean;
+    submitConflict?: "WORKSPACE_VERSION_CONFLICT" | "NO_CANONICAL_CHANGE";
+    submitAttemptReadFails?: boolean;
+    submitAttemptState?: Schemas["SubmitAttemptResponse"]["state"];
+    workspaceSubmitAttemptId?: string;
+    clearWorkspacePointer?: boolean;
+    /** F2: queued workspace snapshots; each POST /v1/workspaces consumes one. */
+    workspaceSequence?: Schemas["WorkspaceResponse"][];
+    /** C2: hold the next POST /v1/workspaces in flight until released. */
+    workspacePostHold?: { onHold: () => void; release: Promise<void>; onCall?: number };
+    operationReadFails?: boolean;
+    workspaceReadFails?: boolean;
+    operationById?: Record<string, Schemas["OperationResponse"]>;
+    clearWorkspacePointerOnTerminal?: boolean;
+    submitAborted?: boolean;
+    submitTimeoutFirst?: boolean;
+    uploadConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
+    uploadConflictOnce?: "WORKSPACE_VERSION_CONFLICT";
+    previewConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
+    previewForbidden?: boolean;
+    reviewForbidden?: boolean;
+    reviewFixture?: string;
+    reviewResultError?:
+      "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
+    reviewBundleError?:
+      "SUBMISSION_RESULT_UNAVAILABLE" | "SUBMISSION_RESULT_INTEGRITY_FAILURE" | "SCOPE_FORBIDDEN";
+    reviewResultHold?: Promise<void>;
+    reviewResultHoldAfter?: number;
+    reviewVersion?: number;
+    reviewConflict?:
+      | "REVIEW_VERSION_CONFLICT"
+      | "IDEMPOTENCY_CONFLICT"
+      | "BASELINE_VERSION_CONFLICT"
+      | "ARCHIVE_CLOSED";
+    reviewTimeoutFirst?: boolean;
+    archiveForbidden?: boolean;
+    archiveConflict?:
+      "BASELINE_VERSION_CONFLICT" | "ARCHIVE_AUDIT_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
+    archiveBlocked?: boolean;
+    approvedSubmission?: boolean;
+    submissionOne?: boolean;
+    /** B7: workspace/history contain only the INITIAL baseline. */
+    initialOnly?: boolean;
+    /** Every API call is rejected with 401 AUTHENTICATION_REQUIRED. */
+    unauthorized?: boolean;
+  } = {},
+) {
   const requests = new Map<string, number>();
-  const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
+  const apiRequests: Array<{
+    method: string;
+    path: string;
+    token: string | null;
+    idempotencyKey: string | null;
+    body: string;
+  }> = [];
   const apiResponses: Array<{ method: string; path: string; status: number; body: string }> = [];
-  const rejectInvalidRequest = async (route: Route, request: PlaywrightRequest): Promise<boolean> => {
-    const invalid = validateSimulatedRequest({ method: request.method(), url: new URL(request.url()), headers: request.headers(), body: request.postData() ?? "" });
+  const rejectInvalidRequest = async (
+    route: Route,
+    request: PlaywrightRequest,
+  ): Promise<boolean> => {
+    const invalid = validateSimulatedRequest({
+      method: request.method(),
+      url: new URL(request.url()),
+      headers: request.headers(),
+      body: request.postData() ?? "",
+    });
     if (!invalid) return false;
-    apiResponses.push({ method: request.method(), path: new URL(request.url()).pathname, status: 422, body: JSON.stringify(invalid) });
-    await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(invalid) });
+    apiResponses.push({
+      method: request.method(),
+      path: new URL(request.url()).pathname,
+      status: 422,
+      body: JSON.stringify(invalid),
+    });
+    await route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify(invalid),
+    });
     return true;
   };
   const historyCompareCounts = new Map<string, number>();
   let historyBundleCalls = 0;
   const operationCounts = new Map<string, number>();
-  const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
+  const idempotentResponses = new Map<
+    string,
+    {
+      response: Schemas["HistoryCompareAcceptResponse"];
+      ready: Promise<void>;
+      finish: () => void;
+      requestBody: string;
+    }
+  >();
   let workspaceCallCount = 0;
   let workspacePostCount = 0;
   let workspacePointerCleared = false;
@@ -119,7 +191,13 @@ async function installFixtureRoutes(page: Page, options: {
     if (route.request().method() !== "POST") return route.fallback();
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    apiRequests.push({
+      method: request.method(),
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: request.postData() ?? "",
+    });
     if (await rejectInvalidRequest(route, request)) return;
     workspacePostCount += 1;
     const postHold = options.workspacePostHold;
@@ -131,37 +209,77 @@ async function installFixtureRoutes(page: Page, options: {
     if (options.workspaceReadFails) {
       const error = { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" };
       apiResponses.push({ method: "POST", path, status: 503, body: JSON.stringify(error) });
-      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify(error),
+      });
     }
     if (options.noPermission) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === path && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) => item.route === path && item.method === "POST" && item.status === 403,
+      );
       if (!error) throw new Error("POST /v1/workspaces SCOPE_FORBIDDEN fixture missing");
-      apiResponses.push({ method: "POST", path, status: error.status, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+      apiResponses.push({
+        method: "POST",
+        path,
+        status: error.status,
+        body: JSON.stringify(error.body),
+      });
+      return route.fulfill({
+        status: error.status,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.workspaceSequence?.length) {
       const next = options.workspaceSequence.shift()!;
       apiResponses.push({ method: "POST", path, status: 200, body: JSON.stringify(next) });
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(next) });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(next),
+      });
     }
     if (options.unauthorized) {
       const error = { code: "AUTHENTICATION_REQUIRED", message: "会话无效或已过期" };
       apiResponses.push({ method: "POST", path, status: 401, body: JSON.stringify(error) });
-      return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify(error) });
+      return route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify(error),
+      });
     }
     workspaceCallCount += 1;
     const response = workspaceCallCount === 1 ? WORKSPACE_CREATED : WORKSPACE_ALREADY_EXISTS;
-    let body = options.initialOnly ? INITIAL_ONLY_WORKSPACE : uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
-      ? { ...response.body, optimistic_version: 14 }
-      : response.body;
+    let body = options.initialOnly
+      ? INITIAL_ONLY_WORKSPACE
+      : uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
+        ? { ...response.body, optimistic_version: 14 }
+        : response.body;
     const attemptPointer = options.workspaceSubmitAttemptId ?? submitAttemptPointer;
     if (attemptPointer) {
-      body = workspacePointerCleared || options.clearWorkspacePointer
-        ? { ...body, active_submission_id: workspaceSubmitSucceeded && !options.clearWorkspacePointer ? "submission-1" : null, active_submit_attempt_id: null }
-        : { ...body, active_submission_id: null, active_submit_attempt_id: attemptPointer };
+      body =
+        workspacePointerCleared || options.clearWorkspacePointer
+          ? {
+              ...body,
+              active_submission_id:
+                workspaceSubmitSucceeded && !options.clearWorkspacePointer ? "submission-1" : null,
+              active_submit_attempt_id: null,
+            }
+          : { ...body, active_submission_id: null, active_submit_attempt_id: attemptPointer };
     }
-    apiResponses.push({ method: "POST", path, status: response.status, body: JSON.stringify(body) });
-    return route.fulfill({ status: response.status, contentType: "application/json", body: JSON.stringify(body) });
+    apiResponses.push({
+      method: "POST",
+      path,
+      status: response.status,
+      body: JSON.stringify(body),
+    });
+    return route.fulfill({
+      status: response.status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
   });
 
   await page.route("**/v1/history**", async (route) => {
@@ -171,30 +289,81 @@ async function installFixtureRoutes(page: Page, options: {
     if (url.pathname !== "/v1/history") return route.fallback();
     if (options.unauthorized) {
       const error = { code: "AUTHENTICATION_REQUIRED", message: "会话无效或已过期" };
-      apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 401, body: JSON.stringify(error) });
-      return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify(error) });
+      apiResponses.push({
+        method: "GET",
+        path: url.pathname + url.search,
+        status: 401,
+        body: JSON.stringify(error),
+      });
+      return route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify(error),
+      });
     }
     let body: Schemas["HistoryListResponse"] = options.initialOnly
       ? INITIAL_ONLY_HISTORY
-      : url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
+      : url.searchParams.has("cursor")
+        ? HISTORY_PAGE_TWO
+        : HISTORY_PAGE_ONE;
     if (!url.searchParams.has("cursor") && options.approvedSubmission) {
-      body = { ...body, nodes: body.nodes.map((node) => node.ref_id === "fe2a-history-ref-2" ? { ...node, review_status: "APPROVED" as const, eligibility_note: undefined } : node) };
+      body = {
+        ...body,
+        nodes: body.nodes.map((node) =>
+          node.ref_id === "fe2a-history-ref-2"
+            ? { ...node, review_status: "APPROVED" as const, eligibility_note: undefined }
+            : node,
+        ),
+      };
     }
     if (!url.searchParams.has("cursor") && options.submissionOne) {
-      body = { ...body, nodes: [...body.nodes, {
-        ref_kind: "submission" as const, ref_id: "submission-1", node_kind: "SUBMISSION" as const, review_status: "PENDING" as const,
-        parent: { ref_kind: "baseline_node" as const, ref_id: "fe2a-history-ref-1" }, commit_id: "commit-submission-1",
-        identity_exception: false, created_at: "2026-11-03T09:05:00Z",
-      }] };
+      body = {
+        ...body,
+        nodes: [
+          ...body.nodes,
+          {
+            ref_kind: "submission" as const,
+            ref_id: "submission-1",
+            node_kind: "SUBMISSION" as const,
+            review_status: "PENDING" as const,
+            parent: { ref_kind: "baseline_node" as const, ref_id: "fe2a-history-ref-1" },
+            commit_id: "commit-submission-1",
+            identity_exception: false,
+            created_at: "2026-11-03T09:05:00Z",
+          },
+        ],
+      };
     }
-    apiRequests.push({ method: "GET", path: url.pathname + url.search, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    apiResponses.push({ method: "GET", path: url.pathname + url.search, status: 200, body: JSON.stringify(body) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    apiRequests.push({
+      method: "GET",
+      path: url.pathname + url.search,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
+    apiResponses.push({
+      method: "GET",
+      path: url.pathname + url.search,
+      status: 200,
+      body: JSON.stringify(body),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
   });
 
-  await page.route("**/v1/history-compares?*", (route) => route.fulfill({
-    status: 200, contentType: "application/json", body: JSON.stringify({ items: [], next_cursor: null } satisfies Schemas["HistoryCompareListResponse"]),
-  }));
+  await page.route("**/v1/history-compares?*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [],
+        next_cursor: null,
+      } satisfies Schemas["HistoryCompareListResponse"]),
+    }),
+  );
 
   const reviewReplayKeys = new Set<string>();
   let reviewStatus: Schemas["ReviewFactsResponse"]["status"] = "PENDING";
@@ -205,21 +374,38 @@ async function installFixtureRoutes(page: Page, options: {
     ...TEST_REVIEW_FACTS,
     submission_id: submissionId,
     status: closedServed ? "APPROVED" : reviewStatus,
-    review_version: options.reviewVersion ?? (closedServed ? 6 : reviewStatus === "PENDING" ? 5 : 6),
-    submission_disposition: closedServed ? {
-      submission_id: submissionId,
-      disposition: "CLOSED_NOT_ARCHIVED",
-      source_kind: "MANUAL_CLOSE",
-      result_id: null,
-      closure: { closed_by: "reviewer", closed_at: "2026-11-03T10:00:00Z", reason: "不再需要该提交" },
-    } : null,
+    review_version:
+      options.reviewVersion ?? (closedServed ? 6 : reviewStatus === "PENDING" ? 5 : 6),
+    submission_disposition: closedServed
+      ? {
+          submission_id: submissionId,
+          disposition: "CLOSED_NOT_ARCHIVED",
+          source_kind: "MANUAL_CLOSE",
+          result_id: null,
+          closure: {
+            closed_by: "reviewer",
+            closed_at: "2026-11-03T10:00:00Z",
+            reason: "不再需要该提交",
+          },
+        }
+      : null,
   });
   await page.route("**/v1/submissions/*/review", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const submissionId = path.split("/")[3] ?? "";
-    apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(factsFor(submissionId)) });
+    apiRequests.push({
+      method: "GET",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(factsFor(submissionId)),
+    });
   });
   await page.route("**/v1/submissions/*/review-events", async (route) => {
     const request = route.request();
@@ -227,31 +413,75 @@ async function installFixtureRoutes(page: Page, options: {
     const submissionId = path.split("/")[3] ?? "";
     const key = request.headers()["idempotency-key"] ?? null;
     const body = request.postData() ?? "";
-    apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: key, body });
+    apiRequests.push({
+      method: "POST",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: key,
+      body,
+    });
     if (await rejectInvalidRequest(route, request)) return;
     if (options.reviewTimeoutFirst && key && !reviewReplayKeys.has(key)) {
       reviewReplayKeys.add(key);
-      apiResponses.push({ method: "POST", path, status: 503, body: JSON.stringify({ code: "SERVICE_NOT_READY", message: "审核服务暂时不可用" }) });
-      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "SERVICE_NOT_READY", message: "审核服务暂时不可用" }) });
+      apiResponses.push({
+        method: "POST",
+        path,
+        status: 503,
+        body: JSON.stringify({ code: "SERVICE_NOT_READY", message: "审核服务暂时不可用" }),
+      });
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "SERVICE_NOT_READY", message: "审核服务暂时不可用" }),
+      });
     }
     if (options.reviewConflict) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review-events" && item.method === "POST" && item.status === 409 && item.body.code === options.reviewConflict);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/submissions/{submission_id}/review-events" &&
+          item.method === "POST" &&
+          item.status === 409 &&
+          item.body.code === options.reviewConflict,
+      );
       if (!error) throw new Error("POST review-events conflict fixture missing");
       if (options.reviewConflict === "ARCHIVE_CLOSED") closedServed = true;
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.reviewForbidden || options.noPermission) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/submissions/{submission_id}/review-events" && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/submissions/{submission_id}/review-events" &&
+          item.method === "POST" &&
+          item.status === 403,
+      );
       if (!error) throw new Error("POST review-events SCOPE_FORBIDDEN fixture missing");
       apiResponses.push({ method: "POST", path, status: 403, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     const action = (JSON.parse(body) as Schemas["ApplyReviewRequest"]).action;
-    reviewStatus = action === "APPROVE" ? "APPROVED" : action === "REJECT" ? "REJECTED" : "WITHDRAWN";
-    const response = { ...TEST_REVIEW_APPLIED, submission_id: submissionId, status: reviewStatus, review_version: 6 };
+    reviewStatus =
+      action === "APPROVE" ? "APPROVED" : action === "REJECT" ? "REJECTED" : "WITHDRAWN";
+    const response = {
+      ...TEST_REVIEW_APPLIED,
+      submission_id: submissionId,
+      status: reviewStatus,
+      review_version: 6,
+    };
     apiResponses.push({ method: "POST", path, status: 201, body: JSON.stringify(response) });
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(response) });
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
   await page.route("**/v1/history-compares", async (route) => {
@@ -259,35 +489,82 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const key = request.headers()["idempotency-key"] ?? "missing-key";
     const requestBody = request.postData() ?? "";
-    apiRequests.push({ method: "POST", path: "/v1/history-compares", token: request.headers()["authorization"] ?? null, idempotencyKey: key, body: requestBody });
+    apiRequests.push({
+      method: "POST",
+      path: "/v1/history-compares",
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: key,
+      body: requestBody,
+    });
     if (await rejectInvalidRequest(route, request)) return;
     if (options.historyCompareForbidden) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/history-compares" && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/history-compares" && item.method === "POST" && item.status === 403,
+      );
       if (!error) throw new Error("POST /v1/history-compares SCOPE_FORBIDDEN fixture missing");
-      apiResponses.push({ method: "POST", path: "/v1/history-compares", status: error.status, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+      apiResponses.push({
+        method: "POST",
+        path: "/v1/history-compares",
+        status: error.status,
+        body: JSON.stringify(error.body),
+      });
+      return route.fulfill({
+        status: error.status,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     const previous = idempotentResponses.get(key);
     if (previous) {
-      if (previous.requestBody !== requestBody) throw new Error("same Idempotency-Key was reused for another request body");
+      if (previous.requestBody !== requestBody)
+        throw new Error("same Idempotency-Key was reused for another request body");
       await previous.ready;
-      apiResponses.push({ method: "POST", path: "/v1/history-compares", status: 200, body: JSON.stringify(previous.response) });
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(previous.response) });
+      apiResponses.push({
+        method: "POST",
+        path: "/v1/history-compares",
+        status: 200,
+        body: JSON.stringify(previous.response),
+      });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(previous.response),
+      });
     }
     let finish = () => undefined;
-    const ready = new Promise<void>((resolve) => { finish = resolve; });
-    const accepted = { ...HISTORY_COMPARE_ACCEPT_BODY } satisfies Schemas["HistoryCompareAcceptResponse"];
+    const ready = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const accepted = {
+      ...HISTORY_COMPARE_ACCEPT_BODY,
+    } satisfies Schemas["HistoryCompareAcceptResponse"];
     idempotentResponses.set(key, { response: accepted, ready, finish, requestBody });
     if (options.timeoutFirstCompare) await options.timeoutFirstCompare;
     finish();
-    apiResponses.push({ method: "POST", path: "/v1/history-compares", status: 202, body: JSON.stringify(accepted) });
-    return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(accepted) });
+    apiResponses.push({
+      method: "POST",
+      path: "/v1/history-compares",
+      status: 202,
+      body: JSON.stringify(accepted),
+    });
+    return route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify(accepted),
+    });
   });
 
   await page.route("**/v1/history-compares/*/bundle", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    apiRequests.push({
+      method: request.method(),
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
     historyBundleCalls += 1;
     if (historyBundleCalls <= (options.failHistoryBundleAttempts ?? 0)) return route.abort();
     const fixture = await loadFixture("history-three-nodes");
@@ -300,16 +577,34 @@ async function installFixtureRoutes(page: Page, options: {
     const operationId = new URL(request.url()).pathname.split("/").at(-1) ?? "";
     const count = (historyCompareCounts.get(operationId) ?? 0) + 1;
     historyCompareCounts.set(operationId, count);
-    apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    apiRequests.push({
+      method: "GET",
+      path: new URL(request.url()).pathname,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
     if (options.historyCompareErrors && count <= options.historyCompareErrors) {
       // Exercise a transient connection failure; HISTORY_INTEGRITY_FAILURE is
       // a terminal result error and must not be presented as disconnection.
       return route.abort("failed");
     }
     const fixture = await loadFixture("history-three-nodes");
-    const result = options.historyCompareStatus?.(operationId, count) ?? { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: operationId };
-    apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: 200, body: JSON.stringify(result) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
+    const result = options.historyCompareStatus?.(operationId, count) ?? {
+      ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest),
+      operation_id: operationId,
+    };
+    apiResponses.push({
+      method: "GET",
+      path: new URL(request.url()).pathname,
+      status: 200,
+      body: JSON.stringify(result),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(result),
+    });
   });
 
   await page.route(/\/v1\/operations\/[^/]+$/, async (route) => {
@@ -317,12 +612,33 @@ async function installFixtureRoutes(page: Page, options: {
     const operationId = new URL(request.url()).pathname.split("/").at(-1) ?? "";
     const count = (operationCounts.get(operationId) ?? 0) + 1;
     operationCounts.set(operationId, count);
-    apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    apiRequests.push({
+      method: "GET",
+      path: new URL(request.url()).pathname,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
     if (options.operationStatusForbidden) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/operations/{operation_id}" && item.method === "GET" && item.status === 403);
-      if (!error) throw new Error("GET /v1/operations/{operation_id} SCOPE_FORBIDDEN fixture missing");
-      apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: error.status, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/operations/{operation_id}" &&
+          item.method === "GET" &&
+          item.status === 403,
+      );
+      if (!error)
+        throw new Error("GET /v1/operations/{operation_id} SCOPE_FORBIDDEN fixture missing");
+      apiResponses.push({
+        method: "GET",
+        path: new URL(request.url()).pathname,
+        status: error.status,
+        body: JSON.stringify(error.body),
+      });
+      return route.fulfill({
+        status: error.status,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.operationHold && operationId === options.operationHold.operationId) {
       options.operationHold.onHold?.();
@@ -330,91 +646,235 @@ async function installFixtureRoutes(page: Page, options: {
     }
     if (options.operationReadFails) {
       const error = { code: "SERVICE_NOT_READY", message: "操作服务暂时不可用" };
-      apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: 503, body: JSON.stringify(error) });
-      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
+      apiResponses.push({
+        method: "GET",
+        path: new URL(request.url()).pathname,
+        status: 503,
+        body: JSON.stringify(error),
+      });
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify(error),
+      });
     }
-    const result = options.operationById?.[operationId]
-      ?? options.operationStatus?.(operationId, count)
-      ?? (options.uploadHoldPolls && operationId.startsWith("preview-op") && count <= options.uploadHoldPolls
-        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "RUNNING" as const, completed_at: null }
+    const result =
+      options.operationById?.[operationId] ??
+      options.operationStatus?.(operationId, count) ??
+      (options.uploadHoldPolls &&
+      operationId.startsWith("preview-op") &&
+      count <= options.uploadHoldPolls
+        ? {
+            ...TEST_OPERATION_SUCCEEDED,
+            operation_id: operationId,
+            status: "RUNNING" as const,
+            completed_at: null,
+          }
         : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId });
-    if (options.clearWorkspacePointerOnTerminal && operationId === "submit-op-1" && (result.status === "SUCCEEDED" || result.status === "FAILED")) {
+    if (
+      options.clearWorkspacePointerOnTerminal &&
+      operationId === "submit-op-1" &&
+      (result.status === "SUCCEEDED" || result.status === "FAILED")
+    ) {
       workspacePointerCleared = true;
       workspaceSubmitSucceeded = result.status === "SUCCEEDED";
     }
-    apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: 200, body: JSON.stringify(result) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
+    apiResponses.push({
+      method: "GET",
+      path: new URL(request.url()).pathname,
+      status: 200,
+      body: JSON.stringify(result),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(result),
+    });
   });
 
   await page.route("**/v1/workspaces/*/upload-revisions", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const uploadBody = request.postDataBuffer()?.toString("utf8") ?? request.postData() ?? "";
-    apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: uploadBody });
+    apiRequests.push({
+      method: "POST",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: uploadBody,
+    });
     if (await rejectInvalidRequest(route, request)) return;
     if (options.uploadConflictOnce && !uploadConflictConsumed) {
       uploadConflictConsumed = true;
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/upload-revisions" && item.method === "POST" && item.status === 409 && item.body.code === options.uploadConflictOnce);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/upload-revisions" &&
+          item.method === "POST" &&
+          item.status === 409 &&
+          item.body.code === options.uploadConflictOnce,
+      );
       if (!error) throw new Error("POST upload-revisions conflict fixture missing");
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.uploadConflict) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/upload-revisions" && item.method === "POST" && item.status === 409 && item.body.code === options.uploadConflict);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/upload-revisions" &&
+          item.method === "POST" &&
+          item.status === 409 &&
+          item.body.code === options.uploadConflict,
+      );
       if (!error) throw new Error("POST upload-revisions conflict fixture missing");
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.noPermission) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/upload-revisions" && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/upload-revisions" &&
+          item.method === "POST" &&
+          item.status === 403,
+      );
       if (!error) throw new Error("POST upload-revisions SCOPE_FORBIDDEN fixture missing");
       apiResponses.push({ method: "POST", path, status: 403, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
-    const response = { ...TEST_UPLOAD_FULL, workspace_id: "workspace-fe2b", generation: 3, optimistic_version: 13 };
+    const response = {
+      ...TEST_UPLOAD_FULL,
+      workspace_id: "workspace-fe2b",
+      generation: 3,
+      optimistic_version: 13,
+    };
     apiResponses.push({ method: "POST", path, status: 201, body: JSON.stringify(response) });
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(response) });
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
   await page.route("**/v1/workspaces/*/preview-operations", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    apiRequests.push({
+      method: "POST",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: request.postData() ?? "",
+    });
     if (await rejectInvalidRequest(route, request)) return;
     if (options.previewForbidden) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/preview-operations" && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/preview-operations" &&
+          item.method === "POST" &&
+          item.status === 403,
+      );
       if (!error) throw new Error("POST preview-operations SCOPE_FORBIDDEN fixture missing");
       apiResponses.push({ method: "POST", path, status: 403, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.previewConflict) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/preview-operations" && item.method === "POST" && item.status === 409 && item.body.code === options.previewConflict);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/preview-operations" &&
+          item.method === "POST" &&
+          item.status === 409 &&
+          item.body.code === options.previewConflict,
+      );
       if (!error) throw new Error("POST preview-operations conflict fixture missing");
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
-    const response = { operation_id: "preview-op-1", workspace_id: "workspace-fe2b", upload_revision_id: "upload-1", generation: 3, status: "QUEUED" as const };
+    const response = {
+      operation_id: "preview-op-1",
+      workspace_id: "workspace-fe2b",
+      upload_revision_id: "upload-1",
+      generation: 3,
+      status: "QUEUED" as const,
+    };
     apiResponses.push({ method: "POST", path, status: 202, body: JSON.stringify(response) });
-    return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(response) });
+    return route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
   await page.route("**/v1/workspaces/*/preview-results/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const previewResultId = path.split("/").at(-1) ?? "";
-    apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    const fixture = await loadFixture(previewResultId === "preview-1" ? "preview-full" : previewResultId);
-    const identityPairs = options.submitIdentity === "confirm" ? [
-      { pair_id: "pair-dataset", applicability: "APPLICABLE" as const, status: "DIFFERENT_PROJECT" as const, mode: "DATASET_REPLACEMENT" as const, assessment_ref: "assessment-1", assessment_digest: "sha256:assessment-1" },
-      { pair_id: "pair-unverifiable", applicability: "APPLICABLE" as const, status: "UNVERIFIABLE" as const, mode: "DETAILED" as const, assessment_ref: "assessment-2", assessment_digest: "sha256:assessment-2" },
-    ] : [];
+    apiRequests.push({
+      method: "GET",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
+    const fixture = await loadFixture(
+      previewResultId === "preview-1" ? "preview-full" : previewResultId,
+    );
+    const identityPairs =
+      options.submitIdentity === "confirm"
+        ? [
+            {
+              pair_id: "pair-dataset",
+              applicability: "APPLICABLE" as const,
+              status: "DIFFERENT_PROJECT" as const,
+              mode: "DATASET_REPLACEMENT" as const,
+              assessment_ref: "assessment-1",
+              assessment_digest: "sha256:assessment-1",
+            },
+            {
+              pair_id: "pair-unverifiable",
+              applicability: "APPLICABLE" as const,
+              status: "UNVERIFIABLE" as const,
+              mode: "DETAILED" as const,
+              assessment_ref: "assessment-2",
+              assessment_digest: "sha256:assessment-2",
+            },
+          ]
+        : [];
     const response = {
-      ...testPreviewResult(fixture.manifest.bundle_digest), preview_result_id: previewResultId, workspace_id: path.split("/")[3],
-      upload_revision_id: "upload-1", generation: 3, operation_id: "preview-op-1", business_baseline_node_id: "fe2a-history-ref-1",
-      business_baseline_commit_id: "commit-baseline-1", identity_pairs: identityPairs,
+      ...testPreviewResult(fixture.manifest.bundle_digest),
+      preview_result_id: previewResultId,
+      workspace_id: path.split("/")[3],
+      upload_revision_id: "upload-1",
+      generation: 3,
+      operation_id: "preview-op-1",
+      business_baseline_node_id: "fe2a-history-ref-1",
+      business_baseline_commit_id: "commit-baseline-1",
+      identity_pairs: identityPairs,
     };
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(response) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
   const submitReplayKeys = new Set<string>();
@@ -422,59 +882,149 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const key = request.headers()["idempotency-key"] ?? null;
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    apiRequests.push({
+      method: "POST",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: request.postData() ?? "",
+    });
     if (await rejectInvalidRequest(route, request)) return;
     if (options.submitTimeoutFirst && key && !submitReplayKeys.has(key)) {
       submitReplayKeys.add(key);
       const timeout = { code: "SERVICE_NOT_READY", message: "提交服务暂时不可用" };
       apiResponses.push({ method: "POST", path, status: 503, body: JSON.stringify(timeout) });
-      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(timeout) });
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify(timeout),
+      });
     }
     if (options.submitConflict) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/submit-attempts" && item.method === "POST" && item.status === 409 && item.body.code === options.submitConflict);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/submit-attempts" &&
+          item.method === "POST" &&
+          item.status === 409 &&
+          item.body.code === options.submitConflict,
+      );
       if (!error) throw new Error(`POST submit-attempts ${options.submitConflict} fixture missing`);
       apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     if (options.submitForbidden) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/submit-attempts" && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/workspaces/{workspace_id}/submit-attempts" &&
+          item.method === "POST" &&
+          item.status === 403,
+      );
       if (!error) throw new Error("POST submit-attempts SCOPE_FORBIDDEN fixture missing");
       apiResponses.push({ method: "POST", path, status: 403, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
+      return route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
-    const response = { ...TEST_SUBMIT_ACCEPTED, operation_id: "submit-op-1", workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
-    if (options.clearWorkspacePointerOnTerminal && !submitAttemptPointer) submitAttemptPointer = response.submit_attempt_id;
+    const response = {
+      ...TEST_SUBMIT_ACCEPTED,
+      operation_id: "submit-op-1",
+      workspace_id: "workspace-fe2b",
+      preview_result_id: "preview-full",
+      generation: 3,
+    };
+    if (options.clearWorkspacePointerOnTerminal && !submitAttemptPointer)
+      submitAttemptPointer = response.submit_attempt_id;
     apiResponses.push({ method: "POST", path, status: 202, body: JSON.stringify(response) });
-    return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(response) });
+    return route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
   await page.route("**/v1/workspaces/*/submit-attempts/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    apiRequests.push({
+      method: "GET",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
     if (options.submitAttemptReadFails) {
       const error = { code: "SERVICE_NOT_READY", message: "提交服务暂时不可用" };
       apiResponses.push({ method: "GET", path, status: 503, body: JSON.stringify(error) });
-      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
+      return route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify(error),
+      });
     }
     const attemptState = options.submitAttemptState;
-    const response = attemptState === "ABORTED"
-      ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, operation_id: "submit-op-1", state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
-      : attemptState
-        ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, operation_id: "submit-op-1", workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3, state: attemptState }
-        : options.submitAborted
-          ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, operation_id: "submit-op-1", state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
-          : { ...TEST_SUBMIT_ATTEMPT_FINALIZED, operation_id: "submit-op-1", workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
+    const response =
+      attemptState === "ABORTED"
+        ? {
+            ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+            operation_id: "submit-op-1",
+            state: "ABORTED" as const,
+            submission_id: null,
+            abort_code: "IMPORT_REJECTED" as const,
+          }
+        : attemptState
+          ? {
+              ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+              operation_id: "submit-op-1",
+              workspace_id: "workspace-fe2b",
+              preview_result_id: "preview-full",
+              generation: 3,
+              state: attemptState,
+            }
+          : options.submitAborted
+            ? {
+                ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+                operation_id: "submit-op-1",
+                state: "ABORTED" as const,
+                submission_id: null,
+                abort_code: "IMPORT_REJECTED" as const,
+              }
+            : {
+                ...TEST_SUBMIT_ATTEMPT_FINALIZED,
+                operation_id: "submit-op-1",
+                workspace_id: "workspace-fe2b",
+                preview_result_id: "preview-full",
+                generation: 3,
+              };
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(response) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
   await page.route("**/v1/workspaces/*/submissions/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    apiRequests.push({
+      method: "GET",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(TEST_SUBMISSION) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TEST_SUBMISSION) });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(TEST_SUBMISSION),
+    });
   });
 
   let archivePreviewCalls = 0;
@@ -483,20 +1033,64 @@ async function installFixtureRoutes(page: Page, options: {
   await page.route("**/v1/archive-candidates", async (route) => {
     // review_version matches the scenario Review GET version (both come from
     // the review projection, §5.3); the review stub below reports 5/6.
-    const candidates = { ...TEST_ARCHIVE_CANDIDATES, candidates: [{ submission_id: options.approvedSubmission ? "fe2a-history-ref-2" : "submission-1", expected_candidate_digest: "sha256:candidate", review_version: 5 }] };
-    apiRequests.push({ method: "GET", path: "/v1/archive-candidates", token: route.request().headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    apiResponses.push({ method: "GET", path: "/v1/archive-candidates", status: 200, body: JSON.stringify(candidates) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(candidates) });
+    const candidates = {
+      ...TEST_ARCHIVE_CANDIDATES,
+      candidates: [
+        {
+          submission_id: options.approvedSubmission ? "fe2a-history-ref-2" : "submission-1",
+          expected_candidate_digest: "sha256:candidate",
+          review_version: 5,
+        },
+      ],
+    };
+    apiRequests.push({
+      method: "GET",
+      path: "/v1/archive-candidates",
+      token: route.request().headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
+    apiResponses.push({
+      method: "GET",
+      path: "/v1/archive-candidates",
+      status: 200,
+      body: JSON.stringify(candidates),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(candidates),
+    });
   });
   await page.route("**/v1/archive-plan-preview", async (route) => {
-    apiRequests.push({ method: "POST", path: "/v1/archive-plan-preview", token: route.request().headers()["authorization"] ?? null, idempotencyKey: null, body: route.request().postData() ?? "" });
+    apiRequests.push({
+      method: "POST",
+      path: "/v1/archive-plan-preview",
+      token: route.request().headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: route.request().postData() ?? "",
+    });
     // Backend rule (ArchiveSelectedRefRequest extra="forbid"): extra selected keys → 422.
     if (await rejectInvalidRequest(route, route.request())) return;
     if (options.archiveForbidden) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/archive-plan-preview" && item.method === "POST" && item.status === 403);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/archive-plan-preview" &&
+          item.method === "POST" &&
+          item.status === 403,
+      );
       if (!error) throw new Error("POST archive-plan-preview SCOPE_FORBIDDEN fixture missing");
-      apiResponses.push({ method: "POST", path: "/v1/archive-plan-preview", status: 403, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
+      apiResponses.push({
+        method: "POST",
+        path: "/v1/archive-plan-preview",
+        status: 403,
+        body: JSON.stringify(error.body),
+      });
+      return route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
     archivePreviewCalls += 1;
     // 非阻断分支的异常目标提交跟随 current candidate（approvedSubmission 时为 fe2a-history-ref-2）；
@@ -509,104 +1103,261 @@ async function installFixtureRoutes(page: Page, options: {
         blockers: ["ACTIVE_SUBMIT_ATTEMPT"],
         can_start: false,
       };
-      apiResponses.push({ method: "POST", path: "/v1/archive-plan-preview", status: 200, body: JSON.stringify(blocked) });
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(blocked) });
+      apiResponses.push({
+        method: "POST",
+        path: "/v1/archive-plan-preview",
+        status: 200,
+        body: JSON.stringify(blocked),
+      });
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(blocked),
+      });
     }
-    const withAcceptedAnomalies = (anomalies: Schemas["PreviewArchivePlanResponse"]["anomalies"]) => anomalies.map((anomaly) => {
-      const accepted = acceptedAnomalyResolutions.get(anomaly.subject_digest);
-      return accepted ? { ...anomaly, resolution_status: "ACCEPTED" as const, latest_sequence: accepted.sequence, accepted_by: "owner", accepted_at: "2026-11-03T09:00:00Z", reason: accepted.reason } : anomaly;
-    });
-    const identityAnomaly: Schemas["PreviewArchivePlanResponse"]["anomalies"][number] = { subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: candidateId, target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly", accepted_at: null, accepted_by: null, affected_submission_ids: [candidateId], details: {}, detected_status: "UNEXPLAINED", latest_sequence: 0, reason: null, relations: [], resolution_status: "UNRESOLVED", side: null };
-    const response: Schemas["PreviewArchivePlanResponse"] = archivePreviewCalls >= 3 ? {
-      ...ARCHIVE_PLAN_READY,
-      selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
-      anomalies: withAcceptedAnomalies(ARCHIVE_PLAN_READY.anomalies),
-      dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
-      workspace_releases: [{ submission_id: candidateId, workspace_id: "workspace-fe2b" }],
-    } : {
-      // Backend rule (application/archive/queries.py:132): before any confirmation is appended,
-      // confirmation_requirements is non-empty and audit is invalid, so can_start must be false.
-      ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
-      selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
-      confirmation_requirements: ["sha256:selection-subject"],
-      anomalies: withAcceptedAnomalies([identityAnomaly]),
-      dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
+    const withAcceptedAnomalies = (anomalies: Schemas["PreviewArchivePlanResponse"]["anomalies"]) =>
+      anomalies.map((anomaly) => {
+        const accepted = acceptedAnomalyResolutions.get(anomaly.subject_digest);
+        return accepted
+          ? {
+              ...anomaly,
+              resolution_status: "ACCEPTED" as const,
+              latest_sequence: accepted.sequence,
+              accepted_by: "owner",
+              accepted_at: "2026-11-03T09:00:00Z",
+              reason: accepted.reason,
+            }
+          : anomaly;
+      });
+    const identityAnomaly: Schemas["PreviewArchivePlanResponse"]["anomalies"][number] = {
+      subject_kind: "PROJECT_IDENTITY_EXCEPTION",
+      issue_code: "PROJECT_IDENTITY_EXCEPTION",
+      target_submission_id: candidateId,
+      target_candidate_digest: "sha256:candidate",
+      subject_digest: "sha256:anomaly",
+      accepted_at: null,
+      accepted_by: null,
+      affected_submission_ids: [candidateId],
+      details: {},
+      detected_status: "UNEXPLAINED",
+      latest_sequence: 0,
+      reason: null,
+      relations: [],
+      resolution_status: "UNRESOLVED",
+      side: null,
     };
-    apiResponses.push({ method: "POST", path: "/v1/archive-plan-preview", status: 200, body: JSON.stringify(response) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
+    const response: Schemas["PreviewArchivePlanResponse"] =
+      archivePreviewCalls >= 3
+        ? {
+            ...ARCHIVE_PLAN_READY,
+            selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
+            anomalies: withAcceptedAnomalies(ARCHIVE_PLAN_READY.anomalies),
+            dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
+            workspace_releases: [{ submission_id: candidateId, workspace_id: "workspace-fe2b" }],
+          }
+        : {
+            // Backend rule (application/archive/queries.py:132): before any confirmation is appended,
+            // confirmation_requirements is non-empty and audit is invalid, so can_start must be false.
+            ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
+            selected: { submission_id: candidateId, expected_candidate_digest: "sha256:candidate" },
+            confirmation_requirements: ["sha256:selection-subject"],
+            anomalies: withAcceptedAnomalies([identityAnomaly]),
+            dispositions: [{ submission_id: candidateId, disposition: "ARCHIVED_BASELINE" }],
+          };
+    apiResponses.push({
+      method: "POST",
+      path: "/v1/archive-plan-preview",
+      status: 200,
+      body: JSON.stringify(response),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
   await page.route("**/v1/archive-audit-events**", async (route) => {
     const request = route.request();
     if (await rejectInvalidRequest(route, request)) return;
-    apiResponses.push({ method: "GET", path: "/v1/archive-audit-events", status: 200, body: JSON.stringify({ events: [], next_after_sequence: null }) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ events: [], next_after_sequence: null }) });
+    apiResponses.push({
+      method: "GET",
+      path: "/v1/archive-audit-events",
+      status: 200,
+      body: JSON.stringify({ events: [], next_after_sequence: null }),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ events: [], next_after_sequence: null }),
+    });
   });
   await page.route("**/v1/archive-confirmations", async (route) => {
     const request = route.request();
-    apiRequests.push({ method: "POST", path: "/v1/archive-confirmations", token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    apiRequests.push({
+      method: "POST",
+      path: "/v1/archive-confirmations",
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: request.postData() ?? "",
+    });
     // Backend rule (http/routes/archives.py:116): missing Idempotency-Key → 422.
     if (await rejectInvalidRequest(route, request)) return;
-    apiResponses.push({ method: "POST", path: "/v1/archive-confirmations", status: 201, body: JSON.stringify(TEST_ARCHIVE_CONFIRM_APPEND) });
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_CONFIRM_APPEND) });
+    apiResponses.push({
+      method: "POST",
+      path: "/v1/archive-confirmations",
+      status: 201,
+      body: JSON.stringify(TEST_ARCHIVE_CONFIRM_APPEND),
+    });
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(TEST_ARCHIVE_CONFIRM_APPEND),
+    });
   });
   await page.route("**/v1/archive-anomaly-resolutions", async (route) => {
     const request = route.request();
-    apiRequests.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    apiRequests.push({
+      method: "POST",
+      path: "/v1/archive-anomaly-resolutions",
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: request.postData() ?? "",
+    });
     // Backend rule (http/routes/archives.py:159): missing Idempotency-Key → 422.
     if (await rejectInvalidRequest(route, request)) return;
     try {
-      const parsed = JSON.parse(request.postData() ?? "{}") as { subject_digest?: string; reason?: string; action?: string };
+      const parsed = JSON.parse(request.postData() ?? "{}") as {
+        subject_digest?: string;
+        reason?: string;
+        action?: string;
+      };
       if (parsed.action !== "REVOKE" && parsed.subject_digest) {
         anomalyResolutionSequence += 1;
-        acceptedAnomalyResolutions.set(parsed.subject_digest, { sequence: anomalyResolutionSequence, reason: parsed.reason ?? "" });
+        acceptedAnomalyResolutions.set(parsed.subject_digest, {
+          sequence: anomalyResolutionSequence,
+          reason: parsed.reason ?? "",
+        });
       } else if (parsed.subject_digest) {
         acceptedAnomalyResolutions.delete(parsed.subject_digest);
       }
     } catch {
       // Malformed bodies fall through to the success below; shape checks live in the unit tests.
     }
-    apiResponses.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", status: 201, body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND) });
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND) });
+    apiResponses.push({
+      method: "POST",
+      path: "/v1/archive-anomaly-resolutions",
+      status: 201,
+      body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND),
+    });
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND),
+    });
   });
   await page.route("**/v1/archives", async (route) => {
     const request = route.request();
-    apiRequests.push({ method: "POST", path: "/v1/archives", token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    apiRequests.push({
+      method: "POST",
+      path: "/v1/archives",
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: request.headers()["idempotency-key"] ?? null,
+      body: request.postData() ?? "",
+    });
     // Backend rule (http/routes/archives.py:232): missing Idempotency-Key → 422.
     if (await rejectInvalidRequest(route, request)) return;
     if (options.archiveConflict) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/archives" && item.method === "POST" && item.status === 409 && item.body.code === options.archiveConflict);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route === "/v1/archives" &&
+          item.method === "POST" &&
+          item.status === 409 &&
+          item.body.code === options.archiveConflict,
+      );
       if (!error) throw new Error("POST archives conflict fixture missing");
-      apiResponses.push({ method: "POST", path: "/v1/archives", status: 409, body: JSON.stringify(error.body) });
-      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+      apiResponses.push({
+        method: "POST",
+        path: "/v1/archives",
+        status: 409,
+        body: JSON.stringify(error.body),
+      });
+      return route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
     }
-    apiResponses.push({ method: "POST", path: "/v1/archives", status: 201, body: JSON.stringify(TEST_ARCHIVE_STARTED) });
-    return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_STARTED) });
+    apiResponses.push({
+      method: "POST",
+      path: "/v1/archives",
+      status: 201,
+      body: JSON.stringify(TEST_ARCHIVE_STARTED),
+    });
+    return route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify(TEST_ARCHIVE_STARTED),
+    });
   });
   await page.route("**/v1/archives/*", async (route) => {
     const archivedId = options.approvedSubmission ? "fe2a-history-ref-2" : "submission-1";
-    const response = { ...TEST_ARCHIVE_RESULT, selected_submission_id: archivedId, dispositions: [{ submission_id: archivedId, disposition: "ARCHIVED_BASELINE" }] };
-    apiResponses.push({ method: "GET", path: "/v1/archives/archive-1", status: 200, body: JSON.stringify(response) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
+    const response = {
+      ...TEST_ARCHIVE_RESULT,
+      selected_submission_id: archivedId,
+      dispositions: [{ submission_id: archivedId, disposition: "ARCHIVED_BASELINE" }],
+    };
+    apiResponses.push({
+      method: "GET",
+      path: "/v1/archives/archive-1",
+      status: 200,
+      body: JSON.stringify(response),
+    });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
   });
 
-  const fulfillBundle = async (route: Route, tar: Buffer, manifest: FixtureManifest, truncate: boolean) => route.fulfill({
-    status: 200,
-    contentType: "application/x-tar",
-    headers: { ETag: manifest.bundle_digest, "Content-Length": String(tar.byteLength) },
-    body: truncate ? tar.subarray(0, Math.floor(tar.byteLength / 2)) : tar,
-  });
+  const fulfillBundle = async (
+    route: Route,
+    tar: Buffer,
+    manifest: FixtureManifest,
+    truncate: boolean,
+  ) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/x-tar",
+      headers: { ETag: manifest.bundle_digest, "Content-Length": String(tar.byteLength) },
+      body: truncate ? tar.subarray(0, Math.floor(tar.byteLength / 2)) : tar,
+    });
   const routeBundle = async (route: Route, fixtureName: string) => {
     const count = (requests.get(fixtureName) ?? 0) + 1;
     requests.set(fixtureName, count);
-    if (fixtureName === "preview-workbench-normal" && options.slowPreview) await options.slowPreview;
+    if (fixtureName === "preview-workbench-normal" && options.slowPreview)
+      await options.slowPreview;
     if (options.fail) {
-      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle" && item.status === 503);
+      const error = SIMULATED_ERROR_RESPONSES.find(
+        (item) =>
+          item.route ===
+            "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle" &&
+          item.status === 503,
+      );
       if (!error) throw new Error("preview bundle SERVICE_NOT_READY fixture missing");
-      await route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+      await route.fulfill({
+        status: error.status,
+        contentType: "application/json",
+        body: JSON.stringify(error.body),
+      });
       return;
     }
     const fixture = await loadFixture(fixtureName);
-    await fulfillBundle(route, fixture.tar, fixture.manifest, options.truncateFirst === true && count === 1);
+    await fulfillBundle(
+      route,
+      fixture.tar,
+      fixture.manifest,
+      options.truncateFirst === true && count === 1,
+    );
   };
   await page.route("**/v1/workspaces/*/preview-results/*/bundle", async (route) => {
     const previewResultId = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
@@ -616,8 +1367,19 @@ async function installFixtureRoutes(page: Page, options: {
   await page.route("**/v1/submissions/*/result", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
-    if (options.reviewResultHold && apiRequests.filter((value) => value.path.endsWith("/result")).length >= (options.reviewResultHoldAfter ?? 1)) await options.reviewResultHold;
+    apiRequests.push({
+      method: "GET",
+      path,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
+    if (
+      options.reviewResultHold &&
+      apiRequests.filter((value) => value.path.endsWith("/result")).length >=
+        (options.reviewResultHoldAfter ?? 1)
+    )
+      await options.reviewResultHold;
     if (options.reviewResultError) {
       const body = { code: options.reviewResultError, message: "提交绑定的比较结果读取失败" };
       const status = options.reviewResultError === "SCOPE_FORBIDDEN" ? 403 : 503;
@@ -627,11 +1389,21 @@ async function installFixtureRoutes(page: Page, options: {
     const fixture = await loadFixture(options.reviewFixture ?? "preview-full");
     const body = testSubmissionResult(fixture.manifest, path.split("/")[3]);
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(body) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
   });
   await page.route("**/v1/submissions/*/result/bundle", async (route) => {
     const request = route.request();
-    apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    apiRequests.push({
+      method: "GET",
+      path: new URL(request.url()).pathname,
+      token: request.headers()["authorization"] ?? null,
+      idempotencyKey: null,
+      body: "",
+    });
     if (options.reviewBundleError) {
       const body = { code: options.reviewBundleError, message: "提交绑定的比较结果下载失败" };
       const status = options.reviewBundleError === "SCOPE_FORBIDDEN" ? 403 : 503;
@@ -642,7 +1414,11 @@ async function installFixtureRoutes(page: Page, options: {
   return { requests, apiRequests, apiResponses };
 }
 
-function browseUrl(mode: "PREVIEW" | "REVIEW" | "HISTORY", fixtureName: string, extra: Record<string, string> = {}): string {
+function browseUrl(
+  mode: "PREVIEW" | "REVIEW" | "HISTORY",
+  fixtureName: string,
+  extra: Record<string, string> = {},
+): string {
   const params = new URLSearchParams({ page: "compare", mode, ...extra });
   if (mode === "PREVIEW") {
     params.set("workspaceId", "ws-1");
@@ -657,7 +1433,10 @@ function browseUrl(mode: "PREVIEW" | "REVIEW" | "HISTORY", fixtureName: string, 
 
 async function waitForBrowse(page: Page) {
   await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
-  await page.locator(".grid-frame, .compare-error").first().waitFor({ state: "visible", timeout: 15000 });
+  await page
+    .locator(".grid-frame, .compare-error")
+    .first()
+    .waitFor({ state: "visible", timeout: 15000 });
   const error = page.locator(".compare-error");
   if (await error.isVisible()) {
     const code = await error.locator("p code").innerText();
@@ -673,7 +1452,12 @@ async function waitForBrowse(page: Page) {
   } else {
     await expect(page.locator(".grid-frame canvas").first()).toBeVisible();
   }
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -681,7 +1465,10 @@ async function expectNoHorizontalOverflow(page: Page) {
     scrollWidth: document.documentElement.scrollWidth,
     innerWidth: window.innerWidth,
   }));
-  expect(metrics.scrollWidth, `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`).toBeLessThanOrEqual(metrics.innerWidth);
+  expect(
+    metrics.scrollWidth,
+    `页面横向溢出：scrollWidth=${metrics.scrollWidth} innerWidth=${metrics.innerWidth}`,
+  ).toBeLessThanOrEqual(metrics.innerWidth);
 }
 
 async function expectHeaderBreadcrumbVisible(page: Page) {
@@ -712,20 +1499,34 @@ async function waitForStableHeader(page: Page) {
 async function screenshot(page: Page, name: string, width: number) {
   await page.setViewportSize({ width, height: 1080 });
   await waitForStableHeader(page);
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
   const appGrid = page.locator(".grid-frame[data-rendered]").first();
   if (await appGrid.count()) {
     await expect(appGrid).toHaveAttribute("data-rendered", "true");
     await expect(appGrid).toHaveAttribute("data-first-cell-content", /.+/);
     await expect(appGrid.locator("canvas").first()).toBeVisible();
   }
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
   // N14: the overflow assertion runs in every mode, not only when screenshots
   // are being saved.
   await expectNoHorizontalOverflow(page);
   if (!outputDirectory) return;
   await mkdir(outputDirectory, { recursive: true });
-  await page.screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), fullPage: true, animations: "disabled" });
+  await page.screenshot({
+    path: join(outputDirectory, name + "-" + width + ".png"),
+    fullPage: true,
+    animations: "disabled",
+  });
 }
 
 async function waitForGridPaint(page: Page, tabKey: string) {
@@ -734,7 +1535,12 @@ async function waitForGridPaint(page: Page, tabKey: string) {
   await expect(appGrid).toHaveAttribute("data-rendered", "true");
   await expect(appGrid).toHaveAttribute("data-first-cell-content", /.+/);
   await expect(appGrid.locator("canvas").first()).toBeVisible();
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }
 
 async function screenshotHeader(page: Page, name: string, width: number) {
@@ -743,7 +1549,10 @@ async function screenshotHeader(page: Page, name: string, width: number) {
   await expectNoHorizontalOverflow(page);
   if (!outputDirectory) return;
   await mkdir(outputDirectory, { recursive: true });
-  await page.locator(".compare-header").screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), animations: "disabled" });
+  await page.locator(".compare-header").screenshot({
+    path: join(outputDirectory, name + "-" + width + ".png"),
+    animations: "disabled",
+  });
 }
 
 async function clickFormulaCell(page: Page) {
@@ -752,7 +1561,8 @@ async function clickFormulaCell(page: Page) {
   const bounds = await grid.boundingBox();
   const offset = Number(await grid.getAttribute("data-formula-column-offset"));
   const width = Number(await grid.getAttribute("data-formula-column-width"));
-  if (!bounds || !Number.isFinite(offset) || !Number.isFinite(width)) throw new Error("formula column has no grid bounds");
+  if (!bounds || !Number.isFinite(offset) || !Number.isFinite(width))
+    throw new Error("formula column has no grid bounds");
   const rowsVisible = Math.max(1, Math.floor((bounds.height - 34) / 34));
   const dialog = page.getByRole("dialog", { name: "公式查看" });
   for (let row = 0; row < rowsVisible; row += 1) {
@@ -774,7 +1584,10 @@ async function hoverChangedTelemetryValue(page: Page) {
   const tooltip = page.getByRole("tooltip");
   const rowsVisible = Math.max(1, Math.floor((bounds.height - 34) / 34));
   // Measured content widths leave unused space on the right; scan from the first data column.
-  const valueColumnCandidates = Array.from({ length: Math.ceil((Math.min(bounds.width, 1100) - 220) / 60) }, (_, index) => 220 + index * 60);
+  const valueColumnCandidates = Array.from(
+    { length: Math.ceil((Math.min(bounds.width, 1100) - 220) / 60) },
+    (_, index) => 220 + index * 60,
+  );
   for (let row = 0; row < Math.min(rowsVisible, 12); row += 1) {
     const y = bounds.y + 34 + row * 34 + 17;
     for (const columnOffset of valueColumnCandidates) {
@@ -793,7 +1606,9 @@ async function hoverChangedTelemetryValue(page: Page) {
 test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面", async ({ page }) => {
   const { requests, apiRequests } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }),
+  );
   await waitForBrowse(page);
 
   await expect(page.locator(".view-tabs [role=tab]")).toHaveCount(2);
@@ -805,7 +1620,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.getByRole("navigation", { name: "位置" })).toContainText("device");
   await expect(page.getByRole("navigation", { name: "位置" })).not.toContainText("原始组态视图");
   await expect(page.locator(".mode-tabs")).toHaveCount(0);
-  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await expect(page.getByRole("tab", { name: /原始组态视图/ })).toBeVisible();
   await expect(page.getByRole("tab", { name: /本次组态视图/ })).toBeVisible();
   await page.getByRole("tab", { name: /本次组态视图/ }).click();
@@ -834,13 +1652,21 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await screenshot(page, "s4-grid-hover", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
 
-  await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1", debug: "1" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1", debug: "1" }),
+  );
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
   await page.locator('.nav-item[data-item-key="device:table"] .nav-item__button').click();
   await waitForGridPaint(page, "table");
-  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
   await screenshot(page, "s4-grid-debug", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "收起导航" }).click();
@@ -848,7 +1674,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.locator(".compare-more > summary").click();
   await page.getByRole("radio", { name: "User" }).click();
   await page.locator(".compare-more > summary").click();
-  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await screenshot(page, "s3-workbench-upload", 1280);
   await screenshotHeader(page, "s3-header-upload", 1280);
   await screenshot(page, "s4-grid-main", 1280);
@@ -874,18 +1703,31 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   expect(stateBeforeReload.searchParams.get("changed")).toBe("1");
   expect(stateBeforeReload.searchParams.get("debug")).toBe("1");
   const requestCountBeforeReload = requests.get("preview-full") ?? 0;
-  const metadataReadsBeforeReload = apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1")).length;
+  const metadataReadsBeforeReload = apiRequests.filter((request) =>
+    request.path.endsWith("/preview-results/preview-1"),
+  ).length;
   await page.reload();
   await waitForBrowse(page);
   const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
-  if (!(await reloadedSearch.isVisible())) await page.getByRole("button", { name: "展开导航" }).click();
+  if (!(await reloadedSearch.isVisible()))
+    await page.getByRole("button", { name: "展开导航" }).click();
   await expect(reloadedSearch).toHaveValue("复合信号");
-  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute("aria-checked", "false");
-  expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
+  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await expect(page.getByRole("radio", { name: "User", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+  expect(new URL(page.url()).searchParams.get("node")).toBe(
+    stateBeforeReload.searchParams.get("node"),
+  );
   expect(new URL(page.url()).searchParams.get("change")).toBe("1");
   // Authorize the digest again under the current session, then reuse OPFS.
-  expect(apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1"))).toHaveLength(metadataReadsBeforeReload + 1);
+  expect(
+    apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1")),
+  ).toHaveLength(metadataReadsBeforeReload + 1);
   expect(requests.get("preview-full")).toBe(requestCountBeforeReload);
 
   await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill("");
@@ -928,13 +1770,21 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(formula).toContainText("+ （* 分组）");
   await expect(formula).toContainText("线路保护装置 A:线路电流");
   await expect(formula).toContainText("Device 999:未映射测点");
-  await expect(formula.locator(".formula-line").filter({ hasText: "| - 线路保护装置 A:线路电流" }).last()).toBeInViewport();
+  await expect(
+    formula.locator(".formula-line").filter({ hasText: "| - 线路保护装置 A:线路电流" }).last(),
+  ).toBeInViewport();
   await expect(formula).not.toContainText("kind:");
   await screenshot(page, "formula-preview", 1920);
   await screenshot(page, "formula-preview", 1280);
   await formula.getByRole("button", { name: "关闭公式" }).click();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle", node: "device:composite", tab: "table" }));
+  await page.goto(
+    browseUrl("HISTORY", "history-three-nodes", {
+      pair: "left_to_middle",
+      node: "device:composite",
+      tab: "table",
+    }),
+  );
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("left_to_middle");
   expect(new URL(page.url()).searchParams.get("tab")).toBe("table");
@@ -944,7 +1794,12 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const historyFormula = page.getByRole("dialog", { name: "公式查看" });
   await expect(historyFormula.getByText("改前公式", { exact: true })).toBeVisible();
   await expect(historyFormula.getByText("改后公式", { exact: true })).toBeVisible();
-  await expect(historyFormula.locator(".formula-line").filter({ hasText: "| - 线路保护装置 A:线路电流" }).last()).toBeInViewport();
+  await expect(
+    historyFormula
+      .locator(".formula-line")
+      .filter({ hasText: "| - 线路保护装置 A:线路电流" })
+      .last(),
+  ).toBeInViewport();
   await screenshot(page, "formula-history", 1920);
   await screenshot(page, "formula-history", 1280);
 });
@@ -965,7 +1820,6 @@ test("数据集替换显示身份结论与两侧表", async ({ page }) => {
   await expect(page.locator(".replacement-side.is-inactive")).toHaveCount(1);
   await screenshot(page, "dataset-replacement-browse", 1920);
   await screenshot(page, "dataset-replacement-browse", 1280);
-
 });
 
 test("覆盖 bundle 下载截断重试、加载骨架、错误页和五级风险语义色", async ({ page }) => {
@@ -975,7 +1829,8 @@ test("覆盖 bundle 下载截断重试、加载骨架、错误页和五级风险
   expect(requests.get("preview-full")).toBe(2);
 
   await page.goto("/?design-system=1");
-  for (const label of ["高风险", "中高风险", "中低风险", "低风险", "未知风险"]) await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
+  for (const label of ["高风险", "中高风险", "中低风险", "低风险", "未知风险"])
+    await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
   await screenshot(page, "s4-semantic-tokens", 1920);
   await screenshot(page, "s4-semantic-tokens", 1280);
 });
@@ -983,7 +1838,9 @@ test("覆盖 bundle 下载截断重试、加载骨架、错误页和五级风险
 test("加载中显示骨架，bundle 接口失败显示可重试错误页", async ({ page }) => {
   const holdPreview = deferred();
   await installFixtureRoutes(page, { slowPreview: holdPreview.promise });
-  await page.goto(browseUrl("PREVIEW", "preview-workbench-normal"), { waitUntil: "domcontentloaded" });
+  await page.goto(browseUrl("PREVIEW", "preview-workbench-normal"), {
+    waitUntil: "domcontentloaded",
+  });
   await expect(page.getByLabel("下载并校验比较结果")).toBeVisible();
   await screenshot(page, "loading-skeleton", 1920);
   await screenshot(page, "loading-skeleton", 1280);
@@ -1006,7 +1863,9 @@ test("比较表格的真实选中单元格焦点在两种宽度可见", async ({
   await installFixtureRoutes(page);
   for (const width of [1920, 1280]) {
     await page.setViewportSize({ width, height: 1080 });
-    await page.goto(browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }));
+    await page.goto(
+      browseUrl("PREVIEW", "preview-full", { pair: "baseline_to_initial", changed: "1" }),
+    );
     await waitForBrowse(page);
     await page.locator('.nav-item[data-item-key="device:table"] .nav-item__button').click();
     await waitForGridPaint(page, "table");
@@ -1017,7 +1876,9 @@ test("比较表格的真实选中单元格焦点在两种宽度可见", async ({
     await page.mouse.click(bounds.x + 300, bounds.y + 34 + 2 * 34 + 17);
     await page.mouse.move(10, 10);
     await expect(page.getByRole("tooltip")).toHaveCount(0);
-    await expect.poll(() => grid.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect
+      .poll(() => grid.evaluate((element) => element.contains(document.activeElement)))
+      .toBe(true);
     await screenshot(page, "s4-grid-selected-cell", width);
   }
 });
@@ -1033,8 +1894,12 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   await expect(page.locator(".workspace-details")).toContainText("本次上传已生成预览");
   await page.locator(".workspace-reupload > summary").click();
   const upload = page.getByLabel("上传与预览");
-  await expect(upload.locator('[data-slot="initial"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
-  await expect(upload.locator('[data-slot="modified"]').getByRole("button", { name: "选择目录" })).toBeEnabled();
+  await expect(
+    upload.locator('[data-slot="initial"]').getByRole("button", { name: "选择目录" }),
+  ).toBeEnabled();
+  await expect(
+    upload.locator('[data-slot="modified"]').getByRole("button", { name: "选择目录" }),
+  ).toBeEnabled();
   await expect(upload.getByRole("button", { name: "上传并生成预览" })).toBeDisabled();
   await expect(upload).toContainText("需先选择本次归档组态目录");
   await screenshot(page, "s1-workbench", 1920);
@@ -1047,13 +1912,24 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   await page.reload();
   await expect(page.locator(".workspace-page")).toHaveClass(/details-open/);
 
-  const firstWorkspaceRequest = apiRequests.find((request) => request.method === "POST" && request.path === "/v1/workspaces");
+  const firstWorkspaceRequest = apiRequests.find(
+    (request) => request.method === "POST" && request.path === "/v1/workspaces",
+  );
   expect(firstWorkspaceRequest?.token).toBe("Bearer dev-token-submitter");
   expect(firstWorkspaceRequest?.idempotencyKey).toBeNull();
-  expect(JSON.parse(firstWorkspaceRequest?.body ?? "{} ")).toEqual({ business_project_id: "project-42", gateway_device_external_key: "gateway-17" });
-  expect(apiResponses.find((response) => response.method === "POST" && response.path === "/v1/workspaces")?.status).toBe(201);
+  expect(JSON.parse(firstWorkspaceRequest?.body ?? "{} ")).toEqual({
+    business_project_id: "project-42",
+    gateway_device_external_key: "gateway-17",
+  });
+  expect(
+    apiResponses.find(
+      (response) => response.method === "POST" && response.path === "/v1/workspaces",
+    )?.status,
+  ).toBe(201);
   expect(apiRequests.some((request) => request.path === "/v1/history?limit=100")).toBe(true);
-  expect(apiRequests.some((request) => request.path === "/v1/history?limit=100&cursor=history-page-2")).toBe(true);
+  expect(
+    apiRequests.some((request) => request.path === "/v1/history?limit=100&cursor=history-page-2"),
+  ).toBe(true);
 
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("提交");
   await expect(page.locator(".workspace-table tbody tr")).toHaveCount(5);
@@ -1093,9 +1969,14 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   await screenshot(page, "s2-compare-tray", 1920);
 
   const identity = page.getByRole("combobox", { name: "模拟身份" });
-  for (const [role, token] of [["reviewer", "Bearer dev-token-reviewer"], ["archive-confirmer", "Bearer dev-token-archive-confirmer"]]) {
+  for (const [role, token] of [
+    ["reviewer", "Bearer dev-token-reviewer"],
+    ["archive-confirmer", "Bearer dev-token-archive-confirmer"],
+  ]) {
     await identity.selectOption(role);
-    await expect.poll(() => apiRequests.filter((request) => request.token === token).length).toBeGreaterThan(0);
+    await expect
+      .poll(() => apiRequests.filter((request) => request.token === token).length)
+      .toBeGreaterThan(0);
   }
 
   await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
@@ -1105,7 +1986,8 @@ test("正式工作台呈现 History、三列表格、操作说明与 1280/1920 �
   expect(new URL(page.url()).searchParams.get("previewResultId")).toBe("preview-full");
   expect(new URL(page.url()).searchParams.get("pair")).toBe("initial_to_modified");
   expect(new URL(page.url()).searchParams.get("workbenchNode")).toBe("workspace:workspace-fe2b");
-  for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URL(page.url()).searchParams.has(legacy)).toBe(false);
+  for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"])
+    expect(new URL(page.url()).searchParams.has(legacy)).toBe(false);
   await page.getByRole("button", { name: "返回工作台" }).click();
   await expect(page.locator(".workspace-table")).toBeVisible();
   expect(new URL(page.url()).searchParams.get("workbenchNode")).toBe("workspace:workspace-fe2b");
@@ -1122,9 +2004,23 @@ test("待审提交从工作台打开提交绑定的不可变比较", async ({ pa
   await expect(page).toHaveURL(/mode=REVIEW/);
   await waitForBrowse(page);
 
-  expect(apiRequests.some((request) => request.method === "GET" && request.path === "/v1/submissions/fe2a-history-ref-2/review")).toBe(true);
-  expect(apiRequests.some((request) => request.method === "GET" && request.path === "/v1/submissions/fe2a-history-ref-2/result")).toBe(true);
-  expect(apiRequests.some((request) => request.method === "POST" && request.path === "/v1/history-compares")).toBe(false);
+  expect(
+    apiRequests.some(
+      (request) =>
+        request.method === "GET" && request.path === "/v1/submissions/fe2a-history-ref-2/review",
+    ),
+  ).toBe(true);
+  expect(
+    apiRequests.some(
+      (request) =>
+        request.method === "GET" && request.path === "/v1/submissions/fe2a-history-ref-2/result",
+    ),
+  ).toBe(true);
+  expect(
+    apiRequests.some(
+      (request) => request.method === "POST" && request.path === "/v1/history-compares",
+    ),
+  ).toBe(false);
   expect(new URL(page.url()).searchParams.get("submissionId")).toBe("fe2a-history-ref-2");
 });
 
@@ -1133,48 +2029,88 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   const holdFirstCompare = deferred();
   const { apiRequests, apiResponses } = await installFixtureRoutes(page, {
     timeoutFirstCompare: holdFirstCompare.promise,
-    historyCompareStatus: (operationId, index) => index <= 3
-      ? { ...HISTORY_COMPARE_RUNNING, operation_id: operationId }
-      : { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: operationId },
+    historyCompareStatus: (operationId, index) =>
+      index <= 3
+        ? { ...HISTORY_COMPARE_RUNNING, operation_id: operationId }
+        : {
+            ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest),
+            operation_id: operationId,
+          },
   });
-  await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
+  await page.addInitScript(() => {
+    Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } });
+  });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
   await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
   await expect(page.getByRole("alert")).toContainText("请求超时");
-  await expect(page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" })).toBeEnabled();
+  await expect(
+    page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }),
+  ).toBeEnabled();
   await screenshot(page, "s2-tray-request-timeout", 1920);
   await screenshot(page, "s2-tray-request-timeout", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
   holdFirstCompare.resolve();
-  await expect.poll(() => apiResponses.filter((response) => response.method === "POST" && response.path === "/v1/history-compares").length).toBe(1);
+  await expect
+    .poll(
+      () =>
+        apiResponses.filter(
+          (response) => response.method === "POST" && response.path === "/v1/history-compares",
+        ).length,
+    )
+    .toBe(1);
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
 
   await expect(page).toHaveURL(/operationId=history-compare-fe2b-1/);
-  const comparePosts = apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares");
-  await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares").length).toBe(2);
+  const comparePosts = apiRequests.filter(
+    (request) => request.method === "POST" && request.path === "/v1/history-compares",
+  );
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "POST" && request.path === "/v1/history-compares",
+        ).length,
+    )
+    .toBe(2);
   expect(comparePosts[0]?.idempotencyKey).toBeTruthy();
   expect(comparePosts[0]?.idempotencyKey).toBe(comparePosts[1]?.idempotencyKey);
   expect(comparePosts[0]?.body).toBe(comparePosts[1]?.body);
-  expect(apiResponses.filter((response) => response.method === "POST" && response.path === "/v1/history-compares").map((response) => response.status)).toEqual([202, 200]);
+  expect(
+    apiResponses
+      .filter((response) => response.method === "POST" && response.path === "/v1/history-compares")
+      .map((response) => response.status),
+  ).toEqual([202, 200]);
   await expect(page.locator(".history-result-drawer")).toContainText("执行中");
-  await expect(page.locator(".compare-tray").getByRole("button", { name: "比较中" })).toBeDisabled();
+  await expect(
+    page.locator(".compare-tray").getByRole("button", { name: "比较中" }),
+  ).toBeDisabled();
   await expect(page.locator(".compare-chip").first().getByRole("button")).toBeDisabled();
   await page.reload();
   await expect(page.locator(".history-result-drawer")).toBeVisible();
   await expect(page.locator(".history-result-drawer")).toContainText("已完成");
-  await expect(page.locator(".history-result-drawer").getByRole("button", { name: "打开差异工作台" })).toBeVisible();
+  await expect(
+    page.locator(".history-result-drawer").getByRole("button", { name: "打开差异工作台" }),
+  ).toBeVisible();
   await screenshot(page, "history-compare-result-drawer", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.reload();
   await expect(page.locator(".history-result-drawer")).toContainText("已完成");
   await screenshot(page, "history-compare-result-drawer", 1280);
   expect(new URL(page.url()).searchParams.get("operationId")).toBe("history-compare-fe2b-1");
-  expect(apiRequests.some((request) => request.method === "GET"
-    && request.path === "/v1/history-compares/history-compare-fe2b-1/bundle")).toBe(true);
-  await page.locator(".history-result-drawer").getByRole("button", { name: "打开差异工作台" }).click();
+  expect(
+    apiRequests.some(
+      (request) =>
+        request.method === "GET" &&
+        request.path === "/v1/history-compares/history-compare-fe2b-1/bundle",
+    ),
+  ).toBe(true);
+  await page
+    .locator(".history-result-drawer")
+    .getByRole("button", { name: "打开差异工作台" })
+    .click();
   await expect(page).toHaveURL(/page=compare.*mode=HISTORY/);
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("operationId")).toBe("history-compare-fe2b-1");
@@ -1184,10 +2120,15 @@ test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重
   const { manifest } = await loadFixture("history-three-nodes");
   await installFixtureRoutes(page, {
     failHistoryBundleAttempts: 2,
-    historyCompareStatus: (operationId) => ({ ...testHistoryCompareSucceeded(manifest.bundle_digest), operation_id: operationId }),
+    historyCompareStatus: (operationId) => ({
+      ...testHistoryCompareSucceeded(manifest.bundle_digest),
+      operation_id: operationId,
+    }),
   });
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("/?page=workspace&operationId=history-compare-download&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
+  await page.goto(
+    "/?page=workspace&operationId=history-compare-download&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2",
+  );
   const drawer = page.locator(".history-result-drawer");
   await expect(drawer).toContainText("下载失败，可重试");
   await expect(drawer.getByRole("button", { name: "打开差异工作台" })).toHaveCount(0);
@@ -1199,27 +2140,45 @@ test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重
 });
 
 test("History 比较仍在运行和连接中断状态清晰显示", async ({ page }) => {
-  await installFixtureRoutes(page, { historyCompareStatus: (operationId) => ({ ...HISTORY_COMPARE_RUNNING, operation_id: operationId }) });
+  await installFixtureRoutes(page, {
+    historyCompareStatus: (operationId) => ({
+      ...HISTORY_COMPARE_RUNNING,
+      operation_id: operationId,
+    }),
+  });
   // C4: pin the clock so the running compare shows a fixed waited duration.
   await freezePageClock(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("/?page=workspace&operationId=history-compare-running&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
+  await page.goto(
+    "/?page=workspace&operationId=history-compare-running&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2",
+  );
   await expect(page.locator(".history-result-drawer")).toContainText("执行中");
-  await expect(page.locator(".compare-tray").getByRole("button", { name: "比较中" })).toBeDisabled();
+  await expect(
+    page.locator(".compare-tray").getByRole("button", { name: "比较中" }),
+  ).toBeDisabled();
   await screenshot(page, "history-compare-running", 1920);
   await screenshot(page, "history-compare-running", 1280);
 
   await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { historyCompareErrors: 5 });
-  await page.goto("/?page=workspace&operationId=history-compare-interrupted&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
-  await expect(page.locator(".history-result-drawer")).toContainText("连接中断", { timeout: 25_000 });
+  await page.goto(
+    "/?page=workspace&operationId=history-compare-interrupted&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2",
+  );
+  await expect(page.locator(".history-result-drawer")).toContainText("连接中断", {
+    timeout: 25_000,
+  });
   await expect(page.getByRole("button", { name: "重试查询" })).toBeVisible();
   await screenshot(page, "history-compare-connection-interrupted", 1920);
   await screenshot(page, "history-compare-connection-interrupted", 1280);
 });
 
-test("MANUAL_RECOVERY_REQUIRED 提供管理员信息并在刷新后跟随 RUNNING 到 SUCCEEDED", async ({ page }) => {
-  await installFixtureRoutes(page, { operationStatus: (_operationId, index) => MANUAL_RECOVERY_TO_SUCCESS[Math.min(index - 1, MANUAL_RECOVERY_TO_SUCCESS.length - 1)]! });
+test("MANUAL_RECOVERY_REQUIRED 提供管理员信息并在刷新后跟随 RUNNING 到 SUCCEEDED", async ({
+  page,
+}) => {
+  await installFixtureRoutes(page, {
+    operationStatus: (_operationId, index) =>
+      MANUAL_RECOVERY_TO_SUCCESS[Math.min(index - 1, MANUAL_RECOVERY_TO_SUCCESS.length - 1)]!,
+  });
   await freezePageClock(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?operationId=operation-manual-success&operationKind=operation");
@@ -1254,7 +2213,17 @@ test("所选模拟身份携带对应 token；无权限错误页不显示已连�
   await expect(page.getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
   await expect(page.getByRole("heading", { name: "当前身份没有该操作的权限" })).toBeVisible();
-  await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces" && request.token === "Bearer dev-token-no-permission").length).toBeGreaterThan(0);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/v1/workspaces" &&
+            request.token === "Bearer dev-token-no-permission",
+        ).length,
+    )
+    .toBeGreaterThan(0);
   await expect(page.getByText("已连接", { exact: true })).toHaveCount(0);
   await screenshot(page, "workspace-error-no-connected", 1920);
   await screenshot(page, "workspace-error-no-connected", 1280);
@@ -1268,61 +2237,104 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
   await page.getByRole("checkbox", { name: "加入比较：归档基线 1" }).check();
   await page.getByRole("checkbox", { name: "加入比较：提交 2" }).check();
   await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
-  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有历史比较权限");
+  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText(
+    "当前身份没有历史比较权限",
+  );
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
   await expect(page.getByRole("button", { name: "复制比较错误详情" })).toBeVisible();
-  expect(apiRequests.some((request) => request.method === "POST" && request.path === "/v1/history-compares" && request.token === "Bearer dev-token-no-permission")).toBe(true);
+  expect(
+    apiRequests.some(
+      (request) =>
+        request.method === "POST" &&
+        request.path === "/v1/history-compares" &&
+        request.token === "Bearer dev-token-no-permission",
+    ),
+  ).toBe(true);
 });
 
 test("查看差异超时后的重试复用同一幂等意图", async ({ page }) => {
   const holdFirstCompare = deferred();
-  const { apiRequests } = await installFixtureRoutes(page, { timeoutFirstCompare: holdFirstCompare.promise });
-  await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
+  const { apiRequests } = await installFixtureRoutes(page, {
+    timeoutFirstCompare: holdFirstCompare.promise,
+  });
+  await page.addInitScript(() => {
+    Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } });
+  });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("button", { name: "提交 1", exact: true }).click();
-  await page.locator(".workspace-details").getByRole("button", { name: "比较父节点 → 此提交" }).click();
+  await page
+    .locator(".workspace-details")
+    .getByRole("button", { name: "比较父节点 → 此提交" })
+    .click();
   await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("请求超时");
   holdFirstCompare.resolve();
   await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
   await expect(page).toHaveURL(/operationId=history-compare-fe2b-1/);
-  await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares").length).toBe(2);
-  const requests = apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares");
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "POST" && request.path === "/v1/history-compares",
+        ).length,
+    )
+    .toBe(2);
+  const requests = apiRequests.filter(
+    (request) => request.method === "POST" && request.path === "/v1/history-compares",
+  );
   expect(requests[0]?.idempotencyKey).toBeTruthy();
   expect(requests[0]?.idempotencyKey).toBe(requests[1]?.idempotencyKey);
   expect(requests[0]?.body).toBe(requests[1]?.body);
-  expect(JSON.parse(requests[0]?.body ?? "{}")).toEqual({ nodes: [
-    { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
-    { ref_kind: "submission", ref_id: "fe2a-history-ref-old" },
-  ] });
+  expect(JSON.parse(requests[0]?.body ?? "{}")).toEqual({
+    nodes: [
+      { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
+      { ref_kind: "submission", ref_id: "fe2a-history-ref-old" },
+    ],
+  });
 });
 
 test("混合通道保留串口诊断与降级表入口", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("PREVIEW", "channel-rules", { node: "channel:b1_c2", tab: "b1_c2_short" }));
+  await page.goto(
+    browseUrl("PREVIEW", "channel-rules", { node: "channel:b1_c2", tab: "b1_c2_short" }),
+  );
   await waitForBrowse(page);
   const sidebar = page.locator(".navigation-sidebar");
   await expect(sidebar).toContainText("串口配置表");
   await expect(sidebar).toContainText("预期表名前缀：b1_c3_unknown");
-  await expect(sidebar.locator('[data-item-key="protocol:com_cfg"] .nav-item__label')).toHaveText("串口配置");
+  await expect(sidebar.locator('[data-item-key="protocol:com_cfg"] .nav-item__label')).toHaveText(
+    "串口配置",
+  );
   const serialNotes = sidebar.locator(".diagnostic-note--navigation");
   for (const note of await serialNotes.allTextContents()) {
-    for (const forbidden of ["网口", "IEC104", "tab_num", "_n"]) expect(note).not.toContain(forbidden);
+    for (const forbidden of ["网口", "IEC104", "tab_num", "_n"])
+      expect(note).not.toContain(forbidden);
   }
   await expect(page.locator(".table-info")).toContainText("缺列");
-  await page.locator(".table-info").getByRole("button", { name: /^提示 / }).click();
+  await page
+    .locator(".table-info")
+    .getByRole("button", { name: /^提示 / })
+    .click();
   await expect(page.getByText("有序表缺少排序或行标识所需的列")).toBeVisible();
   await sidebar.locator('[data-item-key="channel:b1_n2"] button').first().click();
   await expect(page.locator(".table-info")).toContainText("翻转");
-  await page.locator(".table-info").getByRole("button", { name: /^提示 / }).click();
+  await page
+    .locator(".table-info")
+    .getByRole("button", { name: /^提示 / })
+    .click();
   await expect(page.getByText("有序表的输入缺少可靠的规范化来源，建议打开整表核对")).toBeVisible();
 });
 
 test("FE2b 孤儿引用表可打开并保留通道提示", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "table:b1_n1_iec104_yc_list", tab: "table" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-workbench-normal", {
+      node: "table:b1_n1_iec104_yc_list",
+      tab: "table",
+    }),
+  );
   await expect(page.locator(".task-indicator")).toHaveCount(0);
   await waitForBrowse(page);
   await expect(page.locator(".navigation-sidebar")).toContainText("其他表");
@@ -1348,7 +2360,10 @@ test("FE2b 孤儿引用表可打开并保留通道提示", async ({ page }) => {
   await page.locator(".compare-more > summary").click();
   await page.getByRole("radio", { name: "Debug" }).click();
   await page.locator(".compare-more > summary").click();
-  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "Debug", includeHidden: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   await screenshot(page, "s4-grid-normal-debug", 1920);
   await screenshot(page, "s4-grid-normal-debug", 1280);
 });
@@ -1357,19 +2372,29 @@ async function freezePageClock(page: Page) {
   await page.clock.setFixedTime(new Date("2026-11-03T09:00:09Z"));
 }
 
-async function setDirectoryInput(page: Page, testId: string, root: string, files: Array<{ path: string; content: string }>) {
-  await page.evaluate(({ testId, root, files }) => {
-    const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
-    if (!input) throw new Error(`missing input ${testId}`);
-    const transfer = new DataTransfer();
-    for (const spec of files) {
-      const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", { type: "text/plain" });
-      Object.defineProperty(file, "webkitRelativePath", { value: `${root}/${spec.path}` });
-      transfer.items.add(file);
-    }
-    input.files = transfer.files;
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }, { testId, root, files });
+async function setDirectoryInput(
+  page: Page,
+  testId: string,
+  root: string,
+  files: Array<{ path: string; content: string }>,
+) {
+  await page.evaluate(
+    ({ testId, root, files }) => {
+      const input = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+      if (!input) throw new Error(`missing input ${testId}`);
+      const transfer = new DataTransfer();
+      for (const spec of files) {
+        const file = new File([spec.content], spec.path.split("/").at(-1) ?? "file", {
+          type: "text/plain",
+        });
+        Object.defineProperty(file, "webkitRelativePath", { value: `${root}/${spec.path}` });
+        transfer.items.add(file);
+      }
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    { testId, root, files },
+  );
 }
 
 const VALID_DIRECTORY = [
@@ -1396,7 +2421,9 @@ test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
   await screenshot(page, "upload-empty", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
 
-  await setDirectoryInput(page, "upload-modified-input", "bad_cfg", [{ path: "readme.txt", content: "x" }]);
+  await setDirectoryInput(page, "upload-modified-input", "bad_cfg", [
+    { path: "readme.txt", content: "x" },
+  ]);
   await expect(card.getByText("本次归档组态未通过校验（2 项）")).toBeVisible();
   await expect(card.getByText("根目录下必须恰好存在一个 .pmc 文件")).toBeVisible();
   await expect(card.getByText("目录中必须存在 sql/dbcfg.sql")).toBeVisible();
@@ -1420,11 +2447,16 @@ test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
   await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 30000 });
   await waitForBrowse(page);
   expect(apiRequests.some((request) => request.path.endsWith("/upload-revisions"))).toBe(true);
-  expect(apiRequests.find((request) => request.path.endsWith("/upload-revisions"))?.idempotencyKey).toBeTruthy();
+  expect(
+    apiRequests.find((request) => request.path.endsWith("/upload-revisions"))?.idempotencyKey,
+  ).toBeTruthy();
 });
 
 test("FE2c 提交前要求确认项目身份差异并进入审核", async ({ page }) => {
-  const { apiRequests } = await installFixtureRoutes(page, { submitIdentity: "confirm", submissionOne: true });
+  const { apiRequests } = await installFixtureRoutes(page, {
+    submitIdentity: "confirm",
+    submissionOne: true,
+  });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
@@ -1433,7 +2465,9 @@ test("FE2c 提交前要求确认项目身份差异并进入审核", async ({ pag
   await expect(dialog.getByText("业务项目不同，需要确认数据集替换")).toBeVisible();
   await expect(dialog.getByText("项目身份无法验证")).toBeVisible();
   // M7 Q11: the workspace row shows the tree display name, not the raw ID.
-  await expect(dialog.getByText("工作区").locator("xpath=following-sibling::dd")).toHaveText("gateway-17");
+  await expect(dialog.getByText("工作区").locator("xpath=following-sibling::dd")).toHaveText(
+    "gateway-17",
+  );
   await screenshot(page, "submit-summary-workspace", 1920);
   await screenshot(page, "submit-summary-workspace", 1280);
   const confirm = dialog.getByRole("button", { name: "确认提交" });
@@ -1476,7 +2510,9 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("当前身份没有该操作的权限")).toBeVisible();
   await expect(dialog.getByText("SCOPE_FORBIDDEN")).toBeVisible();
-  const firstKey = first.apiRequests.find((request) => request.path.endsWith("/submit-attempts"))?.idempotencyKey;
+  const firstKey = first.apiRequests.find((request) =>
+    request.path.endsWith("/submit-attempts"),
+  )?.idempotencyKey;
 
   await page.unrouteAll({ behavior: "wait" });
   const retry = await installFixtureRoutes(page, {});
@@ -1484,7 +2520,9 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   await expect(dialog.getByRole("status", { name: "提交结果" })).toBeVisible();
   await dialog.getByRole("button", { name: "查看提交" }).click();
   await expect(page).toHaveURL(/mode=REVIEW.*submissionId=submission-1/, { timeout: 30000 });
-  const retriedKey = retry.apiRequests.find((request) => request.path.endsWith("/submit-attempts"))?.idempotencyKey;
+  const retriedKey = retry.apiRequests.find((request) =>
+    request.path.endsWith("/submit-attempts"),
+  )?.idempotencyKey;
   expect(firstKey).toBeTruthy();
   expect(retriedKey).toBeTruthy();
   expect(retriedKey).not.toBe(firstKey);
@@ -1512,11 +2550,17 @@ test("FE2c 审核退回必须填写理由并可撤回", async ({ page }) => {
   await expect(confirm).toBeEnabled();
   await screenshot(page, "review-reject-dialog", 1920);
   await screenshot(page, "review-reject-dialog", 1280);
-  await expect.poll(async () => reject.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await expect
+    .poll(async () =>
+      reject.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    )
+    .toBe(true);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await confirm.click();
   await expect(page.getByText("审核：已退回")).toBeVisible();
-  expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe("Bearer dev-token-reviewer");
+  expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe(
+    "Bearer dev-token-reviewer",
+  );
 });
 
 test("FE2c 审核撤回需要二次确认", async ({ page }) => {
@@ -1532,7 +2576,11 @@ test("FE2c 审核撤回需要二次确认", async ({ page }) => {
   await expect(withdraw.getByText("我已了解撤回后需要重新提交")).toBeVisible();
   await screenshot(page, "review-withdraw-dialog", 1920);
   await screenshot(page, "review-withdraw-dialog", 1280);
-  await expect.poll(async () => withdraw.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await expect
+    .poll(async () =>
+      withdraw.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    )
+    .toBe(true);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await withdraw.getByRole("button", { name: "确认撤回" }).click();
   await expect(page.getByText("审核：已撤回")).toBeVisible();
@@ -1541,9 +2589,21 @@ test("FE2c 审核撤回需要二次确认", async ({ page }) => {
 test("FE2c 提交执行中刷新后成功后进入提交结果", async ({ page }) => {
   test.setTimeout(90000);
   const manual = [
-    { ...MANUAL_RECOVERY_TO_SUCCESS[0]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
-    { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
-    { ...MANUAL_RECOVERY_TO_SUCCESS[2]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
+    {
+      ...MANUAL_RECOVERY_TO_SUCCESS[0]!,
+      operation_id: "submit-op-1",
+      job_kind: "backend-vnext/submit" as const,
+    },
+    {
+      ...MANUAL_RECOVERY_TO_SUCCESS[1]!,
+      operation_id: "submit-op-1",
+      job_kind: "backend-vnext/submit" as const,
+    },
+    {
+      ...MANUAL_RECOVERY_TO_SUCCESS[2]!,
+      operation_id: "submit-op-1",
+      job_kind: "backend-vnext/submit" as const,
+    },
   ];
   await installFixtureRoutes(page, {
     operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]!,
@@ -1589,13 +2649,22 @@ test("FE3c 归档主线确认预检、异常与影响", async ({ page }) => {
   await expect(dialog.getByText("归档 1 项，关闭 0 项")).toBeVisible();
   await screenshot(page, "archive-mainline-result", 1920);
   await screenshot(page, "archive-mainline-result", 1280);
-  const archiveRequests = apiRequests.filter((request) => ["/v1/archives", "/v1/archive-confirmations", "/v1/archive-anomaly-resolutions"].some((suffix) => request.path.endsWith(suffix)));
+  const archiveRequests = apiRequests.filter((request) =>
+    ["/v1/archives", "/v1/archive-confirmations", "/v1/archive-anomaly-resolutions"].some(
+      (suffix) => request.path.endsWith(suffix),
+    ),
+  );
   expect(archiveRequests.length).toBeGreaterThan(0);
   for (const request of archiveRequests) {
     const parsed = JSON.parse(request.body) as { selected?: Record<string, unknown> };
-    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual(["expected_candidate_digest", "submission_id"]);
+    expect(Object.keys(parsed.selected ?? {}).sort(), request.path).toEqual([
+      "expected_candidate_digest",
+      "submission_id",
+    ]);
   }
-  expect(archiveRequests.every((request) => request.token === "Bearer dev-token-archive-confirmer")).toBe(true);
+  expect(
+    archiveRequests.every((request) => request.token === "Bearer dev-token-archive-confirmer"),
+  ).toBe(true);
 });
 
 test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
@@ -1610,7 +2679,9 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
   const card = page.getByLabel("上传与预览");
-  await expect(card.getByRole("alert")).toContainText("预览已生成，但下载比较结果失败，请重试", { timeout: 15000 });
+  await expect(card.getByRole("alert")).toContainText("预览已生成，但下载比较结果失败，请重试", {
+    timeout: 15000,
+  });
   await screenshot(page, "upload-failure-retry", 1920);
   await screenshot(page, "upload-failure-retry", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1619,12 +2690,16 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await installFixtureRoutes(page);
   await card.getByRole("button", { name: "重试" }).click();
   await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 30000 });
-  expect(apiRequests.filter((request) => request.path.endsWith("/upload-revisions"))).toHaveLength(1);
+  expect(apiRequests.filter((request) => request.path.endsWith("/upload-revisions"))).toHaveLength(
+    1,
+  );
 });
 
 test("FE2c 上传版本冲突后刷新再上传使用新版本与新 key", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
-  const { apiRequests } = await installFixtureRoutes(page, { uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT" });
+  const { apiRequests } = await installFixtureRoutes(page, {
+    uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT",
+  });
   await page.goto("/");
   await openReuploadCard(page);
   const card = page.getByLabel("上传与预览");
@@ -1640,7 +2715,8 @@ test("FE2c 上传版本冲突后刷新再上传使用新版本与新 key", async
   const uploads = apiRequests.filter((request) => request.path.endsWith("/upload-revisions"));
   expect(uploads).toHaveLength(2);
   expect(uploads[0].idempotencyKey).not.toBe(uploads[1].idempotencyKey);
-  const version = (body: string | null) => /"expected_workspace_version":(\d+)/.exec(body ?? "")?.[1];
+  const version = (body: string | null) =>
+    /"expected_workspace_version":(\d+)/.exec(body ?? "")?.[1];
   expect(version(uploads[0].body)).toBe("12");
   expect(version(uploads[1].body)).toBe("14");
 });
@@ -1702,10 +2778,16 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await expect(approve.getByText("当前身份没有该操作的权限")).toBeVisible();
   await expect(approve.getByText("SCOPE_FORBIDDEN")).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 900 });
-  await expect.poll(async () => approve.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await expect
+    .poll(async () =>
+      approve.locator(".confirm-impact").evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    )
+    .toBe(true);
   await screenshot(page, "review-permission-denied", 1920);
   await screenshot(page, "review-permission-denied", 1280);
-  expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe("Bearer dev-token-reviewer");
+  expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe(
+    "Bearer dev-token-reviewer",
+  );
 
   await page.unrouteAll({ behavior: "wait" });
   const conflict = await installFixtureRoutes(page, { reviewConflict: "REVIEW_VERSION_CONFLICT" });
@@ -1723,8 +2805,12 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   const refreshBox = await refresh.boundingBox();
   expect(dialogBox).not.toBeNull();
   expect(refreshBox).not.toBeNull();
-  expect(refreshBox!.x + refreshBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width + 0.5);
-  expect(refreshBox!.y + refreshBox!.height).toBeLessThanOrEqual(dialogBox!.y + dialogBox!.height + 0.5);
+  expect(refreshBox!.x + refreshBox!.width).toBeLessThanOrEqual(
+    dialogBox!.x + dialogBox!.width + 0.5,
+  );
+  expect(refreshBox!.y + refreshBox!.height).toBeLessThanOrEqual(
+    dialogBox!.y + dialogBox!.height + 0.5,
+  );
   await screenshot(page, "review-version-conflict", 1920);
   await expect(refresh).toBeInViewport();
   await screenshot(page, "review-version-conflict", 1280);
@@ -1732,7 +2818,9 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await refresh.click();
   await expect(conflictDialog.getByText("REVIEW_VERSION_CONFLICT")).toHaveCount(0);
   await expect(conflictDialog.getByRole("button", { name: "确认通过" })).toBeEnabled();
-  expect(conflict.apiRequests.some((request) => request.path.endsWith("/review-events"))).toBe(true);
+  expect(conflict.apiRequests.some((request) => request.path.endsWith("/review-events"))).toBe(
+    true,
+  );
 
   await page.unrouteAll({ behavior: "wait" });
   const replay = await installFixtureRoutes(page, { reviewTimeoutFirst: true });
@@ -1745,34 +2833,53 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await expect(replayDialog.getByText("SERVICE_NOT_READY")).toBeVisible();
   await replayDialog.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("审核：已通过")).toBeVisible({ timeout: 15000 });
-  const keys = replay.apiRequests.filter((request) => request.path.endsWith("/review-events")).map((request) => request.idempotencyKey);
+  const keys = replay.apiRequests
+    .filter((request) => request.path.endsWith("/review-events"))
+    .map((request) => request.idempotencyKey);
   expect(keys.length).toBe(2);
   expect(keys[0]).toBeTruthy();
   expect(keys[0]).toBe(keys[1]);
 });
 
 test("V11 过期通过后禁用通过并保留退回撤回", async ({ page }) => {
-  const { apiRequests } = await installFixtureRoutes(page, { reviewConflict: "BASELINE_VERSION_CONFLICT" });
+  const { apiRequests } = await installFixtureRoutes(page, {
+    reviewConflict: "BASELINE_VERSION_CONFLICT",
+  });
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
-  const historyGetsBefore = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.endsWith("/result")).length;
+  const historyGetsBefore = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.endsWith("/result"),
+  ).length;
   await approve.getByRole("button", { name: "确认通过" }).click();
-  await expect(page.getByText("该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。")).toBeVisible();
+  await expect(
+    page.getByText(
+      "该提交所基于的基线已更新，不能通过。可以退回，或由提交人撤回后基于当前基线重新提交。",
+    ),
+  ).toBeVisible();
   const expiredAlert = page.getByRole("alert").filter({ hasText: "该提交所基于的基线已更新" });
-  expect(await expiredAlert.evaluate((element) => element.closest(".compare-header__notice") !== null)).toBe(true);
-  expect(await expiredAlert.evaluate((element) => element.closest(".review-actions") === null)).toBe(true);
+  expect(
+    await expiredAlert.evaluate((element) => element.closest(".compare-header__notice") !== null),
+  ).toBe(true);
+  expect(
+    await expiredAlert.evaluate((element) => element.closest(".review-actions") === null),
+  ).toBe(true);
   await expect(page.getByText("BASELINE_VERSION_CONFLICT")).toBeVisible();
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
   await expect(page.getByRole("button", { name: "撤回", exact: true })).toBeEnabled();
   // D: refresh authority and the fixed result after a baseline CAS failure.
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.endsWith("/result")).length,
-    { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.endsWith("/result"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(historyGetsBefore);
   await screenshot(page, "fe3c-review-expired", 1920);
   await screenshot(page, "fe3c-review-expired", 1280);
   await expectHeaderBreadcrumbVisible(page);
@@ -1784,28 +2891,44 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await page.setViewportSize({ width: 1280, height: 1080 });
-  const backWidthBefore = (await page.getByRole("button", { name: "返回工作台" }).boundingBox())?.width;
+  const backWidthBefore = (await page.getByRole("button", { name: "返回工作台" }).boundingBox())
+    ?.width;
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
   const approve = page.getByRole("dialog", { name: "确认审核通过" });
-  const historyGetsBefore = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.endsWith("/result")).length;
+  const historyGetsBefore = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.endsWith("/result"),
+  ).length;
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(page.getByText("该提交已归档或关闭，已重新读取")).toBeVisible();
   await expect(page.getByText("ARCHIVE_CLOSED")).toBeVisible();
   const closedAlert = page.getByRole("alert").filter({ hasText: "该提交已归档或关闭" });
   await expect(closedAlert).toBeVisible();
-  expect(await closedAlert.evaluate((element) => element.closest(".compare-header__notice") !== null)).toBe(true);
-  expect(await closedAlert.evaluate((element) => element.closest(".review-actions") === null)).toBe(true);
+  expect(
+    await closedAlert.evaluate((element) => element.closest(".compare-header__notice") !== null),
+  ).toBe(true);
+  expect(await closedAlert.evaluate((element) => element.closest(".review-actions") === null)).toBe(
+    true,
+  );
   // D: the 409 re-reads the review and its immutable result; the re-read
   // facts carry the manual-close disposition shown per §6.4.
-  const reviewEvents = apiRequests.filter((request) => request.method === "POST" && request.path.endsWith("/review-events"));
+  const reviewEvents = apiRequests.filter(
+    (request) => request.method === "POST" && request.path.endsWith("/review-events"),
+  );
   expect(reviewEvents).toHaveLength(1);
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.endsWith("/result")).length,
-    { timeout: 15000 }).toBeGreaterThan(historyGetsBefore);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.endsWith("/result"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(historyGetsBefore);
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible();
   await expect(page.getByText("审核：已通过")).toBeVisible();
-  await expect(page.locator(".compare-status .status-tag").filter({ hasText: "已关闭（未归档）" })).toBeVisible();
+  await expect(
+    page.locator(".compare-status .status-tag").filter({ hasText: "已关闭（未归档）" }),
+  ).toBeVisible();
   await page.getByText("查看关闭理由").first().click();
   await expect(page.getByText("不再需要该提交")).toBeVisible();
   const singleReason = page.getByText("该提交已关闭（未归档）", { exact: true });
@@ -1821,7 +2944,8 @@ test("V12 已处置提交的审核动作提示已归档或关闭", async ({ page
   await screenshot(page, "fe3c-review-closed", 1920);
   await screenshot(page, "fe3c-review-closed", 1280);
   await expectHeaderBreadcrumbVisible(page);
-  const backWidthAfter = (await page.getByRole("button", { name: "返回工作台" }).boundingBox())?.width ?? 0;
+  const backWidthAfter =
+    (await page.getByRole("button", { name: "返回工作台" }).boundingBox())?.width ?? 0;
   expect(backWidthAfter).toBeCloseTo(backWidthBefore ?? -1, 0);
 });
 
@@ -1836,7 +2960,9 @@ test("FE2c 提交超时重试复用同一幂等键并回放同一提交", async 
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByRole("status", { name: "提交结果" })).toBeVisible({ timeout: 30000 });
   await expect(dialog.getByText("submission-1").first()).toBeVisible();
-  const keys = apiRequests.filter((request) => request.path.endsWith("/submit-attempts")).map((request) => request.idempotencyKey);
+  const keys = apiRequests
+    .filter((request) => request.path.endsWith("/submit-attempts"))
+    .map((request) => request.idempotencyKey);
   expect(keys.length).toBe(2);
   expect(keys[0]).toBeTruthy();
   expect(keys[0]).toBe(keys[1]);
@@ -1870,7 +2996,10 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await screenshot(page, "archive-permission-denied", 1280);
 
   await page.unrouteAll({ behavior: "wait" });
-  const conflict = await installFixtureRoutes(page, { archiveConflict: "ARCHIVE_AUDIT_VERSION_CONFLICT", approvedSubmission: true });
+  const conflict = await installFixtureRoutes(page, {
+    archiveConflict: "ARCHIVE_AUDIT_VERSION_CONFLICT",
+    approvedSubmission: true,
+  });
   await page.reload();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
@@ -1894,7 +3023,9 @@ test("FE3c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await screenshot(page, "archive-audit-conflict", 1280);
   await expect(refreshPreflight).toBeInViewport();
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeInViewport();
-  expect(conflict.apiRequests.find((request) => request.path === "/v1/archives")?.token).toBe("Bearer dev-token-archive-confirmer");
+  expect(conflict.apiRequests.find((request) => request.path === "/v1/archives")?.token).toBe(
+    "Bearer dev-token-archive-confirmer",
+  );
 
   await page.unrouteAll({ behavior: "wait" });
   await installFixtureRoutes(page, { archiveBlocked: true, approvedSubmission: true });
@@ -1949,20 +3080,30 @@ test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3
   // attempt by its known ID, so the message carries IMPORT_REJECTED instead
   // of the stale PREPARED snapshot.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
@@ -1972,39 +3113,60 @@ test("n3/W9① 提交续做在操作结束后重读 ABORTED 并恢复可用（B3
   fixtureOptions.submitAttemptState = "ABORTED";
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
-  await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
   // G1 (r2a): retry keeps the original prompt and code instead of clearing
   // the attempt. Both pointers are empty, so the hook re-reads the attempt
   // by the known ID and stays on the ABORTED copy.
-  const attemptReadsBeforeR2a = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const attemptReadsBeforeR2a = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
-    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeR2a);
-  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(attemptReadsBeforeR2a);
+  await expect(
+    page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试"),
+  ).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
 });
 
 test("W9② 操作结束后 attempt 读不到时禁用并可重试恢复", async ({ page }) => {
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     submitAttemptReadFails: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
@@ -2012,7 +3174,9 @@ test("W9② 操作结束后 attempt 读不到时禁用并可重试恢复", async
   releaseOperation();
   // F1: the prompt and the submit button's own disabled reason come from the
   // same snapshot — assert each in its own place, not via first().
-  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submit).toBeDisabled();
   await expect(submitReasonWrap(page).getByText("无法确认提交状态")).toBeVisible();
   // The gates and the notice come from the same re-read snapshot, so the
@@ -2020,7 +3184,9 @@ test("W9② 操作结束后 attempt 读不到时禁用并可重试恢复", async
   await expect(page.getByText("提交正在执行，完成后才能继续")).toHaveCount(0);
   fixtureOptions.submitAttemptReadFails = false;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect(page.getByRole("alert").getByText("提交结果待确认，需要管理员处理")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("提交结果待确认，需要管理员处理")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submitReasonWrap(page).getByText("提交结果待确认，需要管理员处理")).toBeVisible();
   // F1 demo a: retry re-derives the prompt, the old one must be gone.
   await expect(page.getByText("无法确认提交状态")).toHaveCount(0);
@@ -2029,31 +3195,45 @@ test("W9② 操作结束后 attempt 读不到时禁用并可重试恢复", async
 
 test("W9③ 操作结束后工作区读不到时禁用并可重试恢复", async ({ page }) => {
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     workspaceReadFails: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
   fixtureOptions.workspaceReadFails = true;
   releaseOperation();
-  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submit).toBeDisabled();
   await expect(submitReasonWrap(page).getByText("无法确认提交状态")).toBeVisible();
   fixtureOptions.workspaceReadFails = false;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect(page.getByRole("alert").getByText("提交结果待确认，需要管理员处理")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("提交结果待确认，需要管理员处理")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submitReasonWrap(page).getByText("提交结果待确认，需要管理员处理")).toBeVisible();
   // F1 demo a: retry re-derives the prompt, the old one must be gone.
   await expect(page.getByText("无法确认提交状态")).toHaveCount(0);
@@ -2065,9 +3245,13 @@ test("W9③b 工作区恢复后指针为空时按已知ID重读attempt", async (
   // empty, so it re-reads the attempt by the known ID and renders the prompt
   // from that read. Only calling refresh() would leave no attempt read.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
@@ -2075,37 +3259,56 @@ test("W9③b 工作区恢复后指针为空时按已知ID重读attempt", async (
     submitAttemptReadFails: false,
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
   fixtureOptions.workspaceReadFails = true;
   releaseOperation();
-  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submit).toBeDisabled();
   // Workspace recovers with both pointers empty; the attempt is ABORTED and
   // readable by the known ID.
   fixtureOptions.workspaceReadFails = false;
   fixtureOptions.clearWorkspacePointer = true;
   fixtureOptions.submitAttemptState = "ABORTED";
-  const attemptReadsBefore = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
-  const workspaceReadsBefore = apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length;
+  const attemptReadsBefore = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
+  const workspaceReadsBefore = apiRequests.filter(
+    (request) => request.method === "POST" && request.path === "/v1/workspaces",
+  ).length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length,
-    { timeout: 15000 }).toBeGreaterThan(workspaceReadsBefore);
-  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "POST" && request.path === "/v1/workspaces",
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(workspaceReadsBefore);
+  await expect(
+    page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试"),
+  ).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
-  const attemptReads = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/"));
+  const attemptReads = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  );
   expect(attemptReads.length).toBeGreaterThan(attemptReadsBefore);
   expect(attemptReads.some((request) => request.path.includes("attempt-1"))).toBe(true);
 });
@@ -2116,9 +3319,13 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   // the original prompt while the attempt stays unreadable, and shows the
   // ABORTED copy with the original code once the attempt becomes readable.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     // Like W9②③ the attempt is open at load (the fixture default FINALIZED
@@ -2127,12 +3334,18 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
     submitAttemptReadFails: false,
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
@@ -2140,45 +3353,75 @@ test("W9④ 指针已清空但 attempt 读不到时可用并提示刷新后重�
   fixtureOptions.submitAttemptReadFails = true;
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
-  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submit).toBeEnabled();
-  const attemptReadsBeforeRetry = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
-  const workspaceReadsBeforeRetry = apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length;
+  const attemptReadsBeforeRetry = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
+  const workspaceReadsBeforeRetry = apiRequests.filter(
+    (request) => request.method === "POST" && request.path === "/v1/workspaces",
+  ).length;
   // Retry while the attempt is still unreadable keeps the original prompt
   // (the hook re-reads the attempt by the known ID instead of clearing it).
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length,
-    { timeout: 15000 }).toBeGreaterThan(workspaceReadsBeforeRetry);
-  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "POST" && request.path === "/v1/workspaces",
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(workspaceReadsBeforeRetry);
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(submit).toBeEnabled();
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
-  expect(apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length)
-    .toBeGreaterThan(attemptReadsBeforeRetry);
+  expect(
+    apiRequests.filter(
+      (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+    ).length,
+  ).toBeGreaterThan(attemptReadsBeforeRetry);
   // The attempt becomes readable as ABORTED: retry shows the unfinished copy
   // with the original code.
   fixtureOptions.submitAttemptReadFails = false;
   fixtureOptions.submitAttemptState = "ABORTED";
-  const workspaceReadsBeforeSecond = apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length;
-  const attemptReadsBeforeSecond = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const workspaceReadsBeforeSecond = apiRequests.filter(
+    (request) => request.method === "POST" && request.path === "/v1/workspaces",
+  ).length;
+  const attemptReadsBeforeSecond = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "POST" && request.path === "/v1/workspaces").length,
-    { timeout: 15000 }).toBeGreaterThan(workspaceReadsBeforeSecond);
-  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "POST" && request.path === "/v1/workspaces",
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(workspaceReadsBeforeSecond);
+  await expect(
+    page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试"),
+  ).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(submit).toBeEnabled();
   await expect(page.getByText("无法读取提交结果，请刷新后重试")).toHaveCount(0);
   // C2: the second retry re-reads the attempt by the known ID, so its content
   // is distinguished from the pre-retry snapshot by a fresh attempt read.
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
-    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeSecond);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(attemptReadsBeforeSecond);
 });
 
 test("C2 重试快速连点两次只读取一次工作区与一次 attempt", async ({ page }) => {
@@ -2186,47 +3429,91 @@ test("C2 重试快速连点两次只读取一次工作区与一次 attempt", asy
   // flight must join the same read sequence — exactly one workspace read and
   // one attempt read, not two.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     submitAttemptReadFails: false,
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   await held;
   fixtureOptions.submitAttemptReadFails = true;
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
-  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({
+    timeout: 15000,
+  });
 
   let releasePost!: () => void;
-  const postReleased = new Promise<void>((resolve) => { releasePost = () => resolve(); });
+  const postReleased = new Promise<void>((resolve) => {
+    releasePost = () => resolve();
+  });
   let holdPost!: () => void;
-  const postHeld = new Promise<void>((resolve) => { holdPost = () => resolve(); });
+  const postHeld = new Promise<void>((resolve) => {
+    holdPost = () => resolve();
+  });
   fixtureOptions.workspacePostHold = { onHold: holdPost, release: postReleased };
 
-  const workspaceReadsBefore = apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces").length;
-  const attemptReadsBefore = apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const workspaceReadsBefore = apiRequests.filter(
+    (request) => request.method === "POST" && request.path === "/v1/workspaces",
+  ).length;
+  const attemptReadsBefore = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
   const retry = page.getByRole("button", { name: "重试", exact: true });
   await retry.click();
   await postHeld;
   await retry.click();
   releasePost();
 
-  await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces").length, { timeout: 15000 }).toBe(workspaceReadsBefore + 1);
-  await expect.poll(() => apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/")).length, { timeout: 15000 }).toBe(attemptReadsBefore + 1);
-  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
-  expect(apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces")).toHaveLength(workspaceReadsBefore + 1);
-  expect(apiRequests.filter((request) => request.method === "GET" && request.path.includes("/submit-attempts/"))).toHaveLength(attemptReadsBefore + 1);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "POST" && request.path === "/v1/workspaces",
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBe(workspaceReadsBefore + 1);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBe(attemptReadsBefore + 1);
+  await expect(page.getByRole("alert").getByText("无法读取提交结果，请刷新后重试")).toBeVisible({
+    timeout: 15000,
+  });
+  expect(
+    apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces"),
+  ).toHaveLength(workspaceReadsBefore + 1);
+  expect(
+    apiRequests.filter(
+      (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+    ),
+  ).toHaveLength(attemptReadsBefore + 1);
 });
 
 test("C1 续做后开始新的提交时红色提示框清除", async ({ page }) => {
@@ -2234,37 +3521,53 @@ test("C1 续做后开始新的提交时红色提示框清除", async ({ page }) 
   // new submit clears it, so the re-submitted "executing" gate reason is not
   // shown in the red alert box.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     submitAttemptReadFails: false,
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "FAILED" as const }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   await installFixtureRoutes(page, fixtureOptions);
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "submit-op-1",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
   await held;
   fixtureOptions.workspaceReadFails = true;
   releaseOperation();
-  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert").getByText("无法确认提交状态")).toBeVisible({
+    timeout: 15000,
+  });
   fixtureOptions.workspaceReadFails = false;
   fixtureOptions.clearWorkspacePointer = true;
   fixtureOptions.submitAttemptState = "ABORTED";
   await page.getByRole("button", { name: "重试", exact: true }).click();
-  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(
+    page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试"),
+  ).toBeVisible({ timeout: 15000 });
   await expect(submit).toBeEnabled();
   // Starting a new submit opens the dialog and clears the resume notice.
   await submit.click();
   await expect(page.getByRole("dialog", { name: "提交本次组态" })).toBeVisible({ timeout: 15000 });
-  await expect(page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试")).toHaveCount(0);
+  await expect(
+    page.getByRole("alert").getByText("提交未完成，请检查上传与 Preview 后重试"),
+  ).toHaveCount(0);
 });
 
 test("工作台续做提示重试时按已知 attempt 重读并保留原提示", async ({ page }) => {
@@ -2273,17 +3576,27 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   // hook entry with the Preview page, so it re-reads the attempt by the known
   // ID and stays on the unfinished copy with the original code.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, job_kind: "backend-vnext/submit", status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? {
+            ...TEST_OPERATION_SUCCEEDED,
+            operation_id: operationId,
+            job_kind: "backend-vnext/submit",
+            status: "FAILED" as const,
+          }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -2295,9 +3608,13 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   fixtureOptions.submitAttemptState = "ABORTED";
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 15000 });
-  const notice = page.locator(".workspace-notice[role=\"alert\"]");
-  await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({
+    timeout: 15000,
+  });
+  const notice = page.locator('.workspace-notice[role="alert"]');
+  await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(notice.getByText("原始代码")).toBeVisible();
   // The upload gate is released (only the directory prerequisite remains), so
@@ -2308,13 +3625,22 @@ test("工作台续做提示重试时按已知 attempt 重读并保留原提示",
   await expect(cardUpload).toBeEnabled({ timeout: 15000 });
   // The retry affordance lives inside the notice; the workbench has other
   // "重试" buttons (compare tray, history drawer) that must not be clicked.
-  const attemptReadsBeforeRetry = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const attemptReadsBeforeRetry = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
   await notice.getByRole("button", { name: "重试", exact: true }).click();
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
-    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeRetry);
-  await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(attemptReadsBeforeRetry);
+  await expect(notice.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({
+    timeout: 15000,
+  });
   await expect(notice.getByText("IMPORT_REJECTED")).toBeVisible();
   await expect(cardUpload).toBeEnabled();
 });
@@ -2323,18 +3649,28 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   // Workbench counterpart of W9④: with both pointers cleared and the attempt
   // unreadable, retry keeps the unreadable-result copy instead of clearing it.
   let releaseOperation!: () => void;
-  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  const released = new Promise<void>((resolve) => {
+    releaseOperation = () => resolve();
+  });
   let holdOperation!: () => void;
-  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  const held = new Promise<void>((resolve) => {
+    holdOperation = () => resolve();
+  });
   const fixtureOptions: Parameters<typeof installFixtureRoutes>[1] = {
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     submitAttemptReadFails: false,
     clearWorkspacePointer: false,
     operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
-    operationStatus: (operationId) => operationId === "submit-op-1"
-      ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, job_kind: "backend-vnext/submit", status: "FAILED" as const }
-      : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
+    operationStatus: (operationId) =>
+      operationId === "submit-op-1"
+        ? {
+            ...TEST_OPERATION_SUCCEEDED,
+            operation_id: operationId,
+            job_kind: "backend-vnext/submit",
+            status: "FAILED" as const,
+          }
+        : { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId },
   };
   const { apiRequests } = await installFixtureRoutes(page, fixtureOptions);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -2345,20 +3681,29 @@ test("工作台续做提示重试时读不到提交结果仍保留刷新提示",
   fixtureOptions.submitAttemptReadFails = true;
   fixtureOptions.clearWorkspacePointer = true;
   releaseOperation();
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 15000 });
-  const notice = page.locator(".workspace-notice[role=\"alert\"]");
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({
+    timeout: 15000,
+  });
+  const notice = page.locator('.workspace-notice[role="alert"]');
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
   await openReuploadCard(page);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   const cardUpload = page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" });
   await expect(cardUpload).toBeEnabled({ timeout: 15000 });
-  const attemptReadsBeforeRetry = apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length;
+  const attemptReadsBeforeRetry = apiRequests.filter(
+    (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+  ).length;
   await notice.getByRole("button", { name: "重试", exact: true }).click();
-  await expect.poll(() => apiRequests.filter((request) =>
-    request.method === "GET" && request.path.includes("/submit-attempts/")).length,
-    { timeout: 15000 }).toBeGreaterThan(attemptReadsBeforeRetry);
+  await expect
+    .poll(
+      () =>
+        apiRequests.filter(
+          (request) => request.method === "GET" && request.path.includes("/submit-attempts/"),
+        ).length,
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(attemptReadsBeforeRetry);
   await expect(notice.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toHaveCount(0);
   await expect(cardUpload).toBeEnabled();
@@ -2382,13 +3727,23 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
   const releaseReread = deferred();
   const { apiRequests } = await installFixtureRoutes(page, {
     workspaceSequence: [stale, recovered],
-    workspacePostHold: { onCall: 2, onHold: () => rereadHeld.resolve(), release: releaseReread.promise },
+    workspacePostHold: {
+      onCall: 2,
+      onHold: () => rereadHeld.resolve(),
+      release: releaseReread.promise,
+    },
     submitAttemptState: "FINALIZED",
     // The submit operation stays polling (RUNNING): a terminal operation would
     // resume-navigate the workbench to the review page, while this case asserts
     // the workbench stays with the upload disabled through the stale window.
     operationById: {
-      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+      "submit-op-1": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "submit-op-1",
+        job_kind: "backend-vnext/submit",
+        status: "RUNNING" as const,
+        completed_at: null,
+      },
     },
   });
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -2396,14 +3751,20 @@ test("F2 attempt 已结束但指针未清时按过时重读且不解锁上传", 
   await rereadHeld.promise;
   await openReuploadCard(page);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
-  await expect(page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" })).toBeDisabled();
+  await expect(
+    page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }),
+  ).toBeDisabled();
   releaseReread.resolve();
   const details = page.locator(".workspace-details");
   // A pending submission owns the preview; the upload card remains absent.
-  await expect(details.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false })).toBeVisible({ timeout: 15000 });
+  await expect(
+    details.getByText("已有待审核的提交，撤回后才能重新上传", { exact: false }),
+  ).toBeVisible({ timeout: 15000 });
   await expect(details.locator(".upload-card")).toHaveCount(0);
   await expect(details.getByText("无法确认提交状态")).toHaveCount(0);
-  expect(apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces")).toHaveLength(2);
+  expect(
+    apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces"),
+  ).toHaveLength(2);
 });
 
 test("URL 中的提交操作与指针不一致时以指针为准（job_kind）", async ({ page }) => {
@@ -2411,13 +3772,32 @@ test("URL 中的提交操作与指针不一致时以指针为准（job_kind）",
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     operationById: {
-      "other-submit-op": { ...TEST_OPERATION_SUCCEEDED, operation_id: "other-submit-op", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
-      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+      "other-submit-op": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "other-submit-op",
+        job_kind: "backend-vnext/submit",
+        status: "RUNNING" as const,
+        completed_at: null,
+      },
+      "submit-op-1": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "submit-op-1",
+        job_kind: "backend-vnext/submit",
+        status: "RUNNING" as const,
+        completed_at: null,
+      },
     },
   });
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "other-submit-op", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "other-submit-op",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
-  await expect.poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 }).toBe("submit-op-1");
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("operationId"), { timeout: 15000 })
+    .toBe("submit-op-1");
 });
 
 test("URL 中的 Preview 操作不被提交指针覆盖（job_kind）", async ({ page }) => {
@@ -2425,11 +3805,28 @@ test("URL 中的 Preview 操作不被提交指针覆盖（job_kind）", async ({
     workspaceSubmitAttemptId: "attempt-1",
     submitAttemptState: "PREPARED",
     operationById: {
-      "preview-op-9": { ...TEST_OPERATION_SUCCEEDED, operation_id: "preview-op-9", job_kind: "backend-vnext/preview", status: "SUCCEEDED" as const, completed_at: "2026-11-03T09:00:02Z" },
-      "submit-op-1": { ...TEST_OPERATION_SUCCEEDED, operation_id: "submit-op-1", job_kind: "backend-vnext/submit", status: "RUNNING" as const, completed_at: null },
+      "preview-op-9": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "preview-op-9",
+        job_kind: "backend-vnext/preview",
+        status: "SUCCEEDED" as const,
+        completed_at: "2026-11-03T09:00:02Z",
+      },
+      "submit-op-1": {
+        ...TEST_OPERATION_SUCCEEDED,
+        operation_id: "submit-op-1",
+        job_kind: "backend-vnext/submit",
+        status: "RUNNING" as const,
+        completed_at: null,
+      },
     },
   });
-  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "preview-op-9", operationKind: "operation" }));
+  await page.goto(
+    browseUrl("PREVIEW", "preview-full", {
+      operationId: "preview-op-9",
+      operationKind: "operation",
+    }),
+  );
   await waitForBrowse(page);
   await page.waitForTimeout(2000);
   expect(new URL(page.url()).searchParams.get("operationId")).toBe("preview-op-9");
@@ -2438,11 +3835,25 @@ test("URL 中的 Preview 操作不被提交指针覆盖（job_kind）", async ({
 test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {
   test.setTimeout(90000);
   const manual = [
-    { ...MANUAL_RECOVERY_TO_SUCCESS[0]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
-    { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
-    { ...MANUAL_RECOVERY_TO_SUCCESS[2]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
+    {
+      ...MANUAL_RECOVERY_TO_SUCCESS[0]!,
+      operation_id: "submit-op-1",
+      job_kind: "backend-vnext/submit" as const,
+    },
+    {
+      ...MANUAL_RECOVERY_TO_SUCCESS[1]!,
+      operation_id: "submit-op-1",
+      job_kind: "backend-vnext/submit" as const,
+    },
+    {
+      ...MANUAL_RECOVERY_TO_SUCCESS[2]!,
+      operation_id: "submit-op-1",
+      job_kind: "backend-vnext/submit" as const,
+    },
   ];
-  await installFixtureRoutes(page, { operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]! });
+  await installFixtureRoutes(page, {
+    operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]!,
+  });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
@@ -2476,7 +3887,9 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     } catch (error) {
       failures.push(`${name}: ${String((error as Error).message).split("\n")[0]}`);
     }
-    await shot(name).catch((error: Error) => failures.push(`${name} (screenshot): ${String(error.message).split("\n")[0]}`));
+    await shot(name).catch((error: Error) =>
+      failures.push(`${name} (screenshot): ${String(error.message).split("\n")[0]}`),
+    );
   };
   const expandNavigation = async () => {
     const expand = page.getByRole("button", { name: "展开导航" });
@@ -2562,7 +3975,8 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await expect(page.getByRole("dialog", { name: "公式查看" })).toBeVisible();
   });
   await capture("fe4b-gid-change", async () => {
-    if (await page.getByRole("button", { name: "关闭公式" }).count()) await page.getByRole("button", { name: "关闭公式" }).click();
+    if (await page.getByRole("button", { name: "关闭公式" }).count())
+      await page.getByRole("button", { name: "关闭公式" }).click();
     await openPreview("identity-unrecorded-exact");
     await openItem("device:addr:49");
     await openTab("device_cfg");
@@ -2570,7 +3984,9 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
   await capture("fe4b-duplicates", async () => {
     await openPreview("duplicates-orphans");
     await openItem("device:table");
-    const unassigned = page.locator(".diagnostic-note--navigation", { hasText: "不属于任何装置" }).first();
+    const unassigned = page
+      .locator(".diagnostic-note--navigation", { hasText: "不属于任何装置" })
+      .first();
     await expect(unassigned).toBeVisible();
     await expect(unassigned.getByRole("button", { name: "查看整表" })).toBeVisible();
   });
@@ -2587,7 +4003,9 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openTab("device_cfg");
     await expect(page.locator(".table-info .scope-marker--unknown")).toContainText("变化未知");
     await page.getByRole("button", { name: /^提示 / }).click({ timeout: 5000 });
-    await expect(page.getByText("本页签的逐行变化无法确定，显示为“变化未知”；整表结果不代表本装置。")).toBeVisible();
+    await expect(
+      page.getByText("本页签的逐行变化无法确定，显示为“变化未知”；整表结果不代表本装置。"),
+    ).toBeVisible();
   });
   await capture("fe4b-table-scope", async () => {
     await openPreview("table-addition");
@@ -2596,13 +4014,19 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     // A table-level fact is public: it opens from the notice, never as the tab's own badge.
     await expect(page.locator(".table-info[data-scope=LOCAL_EXACT] .risk-badge")).toHaveCount(0);
     await page.getByRole("button", { name: "表公共提示" }).click();
-    await expect(page.getByRole("dialog", { name: "表公共提示" })).toContainText("整表发生表级变化");
-    await expect(page.locator(".public-notices .public-notice[data-table-id=device_st]")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "表公共提示" })).toContainText(
+      "整表发生表级变化",
+    );
+    await expect(
+      page.locator(".public-notices .public-notice[data-table-id=device_st]"),
+    ).toBeVisible();
   });
   await capture("fe4b-filter-unsupported", async () => {
     await openPreview("excluded-identity");
     await openItem("table:device_st");
-    const unassigned = page.locator(".diagnostic-note--navigation", { hasText: "不属于任何装置" }).first();
+    const unassigned = page
+      .locator(".diagnostic-note--navigation", { hasText: "不属于任何装置" })
+      .first();
     await expect(unassigned).toBeVisible();
     await expect(unassigned.getByRole("button", { name: "查看整表" })).toBeVisible();
   });
@@ -2610,7 +4034,9 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
     await openPreview("missing-identity-column");
     await openItem("device:addr:49");
     await openTab("device_cfg");
-    await expect(page.locator(".diagnostic-note--navigation", { hasText: "变化行数未知" }).first()).toBeVisible();
+    await expect(
+      page.locator(".diagnostic-note--navigation", { hasText: "变化行数未知" }).first(),
+    ).toBeVisible();
   });
   await capture("fe4b-comment-only", async () => {
     await openPreview("comment-only");
@@ -2625,7 +4051,12 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
       await page.getByRole("button", { name: "提交", exact: true }).click();
       const dialog = page.getByRole("dialog");
       await dialog.getByRole("button", { name: "确认提交" }).click();
-      await expect(dialog.getByText("本次组态与基线一致，没有可提交的变更。注释等展示信息的变化不单独保存，将随下一次业务变化一起保存。", { exact: true })).toBeVisible();
+      await expect(
+        dialog.getByText(
+          "本次组态与基线一致，没有可提交的变更。注释等展示信息的变化不单独保存，将随下一次业务变化一起保存。",
+          { exact: true },
+        ),
+      ).toBeVisible();
     } finally {
       await page.unrouteAll({ behavior: "wait" });
       await installFixtureRoutes(page);
@@ -2653,7 +4084,10 @@ test("FE4b 业务导航、行定位与提示截图", async ({ page }) => {
 test("P3 二次装置范围：公共提示、定义变化、删除值、空点区间与未归属浏览", async ({ page }) => {
   test.setTimeout(300000);
   await installFixtureRoutes(page);
-  const shot = async (name: string) => { for (const width of [1920, 1280]) await screenshot(page, name, width); await page.setViewportSize({ width: 1920, height: 1080 }); };
+  const shot = async (name: string) => {
+    for (const width of [1920, 1280]) await screenshot(page, name, width);
+    await page.setViewportSize({ width: 1920, height: 1080 });
+  };
   const open = async (fixture: string, extra: Record<string, string> = {}) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto(browseUrl("PREVIEW", fixture, extra));
@@ -2664,8 +4098,12 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   // Public notices and definition changes stay reachable with differences only and empty tabs hidden.
   await open("ownership", { changed: "1" });
   const notices = page.locator(".public-notices");
-  await expect(notices.locator(".public-notice[data-table-id=device_st]")).toContainText("待定位风险：低风险");
-  await expect(notices.locator(".public-notice[data-table-id=device_st]")).toContainText("只修改了名称或描述");
+  await expect(notices.locator(".public-notice[data-table-id=device_st]")).toContainText(
+    "待定位风险：低风险",
+  );
+  await expect(notices.locator(".public-notice[data-table-id=device_st]")).toContainText(
+    "只修改了名称或描述",
+  );
   await expect(notices.locator(".public-notice[data-record-identity]")).toHaveCount(2);
   await expect(notices.getByRole("button", { name: /删除装置定义 · 地址 49/ })).toBeVisible();
   // A device with only the shared notice carries a neutral scope marker, never a personal risk badge.
@@ -2682,7 +4120,9 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   const registryTab = page.locator('.overflow-tabs button[data-tab-key="device_cfg"]');
   await expect(registryTab.locator(".scope-marker", { hasText: "归属变化" })).toBeVisible();
   await expect(registryTab.locator(".surface-change-badge")).toHaveCount(0);
-  await expect(page.locator('.overflow-tabs button[data-tab-key="device_st"] .surface-change-badge')).toHaveCount(0);
+  await expect(
+    page.locator('.overflow-tabs button[data-tab-key="device_st"] .surface-change-badge'),
+  ).toHaveCount(0);
   await registryTab.click();
   await expect(page.locator(".table-info")).toContainText("注册归属变化");
   await expect(page.locator(".table-info .surface-change-badge")).toHaveCount(0);
@@ -2690,11 +4130,17 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
 
   // EXACT local change beside incomplete risk.
   await open("ownership-risk-incomplete", { node: "device:addr:49", tab: "device_st" });
-  await expect(page.locator(".table-info[data-scope=LOCAL_EXACT]")).toContainText("移出本装置 1 行");
-  await expect(page.locator(".table-info .scope-marker", { hasText: "移出" }).first()).toBeVisible();
+  await expect(page.locator(".table-info[data-scope=LOCAL_EXACT]")).toContainText(
+    "移出本装置 1 行",
+  );
+  await expect(
+    page.locator(".table-info .scope-marker", { hasText: "移出" }).first(),
+  ).toBeVisible();
   await expect(page.locator(".table-info .surface-change-badge")).toHaveCount(0);
   await expect(page.locator(".table-info .risk-badge")).toHaveCount(1);
-  await expect(page.locator(".table-info .scope-marker--incomplete")).toContainText("风险信息不完整");
+  await expect(page.locator(".table-info .scope-marker--incomplete")).toContainText(
+    "风险信息不完整",
+  );
   await expect(item("device:addr:49").locator(".scope-marker--incomplete")).toBeVisible();
   await shot("p3-risk-incomplete");
 
@@ -2706,15 +4152,24 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   await shot("p3-pure-row-changes");
 
   // A blank delete interval is one summary row with its own interval risk.
-  await open("preview-full", { pair: "baseline_to_initial", node: "table:b1_n1_iec104_syx_list", tab: "table" });
+  await open("preview-full", {
+    pair: "baseline_to_initial",
+    node: "table:b1_n1_iec104_syx_list",
+    tab: "table",
+  });
   await page.getByRole("button", { name: /^风险原因/ }).click();
-  await expect(page.getByRole("dialog", { name: /^风险原因/ })).toContainText("删除了空点，需要复核。");
+  await expect(page.getByRole("dialog", { name: /^风险原因/ })).toContainText(
+    "删除了空点，需要复核。",
+  );
   await page.keyboard.press("Escape");
   await shot("p3-blank-interval");
 
   // Orphan browsing is bound to its table and side, survives a reload, and is dropped on another table.
   await open("ownership");
-  const orphanNote = page.locator(".diagnostic-note--navigation", { hasText: "改后侧" }).filter({ hasText: "dev_addr" }).first();
+  const orphanNote = page
+    .locator(".diagnostic-note--navigation", { hasText: "改后侧" })
+    .filter({ hasText: "dev_addr" })
+    .first();
   await expect(orphanNote).toBeVisible();
   await orphanNote.getByRole("button", { name: "浏览未归属行" }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBe("CURRENT");
@@ -2725,7 +4180,10 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   await expect(page.locator(".unassigned-banner")).toContainText("改后侧");
   await expect.poll(() => new URL(page.url()).searchParams.get("tab")).toBe("__whole__:device_st");
   // Switching side stays on the same table; "查看整表" of the same table leaves the orphan subset.
-  const beforeNote = page.locator(".diagnostic-note--navigation", { hasText: "改前侧" }).filter({ hasText: "dev_addr" }).first();
+  const beforeNote = page
+    .locator(".diagnostic-note--navigation", { hasText: "改前侧" })
+    .filter({ hasText: "dev_addr" })
+    .first();
   await beforeNote.getByRole("button", { name: "浏览未归属行" }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBe("BEFORE");
   await expect(page.locator(".unassigned-banner")).toContainText("改前侧");
@@ -2737,7 +4195,9 @@ test("P3 二次装置范围：公共提示、定义变化、删除值、空点�
   await expect(page.locator(".unassigned-banner")).toHaveCount(0);
   await orphanNote.getByRole("button", { name: "浏览未归属行" }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBe("CURRENT");
-  await page.locator(".public-notices .public-notice[data-table-id=device_st] .public-notice__title").click();
+  await page
+    .locator(".public-notices .public-notice[data-table-id=device_st] .public-notice__title")
+    .click();
   await expect.poll(() => new URL(page.url()).searchParams.get("unassigned")).toBeNull();
   await expect(page.locator(".unassigned-banner")).toHaveCount(0);
   await orphanNote.getByRole("button", { name: "浏览未归属行" }).click();
@@ -2763,30 +4223,47 @@ async function expectSidebarSticky(page: Page, label: string) {
       await expand.click();
       await page.waitForTimeout(300);
     }
-    const measure = () => page.evaluate(() => {
-      const rect = (selector: string) => {
-        const element = document.querySelector(selector);
-        if (!element) return null;
-        const box = element.getBoundingClientRect();
-        const computed = getComputedStyle(element);
-        return { top: box.top, bottom: box.bottom, cssTop: computed.top, cssHeight: computed.height };
-      };
-      const main = document.querySelector(".comparison-page");
-      return {
-        header: rect(".compare-header"),
-        sidebar: rect(".navigation-sidebar"),
-        innerHeight: window.innerHeight,
-        headerVar: main ? (main as HTMLElement).style.getPropertyValue("--compare-header-height") : "no-main",
-      };
-    });
+    const measure = () =>
+      page.evaluate(() => {
+        const rect = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const box = element.getBoundingClientRect();
+          const computed = getComputedStyle(element);
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            cssTop: computed.top,
+            cssHeight: computed.height,
+          };
+        };
+        const main = document.querySelector(".comparison-page");
+        return {
+          header: rect(".compare-header"),
+          sidebar: rect(".navigation-sidebar"),
+          innerHeight: window.innerHeight,
+          headerVar: main
+            ? (main as HTMLElement).style.getPropertyValue("--compare-header-height")
+            : "no-main",
+        };
+      });
     let metrics = await measure();
     const describe = () => JSON.stringify(metrics);
-    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 未滚动时侧栏底边超出视口 ${describe()}`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    expect(
+      metrics.sidebar?.bottom ?? Number.NaN,
+      `${label} w=${width} 未滚动时侧栏底边超出视口 ${describe()}`,
+    ).toBeLessThanOrEqual(metrics.innerHeight + 1);
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(400);
     metrics = await measure();
-    expect(metrics.sidebar?.top ?? Number.NaN, `${label} w=${width} 滚到底后侧栏顶边盖住顶栏 ${describe()}`).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
-    expect(metrics.sidebar?.bottom ?? Number.NaN, `${label} w=${width} 滚到底后侧栏底边超出视口 ${describe()}`).toBeLessThanOrEqual(metrics.innerHeight + 1);
+    expect(
+      metrics.sidebar?.top ?? Number.NaN,
+      `${label} w=${width} 滚到底后侧栏顶边盖住顶栏 ${describe()}`,
+    ).toBeGreaterThanOrEqual((metrics.header?.bottom ?? 0) - 1);
+    expect(
+      metrics.sidebar?.bottom ?? Number.NaN,
+      `${label} w=${width} 滚到底后侧栏底边超出视口 ${describe()}`,
+    ).toBeLessThanOrEqual(metrics.innerHeight + 1);
   }
 }
 
@@ -2804,7 +4281,10 @@ test("比较页侧栏随顶栏吸顶：跳转会话、审核与设备栏三场�
   await waitForBrowse(page);
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await page.getByRole("button", { name: "审核通过", exact: true }).click();
-  await page.getByRole("dialog", { name: "确认审核通过" }).getByRole("button", { name: "确认通过" }).click();
+  await page
+    .getByRole("dialog", { name: "确认审核通过" })
+    .getByRole("button", { name: "确认通过" })
+    .click();
   await expect(page.getByText("由 reviewer 于").first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator(".compare-header .breadcrumb__device")).toHaveCount(0);
   await expectSidebarSticky(page, "B-review-disposition");
@@ -2827,11 +4307,18 @@ const HANDOFF_SESSION = {
 } as const;
 
 function handoffHash(overrides: Record<string, unknown> = {}): string {
-  const encoded = Buffer.from(JSON.stringify({ ...HANDOFF_SESSION, ...overrides }), "utf8").toString("base64url");
+  const encoded = Buffer.from(
+    JSON.stringify({ ...HANDOFF_SESSION, ...overrides }),
+    "utf8",
+  ).toString("base64url");
   return `#gdds-handoff=${encoded}`;
 }
 
-async function gotoWithHandoff(page: Page, path = "/", overrides: Record<string, unknown> = {}): Promise<void> {
+async function gotoWithHandoff(
+  page: Page,
+  path = "/",
+  overrides: Record<string, unknown> = {},
+): Promise<void> {
   await page.goto(`${path}${handoffHash(overrides)}`);
 }
 
@@ -2843,14 +4330,23 @@ test("目录跳转片段被清除，工作台显示设备位置与返回目录",
   expect(new URL(page.url()).searchParams.get("from")).toBe("directory");
   const device = page.locator(".workspace-brand .device-context");
   await expect(device).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
-  await expect(page.locator(".workspace-brand .device-path")).toHaveAttribute("aria-label", "设备位置：华东 / 上海 / 示例项目（站-01）");
+  await expect(page.locator(".workspace-brand .device-path")).toHaveAttribute(
+    "aria-label",
+    "设备位置：华东 / 上海 / 示例项目（站-01）",
+  );
   // The device key span is replaced by the location in handoff sessions.
   await expect(page.locator(".workspace-brand > span:not(.device-context)")).toHaveCount(0);
   const returnLink = page.locator(".workspace-topbar__right .return-directory");
   await expect(returnLink).toHaveAttribute("href", HANDOFF_SESSION.return_url);
   await expect(returnLink).toHaveAttribute("title", "离开网关工作台，返回设备目录");
   expect(await page.evaluate(() => sessionStorage.getItem("gdds-gateway-session"))).not.toBeNull();
-  expect(await page.evaluate(() => (window as unknown as { __gatewaySession?: { accessToken?: string } }).__gatewaySession?.accessToken)).toBe("dir-token-e2e");
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __gatewaySession?: { accessToken?: string } }).__gatewaySession
+          ?.accessToken,
+    ),
+  ).toBe("dir-token-e2e");
   expect(apiRequests.length).toBeGreaterThan(0);
   expect(apiRequests.every((request) => request.token === "Bearer dir-token-e2e")).toBe(true);
   await screenshot(page, "workbench-device", 1280);
@@ -2889,14 +4385,19 @@ test("刷新后仍保留跳转会话", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
-  await expect(page.locator(".workspace-brand .device-context")).toHaveAttribute("title", "华东 / 上海 / 示例项目（站-01）");
+  await expect(page.locator(".workspace-brand .device-context")).toHaveAttribute(
+    "title",
+    "华东 / 上海 / 示例项目（站-01）",
+  );
   expect(new URL(page.url()).hash).toBe("");
 });
 
 test("新标签页没有会话时显示未选择设备且不发起 API 请求", async ({ browser }) => {
   const context = await browser.newContext({ baseURL: "http://127.0.0.1:5173" });
   await context.addInitScript(() => {
-    (window as unknown as { __gatewayTestConfig?: { disableDevIdentity?: boolean } }).__gatewayTestConfig = { disableDevIdentity: true };
+    (
+      window as unknown as { __gatewayTestConfig?: { disableDevIdentity?: boolean } }
+    ).__gatewayTestConfig = { disableDevIdentity: true };
   });
   const page = await context.newPage();
   const requests: string[] = [];
@@ -2950,7 +4451,9 @@ test("只有初始基线的设备显示尚无数据并保留上传入口", async
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   const note = page.locator(".workspace-table-scroll .tree-empty-note");
   await expect(note).toContainText("尚无数据");
-  await expect(note).toContainText("该设备只有初始基线。选择组态目录并上传后，即可提交第一次组态。");
+  await expect(note).toContainText(
+    "该设备只有初始基线。选择组态目录并上传后，即可提交第一次组态。",
+  );
   await expect(page.getByRole("heading", { name: "上传组态目录" })).toBeVisible();
   await screenshot(page, "workbench-no-data", 1920);
   // 回到 1280 时详情面板按窄视口折叠，尚无数据提示仍在表格下方。
@@ -2964,20 +4467,27 @@ test("长设备名称只收缩项目名，站号不截断且页面不溢出", as
   const display = {
     region1: "内蒙古自治区呼伦贝尔市",
     region2: "鄂温克族自治旗",
-    project_name: "城南110kV变电站二期扩建及配套送出工程自动化与通信系统联合调试组态数据归档包及验收说明与竣工资料移交清单",
+    project_name:
+      "城南110kV变电站二期扩建及配套送出工程自动化与通信系统联合调试组态数据归档包及验收说明与竣工资料移交清单",
     station_code: "SZ-0142",
   };
   await installFixtureRoutes(page, {});
   await gotoWithHandoff(page, "/", { display });
   await expect(page.getByRole("heading", { name: "组态树" })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 1080 });
-  await expect(page.locator(".workspace-brand .device-context"))
-    .toHaveAttribute("title", `${display.region1} / ${display.region2} / ${display.project_name}（${display.station_code}）`);
+  await expect(page.locator(".workspace-brand .device-context")).toHaveAttribute(
+    "title",
+    `${display.region1} / ${display.region2} / ${display.project_name}（${display.station_code}）`,
+  );
   const project = page.locator(".workspace-brand .device-path__project");
   const station = page.locator(".workspace-brand .device-path__station");
   expect(await project.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  expect(await station.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  expect(await station.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+    true,
+  );
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+  ).toBe(true);
 });
 
 test("未接入设备的工作区启动显示设备目录指引且入口404不自动重试", async ({ page }) => {
@@ -2985,10 +4495,17 @@ test("未接入设备的工作区启动显示设备目录指引且入口404不�
   let starts = 0;
   await page.route("**/v1/workspaces", async (route) => {
     starts += 1;
-    await route.fulfill({ status: 404, contentType: "application/json", headers: { "X-Gateway-Entry-Rejection": "route-not-loaded" }, body: JSON.stringify({ code: "RESOURCE_NOT_FOUND", message: "missing" }) });
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      headers: { "X-Gateway-Entry-Rejection": "route-not-loaded" },
+      body: JSON.stringify({ code: "RESOURCE_NOT_FOUND", message: "missing" }),
+    });
   });
   await page.goto("/");
-  await expect(page.locator(".error-state__description")).toHaveText("当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。");
+  await expect(page.locator(".error-state__description")).toHaveText(
+    "当前设备未接入网关或暂不可用，请从设备目录重新进入或联系管理员。",
+  );
   const observed = starts;
   await page.waitForTimeout(300);
   expect(starts).toBe(observed);
@@ -2996,14 +4513,16 @@ test("未接入设备的工作区启动显示设备目录指引且入口404不�
   await screenshot(page, "s2b-device-unavailable", 1920);
 });
 
-
-test("Preview cache reopens only after current metadata authorization and ignores URL digest", async ({ page }) => {
+test("Preview cache reopens only after current metadata authorization and ignores URL digest", async ({
+  page,
+}) => {
   const { requests, apiRequests } = await installFixtureRoutes(page);
   await gotoWithHandoff(page, browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   const downloads = requests.get("preview-full");
   expect(downloads).toBe(1);
-  const metadataReads = () => apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1"));
+  const metadataReads = () =>
+    apiRequests.filter((request) => request.path.endsWith("/preview-results/preview-1"));
   expect(metadataReads()).toHaveLength(1);
   await page.reload();
   await waitForBrowse(page);
@@ -3020,8 +4539,14 @@ test("Preview cache reopens only after current metadata authorization and ignore
   await expect(page.locator(".compare-more__bundle")).toContainText(fixture.manifest.bundle_digest);
 });
 
-for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [404, "RESOURCE_NOT_FOUND", true], [401, "AUTHENTICATION_REQUIRED", true]] as const) {
-  test(`Preview cache rejects metadata ${status} before exposing an installed bundle`, async ({ page }) => {
+for (const [status, code, changeIdentity] of [
+  [403, "SCOPE_FORBIDDEN", false],
+  [404, "RESOURCE_NOT_FOUND", true],
+  [401, "AUTHENTICATION_REQUIRED", true],
+] as const) {
+  test(`Preview cache rejects metadata ${status} before exposing an installed bundle`, async ({
+    page,
+  }) => {
     const { requests } = await installFixtureRoutes(page);
     await gotoWithHandoff(page, browseUrl("PREVIEW", "preview-full"));
     await waitForBrowse(page);
@@ -3030,14 +4555,24 @@ for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [
     let deniedReads = 0;
     await page.route(/\/v1\/workspaces\/[^/]+\/preview-results\/[^/]+$/, async (route) => {
       deniedReads += 1;
-      expect(route.request().headers()["authorization"]).toBe(changeIdentity ? "Bearer new-cache-scope" : "Bearer dir-token-e2e");
-      await route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ code, message: "current session cannot read this preview" }) });
+      expect(route.request().headers()["authorization"]).toBe(
+        changeIdentity ? "Bearer new-cache-scope" : "Bearer dir-token-e2e",
+      );
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify({ code, message: "current session cannot read this preview" }),
+      });
     });
     if (changeIdentity) {
       const url = new URL(page.url());
-      await gotoWithHandoff(page, url.pathname + url.search, { token: "new-cache-scope", gateway_device_external_key: "new-cache-device" });
+      await gotoWithHandoff(page, url.pathname + url.search, {
+        token: "new-cache-scope",
+        gateway_device_external_key: "new-cache-device",
+      });
     } else await page.reload();
-    if (status === 401) await expect(page.getByText("会话无效或已过期，请从设备目录重新进入")).toBeVisible();
+    if (status === 401)
+      await expect(page.getByText("会话无效或已过期，请从设备目录重新进入")).toBeVisible();
     else await expect(page.locator(".compare-error")).toContainText(code);
     await expect(page.locator(".grid-frame")).toHaveCount(0);
     expect(deniedReads).toBe(1);
@@ -3045,16 +4580,23 @@ for (const [status, code, changeIdentity] of [[403, "SCOPE_FORBIDDEN", false], [
   });
 }
 
-
-test("D review opens fixed FULL pairs with independent counts and defaults to original-to-modified", async ({ page }) => {
+test("D review opens fixed FULL pairs with independent counts and defaults to original-to-modified", async ({
+  page,
+}) => {
   const hold = deferred();
-  const options = { reviewFixture: "preview-full", reviewResultHold: hold.promise as Promise<void> | undefined, reviewResultHoldAfter: 2 };
+  const options = {
+    reviewFixture: "preview-full",
+    reviewResultHold: hold.promise as Promise<void> | undefined,
+    reviewResultHoldAfter: 2,
+  };
   const observed = await installFixtureRoutes(page, options);
   const initialUrl = browseUrl("REVIEW", "preview-full");
   expect(initialUrl).not.toContain("bundle=");
   await page.goto(initialUrl);
   try {
-    await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBe(2);
+    await expect
+      .poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length)
+      .toBe(2);
     expect(new URL(page.url()).searchParams.get("bundle")).toBeTruthy();
     for (const width of [1920, 1280]) await screenshot(page, "d-review-rechecking", width);
     await expect(page.locator(".compare-workspace")).toBeVisible({ timeout: 1500 });
@@ -3065,11 +4607,17 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
   }
   await waitForBrowse(page);
   await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeEnabled();
-  const beforeIdentityChange = observed.apiRequests.filter((request) => request.path.endsWith("/result")).length;
+  const beforeIdentityChange = observed.apiRequests.filter((request) =>
+    request.path.endsWith("/result"),
+  ).length;
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
-  await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThan(beforeIdentityChange);
+  await expect
+    .poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length)
+    .toBeGreaterThan(beforeIdentityChange);
   await waitForBrowse(page);
-  expect(observed.apiRequests.filter((request) => request.path.endsWith("/result")).at(-1)?.token).toBe("Bearer dev-token-reviewer");
+  expect(
+    observed.apiRequests.filter((request) => request.path.endsWith("/result")).at(-1)?.token,
+  ).toBe("Bearer dev-token-reviewer");
   const views = page.getByRole("tablist", { name: "比较视图" });
   const modified = views.getByRole("tab", { name: /^本次组态视图/ });
   const baseline = views.getByRole("tab", { name: /^原始组态视图/ });
@@ -3081,8 +4629,12 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
     const tab = pair.pair_id === "baseline_to_initial" ? baseline : modified;
     await page.locator(".compare-more > summary").click();
     const summary = page.locator(`[data-pair-summary="${pair.pair_id}"]`);
-    await expect(summary).toContainText(`变化表 ${pair.summary.changed_table_count}/${pair.summary.table_count}`);
-    await expect(summary).toContainText(`逐行 +${pair.summary.row_added_count} / ~${pair.summary.row_modified_count} / −${pair.summary.row_deleted_count}`);
+    await expect(summary).toContainText(
+      `变化表 ${pair.summary.changed_table_count}/${pair.summary.table_count}`,
+    );
+    await expect(summary).toContainText(
+      `逐行 +${pair.summary.row_added_count} / ~${pair.summary.row_modified_count} / −${pair.summary.row_deleted_count}`,
+    );
     if (pair.pair_id === "baseline_to_initial") {
       await screenshot(page, "d-review-pair-statistics", 1920);
       await screenshot(page, "d-review-pair-statistics", 1280);
@@ -3100,8 +4652,12 @@ test("D review opens fixed FULL pairs with independent counts and defaults to or
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
   await expect(baseline).toHaveAttribute("aria-selected", "true");
-  expect(observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThanOrEqual(2);
-  expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+  expect(
+    observed.apiRequests.filter((request) => request.path.endsWith("/result")).length,
+  ).toBeGreaterThanOrEqual(2);
+  expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(
+    false,
+  );
   expect(observed.requests.get("preview-full")).toBe(1);
 });
 
@@ -3115,21 +4671,40 @@ test("D review MODIFIED_ONLY exposes its one fixed pair", async ({ page }) => {
   expect(new URL(page.url()).searchParams.get("pair")).toBe("initial_to_modified");
   await screenshot(page, "d-review-modified-only", 1920);
   await screenshot(page, "d-review-modified-only", 1280);
-  expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+  expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(
+    false,
+  );
 });
 
-for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE", "SCOPE_FORBIDDEN"] as const) {
-  for (const { firstOpen, download } of [{ firstOpen: false, download: false }, { firstOpen: true, download: false }, { firstOpen: true, download: true }]) {
-    test(`D review ${download ? "first download" : firstOpen ? "first open" : "cached result"} preserves server ${code} and offers re-read`, async ({ page }) => {
-      const options: { reviewResultError?: typeof code; reviewBundleError?: typeof code; reviewVersion?: number } = {
+for (const code of [
+  "SUBMISSION_RESULT_UNAVAILABLE",
+  "SUBMISSION_RESULT_INTEGRITY_FAILURE",
+  "SCOPE_FORBIDDEN",
+] as const) {
+  for (const { firstOpen, download } of [
+    { firstOpen: false, download: false },
+    { firstOpen: true, download: false },
+    { firstOpen: true, download: true },
+  ]) {
+    test(`D review ${download ? "first download" : firstOpen ? "first open" : "cached result"} preserves server ${code} and offers re-read`, async ({
+      page,
+    }) => {
+      const options: {
+        reviewResultError?: typeof code;
+        reviewBundleError?: typeof code;
+        reviewVersion?: number;
+      } = {
         reviewResultError: firstOpen && !download ? code : undefined,
-        reviewBundleError: download ? code : undefined, reviewVersion: firstOpen ? 9 : 5,
+        reviewBundleError: download ? code : undefined,
+        reviewVersion: firstOpen ? 9 : 5,
       };
       const observed = await installFixtureRoutes(page, options);
       await page.goto(browseUrl("REVIEW", "preview-full"));
       if (!firstOpen) await waitForBrowse(page);
       const ownWithdraw = firstOpen && code === "SUBMISSION_RESULT_INTEGRITY_FAILURE";
-      await page.getByRole("combobox", { name: "模拟身份" }).selectOption(ownWithdraw ? "submitter" : "reviewer");
+      await page
+        .getByRole("combobox", { name: "模拟身份" })
+        .selectOption(ownWithdraw ? "submitter" : "reviewer");
       if (!firstOpen) {
         await waitForBrowse(page);
         options.reviewResultError = code;
@@ -3139,19 +4714,40 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
       await expect(page.locator(".compare-workspace")).toHaveCount(0);
       const allowed = code !== "SCOPE_FORBIDDEN";
       await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
-      if (allowed) await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
+      if (allowed)
+        await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
       else await expect(page.locator(".review-actions button:enabled")).toHaveCount(0);
-      const title = code === "SUBMISSION_RESULT_UNAVAILABLE" ? "提交绑定的比较结果不可用"
-        : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE" ? "提交绑定的比较结果完整性校验失败" : "当前身份没有该操作的权限";
-      await expect(page.locator(".compare-error").getByRole("heading", { name: title, exact: true })).toBeVisible();
-      for (const width of [1920, 1280]) await screenshot(page, `d-review-${download ? "download" : firstOpen ? "first" : "cached"}-error-${code.toLowerCase()}`, width);
+      const title =
+        code === "SUBMISSION_RESULT_UNAVAILABLE"
+          ? "提交绑定的比较结果不可用"
+          : code === "SUBMISSION_RESULT_INTEGRITY_FAILURE"
+            ? "提交绑定的比较结果完整性校验失败"
+            : "当前身份没有该操作的权限";
+      await expect(
+        page.locator(".compare-error").getByRole("heading", { name: title, exact: true }),
+      ).toBeVisible();
+      for (const width of [1920, 1280])
+        await screenshot(
+          page,
+          `d-review-${download ? "download" : firstOpen ? "first" : "cached"}-error-${code.toLowerCase()}`,
+          width,
+        );
       if (allowed) {
         await page.getByRole("button", { name: "退回", exact: true }).click();
         const reject = page.getByRole("dialog", { name: "退回提交" });
-        await expect(reject).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}），退回后提交人需重新上传`);
+        await expect(reject).toContainText(
+          `提交绑定的比较结果无法读取（错误码 ${code}），退回后提交人需重新上传`,
+        );
         await expect(reject.getByRole("button", { name: "确认退回" })).toBeDisabled();
-        await reject.getByRole("textbox", { name: "退回理由" }).fill(`结果无法读取：${code}，请重新上传`);
-        for (const width of [1920, 1280]) await screenshot(page, `d-review-${download ? "download" : firstOpen ? "first" : "cached"}-reject-${code.toLowerCase()}`, width);
+        await reject
+          .getByRole("textbox", { name: "退回理由" })
+          .fill(`结果无法读取：${code}，请重新上传`);
+        for (const width of [1920, 1280])
+          await screenshot(
+            page,
+            `d-review-${download ? "download" : firstOpen ? "first" : "cached"}-reject-${code.toLowerCase()}`,
+            width,
+          );
         if (firstOpen && !ownWithdraw) {
           await reject.getByRole("button", { name: "确认退回" }).click();
           await expect(page.getByText("审核：已退回", { exact: true })).toBeVisible();
@@ -3159,15 +4755,24 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
         if (ownWithdraw) {
           await page.getByRole("button", { name: "撤回", exact: true }).click();
           const withdraw = page.getByRole("dialog", { name: "撤回提交" });
-          await expect(withdraw).toContainText(`提交绑定的比较结果无法读取（错误码 ${code}），撤回后提交人需重新上传`);
-          for (const width of [1920, 1280]) await screenshot(page, `d-review-${download ? "download" : "first"}-withdraw-${code.toLowerCase()}`, width);
+          await expect(withdraw).toContainText(
+            `提交绑定的比较结果无法读取（错误码 ${code}），撤回后提交人需重新上传`,
+          );
+          for (const width of [1920, 1280])
+            await screenshot(
+              page,
+              `d-review-${download ? "download" : "first"}-withdraw-${code.toLowerCase()}`,
+              width,
+            );
           await expect(withdraw.getByRole("button", { name: "确认撤回" })).toBeDisabled();
           await withdraw.getByRole("checkbox").check();
           await withdraw.getByRole("button", { name: "确认撤回" }).click();
           await expect(page.getByText("审核：已撤回", { exact: true })).toBeVisible();
         }
         if (firstOpen) {
-          const posts = observed.apiRequests.filter((request) => request.path.endsWith("/review-events"));
+          const posts = observed.apiRequests.filter((request) =>
+            request.path.endsWith("/review-events"),
+          );
           expect(posts).toHaveLength(1);
           const body = JSON.parse(posts[0]!.body);
           expect(body.action).toBe(ownWithdraw ? "WITHDRAW" : "REJECT");
@@ -3179,18 +4784,27 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
       }
       options.reviewResultError = undefined;
       options.reviewBundleError = undefined;
-      const beforeRetry = observed.apiRequests.filter((request) => request.path.endsWith("/result")).length;
+      const beforeRetry = observed.apiRequests.filter((request) =>
+        request.path.endsWith("/result"),
+      ).length;
       await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
-      await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThan(beforeRetry);
+      await expect
+        .poll(
+          () => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length,
+        )
+        .toBeGreaterThan(beforeRetry);
       await waitForBrowse(page);
       expect(observed.requests.get("preview-full")).toBe(1);
-      expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+      expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(
+        false,
+      );
     });
   }
 }
 
-
-test("D review formula retains the accepted Preview rendering and clicked point", async ({ page }) => {
+test("D review formula retains the accepted Preview rendering and clicked point", async ({
+  page,
+}) => {
   const observed = await installFixtureRoutes(page, { reviewFixture: "preview-full" });
   const openFormula = async () => {
     await waitForBrowse(page);
@@ -3211,14 +4825,26 @@ test("D review formula retains the accepted Preview rendering and clicked point"
   await expect(review.locator(".formula-card")).toHaveText(text, { useInnerText: true });
   await screenshot(page, "d-review-formula", 1920);
   await screenshot(page, "d-review-formula", 1280);
-  expect(observed.apiRequests.slice(reviewStart).some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+  expect(
+    observed.apiRequests
+      .slice(reviewStart)
+      .some((request) => request.path.startsWith("/v1/history")),
+  ).toBe(false);
 });
 
-
-for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRITY_FAILURE"] as const) {
-  test(`D P2 conflict refresh invalidates cached approval when result becomes ${code}`, async ({ page }) => {
-    const options: { reviewConflict?: "REVIEW_VERSION_CONFLICT"; reviewResultError?: typeof code;
-      reviewResultHold?: Promise<void>; reviewVersion?: number } = { reviewConflict: "REVIEW_VERSION_CONFLICT" };
+for (const code of [
+  "SUBMISSION_RESULT_UNAVAILABLE",
+  "SUBMISSION_RESULT_INTEGRITY_FAILURE",
+] as const) {
+  test(`D P2 conflict refresh invalidates cached approval when result becomes ${code}`, async ({
+    page,
+  }) => {
+    const options: {
+      reviewConflict?: "REVIEW_VERSION_CONFLICT";
+      reviewResultError?: typeof code;
+      reviewResultHold?: Promise<void>;
+      reviewVersion?: number;
+    } = { reviewConflict: "REVIEW_VERSION_CONFLICT" };
     const observed = await installFixtureRoutes(page, options);
     await page.goto(browseUrl("REVIEW", "preview-full"));
     await waitForBrowse(page);
@@ -3229,22 +4855,34 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     const dialog = page.getByRole("dialog", { name: "确认审核通过" });
     await dialog.getByRole("button", { name: "确认通过" }).click();
     await expect(dialog.getByText("REVIEW_VERSION_CONFLICT")).toBeVisible();
-    const before = observed.apiRequests.filter((request) => request.path.endsWith("/result")).length;
+    const before = observed.apiRequests.filter((request) =>
+      request.path.endsWith("/result"),
+    ).length;
     const hold = deferred();
     options.reviewVersion = 6;
     options.reviewResultError = code;
     options.reviewResultHold = hold.promise;
     await dialog.getByRole("button", { name: "刷新审核信息" }).click();
     try {
-      await expect(dialog.getByRole("button", { name: "确认通过" })).toBeDisabled({ timeout: 1500 });
-      await expect.poll(() => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length).toBeGreaterThan(before);
+      await expect(dialog.getByRole("button", { name: "确认通过" })).toBeDisabled({
+        timeout: 1500,
+      });
+      await expect
+        .poll(
+          () => observed.apiRequests.filter((request) => request.path.endsWith("/result")).length,
+        )
+        .toBeGreaterThan(before);
       await expect(page.locator(".compare-workspace")).toHaveCount(0);
-    } finally { hold.resolve(); }
+    } finally {
+      hold.resolve();
+    }
     await expect(page.locator(".compare-error")).toContainText(code);
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole("button", { name: "审核通过", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "退回", exact: true })).toBeEnabled();
-    expect(observed.apiRequests.filter((request) => request.path.endsWith("/review-events"))).toHaveLength(1);
+    expect(
+      observed.apiRequests.filter((request) => request.path.endsWith("/review-events")),
+    ).toHaveLength(1);
     await screenshot(page, `d-p2-conflict-${code.toLowerCase()}`, 1920);
     await screenshot(page, `d-p2-conflict-${code.toLowerCase()}`, 1280);
     options.reviewResultError = undefined;
@@ -3253,18 +4891,25 @@ for (const code of ["SUBMISSION_RESULT_UNAVAILABLE", "SUBMISSION_RESULT_INTEGRIT
     await page.locator(".compare-error").getByRole("button", { name: "重试" }).click();
     await waitForBrowse(page);
     await page.getByRole("button", { name: "审核通过", exact: true }).click();
-    await page.getByRole("dialog", { name: "确认审核通过" }).getByRole("button", { name: "确认通过" }).click();
+    await page
+      .getByRole("dialog", { name: "确认审核通过" })
+      .getByRole("button", { name: "确认通过" })
+      .click();
     await expect(page.getByText("审核：已通过")).toBeVisible();
     const posts = observed.apiRequests.filter((request) => request.path.endsWith("/review-events"));
     expect(posts).toHaveLength(2);
     expect(JSON.parse(posts[1]!.body).expected_review_version).toBe(6);
     expect(posts[1]!.idempotencyKey).not.toBe(posts[0]!.idempotencyKey);
-    expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+    expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(
+      false,
+    );
   });
 }
 
 for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
-  test(`F backend empty markers keep ${mode} item summaries and counts stable when expanded`, async ({ page }) => {
+  test(`F backend empty markers keep ${mode} item summaries and counts stable when expanded`, async ({
+    page,
+  }) => {
     const fixture = mode === "HISTORY" ? "history-three-nodes" : "table-addition";
     const observed = await installFixtureRoutes(page, { reviewFixture: fixture });
     await page.setViewportSize({ width: 1920, height: 1080 });
@@ -3273,14 +4918,17 @@ for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
     await page.getByRole("button", { name: "全部", exact: true }).click();
     const expand = page.getByRole("button", { name: "展开导航" });
     if (await expand.isVisible()) await expand.click();
-    const group = page.locator(".nav-group").filter({ has: page.locator(".nav-group__label", { hasText: "二次装置列表" }) });
+    const group = page
+      .locator(".nav-group")
+      .filter({ has: page.locator(".nav-group__label", { hasText: "二次装置列表" }) });
     const count = group.locator('.nav-group__heading small[title="非空项"]');
     const expected = mode === "HISTORY" ? "2" : "1";
     const key = mode === "HISTORY" ? "device:addr:4" : "device:addr:49";
     const emptyItem = page.locator(`.nav-item[data-item-key="${key}"]`);
     await expect(emptyItem).toHaveCount(0);
     await expect(count).toHaveText(expected);
-    for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-default`, width);
+    for (const width of [1920, 1280])
+      await screenshot(page, `f-${mode.toLowerCase()}-empty-default`, width);
     await page.locator(".compare-more > summary").click();
     await page.getByRole("checkbox", { name: /显示空页签/ }).check();
     await page.locator(".compare-more > summary").click();
@@ -3296,33 +4944,49 @@ for (const mode of ["PREVIEW", "HISTORY", "REVIEW"] as const) {
       await expect(page.locator(".table-info .risk-badge")).toHaveCount(0);
       await expect(page.getByRole("button", { name: "表公共提示" })).toBeVisible();
     }
-    for (const width of [1920, 1280]) await screenshot(page, `f-${mode.toLowerCase()}-empty-expanded`, width);
+    for (const width of [1920, 1280])
+      await screenshot(page, `f-${mode.toLowerCase()}-empty-expanded`, width);
     await page.locator(".compare-more > summary").click();
     await page.getByRole("checkbox", { name: /显示空页签/ }).uncheck();
     await page.locator(".compare-more > summary").click();
     await expect(emptyItem).toHaveCount(0);
     await expect(count).toHaveText(expected);
-    await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") })).toEqual({ node: "device:table", tab: "table" });
+    await expect
+      .poll(() => ({
+        node: new URL(page.url()).searchParams.get("node"),
+        tab: new URL(page.url()).searchParams.get("tab"),
+      }))
+      .toEqual({ node: "device:table", tab: "table" });
     await expect(page.locator('.nav-item[data-item-key="device:table"]')).toHaveClass(/is-active/);
-    if (mode === "REVIEW") expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(false);
+    if (mode === "REVIEW")
+      expect(observed.apiRequests.some((request) => request.path.startsWith("/v1/history"))).toBe(
+        false,
+      );
   });
 }
 
-test("F structure tabs stay visible and existing unknown tab counts stay unknown", async ({ page }) => {
+test("F structure tabs stay visible and existing unknown tab counts stay unknown", async ({
+  page,
+}) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "schema-keyless"));
   await waitForBrowse(page);
-  const structuralItem = page.locator('.nav-item[data-item-key="device:addr:49"] .nav-item__button');
+  const structuralItem = page.locator(
+    '.nav-item[data-item-key="device:addr:49"] .nav-item__button',
+  );
   await expect(structuralItem).toBeVisible();
   await structuralItem.click();
   for (const width of [1920, 1280]) await screenshot(page, "f-original-structure-nonempty", width);
-  await page.goto(browseUrl("PREVIEW", "missing-identity-column", { node: "device:addr:49", tab: "device_cfg" }));
+  await page.goto(
+    browseUrl("PREVIEW", "missing-identity-column", { node: "device:addr:49", tab: "device_cfg" }),
+  );
   await waitForBrowse(page);
-  await expect(page.locator(".table-info__counts", { hasText: "本页" })).toHaveText("本页 — → 0 行");
+  await expect(page.locator(".table-info__counts", { hasText: "本页" })).toHaveText(
+    "本页 — → 0 行",
+  );
   for (const width of [1920, 1280]) await screenshot(page, "f-existing-side-count-unknown", width);
 });
-
 
 for (const mode of ["PREVIEW", "REVIEW"] as const) {
   for (const target of [
@@ -3338,38 +5002,91 @@ for (const mode of ["PREVIEW", "REVIEW"] as const) {
       await page.getByRole("checkbox", { name: /显示空页签/ }).check();
       await page.locator(".compare-more > summary").click();
       await page.locator(`.nav-item[data-item-key="${target.node}"] .nav-item__button`).click();
-      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") })).toEqual({ node: target.node, tab: target.tab });
+      await expect
+        .poll(() => ({
+          node: new URL(page.url()).searchParams.get("node"),
+          tab: new URL(page.url()).searchParams.get("tab"),
+        }))
+        .toEqual({ node: target.node, tab: target.tab });
       await page.reload();
       await waitForBrowse(page);
-      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 }).toEqual({ node: target.node, tab: target.tab });
-      await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveAttribute("data-tab-key", target.tab);
+      await expect
+        .poll(
+          () => ({
+            node: new URL(page.url()).searchParams.get("node"),
+            tab: new URL(page.url()).searchParams.get("tab"),
+          }),
+          { timeout: 2000 },
+        )
+        .toEqual({ node: target.node, tab: target.tab });
+      await expect(page.locator(".overflow-tabs [aria-selected=true]")).toHaveAttribute(
+        "data-tab-key",
+        target.tab,
+      );
       // A whole-table tab shows the table's own risk; a device tab only its located risk (none here) beside the public notice.
-      await expect(page.locator(".table-info .risk-badge")).toHaveCount(target.label === "whole" ? 1 : 0);
-      if (target.label === "filtered") await expect(page.getByRole("button", { name: "表公共提示" })).toBeVisible();
-      for (const width of [1920, 1280]) await screenshot(page, `f-url-${mode.toLowerCase()}-${target.label}-restored`, width);
+      await expect(page.locator(".table-info .risk-badge")).toHaveCount(
+        target.label === "whole" ? 1 : 0,
+      );
+      if (target.label === "filtered")
+        await expect(page.getByRole("button", { name: "表公共提示" })).toBeVisible();
+      for (const width of [1920, 1280])
+        await screenshot(page, `f-url-${mode.toLowerCase()}-${target.label}-restored`, width);
       // Explicitly expand then hide: the URL must move to a visible item.
       const toggle = page.locator(".overflow-tabs__empty-toggle");
-      if (await toggle.getAttribute("aria-pressed") === "false") await toggle.click();
+      if ((await toggle.getAttribute("aria-pressed")) === "false") await toggle.click();
       await toggle.click();
-      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") })).toEqual({ node: "device:table", tab: "table" });
-      await expect(page.locator('.nav-item[data-item-key="device:table"]')).toHaveClass(/is-active/);
+      await expect
+        .poll(() => ({
+          node: new URL(page.url()).searchParams.get("node"),
+          tab: new URL(page.url()).searchParams.get("tab"),
+        }))
+        .toEqual({ node: "device:table", tab: "table" });
+      await expect(page.locator('.nav-item[data-item-key="device:table"]')).toHaveClass(
+        /is-active/,
+      );
     });
   }
 }
 
 for (const scenario of [
-  { label: "invalid tab stays in its valid item", fixture: "table-addition", node: "device:addr:49", tab: "table", expectedNode: "device:addr:49", expectedTab: "device_st" },
-  { label: "invalid item does not adopt another shared tab", fixture: "missing-identity-column", node: "missing-node", tab: "device_cfg", expectedNode: "device:table", expectedTab: "table" },
+  {
+    label: "invalid tab stays in its valid item",
+    fixture: "table-addition",
+    node: "device:addr:49",
+    tab: "table",
+    expectedNode: "device:addr:49",
+    expectedTab: "device_st",
+  },
+  {
+    label: "invalid item does not adopt another shared tab",
+    fixture: "missing-identity-column",
+    node: "missing-node",
+    tab: "device_cfg",
+    expectedNode: "device:table",
+    expectedTab: "table",
+  },
 ]) {
   test(`F navigation URL fallback ${scenario.label}`, async ({ page }) => {
     await installFixtureRoutes(page);
-    await page.goto(browseUrl("PREVIEW", scenario.fixture, { node: scenario.node, tab: scenario.tab }));
+    await page.goto(
+      browseUrl("PREVIEW", scenario.fixture, { node: scenario.node, tab: scenario.tab }),
+    );
     await waitForBrowse(page);
-    await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 }).toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
+    await expect
+      .poll(
+        () => ({
+          node: new URL(page.url()).searchParams.get("node"),
+          tab: new URL(page.url()).searchParams.get("tab"),
+        }),
+        { timeout: 2000 },
+      )
+      .toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
   });
 }
 
-test("F all-empty pair exposes a discoverable selected tab and expansion control", async ({ page }) => {
+test("F all-empty pair exposes a discoverable selected tab and expansion control", async ({
+  page,
+}) => {
   await installFixtureRoutes(page);
   await page.goto(browseUrl("PREVIEW", "empty-tabs"));
   await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
@@ -3382,19 +5099,24 @@ test("F all-empty pair exposes a discoverable selected tab and expansion control
   for (const width of [1920, 1280]) await screenshot(page, "f-all-empty-pair", width);
 });
 
-
-test("F filtered navigation counts reflect search and local differences; public table scope stays in notices", async ({ page }) => {
+test("F filtered navigation counts reflect search and local differences; public table scope stays in notices", async ({
+  page,
+}) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "schema-keyless"));
   await waitForBrowse(page);
-  const group = page.locator(".nav-group").filter({ has: page.locator(".nav-group__label", { hasText: "二次装置列表" }) });
+  const group = page
+    .locator(".nav-group")
+    .filter({ has: page.locator(".nav-group__label", { hasText: "二次装置列表" }) });
   const count = group.locator('.nav-group__heading small[title="非空项"]');
   await expect(count).toHaveText("3");
   await page.getByRole("button", { name: "仅看差异", exact: true }).click();
   // device_st only has a table-level (structural) fact: it is public, so no device item keeps it as its own difference.
   await expect(group).toHaveCount(0);
-  await expect(page.locator(".public-notices .public-notice[data-table-id=device_st]")).toContainText("整表发生表级变化");
+  await expect(
+    page.locator(".public-notices .public-notice[data-table-id=device_st]"),
+  ).toContainText("整表发生表级变化");
   for (const width of [1920, 1280]) await screenshot(page, "f-filtered-scope-count", width);
   await page.getByRole("button", { name: "全部", exact: true }).click();
   await expect(count).toHaveText("3");
@@ -3409,14 +5131,34 @@ test("F filtered navigation counts reflect search and local differences; public 
 });
 
 const EMPTY_TAB_SEARCH_CASES = [
-  { label: "item search", query: "复合信号", expectedNode: "device:composite", expectedTab: "table", visibleKeys: ["device:composite"] },
-  { label: "group search", query: "二次装置列表", expectedNode: "device:table", expectedTab: "table", visibleKeys: ["device:table", "device:composite"] },
-  { label: "no search results", query: "不存在的导航项", expectedNode: "device:table", expectedTab: "table", visibleKeys: [] },
+  {
+    label: "item search",
+    query: "复合信号",
+    expectedNode: "device:composite",
+    expectedTab: "table",
+    visibleKeys: ["device:composite"],
+  },
+  {
+    label: "group search",
+    query: "二次装置列表",
+    expectedNode: "device:table",
+    expectedTab: "table",
+    visibleKeys: ["device:table", "device:composite"],
+  },
+  {
+    label: "no search results",
+    query: "不存在的导航项",
+    expectedNode: "device:table",
+    expectedTab: "table",
+    visibleKeys: [],
+  },
 ] as const;
 
 for (const scenario of EMPTY_TAB_SEARCH_CASES) {
   for (const onlyInteresting of [false, true]) {
-    test(`F hiding empty tab respects ${scenario.label} with ${onlyInteresting ? "differences" : "all"}`, async ({ page }) => {
+    test(`F hiding empty tab respects ${scenario.label} with ${onlyInteresting ? "differences" : "all"}`, async ({
+      page,
+    }) => {
       await installFixtureRoutes(page);
       await page.setViewportSize({ width: 1920, height: 1080 });
       await page.goto(browseUrl("HISTORY", "history-three-nodes", { pair: "left_to_middle" }));
@@ -3426,26 +5168,46 @@ for (const scenario of EMPTY_TAB_SEARCH_CASES) {
       await page.locator(".compare-more > summary").click();
       await page.locator('.nav-item[data-item-key="device:addr:4"] .nav-item__button').click();
       await page.getByRole("textbox", { name: "搜索组、节点或页签" }).fill(scenario.query);
-      if (onlyInteresting) await page.getByRole("button", { name: "仅看差异", exact: true }).click();
+      if (onlyInteresting)
+        await page.getByRole("button", { name: "仅看差异", exact: true }).click();
       await expect.poll(() => new URL(page.url()).searchParams.get("node")).toBe("device:addr:4");
       await page.locator(".overflow-tabs__empty-toggle").click();
-      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }), { timeout: 2000 })
+      await expect
+        .poll(
+          () => ({
+            node: new URL(page.url()).searchParams.get("node"),
+            tab: new URL(page.url()).searchParams.get("tab"),
+          }),
+          { timeout: 2000 },
+        )
         .toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
       await expect(page.locator(".nav-item")).toHaveCount(scenario.visibleKeys.length);
-      for (const key of scenario.visibleKeys) await expect(page.locator(`.nav-item[data-item-key="${key}"]`)).toBeVisible();
+      for (const key of scenario.visibleKeys)
+        await expect(page.locator(`.nav-item[data-item-key="${key}"]`)).toBeVisible();
       if (scenario.visibleKeys.length > 0) {
-        await expect(page.locator(`.nav-item[data-item-key="${scenario.expectedNode}"]`)).toHaveClass(/is-active/);
+        await expect(
+          page.locator(`.nav-item[data-item-key="${scenario.expectedNode}"]`),
+        ).toHaveClass(/is-active/);
       } else {
         // When no filtered destination exists, retain the established first-nonempty fallback.
         await expect(page.locator(".table-info")).toContainText("device");
       }
       await page.reload();
       await waitForBrowse(page);
-      await expect.poll(() => ({ node: new URL(page.url()).searchParams.get("node"), tab: new URL(page.url()).searchParams.get("tab") }))
+      await expect
+        .poll(() => ({
+          node: new URL(page.url()).searchParams.get("node"),
+          tab: new URL(page.url()).searchParams.get("tab"),
+        }))
         .toEqual({ node: scenario.expectedNode, tab: scenario.expectedTab });
       if (scenario.label !== "group search") {
         const name = scenario.label === "item search" ? "item" : "no-results";
-        for (const width of [1920, 1280]) await screenshot(page, `f-hide-empty-${name}-${onlyInteresting ? "differences" : "all"}`, width);
+        for (const width of [1920, 1280])
+          await screenshot(
+            page,
+            `f-hide-empty-${name}-${onlyInteresting ? "differences" : "all"}`,
+            width,
+          );
       }
     });
   }

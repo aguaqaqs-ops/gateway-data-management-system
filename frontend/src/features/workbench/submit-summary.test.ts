@@ -14,18 +14,12 @@ const history = {
 
 describe("submit summary display names (M7)", () => {
   it("resolves the head baseline with its kind label", () => {
-    expect(baselineDisplayName(history, "fe2a-history-ref-1")).toBe(
-      "当前基线（归档基线 1）",
-    );
+    expect(baselineDisplayName(history, "fe2a-history-ref-1")).toBe("当前基线（归档基线 1）");
   });
 
   it("resolves a submission by creation order", () => {
-    expect(
-      submissionDisplayName(history, "submission", "fe2a-history-ref-2"),
-    ).toBe("提交 2");
-    expect(
-      submissionDisplayName(history, "submission", "fe2a-history-ref-old"),
-    ).toBe("提交 1");
+    expect(submissionDisplayName(history, "submission", "fe2a-history-ref-2")).toBe("提交 2");
+    expect(submissionDisplayName(history, "submission", "fe2a-history-ref-old")).toBe("提交 1");
   });
 
   it("describes the dialog summary with display names", () => {
@@ -116,5 +110,4 @@ describe("submit summary display names (M7)", () => {
     expect(baselineDisplayName(customHistory, "fe2a-history-ref-b")).toBe("归档基线 2");
     expect(baselineDisplayName(customHistory, "fe2a-history-ref-0")).toBe("初始基线");
   });
-
 });

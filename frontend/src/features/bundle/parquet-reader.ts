@@ -1,4 +1,10 @@
-import { parquetMetadataAsync, parquetReadObjects, type AsyncBuffer, type FileMetaData, type ParquetRow } from "hyparquet";
+import {
+  parquetMetadataAsync,
+  parquetReadObjects,
+  type AsyncBuffer,
+  type FileMetaData,
+  type ParquetRow,
+} from "hyparquet";
 import { compressors } from "hyparquet-compressors";
 import type { InstalledBundle } from "./local-bundle";
 
@@ -37,7 +43,10 @@ export async function readParquetTable(
  * have verified the bundle closure first; the footer comes from the same
  * verified bytes the row reads use.
  */
-export async function readParquetMetadata(bundle: InstalledBundle, logicalPath: string): Promise<FileMetaData> {
+export async function readParquetMetadata(
+  bundle: InstalledBundle,
+  logicalPath: string,
+): Promise<FileMetaData> {
   const read = async (current: InstalledBundle) => {
     const blob = await current.readArtifact(logicalPath);
     const buffer = await blob.arrayBuffer();
@@ -50,7 +59,11 @@ export async function readParquetMetadata(bundle: InstalledBundle, logicalPath: 
   return bundle.readWithRetry ? bundle.readWithRetry(read) : read(bundle);
 }
 
-export async function readJsonArtifact<T>(bundle: InstalledBundle, logicalPath: string): Promise<T> {
-  const read = async (current: InstalledBundle) => JSON.parse(await (await current.readArtifact(logicalPath)).text()) as T;
+export async function readJsonArtifact<T>(
+  bundle: InstalledBundle,
+  logicalPath: string,
+): Promise<T> {
+  const read = async (current: InstalledBundle) =>
+    JSON.parse(await (await current.readArtifact(logicalPath)).text()) as T;
   return bundle.readWithRetry ? bundle.readWithRetry(read) : read(bundle);
 }

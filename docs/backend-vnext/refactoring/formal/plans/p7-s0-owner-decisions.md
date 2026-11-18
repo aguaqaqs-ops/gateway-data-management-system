@@ -310,3 +310,7 @@ Owner 已确认 `remediation-input-backend.md` 与 `project-review-2026-11.md` �
 | P7-D34 | B′ 上重填真实运行卡。现容器侧无 N 传参（`runtime_config_fixture.py` 读固定 `resource-profile.json`，`kernel_threads` 为 1），且 `--scope full` 走 `_check_s3_ready_resource_guard` 要求 worker profile `kernel_threads == 1`；N2 运行确定须改 harness：加显式 N 传递，把 full 的该处检查改成“等于本次请求的 N”，内存与 envelope 检查不放宽，`t4-w1-w2` 的 N1 守卫和生产默认 N1 保留，按计划 §4.1 先交独审、在专用节点验证后进最终 V。D24 N1/N2 同规则版本、同节点/输入/配置，DC33 核收后执行 |
 
 Owner 已确认当前 main 头就是事实上的起点 B′（只读接点核对基于代码头 `320cf32ec09846918adf59c1c15960cc599f7c1d`）；计划定稿提交之后再在其上跑门禁、前端全量和 journeys 对照并打 tag `gw08-midterm-exit`，tag 打出之前不启动实施。暂停前核收点/数字只保留历史意义，复评 §5 的 11 项已落实到计划 §8。源码接点与打 tag 前的临时数字在阶段区 `reference/reassessment-codex-20261117.md`，提交与检查结果追加 `log.md`；本次只做文档修订、本地链接和源码依据核对，不运行测试、lint、构建，不打 tag、不推送。
+
+## 22. 后端默认审核模型调整（Owner 2026-11-18）
+
+后续新建的独立审核角色默认使用 `gpt-6.2-sol` / xhigh，复杂判断可用 max，取代 §20 的审核模型；持续协调者、实施者、风险规则、职责和验收范围不变。同一 finding 仍由原审核者复审，已发生的审核及角色记录按事实保留。

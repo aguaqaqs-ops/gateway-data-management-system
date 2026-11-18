@@ -50,7 +50,7 @@ S1a 文档若尚未合入 main，当前索引准确记录分支/固定提交读�
 | --- | --- | --- |
 | 持续协调者 | `gpt-6.1-terra` | high |
 | 实施者 | `gpt-6.1-sol` | high |
-| 独立审核者 | `gpt-6.1-sol` | xhigh，复杂冲突可 max |
+| 独立审核者 | `gpt-6.2-sol` | xhigh，复杂冲突可 max |
 | 文档验证者 | `gpt-6-luna` | max |
 
 名称可用 `docs_cleanup_a_impl/review/verify`，B/C 同理；支持时 `fork_turns="none"`，每个角色使用独立初始上下文。最多四个活跃角色含协调者，不递归扩队；上一包 finding/交接完成再创建下一组三角色，同包原审持续复审，不换人清空失败记录。模型不可用时说明，不静默替换或假称主模型已切换。

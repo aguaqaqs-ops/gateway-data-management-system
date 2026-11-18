@@ -40,7 +40,7 @@ S6详细设计和kickoff拥有技术目标；本提示词与本会话Owner最新
 | --- | --- | --- |
 | 持续协调者 | `gpt-6.1-terra` | high |
 | 每节实施者 | `gpt-6.1-sol` | high |
-| 每节独立审核者 | `gpt-6.1-sol` | xhigh，复杂事务/证据冲突可max |
+| 每节独立审核者 | `gpt-6.2-sol` | xhigh，复杂事务/证据冲突可max |
 | 每节唯一测试/等待/日志收集者 | `gpt-6-luna` | max |
 
 - 每进入I、II、III都新建该节三个子agent，显式模型/强度，不复用旧节或设计审角色。支持时`fork_turns="none"`，避免复制协调者完整历史；首次任务明确固定候选、Contract、边界、前节handoff、原件入口和未决。

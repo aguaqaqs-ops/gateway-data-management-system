@@ -42,7 +42,7 @@ P6 已正式退出：附注 `p6-exit` 指向 **`b0fc25e881cb4ce39b1cc847bad92b4c
 | 角色 | 模型 | 推理强度 |
 | --- | --- | --- |
 | 持续协调者 | `gpt-6.1-terra` | high |
-| A–G 各包实施者 | `gpt-6.1-sol` | high |
+| A–G 各包实施者 | `gpt-6.2-sol` | high |
 | A–G 各包独立审核者 | `gpt-6.2-sol` | xhigh，复杂事务/证据冲突可 max |
 | A–G 各包唯一测试/等待/日志角色 | `gpt-6-luna` | max |
 

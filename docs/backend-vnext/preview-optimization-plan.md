@@ -73,7 +73,7 @@ P3要先从已允许的成员类别切入，不能把“同hash”当跨reposito
 
 基线 P0/P1 由一个 `gpt-6.1-terra` high 子 agent 独立完成交接核对、必要局部观测、测量和报告，不启动 Sol、Luna 或 Astra，也不安排单独审核。FULL 基线若延后至 P4，仍由 Terra 完成并交接同节点给候选执行者；基本身份、资源、结果和失败留证检查保留。可直接使用的委派说明见[详细方案 §1.3](preview-optimization-implementation-plan.md#13-基线阶段单个-terra-high-子-agent-完成)。
 
-进入实际优化后，采用 Owner 最新确认的分配：`gpt-6.1-terra` high 协调，A/B 两名 `gpt-6.1-sol` high 实施者分别负责 publication 优化和消费者适配，以及各自的测试代码/运行脚本。既有门禁和最小脚本在两节点执行测试，不设置专职测试 agent。`gpt-6-luna` medium 仅按需核对证据清单；确定性结果已足够时不启用。失败归因、测试范围及重跑由 Terra 判断，不交脚本或 Luna 自行决定。
+进入实际优化后，采用 Owner 最新确认的分配：`gpt-6.1-terra` high 协调，A/B 两名 `gpt-6.2-sol` high 实施者分别负责 publication 优化和消费者适配，以及各自的测试代码/运行脚本。既有门禁和最小脚本在两节点执行测试，不设置专职测试 agent。`gpt-6-luna` medium 仅按需核对证据清单；确定性结果已足够时不启用。失败归因、测试范围及重跑由 Terra 判断，不交脚本或 Luna 自行决定。
 
 `gpt-6-astra` high 默认在最终代码、测量和必要验证结果齐备后，以新上下文集中分析与独审；实际 A/B 类边界仍按仓库规则提前逐包独审。finding 原作者修复、原审复核，不为日常命令或每个计时样本另建审核轮次。
 
